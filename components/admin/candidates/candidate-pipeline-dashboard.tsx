@@ -1,6 +1,7 @@
 "use client";
 
 import type { Key } from "@heroui/react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -82,6 +83,7 @@ function SortIcon({ className }: { className?: string }) {
 }
 
 export function CandidatePipelineDashboard() {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [statusKey, setStatusKey] = useState<Key | null>("all");
@@ -463,6 +465,14 @@ export function CandidatePipelineDashboard() {
                 <Drawer.Footer className="flex flex-wrap gap-2">
                   <Button slot="close" variant="secondary">
                     Close
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onPress={() => {
+                      router.push(`/admin/candidates/${activeRow.id}/review`);
+                    }}
+                  >
+                    Review scanned CV
                   </Button>
                   <Button variant="primary">Move stage</Button>
                 </Drawer.Footer>
