@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart Hire - JD Management Dashboard</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "tertiary": "#002a05",
+              "secondary": "#006494",
+              "surface-container-high": "#e6e8ea",
+              "on-surface": "#191c1e",
+              "background": "#f7f9fb",
+              "inverse-on-surface": "#eff1f3",
+              "inverse-surface": "#2d3133",
+              "surface-variant": "#e0e3e5",
+              "on-primary-container": "#87a5ca",
+              "on-surface-variant": "#43474d",
+              "secondary-fixed-dim": "#8ecdff",
+              "tertiary-container": "#00430d",
+              "on-secondary-fixed": "#001e30",
+              "on-error": "#ffffff",
+              "outline": "#73777e",
+              "inverse-primary": "#abc9ef",
+              "secondary-fixed": "#cbe6ff",
+              "on-error-container": "#93000a",
+              "error-container": "#ffdad6",
+              "surface-tint": "#436182",
+              "surface": "#f7f9fb",
+              "on-tertiary-fixed": "#002204",
+              "on-primary-fixed": "#001d35",
+              "on-background": "#191c1e",
+              "on-secondary-container": "#00547d",
+              "surface-dim": "#d8dadc",
+              "primary-container": "#1b3b5a",
+              "on-primary": "#ffffff",
+              "on-tertiary": "#ffffff",
+              "on-secondary": "#ffffff",
+              "tertiary-fixed-dim": "#88d982",
+              "on-tertiary-fixed-variant": "#005312",
+              "surface-container": "#eceef0",
+              "on-secondary-fixed-variant": "#004b71",
+              "tertiary-fixed": "#a3f69c",
+              "outline-variant": "#c3c6ce",
+              "surface-container-highest": "#e0e3e5",
+              "secondary-container": "#83c8fd",
+              "primary-fixed": "#d1e4ff",
+              "surface-container-low": "#f2f4f6",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary-container": "#64b462",
+              "primary": "#1b3b5a",
+              "surface-bright": "#f7f9fb",
+              "on-primary-fixed-variant": "#2a4968",
+              "error": "#ba1a1a",
+              "primary-fixed-dim": "#abc9ef"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      body {
+        font-family: 'Inter', sans-serif;
+      }
+      h1, h2, h3 {
+        font-family: 'Manrope', sans-serif;
+      }
+      .signature-cta {
+        background: linear-gradient(135deg, #1b3b5a 0%, #2a4968 100%);
+      }
+      .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(4px);
+      }
+    
+      .material-icons {
+        font-size: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+        width: 24px;
+        height: 24px;
+      }
+    </style>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/></head>
+<body class="bg-surface text-on-background min-h-screen">
+<!-- SideNavBar Shell -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-slate-50 dark:bg-slate-950 flex flex-col py-8 z-40 border-r-0 bg-slate-100 dark:bg-slate-900 duration-300 ease-in-out">
+<div class="px-6 mb-10 flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center text-white">
+<span class="material-icons" data-icon="description">description</span>
+</div>
+<div>
+<h2 class="text-sm font-headline font-bold text-blue-900">Recruitment</h2>
+<p class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Executive Suite</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-6 py-3 text-slate-500 dark:text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 dark:hover:text-blue-300 hover:pl-7 transition-all group" href="#">
+<span class="mr-3 material-icons" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center px-6 py-3 text-blue-900 dark:text-blue-400 border-r-4 border-blue-900 dark:border-blue-400 bg-slate-200/50 dark:bg-slate-800/50 font-['Inter'] text-sm font-semibold" href="#">
+<span class="mr-3 material-icons" data-icon="description">description</span>
+<span>JDs</span>
+</a>
+<a class="flex items-center px-6 py-3 text-slate-500 dark:text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 dark:hover:text-blue-300 hover:pl-7 transition-all" href="#">
+<span class="mr-3 material-icons" data-icon="group">group</span>
+<span>Candidates</span>
+</a>
+<a class="flex items-center px-6 py-3 text-slate-500 dark:text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 dark:hover:text-blue-300 hover:pl-7 transition-all" href="#">
+<span class="mr-3 material-icons" data-icon="event_available">event_available</span>
+<span>Interviews</span>
+</a>
+<a class="flex items-center px-6 py-3 text-slate-500 dark:text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 dark:hover:text-blue-300 hover:pl-7 transition-all" href="#">
+<span class="mr-3 material-icons" data-icon="analytics">analytics</span>
+<span>Analytics</span>
+</a>
+</nav>
+<div class="mt-auto px-6 space-y-1">
+<a class="flex items-center py-3 text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 transition-all" href="#">
+<span class="mr-3 material-icons" data-icon="help">help</span>
+<span>Help</span>
+</a>
+<a class="flex items-center py-3 text-slate-500 font-['Inter'] text-sm font-semibold hover:text-blue-700 transition-all" href="#">
+<span class="mr-3 material-icons" data-icon="logout">logout</span>
+<span>Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar Shell -->
+<header class="w-full sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm dark:shadow-none flex justify-between items-center px-8 py-3">
+<div class="flex items-center gap-8">
+<span class="text-xl font-extrabold text-blue-900 dark:text-blue-400 tracking-tighter">Smart Hire</span>
+<div class="relative">
+<span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 material-icons">
+<span class="text-lg material-icons" data-icon="search">search</span>
+</span>
+<input class="bg-surface-container-low border-none rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-secondary w-80 transition-all" placeholder="Search JDs by title, campaign, or status..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:bg-slate-50 rounded-full transition-colors active:scale-95 duration-150">
+<span class="material-icons" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-slate-50 rounded-full transition-colors active:scale-95 duration-150">
+<span class="material-icons" data-icon="settings">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-slate-200 overflow-hidden ml-2 border border-outline-variant/20">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyH1qZpvDVuFnbDicQ0WEvyqC3WqyFpnVOQMK99MVxK8IURBhnODI7bX8RY-JHje0LIjM6uBWbGn5tI07zvCyMH9fpkAa8jzI26eaiXjBakFA6VAQcU-pLrqyhxN-hImE0UV2hpgjUc4gepOfsXulEA9X1d7YAatc69lRcXAp6Gw662QRYrBSiWOIooeDsG1fOAvAF0vfuMuOmaYuT3YHBjXabdq7hUD2e6y5cnAkAmeo4Gp8F3WO0UMCsCYSz_nLE3YkHBUxe0A"/>
+</div>
+</div>
+</header>
+<!-- Page Canvas -->
+<div class="p-10 max-w-7xl mx-auto space-y-8">
+<!-- Header Section -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h1 class="text-4xl font-headline font-extrabold text-on-surface tracking-tight">Job Descriptions</h1>
+<p class="text-on-surface-variant font-body mt-2">Manage and monitor high-impact recruitment assets across campaigns.</p>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2.5 rounded-lg font-headline font-bold text-sm text-on-surface surface-container-high hover:bg-surface-variant transition-all">
+                    View Templates
+                </button>
+<button class="signature-cta px-6 py-2.5 rounded-lg font-headline font-bold text-sm text-white shadow-lg active:scale-95 transition-all flex items-center gap-2">
+<span class="text-lg material-icons" data-icon="add">add</span>
+                    New Definition
+                </button>
+</div>
+</section>
+<!-- Main Dashboard Table -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 overflow-hidden shadow-sm">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low border-b border-outline-variant/20">
+<tr>
+<th class="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Job Title</th>
+<th class="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Chapter</th>
+<th class="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Campaign</th>
+<th class="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Status</th>
+<th class="px-6 py-4 text-xs font-bold uppercase tracking-widest text-on-surface-variant text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<!-- Row 1 -->
+<tr class="hover:bg-slate-50 cursor-pointer transition-colors group" onclick="document.getElementById('jd-detail-modal').classList.remove('hidden')">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-secondary transition-colors">Principal Product Designer</span>
+<span class="text-[10px] text-outline font-medium uppercase tracking-tighter">v2.4</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">Design</span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface-variant">Q4 Global Expansion</span>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-tertiary-container text-on-tertiary-container">
+                                    Active
+                                </span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-outline hover:text-primary p-1">
+<span class="material-icons" data-icon="visibility">visibility</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-slate-50 cursor-pointer transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-secondary transition-colors">Senior React Architect</span>
+<span class="text-[10px] text-outline font-medium uppercase tracking-tighter">v1.2</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">Tech</span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface-variant">Infrastructure Revamp</span>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-surface-container-high text-on-surface-variant">
+                                    Draft
+                                </span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-outline hover:text-primary p-1">
+<span class="material-icons" data-icon="visibility">visibility</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-slate-50 cursor-pointer transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-secondary transition-colors">Marketing Lead (EMEA)</span>
+<span class="text-[10px] text-outline font-medium uppercase tracking-tighter">v3.1</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">Marketing</span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface-variant">Europe Growth 2024</span>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-error-container text-on-error-container">
+                                    Closed
+                                </span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-outline hover:text-primary p-1">
+<span class="material-icons" data-icon="visibility">visibility</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-slate-50 cursor-pointer transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="font-headline font-bold text-primary group-hover:text-secondary transition-colors">Senior Product Manager</span>
+<span class="text-[10px] text-outline font-medium uppercase tracking-tighter">v2.1</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">Product</span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface-variant">Q4 Global Expansion</span>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-tertiary-container text-on-tertiary-container">
+                                    Active
+                                </span>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-outline hover:text-primary p-1">
+<span class="material-icons" data-icon="visibility">visibility</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="px-6 py-4 bg-surface-container-low/30 border-t border-outline-variant/10 flex items-center justify-between">
+<span class="text-xs font-medium text-on-surface-variant">Showing 1 to 4 of 24 records</span>
+<div class="flex gap-2">
+<button class="w-8 h-8 rounded border border-outline-variant/20 flex items-center justify-center hover:bg-white text-on-surface-variant transition-colors">
+<span class="text-sm material-icons" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded bg-primary text-white text-xs font-bold">1</button>
+<button class="w-8 h-8 rounded border border-outline-variant/20 flex items-center justify-center hover:bg-white text-on-surface-variant transition-colors text-xs font-bold">2</button>
+<button class="w-8 h-8 rounded border border-outline-variant/20 flex items-center justify-center hover:bg-white text-on-surface-variant transition-colors text-xs font-bold">3</button>
+<button class="w-8 h-8 rounded border border-outline-variant/20 flex items-center justify-center hover:bg-white text-on-surface-variant transition-colors">
+<span class="text-sm material-icons" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Stats Grid -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Time to Publish</p>
+<p class="text-2xl font-headline font-extrabold text-primary">1.4 Days</p>
+<div class="mt-3 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
+<div class="bg-tertiary-fixed h-full" style="width: 75%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Active Variants</p>
+<p class="text-2xl font-headline font-extrabold text-primary">12</p>
+<div class="mt-3 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 40%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Approval Rate</p>
+<p class="text-2xl font-headline font-extrabold text-primary">92%</p>
+<div class="mt-3 w-full bg-surface-container-high h-1 rounded-full overflow-hidden">
+<div class="bg-tertiary-fixed h-full" style="width: 92%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 overflow-hidden relative">
+<img alt="minimal office architecture" class="absolute inset-0 w-full h-full object-cover opacity-10" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBvBg85V3-GTLejdMLNCo09YlC9HjpeU5mNYE0NoXShIuRPxbfwz3w7AYWGgtE2nAZZCL6C456WHYhu6BUNEbtajaNGPfBFjRGSPBXutQMm1nTw422tfJvDurkji1UCGSjQ3Pfh8bt03VVD-WVD1RGxiJCj8tTfLkIzCPqUSD6G3aW6zuhoj4_Fo_JeWsd7oRkbBmWh3WSWLQmTsju7DVq4upJBe6RAwHsl04EQAThjsMZqOcvNthH53qcWQMCLaYzFqg8NimVtew"/>
+<div class="relative z-10">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Archived JDs</p>
+<p class="text-2xl font-headline font-extrabold text-primary">184</p>
+<p class="text-[10px] text-on-surface-variant mt-2">Historical data intact</p>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Detail Popup (Modal) -->
+<div class="fixed inset-0 z-[60] flex items-center justify-center p-4 modal-backdrop hidden" id="jd-detail-modal">
+<div class="bg-surface-container-lowest w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+<!-- Modal Header -->
+<div class="px-8 py-6 border-b border-outline-variant/10 flex justify-between items-start">
+<div>
+<div class="flex items-center gap-3 mb-1">
+<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-tertiary-container text-on-tertiary-container uppercase tracking-wider">Active</span>
+<h2 class="text-2xl font-headline font-extrabold text-primary leading-tight">Principal Product Designer</h2>
+</div>
+<div class="flex items-center gap-4 text-xs font-medium text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="text-sm material-icons" data-icon="category">category</span> Design</span>
+<span class="flex items-center gap-1"><span class="text-sm material-icons" data-icon="campaign">campaign</span> Q4 Global Expansion</span>
+</div>
+</div>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors text-on-surface-variant" onclick="document.getElementById('jd-detail-modal').classList.add('hidden')">
+<span class="material-icons" data-icon="close">close</span>
+</button>
+</div>
+<!-- Modal Content -->
+<div class="flex-1 overflow-y-auto p-8 space-y-10">
+<!-- JD Content -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-4 flex items-center gap-2">
+<span class="text-sm material-icons" data-icon="notes">notes</span> Job Description
+                </h3>
+<div class="prose prose-sm max-w-none text-on-surface leading-relaxed">
+<p class="mb-4">We are looking for a visionary Principal Product Designer to lead our core recruitment platform transformation. You will be responsible for defining the user experience across our entire suite of professional hiring tools.</p>
+<p class="font-bold mb-2">Key Responsibilities:</p>
+<ul class="list-disc pl-5 space-y-1 mb-4">
+<li>Drive the strategic vision for our design system.</li>
+<li>Collaborate with cross-functional leads in Tech and Product.</li>
+<li>Mentor senior designers and foster a culture of excellence.</li>
+<li>Oversee the end-to-end design process for critical high-scale features.</li>
+</ul>
+<p>Requirements: 10+ years of experience in product design, expertise in Figma, and a strong portfolio of shipped enterprise software.</p>
+</div>
+</section>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+<!-- Version History -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-4 flex items-center gap-2">
+<span class="text-sm material-icons" data-icon="history">history</span> Version History
+                    </h3>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-primary">v2.4 (Current)</span>
+<span class="text-[10px] text-outline">Oct 12, 2023 • by Sarah Jenkins</span>
+</div>
+<span class="text-secondary text-sm material-icons" data-icon="check_circle">check_circle</span>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/5">
+<div class="flex flex-col">
+<span class="text-sm font-medium text-on-surface">v2.3</span>
+<span class="text-[10px] text-outline">Sep 28, 2023 • by Sarah Jenkins</span>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/5">
+<div class="flex flex-col">
+<span class="text-sm font-medium text-on-surface">v1.0</span>
+<span class="text-[10px] text-outline">Aug 15, 2023 • by Alex Rivera</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Associated Candidates -->
+<section>
+<h3 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-4 flex items-center gap-2">
+<span class="text-sm material-icons" data-icon="groups">groups</span> Candidates (12)
+                    </h3>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-bold text-xs">EK</div>
+<span class="text-sm font-semibold text-on-surface">Elena Kostic</span>
+</div>
+<span class="text-[10px] font-bold text-secondary uppercase px-2 py-0.5 bg-secondary/10 rounded">Interviewing</span>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs">JM</div>
+<span class="text-sm font-semibold text-on-surface">James Miller</span>
+</div>
+<span class="text-[10px] font-bold text-outline uppercase px-2 py-0.5 bg-slate-100 rounded">Screening</span>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/5">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-tertiary-fixed-dim flex items-center justify-center text-on-tertiary-fixed font-bold text-xs">LW</div>
+<span class="text-sm font-semibold text-on-surface">Lisa Wong</span>
+</div>
+<span class="text-[10px] font-bold text-tertiary uppercase px-2 py-0.5 bg-tertiary-fixed/30 rounded">Offered</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+<!-- Modal Footer Actions -->
+<div class="px-8 py-6 bg-surface-container-low border-t border-outline-variant/10 flex justify-end gap-3">
+<button class="px-6 py-2.5 rounded-lg font-headline font-bold text-sm text-on-surface-variant hover:bg-surface-container-high transition-all" onclick="document.getElementById('jd-detail-modal').classList.add('hidden')">
+                Close
+            </button>
+<button class="signature-cta px-8 py-2.5 rounded-lg font-headline font-bold text-sm text-white shadow-md active:scale-95 transition-all flex items-center gap-2">
+<span class="text-lg material-icons" data-icon="edit">edit</span>
+                Edit JD
+            </button>
+</div>
+</div>
+</div>
+<script>
+    // Simple mock logic for search filter visual response
+    document.querySelector('input[type="text"]').addEventListener('input', function(e) {
+        const rows = document.querySelectorAll('tbody tr');
+        const term = e.target.value.toLowerCase();
+        
+        rows.forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(term) ? '' : 'none';
+        });
+    });
+</script>
+</body></html>

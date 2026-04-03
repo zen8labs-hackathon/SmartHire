@@ -16,8 +16,8 @@ export default async function Home() {
         <Card.Header>
           <Card.Title>Smart Hire</Card.Title>
           <Card.Description>
-            Next.js, Supabase, Tailwind CSS v4, and HeroUI — email sign-in with
-            an optional admin panel to add users.
+            Next.js, Supabase, Tailwind CSS v4, and HeroUI — sign in with
+            admin-provisioned accounts. No public sign-up.
           </Card.Description>
         </Card.Header>
         <Card.Content>
