@@ -54,6 +54,14 @@ export default async function DashboardPage() {
                     Job descriptions — JD management
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    href="/admin/candidates"
+                    className="font-medium text-accent underline"
+                  >
+                    Candidates — talent pool
+                  </Link>
+                </li>
               </ul>
             </div>
           ) : null}

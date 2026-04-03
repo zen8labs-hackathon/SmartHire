@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The Intelligent Curator - New Definition</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#e0e3e5",
+                        "on-surface": "#191c1e",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#00547d",
+                        "error-container": "#ffdad6",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#d8dadc",
+                        "secondary-fixed-dim": "#8ecdff",
+                        "on-tertiary-fixed": "#002204",
+                        "error": "#ba1a1a",
+                        "surface-container-high": "#e6e8ea",
+                        "on-surface-variant": "#43474d",
+                        "on-tertiary-container": "#64b462",
+                        "on-primary-fixed-variant": "#2a4968",
+                        "surface-container-low": "#f2f4f6",
+                        "primary": "#002542",
+                        "on-secondary-fixed": "#001e30",
+                        "on-background": "#191c1e",
+                        "surface-tint": "#436182",
+                        "on-error": "#ffffff",
+                        "surface-bright": "#f7f9fb",
+                        "surface-container-lowest": "#ffffff",
+                        "surface": "#f7f9fb",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#88d982",
+                        "inverse-primary": "#abc9ef",
+                        "secondary-container": "#83c8fd",
+                        "outline-variant": "#c3c6ce",
+                        "on-tertiary": "#ffffff",
+                        "on-tertiary-fixed-variant": "#005312",
+                        "on-secondary-fixed-variant": "#004b71",
+                        "tertiary": "#002a05",
+                        "primary-fixed-dim": "#abc9ef",
+                        "secondary": "#006494",
+                        "on-primary-fixed": "#001d35",
+                        "primary-fixed": "#d1e4ff",
+                        "on-primary-container": "#87a5ca",
+                        "outline": "#73777e",
+                        "tertiary-fixed": "#a3f69c",
+                        "inverse-surface": "#2d3133",
+                        "secondary-fixed": "#cbe6ff",
+                        "inverse-on-surface": "#eff1f3",
+                        "tertiary-container": "#00430d",
+                        "surface-container": "#eceef0",
+                        "primary-container": "#1b3b5a",
+                        "surface-container-highest": "#e0e3e5",
+                        "background": "#f7f9fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .signature-gradient {
+            background: linear-gradient(135deg, #002542 0%, #1b3b5a 100%);
+        }
+        .glass-header {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-bottom: 2px solid #006494 !important;
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface overflow-hidden">
+<!-- Shared SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col p-4 bg-slate-100 dark:bg-slate-900 border-none z-50">
+<div class="mb-8 px-2">
+<h1 class="text-xl font-bold text-blue-950 dark:text-white font-headline">Curator Pro</h1>
+<p class="text-xs text-slate-500 font-medium">Executive Suite</p>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span>Candidates</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-blue-900 dark:text-blue-100 font-bold bg-white dark:bg-slate-800 rounded-lg transition-colors cursor-pointer duration-200 font-manrope text-sm">
+<span class="material-symbols-outlined" data-icon="work">work</span>
+<span>Jobs</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span>Interviews</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span>Analytics</span>
+</div>
+</nav>
+<button class="mt-4 signature-gradient text-white py-3 px-4 rounded-lg font-headline font-bold flex items-center justify-center gap-2 mb-8">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+            Create New Job
+        </button>
+<div class="space-y-1 pt-4 border-t border-slate-200 dark:border-slate-800">
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer duration-200 font-manrope text-sm font-medium">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Support</span>
+</div>
+</div>
+</aside>
+<!-- Shared TopAppBar -->
+<header class="fixed top-0 right-0 left-64 h-16 z-40 flex items-center justify-between px-8 w-full glass-header shadow-sm dark:shadow-none">
+<div class="flex items-center gap-4">
+<span class="text-2xl font-extrabold text-blue-950 dark:text-white font-headline">The Intelligent Curator</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full py-1.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-secondary/20 transition-all" placeholder="Search executive talent..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-outline">
+<span class="material-symbols-outlined hover:text-primary cursor-pointer transition-colors" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined hover:text-primary cursor-pointer transition-colors" data-icon="chat_bubble">chat_bubble</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden border border-outline-variant/20">
+<img alt="Executive Admin" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCG0eT4NTyR0ufDbV9OSuai3ajX8qWQlO-VtTb3C_uemfodPAqniYJar4O8pnyFxVPRpo4rHyg5CHbJ239MFUbVVOG0JPENbefTN4GR_r7iccUtpAD6PDrZJcGzqahx9Hpr5FfGOD2ACqA8gjMtw7VYs8tdpmvobi0FIUkSEI2Orqmy1bG1x2UFXSQzR75Wr3Q_2I7dgBtS7x6olp49w5K8UUMbPmt4IFIqrM6G7Fcu4e28SaheQEV6P2KB_qMv0AncTvlxj5CUcg"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Canvas Context -->
+<main class="ml-64 mt-16 p-8 min-h-[calc(100vh-64px)] bg-surface">
+<div class="max-w-5xl mx-auto">
+<header class="mb-10">
+<h2 class="text-4xl font-extrabold text-on-surface font-headline tracking-tight">Active Recruitment Pipeline</h2>
+<p class="text-on-surface-variant mt-2 text-lg">Curating the next generation of leadership.</p>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<!-- Decorative Mock Content -->
+<div class="md:col-span-2 space-y-8">
+<div class="bg-surface-container-low p-6 rounded-xl space-y-4">
+<div class="flex justify-between items-center">
+<span class="text-xs font-bold text-secondary uppercase tracking-widest">Active Campaign</span>
+<span class="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full text-xs font-bold">In Progress</span>
+</div>
+<h3 class="text-2xl font-bold font-headline">Chief Design Officer</h3>
+<p class="text-on-surface-variant text-sm leading-relaxed">Strategic leadership role for the Global Experience Studio. Focus on AI-driven design systems and editorial excellence.</p>
+<div class="flex gap-4 pt-4">
+<div class="flex -space-x-2">
+<img class="w-8 h-8 rounded-full border-2 border-surface" data-alt="Candidate profile headshot of a professional looking individual" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDVVOpC-_2p4uUQcnwCvp4dEqXp3zF5Cb1FQmO4z2ao07QAFzx1tDijZpNykWFL2CNuJldBEARf5dLfGaxPvlEo3qUoitoh-ACFedOpykR3cu1bj_L7so9GOK_tY2MwDZndkBMSQQw2xJAaZ8JiIOlzczzqOjpaVycDRy30HPoXda1rWjbq5-zEiSCsISXODvlvxMJLJRWkh_jWpAyVjdz1Q5_-_w9KsTEOSa9wTQUviV3-y_WUzp_2Sr7UetpXr5nnYZ59vvD4WA"/>
+<img class="w-8 h-8 rounded-full border-2 border-surface" data-alt="Candidate profile headshot of a professional looking individual" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCWDALOh-EorUXh1KVvdCLcLpD3OzzEWNmXrQCMac2DbS9NPoycKPSrG-13iUroclozB4v8SQuK6vV3_JxRsmjvOTfzkLFTrjk8K6p5bxc_btnKomfPhmlZ23D42xlY7bc85_DmytNUpshB5SFk89tk5rnIulEM9v8QM-Xt7GseciQS1MZGMaES3alPUe07L8n9lnc5vpbtWYFs_vTHFn7IF7zn5DfuwPXDk8OHukDyhVOmqgBdMUrxHx8Y9w5Fu_eobhyS8ovcA"/>
+<img class="w-8 h-8 rounded-full border-2 border-surface" data-alt="Candidate profile headshot of a professional looking individual" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAU1S5Ertm5LROEO6YGbkjowMGtFhgzgHcgDfGcpcHJe661W2BDFoZryhbuBZ8T4ZXnUJMJ_0rcxtPvOytTqvBAk291WtSl4NdD-hDCedGQ-HgA4YnKJvVmfyZtv5zqYtUFozYfiwq-p5szDhWxawJZJ_PGUnRjeNpVA21mT00ngYk4I8HqeFueSeu4ghuCkwSy5rlLaGcP7Smkdo1A4QMbkesOr06OdOTHQA6BzLHcB7C75ykvJ_GEUaujJ5veH5ytOp_FTOTQ1Q"/>
+</div>
+<span class="text-xs self-center font-medium text-outline">12 Candidates Applied</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
+<h4 class="font-headline font-bold mb-4">Quick Stats</h4>
+<div class="space-y-4">
+<div class="flex justify-between items-center border-b border-outline-variant/20 pb-2">
+<span class="text-sm text-on-surface-variant">Time to Hire</span>
+<span class="font-bold">14 Days</span>
+</div>
+<div class="flex justify-between items-center border-b border-outline-variant/20 pb-2">
+<span class="text-sm text-on-surface-variant">Quality of Hire</span>
+<span class="text-on-tertiary-container font-bold">98%</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Hybrid Definition Modal Overlay -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center bg-primary/20 backdrop-blur-sm">
+<div class="w-[720px] max-h-[921px] bg-surface-container-lowest rounded-xl shadow-2xl overflow-hidden flex flex-col">
+<!-- Modal Header -->
+<div class="p-6 border-b border-outline-variant/20 flex items-center justify-between bg-surface-bright">
+<div class="flex items-center gap-4">
+<h3 class="text-xl font-extrabold font-headline text-primary">Create New Definition</h3>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-high hover:bg-surface-container-highest transition-colors text-sm font-semibold text-primary">
+<span class="material-symbols-outlined text-sm" data-icon="description">description</span>
+                        View Templates
+                    </button>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1 text-[10px] font-bold text-outline uppercase tracking-tighter bg-surface-container-low px-2 py-1 rounded border border-outline-variant/10">
+<span class="material-symbols-outlined text-[10px]" data-icon="history">history</span>
+                        Version Control: v1.0
+                    </div>
+<button class="text-outline hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Modal Body (Scrollable) -->
+<div class="flex-1 overflow-y-auto p-8 space-y-8">
+<!-- 1. Upload JD Section -->
+<div class="group relative bg-surface-container-low border-2 border-dashed border-outline-variant/40 rounded-xl p-10 flex flex-col items-center justify-center transition-all hover:border-secondary hover:bg-secondary/5 cursor-pointer">
+<div class="w-12 h-12 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container mb-4">
+<span class="material-symbols-outlined text-2xl" data-icon="upload_file">upload_file</span>
+</div>
+<p class="font-headline font-bold text-on-surface">Drag &amp; Drop JD Document</p>
+<p class="text-xs text-on-surface-variant mt-1">PDF, DOCX or TXT files supported. Max 10MB.</p>
+<button class="mt-4 px-4 py-2 bg-white text-secondary font-bold text-sm rounded-lg border border-secondary/20 shadow-sm">Browse Files</button>
+</div>
+<!-- 2. Manual Fields with AI Badges -->
+<div class="grid grid-cols-2 gap-8">
+<!-- Job Title -->
+<div class="relative group">
+<label class="block text-[11px] font-bold text-outline uppercase tracking-widest mb-1.5">Job Title</label>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-[10px] font-extrabold bg-secondary text-white px-1.5 py-0.5 rounded flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]" data-icon="bolt" style="font-variation-settings: 'FILL' 1;">bolt</span>
+                                AI
+                            </span>
+</div>
+<input class="w-full bg-surface-container-low border-none border-b-2 border-outline-variant/30 py-2 font-headline font-semibold text-on-surface focus:ring-0" type="text" value="Executive Director of Product"/>
+</div>
+<!-- Chapter -->
+<div class="relative group">
+<label class="block text-[11px] font-bold text-outline uppercase tracking-widest mb-1.5">Chapter</label>
+<div class="flex items-center gap-2 mb-1 opacity-0">
+<span class="text-[10px] font-extrabold bg-secondary text-white px-1.5 py-0.5 rounded">AI</span>
+</div>
+<select class="w-full bg-surface-container-low border-none border-b-2 border-outline-variant/30 py-2 font-headline font-semibold text-on-surface focus:ring-0 cursor-pointer">
+<option>Product Management</option>
+<option>Engineering</option>
+<option>Design</option>
+<option>Marketing</option>
+</select>
+</div>
+<!-- Campaign -->
+<div class="col-span-2 relative group">
+<label class="block text-[11px] font-bold text-outline uppercase tracking-widest mb-1.5">Campaign</label>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-[10px] font-extrabold bg-secondary text-white px-1.5 py-0.5 rounded flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]" data-icon="bolt" style="font-variation-settings: 'FILL' 1;">bolt</span>
+                                AI
+                            </span>
+</div>
+<input class="w-full bg-surface-container-low border-none border-b-2 border-outline-variant/30 py-2 font-headline font-semibold text-on-surface focus:ring-0" type="text" value="Q4 Global Expansion Strategy"/>
+</div>
+</div>
+<!-- 3. Rich Text Editor for JD Content -->
+<div class="space-y-3">
+<div class="flex justify-between items-center">
+<label class="block text-[11px] font-bold text-outline uppercase tracking-widest">JD Content</label>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-extrabold bg-secondary text-white px-1.5 py-0.5 rounded flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]" data-icon="bolt" style="font-variation-settings: 'FILL' 1;">bolt</span>
+                                AI Suggestion
+                            </span>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-xl border border-outline-variant/20 overflow-hidden">
+<!-- Editor Toolbar -->
+<div class="flex items-center gap-4 px-4 py-2 bg-surface-container-high border-b border-outline-variant/20">
+<button class="text-outline hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="format_bold">format_bold</span></button>
+<button class="text-outline hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="format_italic">format_italic</span></button>
+<button class="text-outline hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="format_list_bulleted">format_list_bulleted</span></button>
+<div class="w-px h-4 bg-outline-variant/40"></div>
+<button class="text-outline hover:text-primary"><span class="material-symbols-outlined text-lg" data-icon="link">link</span></button>
+<button class="text-outline hover:text-primary ml-auto flex items-center gap-1 text-[10px] font-bold uppercase"><span class="material-symbols-outlined text-sm" data-icon="auto_fix">auto_fix</span> Refine with AI</button>
+</div>
+<textarea class="w-full bg-transparent border-none p-4 text-sm font-body leading-relaxed text-on-surface-variant focus:ring-0 resize-none" rows="6">As an Executive Director of Product, you will lead the strategic vision for our global digital footprint. You will be responsible for scaling product teams across three continents, fostering a culture of innovation, and aligning product roadmaps with executive business goals...</textarea>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="p-6 border-t border-outline-variant/20 bg-surface-bright flex justify-between items-center">
+<button class="text-on-surface-variant font-bold text-sm hover:text-error transition-colors px-4 py-2">Discard Draft</button>
+<div class="flex gap-4">
+<button class="px-6 py-2.5 rounded-lg border border-outline-variant text-primary font-bold text-sm hover:bg-surface-container-high transition-all">Save Draft</button>
+<button class="signature-gradient text-white px-8 py-2.5 rounded-lg font-headline font-bold text-sm shadow-lg flex items-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+                        Create
+                    </button>
+</div>
+</div>
+</div>
+</div>
+</body></html>

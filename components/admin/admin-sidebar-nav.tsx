@@ -8,6 +8,7 @@ import { cn } from "@heroui/react";
 const items = [
   { href: "/admin", label: "Users" },
   { href: "/admin/jd", label: "Job descriptions" },
+  { href: "/admin/candidates", label: "Candidates" },
 ] as const;
 
 export function AdminSidebarNav() {
