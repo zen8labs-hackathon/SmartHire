@@ -115,7 +115,7 @@ export function JobPipelineSpreadsheet({
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
           <Breadcrumbs className="text-xs text-muted">
-            <Breadcrumbs.Item href="/admin/jd">Job descriptions</Breadcrumbs.Item>
+            <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
             <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
           </Breadcrumbs>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -192,7 +192,7 @@ export function JobPipelineSpreadsheet({
 
       <p className="text-center text-xs text-muted">
         <Link href="/admin/jd" className="text-accent hover:underline">
-          Back to job descriptions
+          Back to jobs list
         </Link>
         <span className="mx-2">·</span>
         <span>Job ID: {jobId}</span>

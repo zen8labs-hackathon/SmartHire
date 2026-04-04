@@ -92,7 +92,7 @@ export type JdEditFormData = {
   level: string;
   /** Number of hires needed — stored as integer, used as numeric string in form */
   headcount: string;
-  /** "Tuyển mới" | "Tuyển thay thế" | free text */
+  /** Typically "New hire" | "Replacement" or legacy Vietnamese values still in DB */
   hire_type: string;
   /** Reporting to (reuses existing column) */
   reporting: string;

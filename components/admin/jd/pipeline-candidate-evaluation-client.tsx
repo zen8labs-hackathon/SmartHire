@@ -334,7 +334,7 @@ export function PipelineCandidateEvaluationClient({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <Breadcrumbs className="text-xs text-muted">
-        <Breadcrumbs.Item href="/admin/jd">Job descriptions</Breadcrumbs.Item>
+        <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
         <Breadcrumbs.Item href={`/admin/jd/${jobDescriptionId}/pipeline`}>
           {jobTitle}
         </Breadcrumbs.Item>

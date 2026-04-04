@@ -247,7 +247,7 @@ export function AddCandidateModal({
   const ingestFile = async (file: File) => {
     if (isCampaignBlocked) {
       window.alert(
-        "Link a job campaign to this job description first (Job descriptions → publish / link opening), then try again.",
+        "Link a job campaign to this job first (Jobs list → publish / link opening), then try again.",
       );
       return;
     }
@@ -395,7 +395,7 @@ export function AddCandidateModal({
                   <p className="mt-1 text-muted">
                     Create or link a job opening to this job description from{" "}
                     <span className="font-medium text-foreground">
-                      Job descriptions
+                      Jobs list
                     </span>{" "}
                     so uploads can be tied to the JD (required for AI match scoring).
                   </p>

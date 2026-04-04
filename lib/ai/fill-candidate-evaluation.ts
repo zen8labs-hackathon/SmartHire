@@ -14,7 +14,7 @@ import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
 import { z } from "zod";
 
 const UNICODE_FONT_ERROR =
-  "Không thể tải font Noto Sans để hiển thị tiếng Việt trong PDF. Đặt NotoSans-Regular.ttf và NotoSans-Bold.ttf trong thư mục assets/fonts/ hoặc đảm bảo server có thể tải font (CDN).";
+  "Could not load Noto Sans for Unicode text in the PDF. Place NotoSans-Regular.ttf and NotoSans-Bold.ttf under assets/fonts/ or ensure the server can load the fonts (e.g. CDN).";
 
 export type { EvaluationSection };
 
@@ -145,15 +145,15 @@ ${params.templateTextSample.slice(0, 8000)}${params.templateTextSample.length > 
 
 ## Required output shape (field names are fixed)
 Fill these keys:
-- thongTinUngVien — "1. Thông Tin Ứng Viên": role, background, logistics; use line breaks between facts (no table).
-- tomTatDanhGia — "2. Tóm Tắt Đánh Giá": short overall summary of the interview.
-- diemManh — "3. Điểm Mạnh".
-- diemCanLuuY — "4. Điểm Cần Lưu Ý".
-- danhGiaNangLuc — "5. Đánh Giá Năng Lực" (technical/soft skills as implied by notes).
+- thongTinUngVien — "1. Candidate information": role, background, logistics; use line breaks between facts (no table).
+- tomTatDanhGia — "2. Assessment summary": short overall summary of the interview.
+- diemManh — "3. Strengths".
+- diemCanLuuY — "4. Areas to watch".
+- danhGiaNangLuc — "5. Competency assessment" (technical/soft skills as implied by notes).
 
 Optional (omit the key or use empty string if not applicable):
-- duAnNoiBat — "6. Dự Án Nổi Bật" only if projects are discussed.
-- ketLuanKhuyenNghi — "7. Kết Luận & Khuyến Nghị" only if a conclusion or hire recommendation is appropriate.
+- duAnNoiBat — "6. Notable projects" only if projects are discussed.
+- ketLuanKhuyenNghi — "7. Conclusion & recommendation" only if a conclusion or hire recommendation is appropriate.
 
 Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
 
@@ -163,7 +163,7 @@ Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
         name: "structured_evaluation",
         schema: structuredEvaluationSchema,
       }),
-      system: `${LANGUAGE_RULE} You output only JSON matching the schema. Section semantics follow the Vietnamese outline described in the prompt.`,
+      system: `${LANGUAGE_RULE} You output only JSON matching the schema. Section semantics follow the outline described in the prompt.`,
       prompt,
       temperature: 0.2,
       maxOutputTokens: 4096,
@@ -252,7 +252,7 @@ function wrapParagraphPreservingNewlines(
 }
 
 /**
- * Standalone evaluation PDF with fixed section headings (Noto Sans — preserves Vietnamese).
+ * Standalone evaluation PDF with fixed section headings (Noto Sans for Unicode).
  */
 async function renderStandaloneEvaluationPdf(params: {
   candidateName: string;
@@ -290,14 +290,14 @@ async function renderStandaloneEvaluationPdf(params: {
     for (const ln of lines) drawLine(ln, size, f, color);
   };
 
-  const titleMain = clean("Đánh giá phỏng vấn");
-  const candLine = clean(`Ứng viên: ${params.candidateName}`);
-  const genDate = new Date().toLocaleDateString("vi-VN", {
+  const titleMain = clean("Interview evaluation");
+  const candLine = clean(`Candidate: ${params.candidateName}`);
+  const genDate = new Date().toLocaleDateString("en-GB", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
-  const dateLine = clean(`Ngày tạo: ${genDate}`);
+  const dateLine = clean(`Generated: ${genDate}`);
 
   drawBlock(wrapLines(titleMain, bold, 16, maxW), 16, bold, rgb(0.07, 0.12, 0.18));
   y -= 4;
