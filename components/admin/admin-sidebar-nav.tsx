@@ -9,6 +9,7 @@ const items = [
   { href: "/admin", label: "Users" },
   { href: "/admin/jd", label: "Job descriptions" },
   { href: "/admin/candidates", label: "Candidates" },
+  { href: "/admin/evaluation-template", label: "Evaluation template" },
 ] as const;
 
 export function AdminSidebarNav() {

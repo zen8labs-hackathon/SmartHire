@@ -76,14 +76,98 @@ const DEFAULT_FORM: JobDescriptionFormData = {
 
 type JdUploadPhase = "idle" | "uploading" | "extracting" | "done" | "error";
 
-function statusChipColor(status: JdStatus): "success" | "warning" | "default" {
+function statusChipColor(
+  status: JdStatus,
+): "success" | "warning" | "default" | "accent" | "danger" {
   switch (status) {
     case "Hiring":
       return "success";
     case "Pending":
       return "warning";
+    case "Done":
+      return "accent";
+    case "Closed":
+      return "danger";
     default:
       return "default";
+  }
+}
+
+/** Border + background tint for JD status dropdown triggers. */
+function jdStatusSelectTriggerClass(status: JdStatus): string {
+  switch (status) {
+    case "Hiring":
+      return "border-success/45 bg-success/10 text-success";
+    case "Pending":
+      return "border-warning/45 bg-warning/10 text-warning";
+    case "Done":
+      return "border-accent/45 bg-accent/10 text-accent";
+    case "Closed":
+      return "border-danger/40 bg-danger/10 text-danger";
+    default:
+      return "border-divider";
+  }
+}
+
+/** Filter chip: selected state (filled). */
+function jdStatusFilterSelectedClass(status: JdStatus): string {
+  switch (status) {
+    case "Hiring":
+      return "border-success/50 bg-success/20 font-medium text-success";
+    case "Pending":
+      return "border-warning/50 bg-warning/20 font-medium text-warning";
+    case "Done":
+      return "border-accent/50 bg-accent/15 font-medium text-accent";
+    case "Closed":
+      return "border-danger/45 bg-danger/15 font-medium text-danger";
+    default:
+      return "";
+  }
+}
+
+/** Filter chip: idle hover hint. */
+function jdStatusFilterIdleClass(status: JdStatus): string {
+  switch (status) {
+    case "Hiring":
+      return "border-transparent hover:border-success/30 hover:bg-success/5";
+    case "Pending":
+      return "border-transparent hover:border-warning/30 hover:bg-warning/5";
+    case "Done":
+      return "border-transparent hover:border-accent/30 hover:bg-accent/5";
+    case "Closed":
+      return "border-transparent hover:border-danger/25 hover:bg-danger/5";
+    default:
+      return "";
+  }
+}
+
+function jdStatusListItemClass(status: JdStatus): string {
+  switch (status) {
+    case "Hiring":
+      return "text-success";
+    case "Pending":
+      return "text-warning";
+    case "Done":
+      return "text-accent";
+    case "Closed":
+      return "text-danger";
+    default:
+      return "";
+  }
+}
+
+function kpiCardAccentClass(kpiId: string): string {
+  switch (kpiId) {
+    case "done":
+      return "border-l-4 border-l-accent pl-3";
+    case "hiring":
+      return "border-l-4 border-l-success pl-3";
+    case "pending":
+      return "border-l-4 border-l-warning pl-3";
+    case "closed":
+      return "border-l-4 border-l-danger pl-3";
+    default:
+      return "border-l-4 border-l-divider pl-3";
   }
 }
 
@@ -955,14 +1039,21 @@ export function JdManagementDashboard() {
                     }}
                   >
                     <Label>JD status</Label>
-                    <Select.Trigger>
+                    <Select.Trigger
+                      className={`border ${jdStatusSelectTriggerClass(form.status)}`}
+                    >
                       <Select.Value />
                       <Select.Indicator />
                     </Select.Trigger>
                     <Select.Popover>
                       <ListBox>
                         {JD_STATUS_OPTIONS.map((s) => (
-                          <ListBox.Item key={s} id={s} textValue={s}>
+                          <ListBox.Item
+                            key={s}
+                            id={s}
+                            textValue={s}
+                            className={jdStatusListItemClass(s)}
+                          >
                             {s}
                             <ListBox.ItemIndicator />
                           </ListBox.Item>
@@ -1145,25 +1236,37 @@ export function JdManagementDashboard() {
         >
           All
         </Button>
-        {JD_STATUS_OPTIONS.map((s) => (
-          <Button
-            key={s}
-            size="sm"
-            variant={statusFilter === s ? "primary" : "secondary"}
-            onPress={() => {
-              setStatusFilter((prev) => (prev === s ? null : s));
-              setPage(1);
-            }}
-          >
-            {s}
-          </Button>
-        ))}
+        {JD_STATUS_OPTIONS.map((s) => {
+          const selected = statusFilter === s;
+          return (
+            <Button
+              key={s}
+              size="sm"
+              variant="secondary"
+              className={
+                selected
+                  ? jdStatusFilterSelectedClass(s)
+                  : jdStatusFilterIdleClass(s)
+              }
+              onPress={() => {
+                setStatusFilter((prev) => (prev === s ? null : s));
+                setPage(1);
+              }}
+            >
+              {s}
+            </Button>
+          );
+        })}
       </div>
 
       {/* ── KPI cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {kpis.map((kpi) => (
-          <Card key={kpi.id} variant="secondary">
+          <Card
+            key={kpi.id}
+            variant="secondary"
+            className={kpiCardAccentClass(kpi.id)}
+          >
             <Card.Header className="gap-1">
               <Card.Title className="text-2xl font-semibold tabular-nums">
                 {loading ? "—" : kpi.value}
@@ -1242,14 +1345,21 @@ export function JdManagementDashboard() {
                                 void updateJdStatus(row.id, key as JdStatus);
                             }}
                           >
-                            <Select.Trigger className="h-9 min-h-9">
+                            <Select.Trigger
+                              className={`h-9 min-h-9 border ${jdStatusSelectTriggerClass(row.status)}`}
+                            >
                               <Select.Value />
                               <Select.Indicator />
                             </Select.Trigger>
                             <Select.Popover>
                               <ListBox>
                                 {JD_STATUS_OPTIONS.map((s) => (
-                                  <ListBox.Item key={s} id={s} textValue={s}>
+                                  <ListBox.Item
+                                    key={s}
+                                    id={s}
+                                    textValue={s}
+                                    className={jdStatusListItemClass(s)}
+                                  >
                                     {s}
                                     <ListBox.ItemIndicator />
                                   </ListBox.Item>
