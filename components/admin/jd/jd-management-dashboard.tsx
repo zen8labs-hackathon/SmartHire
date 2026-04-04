@@ -742,7 +742,7 @@ export function JdManagementDashboard() {
                     value={form.employment_status}
                     onChange={(v) => setField("employment_status", v)}
                   >
-                    <Label>Employment type (from JD)</Label>
+                    <Label>Status</Label>
                     <Input placeholder="e.g. Fulltime, Part-time" />
                   </TextField>
 
@@ -763,7 +763,7 @@ export function JdManagementDashboard() {
                         setField("status", key as JdStatus);
                     }}
                   >
-                    <Label>Recruitment status</Label>
+                    <Label>JD status</Label>
                     <Select.Trigger>
                       <Select.Value />
                       <Select.Indicator />

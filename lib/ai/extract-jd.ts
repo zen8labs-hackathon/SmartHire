@@ -1,3 +1,4 @@
+import "@/lib/ai/pdf-node-polyfill";
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import { createOpenAI } from "@ai-sdk/openai";
