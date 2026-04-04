@@ -27,17 +27,13 @@ import {
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
+import {
+  allowedTargetsFromStatus,
+  isPipelineTransitionAllowed,
+} from "@/lib/candidates/pipeline-allowed-transitions";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
-
-const PIPELINE_STATUS_OPTIONS: CandidateStatus[] = [
-  "New",
-  "Shortlisted",
-  "Interviewing",
-  "Offer",
-  "Failed",
-];
 
 const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All statuses" },
@@ -46,6 +42,8 @@ const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "Interviewing", label: "Interviewing" },
   { id: "Offer", label: "Offer" },
   { id: "Failed", label: "Failed" },
+  { id: "Matched", label: "Matched" },
+  { id: "Rejected", label: "Rejected" },
 ];
 
 type Props = {
@@ -166,14 +164,14 @@ export function JdAppliedCandidatesPipeline({
     let newPool = 0;
     let interviewing = 0;
     let offer = 0;
-    let failed = 0;
+    let matched = 0;
     for (const r of dbRows) {
       if (isNewPoolStatus(r.status)) newPool += 1;
       else if (r.status === "Interviewing") interviewing += 1;
       else if (r.status === "Offer") offer += 1;
-      else if (r.status === "Failed") failed += 1;
+      else if (r.status === "Matched") matched += 1;
     }
-    return { newPool, interviewing, offer, failed };
+    return { newPool, interviewing, offer, matched };
   }, [dbRows]);
 
   const filteredRows = useMemo(() => {
@@ -240,9 +238,7 @@ export function JdAppliedCandidatesPipeline({
   const bulkFailEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every(
-        (r) => isNewPoolStatus(r.status) || r.status === "Interviewing",
-      ),
+      selectedRows.every((r) => isPipelineTransitionAllowed(r.status, "Failed")),
     [selectedRows],
   );
 
@@ -461,9 +457,9 @@ export function JdAppliedCandidatesPipeline({
         <Card variant="secondary">
           <Card.Header className="gap-0.5">
             <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.failed}
+              {statusCounts.matched}
             </Card.Title>
-            <Card.Description>Failed</Card.Description>
+            <Card.Description>Matched</Card.Description>
           </Card.Header>
         </Card>
       </div>
@@ -511,24 +507,33 @@ export function JdAppliedCandidatesPipeline({
               </ListBox>
             </Select.Popover>
           </Select>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted">CV uploaded from</Label>
-              <Input
-                type="date"
-                value={uploadFrom}
-                onChange={(e) => setUploadFrom(e.target.value)}
-                className="w-[11rem]"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted">CV uploaded to</Label>
-              <Input
-                type="date"
-                value={uploadTo}
-                onChange={(e) => setUploadTo(e.target.value)}
-                className="w-[11rem]"
-              />
+          <div className="w-full min-w-0 rounded-xl border border-divider bg-surface-secondary/50 px-4 py-3 lg:w-auto lg:max-w-md">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
+              CV upload date
+            </p>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Label className="text-sm font-medium text-foreground">
+                  From
+                </Label>
+                <Input
+                  type="date"
+                  value={uploadFrom}
+                  onChange={(e) => setUploadFrom(e.target.value)}
+                  className="w-full min-w-0 sm:w-[12rem]"
+                />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Label className="text-sm font-medium text-foreground">
+                  To
+                </Label>
+                <Input
+                  type="date"
+                  value={uploadTo}
+                  onChange={(e) => setUploadTo(e.target.value)}
+                  className="w-full min-w-0 sm:w-[12rem]"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -667,7 +672,7 @@ export function JdAppliedCandidatesPipeline({
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            {PIPELINE_STATUS_OPTIONS.map((s) => (
+                            {allowedTargetsFromStatus(r.status).map((s) => (
                               <ListBox.Item key={s} id={s} textValue={s}>
                                 {s}
                                 <ListBox.ItemIndicator />

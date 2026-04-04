@@ -76,6 +76,8 @@ function asCandidateStatus(s: string): CandidateStatus {
   if (s === "Shortlisted" || s === "Interviewing") return s;
   if (s === "Offer") return "Offer";
   if (s === "Failed") return "Failed";
+  if (s === "Matched") return "Matched";
+  if (s === "Rejected") return "Rejected";
   return "New";
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
 import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
 
 const isoDateTime = z.string().refine(
@@ -16,6 +17,8 @@ const updateSchema = z.object({
     "Interviewing",
     "Offer",
     "Failed",
+    "Matched",
+    "Rejected",
   ]),
   interview_at: z.union([isoDateTime, z.null()]).optional(),
   onboarding_at: z.union([isoDateTime, z.null()]).optional(),
@@ -112,6 +115,14 @@ export async function POST(request: Request) {
     const prev = byId.get(u.id);
     if (!prev) {
       return Response.json({ error: "Candidate not found." }, { status: 404 });
+    }
+    if (!isPipelineTransitionAllowed(prev.status, u.status)) {
+      return Response.json(
+        {
+          error: `Invalid status transition: ${prev.status} → ${u.status}.`,
+        },
+        { status: 400 },
+      );
     }
     const patch = buildCandidatePipelinePatch(
       {

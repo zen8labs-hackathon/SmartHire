@@ -3,6 +3,7 @@ export type JobPipelineStatus =
   | "CV SCREENING"
   | "REJECTED"
   | "OFFER"
+  | "MATCHED"
   | "NEW";
 
 export type JobPipelineCandidateRow = {

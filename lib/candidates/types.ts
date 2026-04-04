@@ -3,7 +3,9 @@ export type CandidateStatus =
   | "Shortlisted"
   | "Interviewing"
   | "Offer"
-  | "Failed";
+  | "Failed"
+  | "Matched"
+  | "Rejected";
 
 export type CandidateRow = {
   id: string;

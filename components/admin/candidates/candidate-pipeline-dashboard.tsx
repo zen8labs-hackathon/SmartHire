@@ -45,6 +45,8 @@ const STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "Interviewing", label: "Interviewing" },
   { id: "Offer", label: "Offer" },
   { id: "Failed", label: "Failed" },
+  { id: "Matched", label: "Matched" },
+  { id: "Rejected", label: "Rejected" },
 ];
 
 function pageWindow(current: number, total: number, width: number) {

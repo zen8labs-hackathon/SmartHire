@@ -27,7 +27,10 @@ export function candidateStatusChipColor(
     case "Offer":
       return "warning";
     case "Failed":
+    case "Rejected":
       return "danger";
+    case "Matched":
+      return "success";
     default:
       return "default";
   }
