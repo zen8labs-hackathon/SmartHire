@@ -1,5 +1,8 @@
 import {
+  assertChapterIdsExist,
+  parseViewerChapterIds,
   parseViewerEmailInput,
+  replaceJobDescriptionViewerChapters,
   resolveViewerEmailsToUserIds,
   syncJobDescriptionViewersFromEmails,
 } from "@/lib/admin/jd-viewer-sync";
@@ -47,6 +50,8 @@ type CreateBody = Partial<JobDescriptionFormData> & {
   jdDraftJobOpeningId?: string | null;
   /** Recruiter accounts that may open this JD (must already exist in Auth). */
   viewerEmails?: string[] | string | null;
+  /** Chapter ids: all members of these chapters may open this JD. */
+  viewerChapterIds?: string[] | null;
 };
 
 function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPayload {
@@ -186,14 +191,20 @@ export async function POST(request: Request) {
   const {
     jdDraftJobOpeningId: _ignore,
     viewerEmails: viewerEmailsRaw,
+    viewerChapterIds: viewerChapterIdsRaw,
     ...formFields
   } = body;
   void _ignore;
 
   const viewerEmails = parseViewerEmailInput(viewerEmailsRaw);
+  const viewerChapterIds = parseViewerChapterIds(
+    viewerChapterIdsRaw ?? undefined,
+  );
 
+  const needsAdminClient =
+    viewerEmails.length > 0 || viewerChapterIds.length > 0;
   let adminForViewers: ReturnType<typeof createAdminClient> | null = null;
-  if (viewerEmails.length > 0) {
+  if (needsAdminClient) {
     try {
       adminForViewers = createAdminClient();
     } catch {
@@ -202,17 +213,33 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
-    const { notFound } = await resolveViewerEmailsToUserIds(
-      adminForViewers,
-      viewerEmails,
-    );
-    if (notFound.length > 0) {
-      return Response.json(
-        {
-          error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
-        },
-        { status: 400 },
+    if (viewerEmails.length > 0) {
+      const { notFound } = await resolveViewerEmailsToUserIds(
+        adminForViewers,
+        viewerEmails,
       );
+      if (notFound.length > 0) {
+        return Response.json(
+          {
+            error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+    if (viewerChapterIds.length > 0) {
+      const chapterCheck = await assertChapterIdsExist(
+        adminForViewers,
+        viewerChapterIds,
+      );
+      if (!chapterCheck.ok) {
+        return Response.json(
+          {
+            error: `Unknown chapter id(s): ${chapterCheck.unknownIds.join(", ")}.`,
+          },
+          { status: 400 },
+        );
+      }
     }
   }
 
@@ -274,14 +301,23 @@ export async function POST(request: Request) {
     }
   }
 
-  if (viewerEmails.length > 0 && data?.id != null) {
+  if (data?.id != null && (viewerEmails.length > 0 || viewerChapterIds.length > 0)) {
     try {
       const admin = adminForViewers ?? createAdminClient();
-      await syncJobDescriptionViewersFromEmails(admin, {
-        jobDescriptionId: data.id as number,
-        emails: viewerEmails,
-        grantedBy: auth.userId,
-      });
+      if (viewerEmails.length > 0) {
+        await syncJobDescriptionViewersFromEmails(admin, {
+          jobDescriptionId: data.id as number,
+          emails: viewerEmails,
+          grantedBy: auth.userId,
+        });
+      }
+      if (viewerChapterIds.length > 0) {
+        await replaceJobDescriptionViewerChapters(admin, {
+          jobDescriptionId: data.id as number,
+          chapterIds: viewerChapterIds,
+          grantedBy: auth.userId,
+        });
+      }
     } catch (e) {
       await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
       const msg = e instanceof Error ? e.message : "Viewer sync failed.";

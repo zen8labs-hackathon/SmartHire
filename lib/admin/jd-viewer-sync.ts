@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Parse comma/newline/semicolon-separated emails or string arrays from forms / JSON.
  */
@@ -157,4 +160,96 @@ export async function syncJobDescriptionViewersFromEmails(
     grantedBy: params.grantedBy,
   });
   return { notFound: [] };
+}
+
+/**
+ * Normalizes viewer chapter id list from API / form (UUIDs only).
+ */
+export function parseViewerChapterIds(
+  raw: string[] | string | null | undefined,
+): string[] {
+  if (raw == null) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of arr) {
+    if (typeof x !== "string") continue;
+    const s = x.trim();
+    if (!UUID_RE.test(s) || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+export async function fetchViewerChapterIdsForJobDescription(
+  admin: SupabaseClient,
+  jobDescriptionId: number,
+): Promise<string[]> {
+  const { data, error } = await admin
+    .from("job_description_viewer_chapters")
+    .select("chapter_id")
+    .eq("job_description_id", jobDescriptionId);
+
+  if (error) return [];
+  if (!data?.length) return [];
+
+  const ids = data.map((r) => String(r.chapter_id));
+  ids.sort();
+  return ids;
+}
+
+export async function assertChapterIdsExist(
+  admin: SupabaseClient,
+  chapterIds: string[],
+): Promise<{ ok: true } | { ok: false; unknownIds: string[] }> {
+  if (chapterIds.length === 0) return { ok: true };
+  const { data, error } = await admin
+    .from("chapters")
+    .select("id")
+    .in("id", chapterIds);
+  if (error) {
+    throw new Error(error.message);
+  }
+  const found = new Set((data ?? []).map((r) => String(r.id)));
+  const unknownIds = chapterIds.filter((id) => !found.has(id));
+  if (unknownIds.length > 0) return { ok: false, unknownIds };
+  return { ok: true };
+}
+
+/**
+ * Replaces JD ↔ chapter viewer grants (all members of those chapters may open the JD).
+ */
+export async function replaceJobDescriptionViewerChapters(
+  admin: SupabaseClient,
+  params: {
+    jobDescriptionId: number;
+    chapterIds: string[];
+    grantedBy: string;
+  },
+): Promise<void> {
+  const { error: delErr } = await admin
+    .from("job_description_viewer_chapters")
+    .delete()
+    .eq("job_description_id", params.jobDescriptionId);
+
+  if (delErr) {
+    throw new Error(delErr.message);
+  }
+
+  if (params.chapterIds.length === 0) return;
+
+  const { error: insErr } = await admin
+    .from("job_description_viewer_chapters")
+    .insert(
+      params.chapterIds.map((chapter_id) => ({
+        job_description_id: params.jobDescriptionId,
+        chapter_id,
+        granted_by: params.grantedBy,
+      })),
+    );
+
+  if (insErr) {
+    throw new Error(insErr.message);
+  }
 }

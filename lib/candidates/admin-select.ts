@@ -16,7 +16,7 @@ export const ADMIN_CANDIDATES_SELECT = [
   "degree",
   "school",
   "status",
-  "chapter",
+  "uploaded_by_email",
   "source",
   "source_other",
   "jd_match_score",

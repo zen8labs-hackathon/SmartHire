@@ -38,7 +38,7 @@ export type CandidateDbRow = {
   degree: string | null;
   school: string | null;
   status: string;
-  chapter: string;
+  uploaded_by_email?: string | null;
   source: string;
   source_other: string | null;
   jd_match_score?: number | null;
@@ -145,7 +145,7 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     degree: r.degree?.trim() || "—",
     school: r.school?.trim() || "—",
     status: asCandidateStatus(r.status),
-    chapter: r.chapter,
+    uploadedByEmail: r.uploaded_by_email?.trim() || null,
     jobOpeningId: r.job_opening_id,
     jdCampaignLabel: jdCampaignLabelFromRow(r),
     sourceLabel,

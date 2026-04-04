@@ -21,7 +21,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     degree: "MSc Computer Science",
     school: "Stanford University",
     status: "Interviewing",
-    chapter: "Engineering",
+    uploadedByEmail: "hr@example.com",
     jobOpeningId: "11111111-1111-4111-8111-111111111111",
     jdCampaignLabel: MOCK_JD_LABELS[0],
     sourceLabel: "LinkedIn",
@@ -43,7 +43,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     degree: "BFA Visual Design",
     school: "RISD",
     status: "Shortlisted",
-    chapter: "Design",
+    uploadedByEmail: "recruiter@example.com",
     jobOpeningId: "22222222-2222-4222-8222-222222222222",
     jdCampaignLabel: MOCK_JD_LABELS[3],
     sourceLabel: "TopCV",
@@ -65,7 +65,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     degree: "BEng Software",
     school: "MIT",
     status: "New",
-    chapter: "Engineering",
+    uploadedByEmail: null,
     jobOpeningId: "33333333-3333-4333-8333-333333333333",
     jdCampaignLabel: MOCK_JD_LABELS[2],
     sourceLabel: "ITViec",
@@ -87,7 +87,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     degree: "MBA Strategy",
     school: "Wharton School",
     status: "Interviewing",
-    chapter: "Marketing",
+    uploadedByEmail: "hr@example.com",
     jobOpeningId: null,
     jdCampaignLabel: "Unassigned",
     sourceLabel: "Other (Referral network)",
@@ -137,8 +137,6 @@ const ROLES = [
 
 const STATUSES: CandidateStatus[] = ["New", "Shortlisted", "Interviewing"];
 
-const CHAPTERS = ["Engineering", "Design", "Marketing", "Global"];
-
 const MOCK_SOURCES = [
   "LinkedIn",
   "TopCV",
@@ -175,7 +173,7 @@ function buildRows(total: number): CandidateRow[] {
       degree: i % 2 === 0 ? "BSc Computer Science" : "MBA",
       school: i % 2 === 0 ? "STATE UNIVERSITY" : "BUSINESS SCHOOL",
       status: STATUSES[i % STATUSES.length],
-      chapter: CHAPTERS[i % CHAPTERS.length],
+      uploadedByEmail: i % 3 === 0 ? "hr@example.com" : null,
       jobOpeningId: unassigned
         ? null
         : `00000000-0000-4000-8000-${String(100000 + i).padStart(12, "0")}`,

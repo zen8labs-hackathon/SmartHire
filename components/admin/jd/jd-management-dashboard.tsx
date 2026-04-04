@@ -39,6 +39,10 @@ import { Dialog } from "react-aria-components";
 
 import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
 import {
+  appendEmailToViewerDraft,
+  JdViewerEmailSearch,
+} from "@/components/admin/jd/jd-viewer-email-search";
+import {
   extractedApiToFormPatch,
   extractedPatchToEditFormPatch,
 } from "@/lib/jd/extracted-to-form";
@@ -276,14 +280,61 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ChapterPicker({
+  chapters,
+  selectedIds,
+  onChange,
+}: {
+  chapters: readonly { id: string; name: string }[];
+  selectedIds: readonly string[];
+  onChange: (ids: string[]) => void;
+}) {
+  function toggle(id: string) {
+    onChange(
+      selectedIds.includes(id)
+        ? selectedIds.filter((x) => x !== id)
+        : [...selectedIds, id],
+    );
+  }
+
+  if (chapters.length === 0) {
+    return (
+      <p className="text-xs text-muted">
+        No chapters yet. Add them under Setup → Chapters.
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-divider p-3">
+      {chapters.map((c) => (
+        <label
+          key={c.id}
+          className="flex cursor-pointer items-center gap-2 text-sm"
+        >
+          <input
+            type="checkbox"
+            className="rounded border-divider"
+            checked={selectedIds.includes(c.id)}
+            onChange={() => toggle(c.id)}
+          />
+          <span>{c.name}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function JdManagementDashboard({
   canManageJds = true,
+  chapters = [],
 }: {
   canManageJds?: boolean;
+  chapters?: readonly { id: string; name: string }[];
 } = {}) {
   const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
@@ -319,8 +370,14 @@ export function JdManagementDashboard({
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createViewerEmailsText, setCreateViewerEmailsText] = useState("");
+  const [createViewerChapterIds, setCreateViewerChapterIds] = useState<
+    string[]
+  >([]);
 
   const [drawerViewerDraft, setDrawerViewerDraft] = useState("");
+  const [drawerViewerChapterIds, setDrawerViewerChapterIds] = useState<
+    string[]
+  >([]);
   const [drawerViewersLoading, setDrawerViewersLoading] = useState(false);
   const [drawerViewersBusy, setDrawerViewersBusy] = useState(false);
   const [drawerViewersError, setDrawerViewersError] = useState<string | null>(
@@ -380,6 +437,7 @@ export function JdManagementDashboard({
         setFormError(null);
         setForm(DEFAULT_FORM);
         setCreateViewerEmailsText("");
+        setCreateViewerChapterIds([]);
       }
     },
   });
@@ -403,6 +461,7 @@ export function JdManagementDashboard({
   useEffect(() => {
     if (!drawerOpen || !activeRow?.id || !canManageJds) {
       setDrawerViewerDraft("");
+      setDrawerViewerChapterIds([]);
       setDrawerViewersError(null);
       setDrawerViewersLoading(false);
     }
@@ -424,19 +483,23 @@ export function JdManagementDashboard({
         );
         const json = (await res.json()) as {
           viewerEmails?: string[];
+          viewerChapterIds?: string[];
           error?: string;
         };
         if (cancelled) return;
         if (!res.ok) {
           setDrawerViewersError(json.error ?? "Could not load viewers.");
           setDrawerViewerDraft("");
+          setDrawerViewerChapterIds([]);
           return;
         }
         setDrawerViewerDraft((json.viewerEmails ?? []).join("\n"));
+        setDrawerViewerChapterIds(json.viewerChapterIds ?? []);
       } catch {
         if (!cancelled) {
           setDrawerViewersError("Could not load viewers.");
           setDrawerViewerDraft("");
+          setDrawerViewerChapterIds([]);
         }
       } finally {
         if (!cancelled) setDrawerViewersLoading(false);
@@ -838,10 +901,11 @@ export function JdManagementDashboard({
         ? { ...payload, jdDraftJobOpeningId }
         : payload;
       const viewerEmails = parseViewerEmailInput(createViewerEmailsText);
-      const postBody =
-        viewerEmails.length > 0
-          ? { ...postBodyBase, viewerEmails }
-          : postBodyBase;
+      const postBody = {
+        ...postBodyBase,
+        viewerEmails,
+        viewerChapterIds: createViewerChapterIds,
+      };
       try {
         const headers = await authHeaders();
         const res = await fetch("/api/admin/job-descriptions", {
@@ -862,6 +926,7 @@ export function JdManagementDashboard({
     },
     [
       authHeaders,
+      createViewerChapterIds,
       createViewerEmailsText,
       form,
       jdDraftJobOpeningId,
@@ -882,15 +947,22 @@ export function JdManagementDashboard({
         method: "PUT",
         credentials: "include",
         headers,
-        body: JSON.stringify({ viewerEmails: emails }),
+        body: JSON.stringify({
+          viewerEmails: emails,
+          viewerChapterIds: drawerViewerChapterIds,
+        }),
       });
       const json = (await res.json()) as {
         error?: string;
         viewerEmails?: string[];
+        viewerChapterIds?: string[];
       };
       if (!res.ok) throw new Error(json.error ?? "Save failed.");
       if (json.viewerEmails) {
         setDrawerViewerDraft(json.viewerEmails.join("\n"));
+      }
+      if (json.viewerChapterIds) {
+        setDrawerViewerChapterIds(json.viewerChapterIds);
       }
     } catch (e) {
       setDrawerViewersError(
@@ -899,7 +971,7 @@ export function JdManagementDashboard({
     } finally {
       setDrawerViewersBusy(false);
     }
-  }, [activeRow, authHeaders, drawerViewerDraft]);
+  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerDraft]);
 
   // ── delete ───────────────────────────────────────────────────────────────
 
@@ -1041,7 +1113,7 @@ export function JdManagementDashboard({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Job descriptions
+            Jobs list
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
             Manage and monitor recruitment job descriptions across the organisation.
@@ -1192,13 +1264,21 @@ export function JdManagementDashboard({
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <SectionLabel>Recruiter access</SectionLabel>
                 <p className="text-xs text-muted">
-                  Optional. Existing account emails (one per line or
-                  comma-separated). Non-HR recruiters must be listed here to
-                  open this JD; they only see candidates in their own chapter.
+                  Optional. Add individual accounts by email and/or grant every
+                  member of a chapter. Non-HR recruiters only see jobs they are
+                  given here.
                 </p>
+                <JdViewerEmailSearch
+                  getHeaders={authHeaders}
+                  onPickEmail={(em) =>
+                    setCreateViewerEmailsText((d) =>
+                      appendEmailToViewerDraft(d, em),
+                    )
+                  }
+                />
                 <TextField
                   value={createViewerEmailsText}
                   onChange={setCreateViewerEmailsText}
@@ -1211,6 +1291,16 @@ export function JdManagementDashboard({
                     className="min-h-[5rem] font-mono text-xs"
                   />
                 </TextField>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted">
+                    Viewer chapters (whole chapter)
+                  </Label>
+                  <ChapterPicker
+                    chapters={chapters}
+                    selectedIds={createViewerChapterIds}
+                    onChange={setCreateViewerChapterIds}
+                  />
+                </div>
               </div>
 
               {formError && (
@@ -1772,7 +1862,7 @@ export function JdManagementDashboard({
           <Table>
             <Table.ScrollContainer>
               <Table.Content
-                aria-label="Job descriptions"
+                aria-label="Jobs list"
                 className="min-w-[920px]"
               >
                 <Table.Header>
@@ -1804,7 +1894,7 @@ export function JdManagementDashboard({
                   ) : paginatedRows.length === 0 ? (
                     <Table.Row id="jd-row-empty">
                       <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
-                        No job descriptions found.
+                        No jobs found.
                       </Table.Cell>
                     </Table.Row>
                   ) : (
@@ -2204,30 +2294,49 @@ export function JdManagementDashboard({
                       <Separator />
                       <section className="space-y-3">
                         <h3 className="text-sm font-semibold text-foreground">
-                          Chapter recruiter access
+                          Recruiter access
                         </h3>
                         <p className="text-xs text-muted">
-                          Emails must match existing accounts. HR always has
-                          full access; listed users can open this job and
-                          pipeline for their chapter only.
+                          Emails must match existing accounts. You can also add
+                          whole chapters. HR always has full access.
                         </p>
                         {drawerViewersLoading ? (
                           <p className="text-xs text-muted">Loading viewers…</p>
                         ) : (
-                          <TextField
-                            value={drawerViewerDraft}
-                            onChange={setDrawerViewerDraft}
-                          >
-                            <Label className="text-xs text-muted">
-                              Viewer emails
-                            </Label>
-                            <TextArea
-                              placeholder={
-                                "recruiter@company.com\nlead@company.com"
+                          <>
+                            <JdViewerEmailSearch
+                              getHeaders={authHeaders}
+                              onPickEmail={(em) =>
+                                setDrawerViewerDraft((d) =>
+                                  appendEmailToViewerDraft(d, em),
+                                )
                               }
-                              className="min-h-[6rem] font-mono text-xs"
                             />
-                          </TextField>
+                            <TextField
+                              value={drawerViewerDraft}
+                              onChange={setDrawerViewerDraft}
+                            >
+                              <Label className="text-xs text-muted">
+                                Viewer emails
+                              </Label>
+                              <TextArea
+                                placeholder={
+                                  "recruiter@company.com\nlead@company.com"
+                                }
+                                className="min-h-[6rem] font-mono text-xs"
+                              />
+                            </TextField>
+                            <div className="space-y-2">
+                              <Label className="text-xs text-muted">
+                                Viewer chapters (whole chapter)
+                              </Label>
+                              <ChapterPicker
+                                chapters={chapters}
+                                selectedIds={drawerViewerChapterIds}
+                                onChange={setDrawerViewerChapterIds}
+                              />
+                            </div>
+                          </>
                         )}
                         {drawerViewersError ? (
                           <p className="text-sm text-danger" role="alert">

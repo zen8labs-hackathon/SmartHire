@@ -6,7 +6,13 @@ import { getSupabasePublishableKey } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 export type AdminRequestAuthResult =
-  | { ok: true; userId: string; supabase: SupabaseClient }
+  | {
+      ok: true;
+      userId: string;
+      /** Authenticated user email when present (e.g. CV upload attribution). */
+      userEmail: string | null;
+      supabase: SupabaseClient;
+    }
   | { ok: false; response: Response };
 
 /**
@@ -60,7 +66,12 @@ export async function requireAdminForRequest(
         response: Response.json({ error: "Forbidden" }, { status: 403 }),
       };
     }
-    return { ok: true, userId: user.id, supabase };
+    return {
+      ok: true,
+      userId: user.id,
+      userEmail: user.email ?? null,
+      supabase,
+    };
   }
 
   const supabase = await createClient();
@@ -80,5 +91,10 @@ export async function requireAdminForRequest(
       response: Response.json({ error: "Forbidden" }, { status: 403 }),
     };
   }
-  return { ok: true, userId: user.id, supabase };
+  return {
+    ok: true,
+    userId: user.id,
+    userEmail: user.email ?? null,
+    supabase,
+  };
 }

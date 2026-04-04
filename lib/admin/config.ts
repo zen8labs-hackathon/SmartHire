@@ -15,7 +15,7 @@ export async function isProfileAdmin(
   return data?.is_admin === true;
 }
 
-/** Recruiter app access: `work_chapter` set or legacy admin flag. */
+/** Recruiter app access: HR `work_chapter`, `profile_chapters`, or legacy admin. */
 export async function isProfileStaff(
   supabase: SupabaseClient,
   userId: string,
