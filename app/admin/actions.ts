@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isProfileAdmin } from "@/lib/admin/config";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -18,7 +18,9 @@ export async function adminAddUser(
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user?.id || !(await isProfileAdmin(supabase, user.id))) {
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
     return { error: "Not authorized." };
   }
 

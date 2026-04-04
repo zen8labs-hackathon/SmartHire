@@ -1,4 +1,11 @@
+import {
+  fetchViewerEmailsForJobDescription,
+  parseViewerEmailInput,
+  syncJobDescriptionViewersFromEmails,
+} from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -112,7 +119,7 @@ function endDateForStatusTransition(
 }
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
@@ -128,7 +135,15 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (error) return Response.json({ error: error.message }, { status: 500 });
   if (!data) return Response.json({ error: "Not found." }, { status: 404 });
 
-  return Response.json({ jobDescription: data });
+  let viewerEmails: string[] = [];
+  try {
+    const admin = createAdminClient();
+    viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
+  } catch {
+    // optional
+  }
+
+  return Response.json({ jobDescription: data, viewerEmails });
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
@@ -139,11 +154,20 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const numId = parseId(id);
   if (!numId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
-  let body: Partial<JobDescriptionFormData> & Partial<JdEditFormData> & { _editMode?: boolean };
+  let raw: Record<string, unknown>;
   try {
-    body = (await request.json()) as typeof body;
+    raw = (await request.json()) as Record<string, unknown>;
   } catch {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+
+  const hasViewerKey = Object.prototype.hasOwnProperty.call(raw, "viewerEmails");
+  const viewerEmailsRaw = raw.viewerEmails;
+  delete raw.viewerEmails;
+
+  const hasJdUpdate = Object.keys(raw).length > 0;
+  if (!hasJdUpdate && !hasViewerKey) {
+    return Response.json({ error: "No updates provided." }, { status: 400 });
   }
 
   const { data: existing, error: existingErr } = await auth.supabase
@@ -159,41 +183,86 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  let payload: Record<string, unknown>;
+  if (hasJdUpdate) {
+    const body = raw as Partial<JobDescriptionFormData> &
+      Partial<JdEditFormData> & { _editMode?: boolean };
 
-  if (body._editMode) {
-    // Detailed intake edit — use edit sanitizer
-    const { _editMode: _, ...editBody } = body;
-    payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
-  } else {
-    // Standard create/update form sanitizer
-    const stdPayload = sanitize(body as Partial<JobDescriptionFormData>);
-    if (stdPayload.position === null || stdPayload.position === undefined) {
-      delete stdPayload.position;
-    }
-    if (body.status !== undefined && isJdStatus(String(body.status))) {
-      const endDelta = endDateForStatusTransition(
-        String(existing.status),
-        body.status as JdStatus,
-      );
-      if (endDelta !== undefined) {
-        (stdPayload as Record<string, unknown>).end_date = endDelta;
+    let payload: Record<string, unknown>;
+
+    if (body._editMode) {
+      const { _editMode: _, ...editBody } = body;
+      payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
+    } else {
+      const stdPayload = sanitize(body as Partial<JobDescriptionFormData>);
+      if (stdPayload.position === null || stdPayload.position === undefined) {
+        delete stdPayload.position;
       }
+      if (body.status !== undefined && isJdStatus(String(body.status))) {
+        const endDelta = endDateForStatusTransition(
+          String(existing.status),
+          body.status as JdStatus,
+        );
+        if (endDelta !== undefined) {
+          (stdPayload as Record<string, unknown>).end_date = endDelta;
+        }
+      }
+      payload = stdPayload;
     }
-    payload = stdPayload;
+
+    const { error } = await auth.supabase
+      .from("job_descriptions")
+      .update({ ...payload, updated_by: auth.userId })
+      .eq("id", numId);
+
+    if (error) return Response.json({ error: error.message }, { status: 500 });
   }
 
-  const { data, error } = await auth.supabase
+  if (hasViewerKey) {
+    let admin;
+    try {
+      admin = createAdminClient();
+    } catch {
+      return Response.json(
+        { error: "Server missing service role key for viewer sync." },
+        { status: 500 },
+      );
+    }
+    const emails = parseViewerEmailInput(
+      viewerEmailsRaw as string | string[] | null | undefined,
+    );
+    const { notFound } = await syncJobDescriptionViewersFromEmails(admin, {
+      jobDescriptionId: numId,
+      emails,
+      grantedBy: auth.userId,
+    });
+    if (notFound.length > 0) {
+      return Response.json(
+        {
+          error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  const { data: jdRow, error: jdErr } = await auth.supabase
     .from("job_descriptions")
-    .update({ ...payload, updated_by: auth.userId })
+    .select("*")
     .eq("id", numId)
-    .select()
     .maybeSingle();
 
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-  if (!data) return Response.json({ error: "Not found." }, { status: 404 });
+  if (jdErr) return Response.json({ error: jdErr.message }, { status: 500 });
+  if (!jdRow) return Response.json({ error: "Not found." }, { status: 404 });
 
-  return Response.json({ jobDescription: data });
+  let viewerEmails: string[] = [];
+  try {
+    const admin = createAdminClient();
+    viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
+  } catch {
+    // optional
+  }
+
+  return Response.json({ jobDescription: jdRow, viewerEmails });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {

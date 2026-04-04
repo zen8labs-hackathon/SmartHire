@@ -38,7 +38,10 @@ function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
       aria-hidden
-      className={cn("h-4 w-4 shrink-0 text-muted transition-transform duration-200", open && "rotate-180")}
+      className={cn(
+        "h-4 w-4 shrink-0 text-muted transition-transform duration-200",
+        open && "rotate-180",
+      )}
       viewBox="0 0 20 20"
       fill="currentColor"
     >
@@ -51,9 +54,13 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-export function AdminSidebarNav() {
+export function AdminSidebarNav({ isHr }: { isHr: boolean }) {
   const pathname = usePathname();
-  const setupActive = setupSectionActive(pathname);
+  const visibleMain = isHr
+    ? mainItems
+    : mainItems.filter((i) => i.href === "/admin/jd");
+
+  const setupActive = isHr && setupSectionActive(pathname);
   const [setupOpen, setSetupOpen] = useState(setupActive);
 
   useEffect(() => {
@@ -62,7 +69,7 @@ export function AdminSidebarNav() {
 
   return (
     <nav aria-label="Admin" className="flex flex-col gap-1">
-      {mainItems.map(({ href, label }) => {
+      {visibleMain.map(({ href, label }) => {
         const active = linkActive(pathname, href);
         return (
           <Link key={href} href={href} className={linkClass(active)}>
@@ -71,46 +78,48 @@ export function AdminSidebarNav() {
         );
       })}
 
-      <div className="mt-3 border-t border-divider pt-3">
-        <button
-          type="button"
-          id="admin-nav-setup-heading"
-          className={cn(
-            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left transition-colors",
-            setupActive
-              ? "text-foreground"
-              : "text-muted hover:bg-surface-secondary hover:text-foreground",
-            setupOpen && setupActive && "bg-surface-tertiary/60",
-          )}
-          aria-expanded={setupOpen}
-          aria-controls="admin-setup-submenu"
-          onClick={() => setSetupOpen((o) => !o)}
-        >
-          <span className="text-[10px] font-semibold uppercase tracking-wider">
-            Setup
-          </span>
-          <ChevronIcon open={setupOpen} />
-        </button>
-
-        {setupOpen ? (
-          <ul
-            id="admin-setup-submenu"
-            className="mt-1 flex list-none flex-col gap-1 border-l border-divider pl-2"
-            aria-labelledby="admin-nav-setup-heading"
+      {isHr ? (
+        <div className="mt-3 border-t border-divider pt-3">
+          <button
+            type="button"
+            id="admin-nav-setup-heading"
+            className={cn(
+              "flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3 py-2 text-left transition-colors",
+              setupActive
+                ? "text-foreground"
+                : "text-muted hover:bg-surface-secondary hover:text-foreground",
+              setupOpen && setupActive && "bg-surface-tertiary/60",
+            )}
+            aria-expanded={setupOpen}
+            aria-controls="admin-setup-submenu"
+            onClick={() => setSetupOpen((o) => !o)}
           >
-            {setupItems.map(({ href, label }) => {
-              const active = linkActive(pathname, href);
-              return (
-                <li key={href}>
-                  <Link href={href} className={linkClass(active, true)}>
-                    <span suppressHydrationWarning>{label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-      </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider">
+              Setup
+            </span>
+            <ChevronIcon open={setupOpen} />
+          </button>
+
+          {setupOpen ? (
+            <ul
+              id="admin-setup-submenu"
+              className="mt-1 flex list-none flex-col gap-1 border-l border-divider pl-2"
+              aria-labelledby="admin-nav-setup-heading"
+            >
+              {setupItems.map(({ href, label }) => {
+                const active = linkActive(pathname, href);
+                return (
+                  <li key={href}>
+                    <Link href={href} className={linkClass(active, true)}>
+                      <span suppressHydrationWarning>{label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </nav>
   );
 }

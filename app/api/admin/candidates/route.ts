@@ -1,17 +1,24 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
 export async function GET(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
   const jdParam = url.searchParams.get("jobDescriptionId");
 
   let openingIds: string[] | null = null;
-  if (jdParam != null && jdParam !== "") {
+  if (jdParam == null || jdParam === "") {
+    if (!auth.access.isHr) {
+      return Response.json(
+        { error: "jobDescriptionId is required for this account." },
+        { status: 400 },
+      );
+    }
+  } else if (jdParam !== "") {
     const jdId = Number(jdParam);
     if (!Number.isInteger(jdId) || jdId <= 0) {
       return Response.json(

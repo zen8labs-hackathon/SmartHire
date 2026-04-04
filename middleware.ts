@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isProfileAdmin } from "@/lib/admin/config";
+import { isProfileStaff } from "@/lib/admin/config";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 
 export async function middleware(request: NextRequest) {
@@ -56,7 +56,7 @@ export async function middleware(request: NextRequest) {
       redirectUrl.searchParams.set("next", "/admin");
       return NextResponse.redirect(redirectUrl);
     }
-    if (!(await isProfileAdmin(supabase, user.id))) {
+    if (!(await isProfileStaff(supabase, user.id))) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/dashboard";
       return NextResponse.redirect(redirectUrl);
