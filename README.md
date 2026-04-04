@@ -86,6 +86,23 @@ Open [http://localhost:3000](http://localhost:3000).
 2. Set the environment variables in the Vercel project (**Settings → Environment Variables**), including `SUPABASE_SECRET_KEY` if you use `/admin`.  
 3. Redeploy after changing env vars.
 
+### Auto database migrations on build
+
+Each `npm run build` on Vercel (including **preview** deployments for branches) runs [`scripts/apply-vercel-migrations.mjs`](scripts/apply-vercel-migrations.mjs) first. It applies any pending `supabase/migrations/*.sql` files in order, tracked in `public._smart_hire_schema_migrations`.
+
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_DATABASE_URL` | **Postgres connection URI** (Supabase **Settings → Database**). Prefer the **direct** connection (port `5432`, “Session mode”) so DDL runs reliably; the transaction pooler can fail on some migrations. |
+| `SKIP_DB_MIGRATIONS` | Set to `1` or `true` to skip migration step (debug only). |
+
+If `SUPABASE_DATABASE_URL` is **not** set on Vercel, the script logs a warning and **skips** migrations so existing projects keep deploying. To enable auto-migrate, add the URI for the environments you want (**Production** vs **Preview**).
+
+**Important:** Point **Preview** at a **staging** Supabase project (or omit the URL for Preview) if you do not want every branch deploy to migrate **production** data.
+
+You can run the same step locally when the URL is set: `npm run db:migrate`.
+
+**Smoke test:** [`supabase/migrations/20260404150000_migration_smoke_test.sql`](supabase/migrations/20260404150000_migration_smoke_test.sql) adds standalone table `public.migration_smoke_test` (no FKs, RLS on with no policies so the app does not expose it). After a successful Vercel build, confirm in the Supabase SQL Editor: `select * from public.migration_smoke_test;` (empty row set is fine). Drop the table when you no longer need the check.
+
 ### Vercel MCP
 
 If you use the Vercel MCP in Cursor, the `deploy_to_vercel` tool deploys the **current project directory**. Run it from this folder after the project is linked to Vercel, or rely on Git-based deployments from the dashboard.
@@ -113,6 +130,7 @@ Use the HeroUI MCP or [component docs](https://heroui.com/docs/react/getting-sta
 | Command | Purpose |
 |---------|---------|
 | `npm run dev` | Development server |
-| `npm run build` | Production build |
+| `npm run build` | Apply pending DB migrations (if configured), then production build |
+| `npm run db:migrate` | Apply pending migrations only (needs `SUPABASE_DATABASE_URL` or `DATABASE_URL`) |
 | `npm run start` | Start production server |
 | `npm run lint` | ESLint |
