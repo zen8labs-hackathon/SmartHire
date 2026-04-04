@@ -45,6 +45,7 @@ import {
   MAX_JD_BYTES,
   isAllowedJdFilename,
 } from "@/lib/jd/upload-constants";
+import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -286,6 +287,13 @@ export function JdManagementDashboard() {
   // ── drawer ──────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
+  const [drawerStatusCounts, setDrawerStatusCounts] = useState<Record<
+    string,
+    number
+  > | null>(null);
+  const [drawerStatusCountsError, setDrawerStatusCountsError] = useState<
+    string | null
+  >(null);
 
   // ── create modal / form ──────────────────────────────────────────────────
   const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
@@ -354,6 +362,45 @@ export function JdManagementDashboard() {
     const h = await getSessionAuthorizationHeaders(supabase);
     return { "Content-Type": "application/json", ...h };
   }, [supabase]);
+
+  useEffect(() => {
+    if (!drawerOpen || !activeRow) {
+      setDrawerStatusCounts(null);
+      setDrawerStatusCountsError(null);
+      return;
+    }
+    let cancelled = false;
+    setDrawerStatusCounts(null);
+    setDrawerStatusCountsError(null);
+    void (async () => {
+      try {
+        const h = await getSessionAuthorizationHeaders(supabase);
+        const res = await fetch(
+          `/api/admin/job-descriptions/${activeRow.id}/candidate-status-counts`,
+          { credentials: "include", headers: { ...h } },
+        );
+        const json = (await res.json()) as {
+          counts?: Record<string, number>;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setDrawerStatusCountsError(
+            json.error ?? "Could not load applicant counts.",
+          );
+          return;
+        }
+        setDrawerStatusCounts(json.counts ?? null);
+      } catch {
+        if (!cancelled) {
+          setDrawerStatusCountsError("Could not load applicant counts.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drawerOpen, activeRow?.id, supabase]);
 
   const loadDescriptions = useCallback(async () => {
     setLoading(true);
@@ -1322,7 +1369,7 @@ export function JdManagementDashboard() {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Job descriptions"
-                className="min-w-[1040px]"
+                className="min-w-[920px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Position</Table.Column>
@@ -1330,7 +1377,6 @@ export function JdManagementDashboard() {
                     Applicants
                   </Table.Column>
                   <Table.Column>Department</Table.Column>
-                  <Table.Column>Work location</Table.Column>
                   <Table.Column>Start date</Table.Column>
                   <Table.Column>End date</Table.Column>
                   <Table.Column>Status</Table.Column>
@@ -1347,13 +1393,13 @@ export function JdManagementDashboard() {
                 >
                   {loading ? (
                     <Table.Row id="jd-row-loading">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
                         Loading…
                       </Table.Cell>
                     </Table.Row>
                   ) : paginatedRows.length === 0 ? (
                     <Table.Row id="jd-row-empty">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
                         No job descriptions found.
                       </Table.Cell>
                     </Table.Row>
@@ -1364,7 +1410,7 @@ export function JdManagementDashboard() {
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <Link
                               href={`/admin/jd/${row.id}/pipeline`}
-                              className="font-medium text-foreground underline-offset-2 hover:text-accent hover:underline"
+                              className="inline-flex max-w-full items-center rounded-md px-1 py-0.5 font-semibold text-accent underline decoration-accent/40 decoration-2 underline-offset-2 transition-colors hover:bg-accent/10 hover:decoration-accent"
                             >
                               {row.position}
                             </Link>
@@ -1384,7 +1430,6 @@ export function JdManagementDashboard() {
                           {row.applicant_count ?? 0}
                         </Table.Cell>
                         <Table.Cell>{row.department ?? "—"}</Table.Cell>
-                        <Table.Cell>{row.work_location ?? "—"}</Table.Cell>
                         <Table.Cell className="whitespace-nowrap text-muted">
                           {formatJdCalendarDate(row.start_date)}
                         </Table.Cell>
@@ -1552,6 +1597,31 @@ export function JdManagementDashboard() {
                 </Drawer.Header>
 
                 <Drawer.Body className="flex flex-col gap-6">
+                  <section className="rounded-xl border border-divider bg-surface-secondary/40 px-4 py-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      Applicants by pipeline status
+                    </h3>
+                    {drawerStatusCountsError ? (
+                      <p className="mt-2 text-sm text-danger">{drawerStatusCountsError}</p>
+                    ) : drawerStatusCounts == null ? (
+                      <p className="mt-2 text-sm text-muted">Loading counts…</p>
+                    ) : (
+                      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+                        {ALL_PIPELINE_STATUSES.map((st) => (
+                          <div
+                            key={st}
+                            className="flex items-baseline justify-between gap-2 text-sm"
+                          >
+                            <dt className="text-muted">{st}</dt>
+                            <dd className="tabular-nums font-semibold text-foreground">
+                              {drawerStatusCounts[st] ?? 0}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </section>
+
                   {/* Intake fields */}
                   {(activeRow.level || activeRow.headcount != null || activeRow.hire_type || activeRow.reporting) && (
                     <section className="space-y-2">

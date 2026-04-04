@@ -16,7 +16,10 @@ function candidateStatusToPipelineStatus(s: CandidateStatus): JobPipelineStatus 
       return "CV SCREENING";
     case "Offer":
       return "OFFER";
+    case "Matched":
+      return "MATCHED";
     case "Failed":
+    case "Rejected":
       return "REJECTED";
     default:
       return "NEW";

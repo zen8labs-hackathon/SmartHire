@@ -5,7 +5,14 @@ type PrevRow = {
 };
 
 type UpdateInput = {
-  status: "New" | "Shortlisted" | "Interviewing" | "Offer" | "Failed";
+  status:
+    | "New"
+    | "Shortlisted"
+    | "Interviewing"
+    | "Offer"
+    | "Failed"
+    | "Matched"
+    | "Rejected";
   interview_at?: string | null;
   onboarding_at?: string | null;
 };
@@ -15,7 +22,7 @@ export function buildCandidatePipelinePatch(
   u: UpdateInput,
 ): Record<string, unknown> {
   const next = u.status;
-  if (next === "Failed") {
+  if (next === "Failed" || next === "Matched" || next === "Rejected") {
     return { status: next, interview_at: null, onboarding_at: null };
   }
   if (next === "New" || next === "Shortlisted") {
