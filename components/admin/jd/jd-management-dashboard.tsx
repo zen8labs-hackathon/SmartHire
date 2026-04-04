@@ -21,6 +21,7 @@ import {
   ListBox,
   Modal,
   Pagination,
+  SearchField,
   Select,
   Separator,
   Table,
@@ -107,38 +108,6 @@ function jdStatusSelectTriggerClass(status: JdStatus): string {
   }
 }
 
-/** Filter chip: selected state (filled). */
-function jdStatusFilterSelectedClass(status: JdStatus): string {
-  switch (status) {
-    case "Hiring":
-      return "border-success/50 bg-success/20 font-medium text-success";
-    case "Pending":
-      return "border-warning/50 bg-warning/20 font-medium text-warning";
-    case "Done":
-      return "border-accent/50 bg-accent/15 font-medium text-accent";
-    case "Closed":
-      return "border-danger/45 bg-danger/15 font-medium text-danger";
-    default:
-      return "";
-  }
-}
-
-/** Filter chip: idle hover hint. */
-function jdStatusFilterIdleClass(status: JdStatus): string {
-  switch (status) {
-    case "Hiring":
-      return "border-transparent hover:border-success/30 hover:bg-success/5";
-    case "Pending":
-      return "border-transparent hover:border-warning/30 hover:bg-warning/5";
-    case "Done":
-      return "border-transparent hover:border-accent/30 hover:bg-accent/5";
-    case "Closed":
-      return "border-transparent hover:border-danger/25 hover:bg-danger/5";
-    default:
-      return "";
-  }
-}
-
 function jdStatusListItemClass(status: JdStatus): string {
   switch (status) {
     case "Hiring":
@@ -151,21 +120,6 @@ function jdStatusListItemClass(status: JdStatus): string {
       return "text-danger";
     default:
       return "";
-  }
-}
-
-function kpiCardAccentClass(kpiId: string): string {
-  switch (kpiId) {
-    case "done":
-      return "border-l-4 border-l-accent pl-3";
-    case "hiring":
-      return "border-l-4 border-l-success pl-3";
-    case "pending":
-      return "border-l-4 border-l-warning pl-3";
-    case "closed":
-      return "border-l-4 border-l-danger pl-3";
-    default:
-      return "border-l-4 border-l-divider pl-3";
   }
 }
 
@@ -320,7 +274,10 @@ export function JdManagementDashboard() {
 
   // ── pagination / filter ─────────────────────────────────────────────────
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<JdStatus | null>(null);
+  const [jdListSearch, setJdListSearch] = useState("");
+  const [jdListStatusKey, setJdListStatusKey] = useState<string>("all");
+  const [jdStartDateFrom, setJdStartDateFrom] = useState("");
+  const [jdStartDateTo, setJdStartDateTo] = useState("");
 
   // ── drawer ──────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -724,13 +681,32 @@ export function JdManagementDashboard() {
 
   // ── table data ───────────────────────────────────────────────────────────
 
-  const filteredRows = useMemo(
-    () =>
-      statusFilter
-        ? rows.filter((r) => r.status === statusFilter)
-        : rows,
-    [rows, statusFilter],
-  );
+  const filteredRows = useMemo(() => {
+    const q = jdListSearch.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (q && !r.position.toLowerCase().includes(q)) return false;
+      if (jdListStatusKey !== "all" && r.status !== jdListStatusKey) {
+        return false;
+      }
+      if (jdStartDateFrom || jdStartDateTo) {
+        const d = r.start_date;
+        if (!d) return false;
+        if (jdStartDateFrom && d < jdStartDateFrom) return false;
+        if (jdStartDateTo && d > jdStartDateTo) return false;
+      }
+      return true;
+    });
+  }, [
+    rows,
+    jdListSearch,
+    jdListStatusKey,
+    jdStartDateFrom,
+    jdStartDateTo,
+  ]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [jdListSearch, jdListStatusKey, jdStartDateFrom, jdStartDateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -742,35 +718,6 @@ export function JdManagementDashboard() {
 
   const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
-
-  // ── KPIs ─────────────────────────────────────────────────────────────────
-
-  const kpis = useMemo(
-    () => [
-      { id: "total", value: String(rows.length), label: "Total JDs" },
-      {
-        id: "done",
-        value: String(rows.filter((r) => r.status === "Done").length),
-        label: "Done",
-      },
-      {
-        id: "hiring",
-        value: String(rows.filter((r) => r.status === "Hiring").length),
-        label: "Hiring",
-      },
-      {
-        id: "pending",
-        value: String(rows.filter((r) => r.status === "Pending").length),
-        label: "Pending",
-      },
-      {
-        id: "closed",
-        value: String(rows.filter((r) => r.status === "Closed").length),
-        label: "Closed",
-      },
-    ],
-    [rows],
-  );
 
   // ── form helpers ──────────────────────────────────────────────────────────
 
@@ -1162,58 +1109,75 @@ export function JdManagementDashboard() {
         </Modal.Container>
       </Modal.Backdrop>
 
-      {/* ── Status filter chips ── */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant={statusFilter === null ? "primary" : "secondary"}
-          onPress={() => {
-            setStatusFilter(null);
-            setPage(1);
-          }}
-        >
-          All
-        </Button>
-        {JD_STATUS_OPTIONS.map((s) => {
-          const selected = statusFilter === s;
-          return (
-            <Button
-              key={s}
-              size="sm"
-              variant="secondary"
-              className={
-                selected
-                  ? jdStatusFilterSelectedClass(s)
-                  : jdStatusFilterIdleClass(s)
-              }
-              onPress={() => {
-                setStatusFilter((prev) => (prev === s ? null : s));
-                setPage(1);
-              }}
+      {/* ── Filters ── */}
+      <Card variant="secondary">
+        <Card.Content className="flex flex-col gap-4 p-4 sm:p-5">
+          <SectionLabel>Filter job descriptions</SectionLabel>
+          <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
+            <SearchField
+              value={jdListSearch}
+              onChange={setJdListSearch}
+              className="min-w-[220px] flex-1"
             >
-              {s}
-            </Button>
-          );
-        })}
-      </div>
-
-      {/* ── KPI cards ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {kpis.map((kpi) => (
-          <Card
-            key={kpi.id}
-            variant="secondary"
-            className={kpiCardAccentClass(kpi.id)}
-          >
-            <Card.Header className="gap-1">
-              <Card.Title className="text-2xl font-semibold tabular-nums">
-                {loading ? "—" : kpi.value}
-              </Card.Title>
-              <Card.Description>{kpi.label}</Card.Description>
-            </Card.Header>
-          </Card>
-        ))}
-      </div>
+              <SearchField.Group className="w-full">
+                <SearchField.SearchIcon />
+                <SearchField.Input
+                  placeholder="Search by job title / position…"
+                  className="w-full min-w-0"
+                />
+                <SearchField.ClearButton />
+              </SearchField.Group>
+            </SearchField>
+            <Select
+              value={jdListStatusKey}
+              onChange={(key) => {
+                if (typeof key === "string") setJdListStatusKey(key);
+              }}
+              className="min-w-[200px]"
+            >
+              <Label className="sr-only">Status</Label>
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="all" textValue="All statuses">
+                    All statuses
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                  {JD_STATUS_OPTIONS.map((s) => (
+                    <ListBox.Item key={s} id={s} textValue={s}>
+                      {s}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted">Start date from</Label>
+                <Input
+                  type="date"
+                  value={jdStartDateFrom}
+                  onChange={(e) => setJdStartDateFrom(e.target.value)}
+                  className="w-[11rem]"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted">Start date to</Label>
+                <Input
+                  type="date"
+                  value={jdStartDateTo}
+                  onChange={(e) => setJdStartDateTo(e.target.value)}
+                  className="w-[11rem]"
+                />
+              </div>
+            </div>
+          </div>
+        </Card.Content>
+      </Card>
 
       {/* ── Table ── */}
       <Card>
