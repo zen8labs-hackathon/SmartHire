@@ -22,6 +22,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_URL` | Project URL (Settings → API) |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key (`sb_publishable_...`; Settings → API Keys). Legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still read if unset. |
 | `SUPABASE_SECRET_KEY` | Secret key (`sb_secret_...`) or legacy `SUPABASE_SERVICE_ROLE_KEY` JWT — **server only**. Needed for the admin “add user” action. |
+| `SUPABASE_DATABASE_URL` | Optional locally: Postgres URI for `npm run db:migrate` (see [.env.example](.env.example)). **Required on Vercel** if you use auto-migrations on build. From **Settings → Database → Connection string** (URI), typically `postgresql://postgres:[PASSWORD]@db.<project-ref>.supabase.co:5432/postgres`. |
 
 ## 2. Database migration
 
@@ -92,7 +93,7 @@ Each `npm run build` on Vercel (including **preview** deployments for branches) 
 
 | Variable | Purpose |
 |----------|---------|
-| `SUPABASE_DATABASE_URL` | **Postgres connection URI** (Supabase **Settings → Database**). Prefer the **direct** connection (port `5432`, “Session mode”) so DDL runs reliably; the transaction pooler can fail on some migrations. |
+| `SUPABASE_DATABASE_URL` | **Postgres connection URI** from **Settings → Database → Connection string → URI** (same details as the dashboard “Code” snippet: host `db.<project-ref>.supabase.co`, port **5432**, database `postgres`, user `postgres`). Example: `postgresql://postgres:[YOUR-PASSWORD]@db.YOUR_PROJECT_REF.supabase.co:5432/postgres`. Prefer **direct** `5432` for DDL; the transaction pooler (`6543`) can fail on some migrations. |
 | `SKIP_DB_MIGRATIONS` | Set to `1` or `true` to skip migration step (debug only). |
 
 If `SUPABASE_DATABASE_URL` is **not** set on Vercel, the script logs a warning and **skips** migrations so existing projects keep deploying. To enable auto-migrate, add the URI for the environments you want (**Production** vs **Preview**).
@@ -104,6 +105,14 @@ You can run the same step locally when the URL is set: `npm run db:migrate`.
 **Vercel `ENETUNREACH` / IPv6:** Build machines often cannot reach IPv6 addresses. The migration script prefers IPv4: it sets `dns.setDefaultResultOrder("ipv4first")` and, on Vercel, resolves the database host with IPv4 and connects using TLS `servername` so certificates still validate. If connection still fails, check Supabase **Database** settings for an IPv4-compatible connection string or [IPv4 add-on](https://supabase.com/docs/guides/platform/ipv4-address).
 
 **Smoke test:** [`supabase/migrations/20260404150000_migration_smoke_test.sql`](supabase/migrations/20260404150000_migration_smoke_test.sql) adds standalone table `public.migration_smoke_test` (no FKs, RLS on with no policies so the app does not expose it). After a successful Vercel build, confirm in the Supabase SQL Editor: `select * from public.migration_smoke_test;` (empty row set is fine). Drop the table when you no longer need the check.
+
+### Optional: Supabase agent skills (Cursor / Codex)
+
+Supabase publishes optional [agent skills](https://supabase.com/docs/guides/getting-started/ai-skills) so AI tools get consistent instructions for Supabase work:
+
+```bash
+npx skills add supabase/agent-skills
+```
 
 ### Vercel MCP
 
