@@ -7,6 +7,7 @@ import {
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
+import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -153,5 +154,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     return Response.json({ error: msg }, { status: 500 });
   }
 
-  return Response.json(data ?? { ok: true });
+  const jdMatch = await runJdMatchForCandidate(auth.supabase, candidateId);
+  if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
+    console.warn("[jd-match]", candidateId, jdMatch);
+  }
+
+  const base =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : { ok: true };
+  return Response.json({
+    ...base,
+    jdMatch: jdMatch.ok
+      ? jdMatch.skipped
+        ? { skipped: true, reason: jdMatch.reason }
+        : { skipped: false, score: jdMatch.score }
+      : { error: jdMatch.error },
+  });
 }
