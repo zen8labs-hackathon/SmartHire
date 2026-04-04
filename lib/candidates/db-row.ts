@@ -1,4 +1,5 @@
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 
 export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -20,6 +21,8 @@ export type CandidateDbRow = {
   school: string | null;
   status: string;
   chapter: string;
+  source: string;
+  source_other: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -55,6 +58,11 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
         ? (r.parsing_error ?? "Parse error").slice(0, 80)
         : "CV ingest";
 
+  const sourceLabel = formatCandidateSourceLabel(
+    r.source ?? "Other",
+    r.source_other,
+  );
+
   return {
     id: r.id,
     name,
@@ -67,5 +75,6 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     school: r.school?.trim() || "—",
     status: asCandidateStatus(r.status),
     chapter: r.chapter,
+    sourceLabel,
   };
 }

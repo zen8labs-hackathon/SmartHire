@@ -181,6 +181,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         ...row.skills,
         row.degree,
         row.school,
+        row.sourceLabel,
       ]
         .join(" ")
         .toLowerCase();
@@ -249,7 +250,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  placeholder="Search by name, role or skill..."
+                  placeholder="Search by name, role, skill, or source…"
                   className="w-full min-w-0"
                 />
                 <SearchField.ClearButton />
@@ -322,13 +323,14 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Candidate pipeline"
-                className="min-w-[900px]"
+                className="min-w-[1040px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
                   <Table.Column className="text-center">Exp.</Table.Column>
                   <Table.Column>Key Skills</Table.Column>
                   <Table.Column>Education</Table.Column>
+                  <Table.Column>Source</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column className="text-right">Actions</Table.Column>
                 </Table.Header>
@@ -345,6 +347,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
+                      <Table.Cell />
                     </Table.Row>
                   ) : null}
                   {dbLoadState === "ok" &&
@@ -356,6 +359,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           No candidates yet. Use Add Candidate to upload CVs.
                         </span>
                       </Table.Cell>
+                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -426,6 +430,11 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                         </p>
                         <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
                           {row.school}
+                        </p>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <p className="max-w-[200px] text-sm text-foreground">
+                          {row.sourceLabel}
                         </p>
                       </Table.Cell>
                       <Table.Cell>
@@ -570,6 +579,15 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       Chapter
                     </h3>
                     <p className="mt-1 text-sm text-muted">{activeRow.chapter}</p>
+                  </section>
+                  <Separator />
+                  <section>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Sourced from
+                    </h3>
+                    <p className="mt-1 text-sm text-muted">
+                      {activeRow.sourceLabel}
+                    </p>
                   </section>
                 </Drawer.Body>
                 <Drawer.Footer className="flex flex-wrap gap-2">
