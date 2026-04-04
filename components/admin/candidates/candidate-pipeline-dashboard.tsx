@@ -47,13 +47,6 @@ const STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "Failed", label: "Failed" },
 ];
 
-const CHAPTER_OPTIONS = [
-  "Chapter: Global",
-  "Engineering",
-  "Design",
-  "Marketing",
-];
-
 function pageWindow(current: number, total: number, width: number) {
   let start = Math.max(1, current - Math.floor(width / 2));
   const end = Math.min(total, start + width - 1);
@@ -83,7 +76,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [statusKey, setStatusKey] = useState<Key | null>("all");
-  const [chapter, setChapter] = useState<Key | null>("Chapter: Global");
+  const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -138,23 +131,48 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     setPage(1);
   }, [query]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [jdFilterKey]);
+
   const tableSourceRows = useMemo(() => {
-    let rows: CandidateRow[];
     if (dbLoadState === "error") {
-      rows = [...CANDIDATE_ROWS];
-    } else if (dbLoadState !== "ok") {
-      return [];
-    } else {
-      rows = dbRows.map(candidateDbRowToTableRow);
+      const rows = [...CANDIDATE_ROWS];
+      rows.sort((a, b) => {
+        const as = a.jdMatchScore ?? -1;
+        const bs = b.jdMatchScore ?? -1;
+        if (bs !== as) return bs - as;
+        return a.name.localeCompare(b.name);
+      });
+      return rows;
     }
-    rows.sort((a, b) => {
-      const as = a.jdMatchScore ?? -1;
-      const bs = b.jdMatchScore ?? -1;
-      if (bs !== as) return bs - as;
-      return a.name.localeCompare(b.name);
+    if (dbLoadState !== "ok") {
+      return [];
+    }
+    const sortedDb = [...dbRows].sort((a, b) => {
+      const ta = new Date(a.cv_uploaded_at ?? a.created_at).getTime();
+      const tb = new Date(b.cv_uploaded_at ?? b.created_at).getTime();
+      return tb - ta;
     });
-    return rows;
+    return sortedDb.map(candidateDbRowToTableRow);
   }, [dbLoadState, dbRows]);
+
+  const jdFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of tableSourceRows) {
+      if (r.jobOpeningId) {
+        map.set(r.jobOpeningId, r.jdCampaignLabel);
+      }
+    }
+    const sorted = [...map.entries()].sort((a, b) =>
+      a[1].localeCompare(b[1], undefined, { sensitivity: "base" }),
+    );
+    return [
+      { id: "all", label: "JD: All" },
+      { id: "unassigned", label: "Unassigned" },
+      ...sorted.map(([id, label]) => ({ id, label })),
+    ];
+  }, [tableSourceRows]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -162,12 +180,12 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
       if (statusKey != null && statusKey !== "all" && row.status !== statusKey) {
         return false;
       }
-      if (
-        chapter != null &&
-        chapter !== "Chapter: Global" &&
-        row.chapter !== chapter
-      ) {
-        return false;
+      if (jdFilterKey != null && jdFilterKey !== "all") {
+        if (jdFilterKey === "unassigned") {
+          if (row.jobOpeningId != null) return false;
+        } else if (row.jobOpeningId !== String(jdFilterKey)) {
+          return false;
+        }
       }
       if (!q) return true;
       const hay = [
@@ -178,12 +196,13 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         row.school,
         row.sourceLabel,
         row.jdMatchLabel,
+        row.jdCampaignLabel,
       ]
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [chapter, query, statusKey]);
+  }, [jdFilterKey, query, statusKey, tableSourceRows]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -246,7 +265,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  placeholder="Search by name, role, skill, source, or match…"
+                  placeholder="Search by name, role, skill, source, JD, or match…"
                   className="w-full min-w-0"
                 />
                 <SearchField.ClearButton />
@@ -278,22 +297,22 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             </Select>
 
             <Select
-              value={chapter}
+              value={jdFilterKey}
               onChange={(key) => {
-                setChapter(key);
+                setJdFilterKey(key);
                 setPage(1);
               }}
             >
-              <Label className="sr-only">Chapter</Label>
-              <Select.Trigger className="min-w-[180px]">
+              <Label className="sr-only">Job description</Label>
+              <Select.Trigger className="min-w-[200px]">
                 <Select.Value />
                 <Select.Indicator />
               </Select.Trigger>
               <Select.Popover>
                 <ListBox>
-                  {CHAPTER_OPTIONS.map((opt) => (
-                    <ListBox.Item key={opt} id={opt} textValue={opt}>
-                      {opt}
+                  {jdFilterOptions.map((opt) => (
+                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                      {opt.label}
                       <ListBox.ItemIndicator />
                     </ListBox.Item>
                   ))}
@@ -319,7 +338,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Candidate pipeline"
-                className="min-w-[1160px]"
+                className="min-w-[1280px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
@@ -327,6 +346,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Table.Column>Key Skills</Table.Column>
                   <Table.Column>Education</Table.Column>
                   <Table.Column>Source</Table.Column>
+                  <Table.Column>Applied JD</Table.Column>
                   <Table.Column className="text-center">JD match</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column className="text-right">Actions</Table.Column>
@@ -346,6 +366,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
+                      <Table.Cell />
                     </Table.Row>
                   ) : null}
                   {dbLoadState === "ok" &&
@@ -357,6 +378,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           No candidates yet. Use Add Candidate to upload CVs.
                         </span>
                       </Table.Cell>
+                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -446,6 +468,11 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       <Table.Cell>
                         <p className="max-w-[200px] text-sm text-foreground">
                           {row.sourceLabel}
+                        </p>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <p className="max-w-[220px] truncate text-sm text-foreground" title={row.jdCampaignLabel}>
+                          {row.jdCampaignLabel}
                         </p>
                       </Table.Cell>
                       <Table.Cell className="text-center align-middle">
@@ -599,9 +626,11 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Separator />
                   <section>
                     <h3 className="text-sm font-semibold text-foreground">
-                      Chapter
+                      Applied JD
                     </h3>
-                    <p className="mt-1 text-sm text-muted">{activeRow.chapter}</p>
+                    <p className="mt-1 text-sm text-muted">
+                      {activeRow.jdCampaignLabel}
+                    </p>
                   </section>
                   <Separator />
                   <section>

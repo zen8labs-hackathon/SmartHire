@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
+import { JobPipelineSpreadsheetLoader } from "./job-pipeline-spreadsheet-loader";
 import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,7 +34,7 @@ export default async function JobPipelinePage({ params }: PageProps) {
     await fetchCandidatesForJobDescription(supabase, numId);
 
   return (
-    <JobPipelineSpreadsheet
+    <JobPipelineSpreadsheetLoader
       key={String(jd.id)}
       jobDescriptionId={numId}
       jobId={String(jd.id)}

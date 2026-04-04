@@ -8,7 +8,7 @@ import { cn } from "@heroui/react";
 const items = [
   { href: "/admin", label: "Users" },
   { href: "/admin/jd", label: "Job descriptions" },
-  { href: "/admin/candidates", label: "Candidates" },
+  { href: "/admin/candidates", label: "CV management" },
   { href: "/admin/evaluation-template", label: "Evaluation template" },
 ] as const;
 
@@ -33,7 +33,8 @@ export function AdminSidebarNav() {
                 : "text-muted hover:bg-surface-secondary hover:text-foreground",
             )}
           >
-            {label}
+            {/* suppressHydrationWarning: avoids mismatch if server HTML is stale vs client HMR after nav label changes; also clear `.next` if overlay persists */}
+            <span suppressHydrationWarning>{label}</span>
           </Link>
         );
       })}

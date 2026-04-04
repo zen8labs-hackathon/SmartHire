@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipeline-candidate-evaluation-client";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import { candidateDbRowToEvaluationPipelineRow } from "@/lib/jd/candidate-to-evaluation-pipeline-row";
 import { createClient } from "@/lib/supabase/server";
 
@@ -47,7 +48,9 @@ export default async function PipelineCandidateEvaluationPage({ params }: PagePr
 
   if (candError || !cand) notFound();
 
-  const row = cand as CandidateDbRow;
+  const [row] = await enrichCandidatesWithJobOpenings(supabase, [
+    cand as unknown as CandidateDbRow,
+  ]);
   if (!row.job_opening_id || !openingIds.has(row.job_opening_id)) {
     notFound();
   }
