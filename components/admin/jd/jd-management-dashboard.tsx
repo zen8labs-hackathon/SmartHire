@@ -224,7 +224,8 @@ function CheckCircleIcon({ className }: { className?: string }) {
   );
 }
 
-function PencilIcon({ className }: { className?: string }) {
+/** Hiring intake / recruitment details (matches modal “Thông tin tuyển dụng”). */
+function RecruitmentInfoIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -236,8 +237,9 @@ function PencilIcon({ className }: { className?: string }) {
       className={className}
       aria-hidden
     >
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
     </svg>
   );
 }
@@ -1894,17 +1896,17 @@ export function JdManagementDashboard({
                               <>
                                 <Tooltip delay={0}>
                                   <Button
-                                    aria-label={`Edit ${row.position}`}
+                                    aria-label={`Thông tin tuyển dụng: ${row.position}`}
                                     variant="ghost"
                                     size="sm"
                                     className="min-w-0 px-2"
                                     onPress={() => openEdit(row)}
                                   >
-                                    <PencilIcon className="size-4" />
+                                    <RecruitmentInfoIcon className="size-4" />
                                   </Button>
                                   <Tooltip.Content placement="top" showArrow>
                                     <Tooltip.Arrow />
-                                    <p>Edit</p>
+                                    <p>Thông tin tuyển dụng</p>
                                   </Tooltip.Content>
                                 </Tooltip>
                                 <Tooltip delay={0}>
@@ -2261,7 +2263,7 @@ export function JdManagementDashboard({
                   </Button>
                   {canManageJds ? (
                     <Button variant="primary" onPress={() => openEdit(activeRow)}>
-                      Edit JD
+                      Thông tin tuyển dụng
                     </Button>
                   ) : null}
                 </Drawer.Footer>
