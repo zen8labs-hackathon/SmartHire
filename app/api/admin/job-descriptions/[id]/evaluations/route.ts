@@ -7,7 +7,7 @@ import {
 } from "@/lib/ai/fill-candidate-evaluation";
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
 import { CANDIDATE_EVAL_FILLED_BUCKET } from "@/lib/evaluation/filled-pdf-bucket";
-import { loadInterviewNotesAggregatedText } from "@/lib/evaluation/interview-notes-text";
+import { loadCombinedReviewerNotesForEvaluation } from "@/lib/evaluation/combine-reviewer-notes";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { newUuidV7 } from "@/lib/uuid-v7";
@@ -154,7 +154,7 @@ export async function POST(
     }
   }
 
-  const reviewerNotes = await loadInterviewNotesAggregatedText(
+  const reviewerNotes = await loadCombinedReviewerNotesForEvaluation(
     admin,
     jdId,
     body.pipelineCandidateId,
@@ -163,7 +163,7 @@ export async function POST(
     return Response.json(
       {
         error:
-          "Add at least one interview note (save a note first, or include newInterviewNote) before generating an evaluation.",
+          "Add a pre-interview note and/or at least one interview note (save a note first, or include newInterviewNote) before generating an evaluation.",
       },
       { status: 400 },
     );

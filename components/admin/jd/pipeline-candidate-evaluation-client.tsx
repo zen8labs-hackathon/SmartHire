@@ -7,6 +7,7 @@ import {
   Breadcrumbs,
   Button,
   Card,
+  Disclosure,
   Label,
   Separator,
   TextArea,
@@ -53,6 +54,11 @@ export function PipelineCandidateEvaluationClient({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notes, setNotes] = useState<InterviewNoteRow[]>([]);
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
+  const [preInterviewNote, setPreInterviewNote] = useState("");
+  const [preInterviewLoadError, setPreInterviewLoadError] = useState<
+    string | null
+  >(null);
+  const [preInterviewSaveBusy, setPreInterviewSaveBusy] = useState(false);
 
   const authHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
@@ -116,10 +122,40 @@ export function PipelineCandidateEvaluationClient({
     }
   }, [authHeaders, jobDescriptionId, candidate.id]);
 
+  const loadPreInterviewNote = useCallback(async () => {
+    setPreInterviewLoadError(null);
+    try {
+      const h = await authHeaders();
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/pre-interview-note?pipelineCandidateId=${encodeURIComponent(candidate.id)}`,
+        {
+          credentials: "include",
+          headers: {
+            ...(h.Authorization ? { Authorization: h.Authorization } : {}),
+          },
+        },
+      );
+      const json = (await res.json()) as {
+        preInterviewNote?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setPreInterviewLoadError(
+          json.error ?? "Could not load pre-interview note.",
+        );
+        return;
+      }
+      setPreInterviewNote(json.preInterviewNote ?? "");
+    } catch {
+      setPreInterviewLoadError("Could not load pre-interview note.");
+    }
+  }, [authHeaders, jobDescriptionId, candidate.id]);
+
   useEffect(() => {
     void loadLatest();
     void loadNotes();
-  }, [loadLatest, loadNotes]);
+    void loadPreInterviewNote();
+  }, [loadLatest, loadNotes, loadPreInterviewNote]);
 
   const snapshot = useMemo(
     () => ({
@@ -231,6 +267,45 @@ export function PipelineCandidateEvaluationClient({
     }
   };
 
+  const savePreInterviewNote = async () => {
+    setError(null);
+    setPreInterviewSaveBusy(true);
+    try {
+      const h = await authHeaders();
+      if (!h.Authorization) {
+        setError("Session expired. Sign in again.");
+        return;
+      }
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/pre-interview-note`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...h,
+          },
+          body: JSON.stringify({
+            pipelineCandidateId: candidate.id,
+            preInterviewNote,
+          }),
+        },
+      );
+      const json = (await res.json()) as { error?: string; preInterviewNote?: string };
+      if (!res.ok) {
+        setError(json.error ?? "Could not save pre-interview note.");
+        return;
+      }
+      if (typeof json.preInterviewNote === "string") {
+        setPreInterviewNote(json.preInterviewNote);
+      }
+    } catch {
+      setError("Could not save pre-interview note.");
+    } finally {
+      setPreInterviewSaveBusy(false);
+    }
+  };
+
   const shareUrl =
     latest && origin ? `${origin}${latest.previewPath}` : "";
 
@@ -289,6 +364,43 @@ export function PipelineCandidateEvaluationClient({
             <span className="text-muted">Skills</span>
             <p className="font-medium text-foreground">{candidate.relatedSkills}</p>
           </div>
+        </Card.Content>
+      </Card>
+
+      <Card>
+        <Card.Header>
+          <Card.Title id="pre-interview-note-heading">Pre-interview note</Card.Title>
+          <Card.Description>
+            Write questions or topics to cover with the candidate during the interview.
+            This is saved per candidate for this role and is included when you generate
+            the evaluation PDF.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content className="flex flex-col gap-3">
+          {preInterviewLoadError ? (
+            <p className="text-sm text-danger" role="alert">
+              {preInterviewLoadError}
+            </p>
+          ) : null}
+          <TextField
+            value={preInterviewNote}
+            onChange={setPreInterviewNote}
+            aria-labelledby="pre-interview-note-heading"
+          >
+            <TextArea
+              placeholder="E.g. clarify backend experience, system design at scale, salary expectations…"
+              className="min-h-[8rem] w-full"
+            />
+          </TextField>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-fit"
+            isDisabled={preInterviewSaveBusy}
+            onPress={() => void savePreInterviewNote()}
+          >
+            {preInterviewSaveBusy ? "Saving…" : "Save pre-interview note"}
+          </Button>
         </Card.Content>
       </Card>
 
@@ -361,49 +473,65 @@ export function PipelineCandidateEvaluationClient({
 
       <Separator />
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Saved interview notes</Card.Title>
-          <Card.Description>
-            Everyone on the hiring team can add notes. The PDF uses the combined
-            notes in chronological order.
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
-          {notesLoadError ? (
-            <p className="text-sm text-danger" role="alert">
-              {notesLoadError}
-            </p>
-          ) : null}
-          {notes.length === 0 ? (
-            <p className="text-sm text-muted">No notes yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-4">
-              {notes.map((n) => (
-                <li
-                  key={n.id}
-                  className="rounded-xl border border-divider bg-surface-secondary/40 px-4 py-3 text-sm"
-                >
-                  <p className="text-xs text-muted">
-                    {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
-                    {new Date(n.createdAt).toLocaleString(undefined, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </p>
-                  <p className="mt-2 whitespace-pre-wrap text-foreground">
-                    {n.body}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card.Content>
+      <Card className="overflow-hidden p-0">
+        <Disclosure defaultExpanded={false}>
+          <Disclosure.Heading className="px-6 pt-5">
+            <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
+              <span className="min-w-0 flex-1 space-y-1">
+                <span className="block text-lg font-semibold tracking-tight text-foreground">
+                  Saved interview notes
+                  {notes.length > 0 ? (
+                    <span className="ms-2 text-sm font-normal text-muted tabular-nums">
+                      ({notes.length})
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block text-sm font-normal text-muted">
+                  Everyone on the hiring team can add notes. The PDF uses the
+                  combined notes in chronological order.
+                </span>
+              </span>
+              <Disclosure.Indicator className="mt-1 size-5 shrink-0 text-muted" />
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body className="flex flex-col gap-4 px-6 pb-6 pt-2">
+              {notesLoadError ? (
+                <p className="text-sm text-danger" role="alert">
+                  {notesLoadError}
+                </p>
+              ) : null}
+              {notes.length === 0 ? (
+                <p className="text-sm text-muted">No notes yet.</p>
+              ) : (
+                <ul className="flex flex-col gap-4">
+                  {notes.map((n) => (
+                    <li
+                      key={n.id}
+                      className="rounded-xl border border-divider bg-surface-secondary/40 px-4 py-3 text-sm"
+                    >
+                      <p className="text-xs text-muted">
+                        {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
+                        {new Date(n.createdAt).toLocaleString(undefined, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-foreground">
+                        {n.body}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Disclosure.Body>
+          </Disclosure.Content>
+        </Disclosure>
       </Card>
 
       <Card>
         <Card.Header>
-          <Card.Title id="eval-notes-heading">Add a note</Card.Title>
+          <Card.Title id="eval-notes-heading">Add a note after interview</Card.Title>
           <Card.Description>
             Write in Vietnamese or English; the evaluation follows your language.
             Save a note on its own, or type and use “Regenerate” to save that
