@@ -1051,11 +1051,13 @@ export function JdManagementDashboard({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
+              className="bg-gradient-to-br from-[#002542] to-[#1b3b5a] shadow-sm"
               onPress={() => {
                 setForm(DEFAULT_FORM);
                 jdModal.open();
               }}
             >
+              <span className="text-lg leading-none">+</span>
               New definition
             </Button>
             <input
