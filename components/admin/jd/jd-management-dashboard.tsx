@@ -1803,18 +1803,22 @@ export function JdManagementDashboard({
                   onChange={setJdStartDateRange}
                   className="w-full"
                 >
-                  <DateField.Group fullWidth variant="secondary">
+                  <DateField.Group
+                    fullWidth
+                    variant="primary"
+                    className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                  >
                     <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
                       <DateField.Input slot="start">
                         {(segment) => <DateField.Segment segment={segment} />}
                       </DateField.Input>
-                      <DateRangePicker.RangeSeparator className="text-muted shrink-0 px-0.5" />
+                      <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-neutral-500 dark:text-neutral-400" />
                       <DateField.Input slot="end">
                         {(segment) => <DateField.Segment segment={segment} />}
                       </DateField.Input>
                     </DateField.InputContainer>
                     <DateField.Suffix>
-                      <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-muted pressed:bg-muted">
+                      <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
                         <DateRangePicker.TriggerIndicator />
                       </DateRangePicker.Trigger>
                     </DateField.Suffix>
