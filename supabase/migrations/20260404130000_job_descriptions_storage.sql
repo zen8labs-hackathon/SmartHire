@@ -26,6 +26,7 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+drop policy if exists job_descriptions_objects_admin_select on storage.objects;
 create policy job_descriptions_objects_admin_select
   on storage.objects for select to authenticated
   using (
@@ -36,6 +37,7 @@ create policy job_descriptions_objects_admin_select
     )
   );
 
+drop policy if exists job_descriptions_objects_admin_insert on storage.objects;
 create policy job_descriptions_objects_admin_insert
   on storage.objects for insert to authenticated
   with check (
@@ -46,6 +48,7 @@ create policy job_descriptions_objects_admin_insert
     )
   );
 
+drop policy if exists job_descriptions_objects_admin_update on storage.objects;
 create policy job_descriptions_objects_admin_update
   on storage.objects for update to authenticated
   using (
@@ -56,6 +59,7 @@ create policy job_descriptions_objects_admin_update
     )
   );
 
+drop policy if exists job_descriptions_objects_admin_delete on storage.objects;
 create policy job_descriptions_objects_admin_delete
   on storage.objects for delete to authenticated
   using (

@@ -48,6 +48,7 @@ alter table public.job_openings
 
 alter table public.job_descriptions enable row level security;
 
+drop policy if exists job_descriptions_admin_select on public.job_descriptions;
 create policy job_descriptions_admin_select
   on public.job_descriptions for select to authenticated
   using (
@@ -57,6 +58,7 @@ create policy job_descriptions_admin_select
     )
   );
 
+drop policy if exists job_descriptions_admin_insert on public.job_descriptions;
 create policy job_descriptions_admin_insert
   on public.job_descriptions for insert to authenticated
   with check (
@@ -66,6 +68,7 @@ create policy job_descriptions_admin_insert
     )
   );
 
+drop policy if exists job_descriptions_admin_update on public.job_descriptions;
 create policy job_descriptions_admin_update
   on public.job_descriptions for update to authenticated
   using (
@@ -81,6 +84,7 @@ create policy job_descriptions_admin_update
     )
   );
 
+drop policy if exists job_descriptions_admin_delete on public.job_descriptions;
 create policy job_descriptions_admin_delete
   on public.job_descriptions for delete to authenticated
   using (
