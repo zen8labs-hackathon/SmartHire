@@ -1176,7 +1176,7 @@ export function JdManagementDashboard({
                     onChange={(v) => setField("position", v)}
                     isRequired
                   >
-                    <Label>Tên vị trí *</Label>
+                    <Label>Tên vị trí</Label>
                     <Input placeholder="VD: AI Engineer (Mid-level)" />
                   </TextField>
 
