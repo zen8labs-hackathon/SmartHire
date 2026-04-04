@@ -6,6 +6,7 @@ export type JobPipelineStatus =
   | "NEW";
 
 export type JobPipelineCandidateRow = {
+  /** UUID: deterministic per JD + row index (mock) or `candidates.id` when wired to DB */
   id: string;
   name: string;
   verified?: boolean;

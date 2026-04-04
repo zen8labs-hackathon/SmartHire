@@ -153,6 +153,7 @@ export function JobPipelineSpreadsheet({
         <Card.Content className="p-4 sm:p-6">
           <JdAppliedCandidatesPipeline
             jobDescriptionId={jobDescriptionId}
+            jobId={jobId}
             dbRows={pipelineRows}
             loadState={pipelineLoadState}
             onRefetch={() => void refetchPipeline()}

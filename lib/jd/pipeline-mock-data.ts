@@ -1,9 +1,14 @@
-import type { JobPipelineCandidateRow, JobPipelineViewModel } from "./pipeline-types";
+import type {
+  JobPipelineCandidateRow,
+  JobPipelineViewModel,
+} from "./pipeline-types";
 import { JD_ROWS } from "./mock-data";
+import { pipelineCandidateUuidForSlot } from "./pipeline-candidate-uuid";
 
-const MOCK_ROWS: JobPipelineCandidateRow[] = [
+type MockRowCore = Omit<JobPipelineCandidateRow, "id">;
+
+const MOCK_ROWS: MockRowCore[] = [
   {
-    id: "c1",
     name: "Alex Rivera",
     verified: true,
     dateOfBirth: "12 Mar 1998",
@@ -17,7 +22,6 @@ const MOCK_ROWS: JobPipelineCandidateRow[] = [
     status: "INTERVIEWING",
   },
   {
-    id: "c2",
     name: "Minh Anh Nguyen",
     dateOfBirth: "02 Jan 1999",
     mobile: "+84 91 888 2211",
@@ -30,7 +34,6 @@ const MOCK_ROWS: JobPipelineCandidateRow[] = [
     status: "CV SCREENING",
   },
   {
-    id: "c3",
     name: "Jordan Lee",
     verified: true,
     dateOfBirth: "18 Sep 1997",
@@ -44,7 +47,6 @@ const MOCK_ROWS: JobPipelineCandidateRow[] = [
     status: "REJECTED",
   },
   {
-    id: "c4",
     name: "Samira Patel",
     dateOfBirth: "30 Jul 2000",
     mobile: "+84 97 221 0099",
@@ -57,7 +59,6 @@ const MOCK_ROWS: JobPipelineCandidateRow[] = [
     status: "OFFER",
   },
   {
-    id: "c5",
     name: "Chris Wong",
     dateOfBirth: "05 Nov 1996",
     mobile: "+84 98 300 1144",
@@ -76,7 +77,7 @@ export function getJobPipelineView(jobId: string): JobPipelineViewModel {
   const jobTitle = jd?.jobTitle ?? "Job pipeline";
   const rows = MOCK_ROWS.map((r, i) => ({
     ...r,
-    id: `${jobId}-${i}`,
+    id: pipelineCandidateUuidForSlot(jobId, i),
   }));
   const activeOffers = rows.filter((r) => r.status === "OFFER").length;
   return {
@@ -86,4 +87,12 @@ export function getJobPipelineView(jobId: string): JobPipelineViewModel {
     activeOffers,
     rows,
   };
+}
+
+export function findPipelineCandidateRow(
+  jobId: string,
+  candidateId: string,
+): JobPipelineCandidateRow | null {
+  const { rows } = getJobPipelineView(jobId);
+  return rows.find((r) => r.id === candidateId) ?? null;
 }
