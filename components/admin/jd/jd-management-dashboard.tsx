@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -11,7 +12,6 @@ import {
 import Link from "next/link";
 
 import {
-  Avatar,
   Button,
   Card,
   Chip,
@@ -29,8 +29,9 @@ import {
   useOverlayState,
 } from "@heroui/react";
 
-import { getJdDetail, JD_KPIS, JD_ROWS, JD_VERSION_CHIPS } from "@/lib/jd/mock-data";
-import type { JdRow, JdStatus } from "@/lib/jd/types";
+import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
+import type { JobDescription, JobDescriptionFormData, JdStatus } from "@/lib/jd/types";
+import { normalizeFormText } from "@/lib/jd/normalize-text";
 import {
   JD_BUCKET,
   MAX_JD_BYTES,
@@ -39,20 +40,36 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
-const ROWS_PER_PAGE = 4;
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-type JdUploadPhase = "idle" | "uploading" | "done" | "error";
+const ROWS_PER_PAGE = 10;
 
-const CHAPTER_OPTIONS = [
-  "Product Management",
-  "Engineering",
-  "Design",
-  "Marketing",
-];
+const STATUS_OPTIONS: JdStatus[] = ["Active", "Draft", "Closed"];
 
-function statusChipColor(
-  status: JdStatus,
-): "success" | "warning" | "default" {
+const DEFAULT_FORM: JobDescriptionFormData = {
+  position: "",
+  department: "",
+  employment_status: "",
+  status: "Draft",
+  update_note: "",
+  work_location: "",
+  reporting: "",
+  role_overview: "",
+  duties_and_responsibilities: "",
+  experience_requirements_must_have: "",
+  experience_requirements_nice_to_have: "",
+  what_we_offer: "",
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type JdUploadPhase = "idle" | "uploading" | "extracting" | "done" | "error";
+
+function statusChipColor(status: JdStatus): "success" | "warning" | "default" {
   switch (status) {
     case "Active":
       return "success";
@@ -62,6 +79,18 @@ function statusChipColor(
       return "default";
   }
 }
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Icons
+// ---------------------------------------------------------------------------
 
 function EyeIcon({ className }: { className?: string }) {
   return (
@@ -115,27 +144,95 @@ function TableIcon({ className }: { className?: string }) {
   );
 }
 
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section label helper
+// ---------------------------------------------------------------------------
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+      {children}
+    </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export function JdManagementDashboard() {
   const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
 
-  const [page, setPage] = useState(1);
-  const [titleFilter, setTitleFilter] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeRow, setActiveRow] = useState<JdRow | null>(null);
-  const [chapter, setChapter] = useState("Product Management");
+  // ── data ────────────────────────────────────────────────────────────────
+  const [rows, setRows] = useState<JobDescription[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // ── pagination / filter ─────────────────────────────────────────────────
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<JdStatus | null>(null);
+
+  // ── drawer ──────────────────────────────────────────────────────────────
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
+
+  // ── modal / form ────────────────────────────────────────────────────────
+  const [editingRow, setEditingRow] = useState<JobDescription | null>(null);
+  const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // ── file upload ──────────────────────────────────────────────────────────
   const [jdUploadPhase, setJdUploadPhase] = useState<JdUploadPhase>("idle");
   const [jdUploadError, setJdUploadError] = useState<string | null>(null);
-  const [jdDraftJobOpeningId, setJdDraftJobOpeningId] = useState<string | null>(
-    null,
-  );
-  const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(
-    null,
-  );
+  const [jdDraftJobOpeningId, setJdDraftJobOpeningId] = useState<string | null>(null);
+  const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(null);
   const [jdDragOver, setJdDragOver] = useState(false);
+  // ── delete confirm ───────────────────────────────────────────────────────
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const resetJdUploadState = useCallback(() => {
+  // ── overlay state ────────────────────────────────────────────────────────
+  const resetUploadState = useCallback(() => {
     setJdUploadPhase("idle");
     setJdUploadError(null);
     setJdDraftJobOpeningId(null);
@@ -146,32 +243,69 @@ export function JdManagementDashboard() {
 
   const jdModal = useOverlayState({
     onOpenChange: (open) => {
-      if (!open) resetJdUploadState();
+      if (!open) {
+        resetUploadState();
+        setFormError(null);
+        setEditingRow(null);
+        setForm(DEFAULT_FORM);
+      }
     },
   });
 
+  const deleteModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) {
+        setDeletingId(null);
+        setDeleteError(null);
+      }
+    },
+  });
+
+  // ── API helpers ──────────────────────────────────────────────────────────
+
+  const authHeaders = useCallback(async () => {
+    const h = await getSessionAuthorizationHeaders(supabase);
+    return { "Content-Type": "application/json", ...h };
+  }, [supabase]);
+
+  const loadDescriptions = useCallback(async () => {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const h = await getSessionAuthorizationHeaders(supabase);
+      const res = await fetch("/api/admin/job-descriptions", {
+        credentials: "include",
+        headers: { ...h },
+      });
+      const json = (await res.json()) as {
+        jobDescriptions?: JobDescription[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "Failed to load.");
+      setRows(json.jobDescriptions ?? []);
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : "Unknown error.");
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase]);
+
+  useEffect(() => {
+    void loadDescriptions();
+  }, [loadDescriptions]);
+
+  // ── file upload ──────────────────────────────────────────────────────────
+
   const deleteJdDraftOnServer = useCallback(
     async (jobOpeningId: string) => {
-      const auth = await getSessionAuthorizationHeaders(supabase);
+      const h = await getSessionAuthorizationHeaders(supabase);
       await fetch(
         `/api/admin/job-openings/sign-upload?jobOpeningId=${encodeURIComponent(jobOpeningId)}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-          headers: { ...auth },
-        },
+        { method: "DELETE", credentials: "include", headers: { ...h } },
       );
     },
     [supabase],
   );
-
-  const discardJdDraft = useCallback(async () => {
-    if (jdDraftJobOpeningId) {
-      await deleteJdDraftOnServer(jdDraftJobOpeningId);
-    }
-    resetJdUploadState();
-    jdModal.close();
-  }, [deleteJdDraftOnServer, jdDraftJobOpeningId, jdModal, resetJdUploadState]);
 
   const ingestJdFile = useCallback(
     async (file: File) => {
@@ -181,27 +315,24 @@ export function JdManagementDashboard() {
         return;
       }
       if (file.size > MAX_JD_BYTES) {
-        setJdUploadError("File exceeds 10MB limit.");
+        setJdUploadError("File exceeds 10 MB limit.");
         setJdUploadPhase("error");
         return;
       }
-
       setJdUploadError(null);
       setJdUploadPhase("uploading");
       let newJobId: string | undefined;
-
       try {
-        const auth = await getSessionAuthorizationHeaders(supabase);
-        if (!auth.Authorization) {
+        const h = await getSessionAuthorizationHeaders(supabase);
+        if (!h.Authorization) {
           setJdUploadError("Session expired. Sign in again.");
           setJdUploadPhase("error");
           return;
         }
-
         const signRes = await fetch("/api/admin/job-openings/sign-upload", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...auth },
+          headers: { "Content-Type": "application/json", ...h },
           body: JSON.stringify({
             filename: file.name,
             mimeType: file.type || null,
@@ -214,32 +345,51 @@ export function JdManagementDashboard() {
           path?: string;
           token?: string;
         };
-        if (
-          !signRes.ok ||
-          !signJson.jobOpeningId ||
-          !signJson.path ||
-          !signJson.token
-        ) {
-          throw new Error(signJson.error ?? "Could not start upload");
+        if (!signRes.ok || !signJson.jobOpeningId || !signJson.path || !signJson.token) {
+          throw new Error(signJson.error ?? "Could not start upload.");
         }
         newJobId = signJson.jobOpeningId;
-
         const { error: upErr } = await supabase.storage
           .from(JD_BUCKET)
           .uploadToSignedUrl(signJson.path, signJson.token, file, {
             contentType: file.type || undefined,
           });
-
-        if (upErr) {
-          throw new Error(upErr.message);
-        }
+        if (upErr) throw new Error(upErr.message);
 
         setJdDraftJobOpeningId(signJson.jobOpeningId);
         setJdSelectedFileName(file.name);
+        setJdUploadPhase("extracting");
+        setJdUploadError(null);
+
+        try {
+          const exRes = await fetch("/api/admin/job-descriptions/extract", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...h },
+            body: JSON.stringify({ jobOpeningId: signJson.jobOpeningId }),
+          });
+          const exJson = (await exRes.json()) as {
+            error?: string;
+            extracted?: Record<string, unknown>;
+          };
+          if (!exRes.ok || !exJson.extracted) {
+            setJdUploadError(
+              exJson.error ??
+                "Could not read the JD with AI. You can fill the form manually.",
+            );
+          } else {
+            const patch = extractedApiToFormPatch(exJson.extracted);
+            setForm((prev) => ({ ...prev, ...patch }));
+          }
+        } catch {
+          setJdUploadError(
+            "Could not run AI extraction. Fill the form manually.",
+          );
+        }
+
         setJdUploadPhase("done");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Unknown error";
-        setJdUploadError(msg);
+        setJdUploadError(e instanceof Error ? e.message : "Unknown error.");
         setJdUploadPhase("error");
         if (newJobId) {
           await deleteJdDraftOnServer(newJobId);
@@ -250,28 +400,139 @@ export function JdManagementDashboard() {
     [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase],
   );
 
-  const onJdFileInputChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
-      if (f) void ingestJdFile(f);
+  const discardJdDraft = useCallback(async () => {
+    if (jdDraftJobOpeningId) await deleteJdDraftOnServer(jdDraftJobOpeningId);
+    resetUploadState();
+    jdModal.close();
+  }, [deleteJdDraftOnServer, jdDraftJobOpeningId, jdModal, resetUploadState]);
+
+  // ── form submit ──────────────────────────────────────────────────────────
+
+  const handleSave = useCallback(
+    async (asDraft: boolean) => {
+      if (editingRow && !form.position.trim()) {
+        setFormError("Position is required.");
+        return;
+      }
+      setFormSubmitting(true);
+      setFormError(null);
+      const positionFromFile =
+        jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
+        "";
+      const resolvedPosition = editingRow
+        ? form.position.trim()
+        : form.position.trim() || positionFromFile || "Untitled JD";
+      const payload: JobDescriptionFormData = {
+        ...form,
+        position: resolvedPosition,
+        status: asDraft ? "Draft" : (form.status === "Draft" && !editingRow ? "Active" : form.status),
+      };
+      const postBody =
+        !editingRow && jdDraftJobOpeningId
+          ? { ...payload, jdDraftJobOpeningId }
+          : payload;
+      try {
+        const headers = await authHeaders();
+        let res: Response;
+        if (editingRow) {
+          res = await fetch(`/api/admin/job-descriptions/${editingRow.id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers,
+            body: JSON.stringify(payload),
+          });
+        } else {
+          res = await fetch("/api/admin/job-descriptions", {
+            method: "POST",
+            credentials: "include",
+            headers,
+            body: JSON.stringify(postBody),
+          });
+        }
+        const json = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(json.error ?? "Save failed.");
+        jdModal.close();
+        await loadDescriptions();
+      } catch (e) {
+        setFormError(e instanceof Error ? e.message : "Unknown error.");
+      } finally {
+        setFormSubmitting(false);
+      }
     },
-    [ingestJdFile],
+    [
+      authHeaders,
+      editingRow,
+      form,
+      jdDraftJobOpeningId,
+      jdModal,
+      jdSelectedFileName,
+      loadDescriptions,
+    ],
   );
 
-  const onJdDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      setJdDragOver(false);
-      const f = e.dataTransfer.files?.[0];
-      if (f) void ingestJdFile(f);
-    },
-    [ingestJdFile],
-  );
+  // ── delete ───────────────────────────────────────────────────────────────
 
-  const filteredRows = useMemo(() => {
-    if (!titleFilter) return JD_ROWS;
-    return JD_ROWS.filter((r) => r.jobTitle === titleFilter);
-  }, [titleFilter]);
+  const confirmDelete = useCallback(async () => {
+    if (!deletingId) return;
+    setDeleteError(null);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/admin/job-descriptions/${deletingId}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers,
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Delete failed.");
+      }
+      if (activeRow?.id === deletingId) {
+        setActiveRow(null);
+        setDrawerOpen(false);
+      }
+      deleteModal.close();
+      await loadDescriptions();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Unknown error.");
+    }
+  }, [activeRow, authHeaders, deleteModal, deletingId, loadDescriptions]);
+
+  // ── open modal for edit ──────────────────────────────────────────────────
+
+  function openEdit(row: JobDescription) {
+    setEditingRow(row);
+    setForm({
+      position: normalizeFormText(row.position),
+      department: normalizeFormText(row.department),
+      employment_status: normalizeFormText(row.employment_status),
+      status: row.status,
+      update_note: normalizeFormText(row.update_note),
+      work_location: normalizeFormText(row.work_location),
+      reporting: normalizeFormText(row.reporting),
+      role_overview: normalizeFormText(row.role_overview),
+      duties_and_responsibilities: normalizeFormText(
+        row.duties_and_responsibilities,
+      ),
+      experience_requirements_must_have: normalizeFormText(
+        row.experience_requirements_must_have,
+      ),
+      experience_requirements_nice_to_have: normalizeFormText(
+        row.experience_requirements_nice_to_have,
+      ),
+      what_we_offer: normalizeFormText(row.what_we_offer),
+    });
+    jdModal.open();
+  }
+
+  // ── table data ───────────────────────────────────────────────────────────
+
+  const filteredRows = useMemo(
+    () =>
+      statusFilter
+        ? rows.filter((r) => r.status === statusFilter)
+        : rows,
+    [rows, statusFilter],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -281,30 +542,65 @@ export function JdManagementDashboard() {
     return filteredRows.slice(start, start + ROWS_PER_PAGE);
   }, [filteredRows, safePage]);
 
-  const startIdx = (safePage - 1) * ROWS_PER_PAGE + 1;
+  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
 
-  const detail = activeRow ? getJdDetail(activeRow) : null;
+  // ── KPIs ─────────────────────────────────────────────────────────────────
 
-  function openRow(row: JdRow) {
-    setActiveRow(row);
-    setDrawerOpen(true);
+  const kpis = useMemo(
+    () => [
+      { id: "total", value: String(rows.length), label: "Total JDs" },
+      {
+        id: "active",
+        value: String(rows.filter((r) => r.status === "Active").length),
+        label: "Active",
+      },
+      {
+        id: "draft",
+        value: String(rows.filter((r) => r.status === "Draft").length),
+        label: "Draft",
+      },
+      {
+        id: "closed",
+        value: String(rows.filter((r) => r.status === "Closed").length),
+        label: "Closed",
+      },
+    ],
+    [rows],
+  );
+
+  // ── form helpers ──────────────────────────────────────────────────────────
+
+  function setField<K extends keyof JobDescriptionFormData>(
+    key: K,
+    value: JobDescriptionFormData[K],
+  ) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
+
+  // ── render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col gap-8">
+      {/* ── Header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Job descriptions
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Manage and monitor high-impact recruitment assets across campaigns.
+            Manage and monitor recruitment job descriptions across the organisation.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary">View templates</Button>
-          <Button variant="primary" onPress={jdModal.open}>
+          <Button
+            variant="primary"
+            onPress={() => {
+              setEditingRow(null);
+              setForm(DEFAULT_FORM);
+              jdModal.open();
+            }}
+          >
             New definition
           </Button>
           <input
@@ -314,258 +610,490 @@ export function JdManagementDashboard() {
             accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
             aria-hidden
             tabIndex={-1}
-            onChange={onJdFileInputChange}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              const f = e.target.files?.[0];
+              if (f) void ingestJdFile(f);
+            }}
           />
-          <Modal.Backdrop
-            className="bg-black/40 backdrop-blur-sm"
-            isOpen={jdModal.isOpen}
-            onOpenChange={jdModal.setOpen}
-          >
-            <Modal.Container>
-              <Modal.Dialog className="w-full max-w-[760px] overflow-hidden p-0">
-                <Modal.CloseTrigger />
-                <Modal.Header className="items-start border-b border-divider px-6 py-5">
-                  <div className="flex w-full flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-2">
-                      <Modal.Heading className="text-xl">
-                        Create New Definition
-                      </Modal.Heading>
-                      <Button variant="secondary" size="sm">
-                        View Templates
-                      </Button>
-                    </div>
-                    <Chip variant="soft" size="sm">
-                      Version Control: v1.0
-                    </Chip>
-                  </div>
-                </Modal.Header>
-                <Modal.Body className="max-h-[70vh] space-y-7 overflow-y-auto px-6 py-6">
-                  <Card
-                    variant="secondary"
-                    className={
-                      jdDragOver ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : undefined
-                    }
-                  >
-                    <Card.Content
-                      className="items-center gap-3 py-8 text-center"
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setJdDragOver(true);
-                      }}
-                      onDragLeave={() => setJdDragOver(false)}
-                      onDrop={onJdDrop}
-                    >
-                      <div className="flex size-12 items-center justify-center rounded-full bg-accent/15 text-accent">
-                        {jdUploadPhase === "done" ? (
-                          <CheckCircleIcon className="size-7 text-success" />
-                        ) : (
-                          <span className="text-xl">+</span>
-                        )}
-                      </div>
-                      <p className="text-sm font-semibold text-foreground">
-                        Drag & Drop JD Document
-                      </p>
-                      <p className="text-xs text-muted">
-                        PDF, DOCX or TXT files supported. Max 10MB.
-                      </p>
-                      {jdUploadPhase === "uploading" ? (
-                        <p className="text-xs text-accent">Uploading…</p>
-                      ) : null}
-                      {jdUploadPhase === "done" && jdSelectedFileName ? (
-                        <p className="text-xs font-medium text-foreground">
-                          {jdSelectedFileName}
-                        </p>
-                      ) : null}
-                      {jdUploadPhase === "error" && jdUploadError ? (
-                        <p className="text-xs text-danger">{jdUploadError}</p>
-                      ) : null}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onPress={() => jdFileInputRef.current?.click()}
-                      >
-                        Browse Files
-                      </Button>
-                    </Card.Content>
-                  </Card>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <TextField defaultValue="Executive Director of Product">
-                        <Label className="mb-2 flex items-center justify-between">
-                          Job title
-                          <Chip size="sm" color="accent" variant="soft">
-                            AI
-                          </Chip>
-                        </Label>
-                        <Input />
-                      </TextField>
-
-                      <Select
-                        value={chapter}
-                        onChange={(key) => {
-                          if (typeof key === "string") {
-                            setChapter(key);
-                          }
-                        }}
-                      >
-                        <Label>Chapter</Label>
-                        <Select.Trigger>
-                          <Select.Value />
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {CHAPTER_OPTIONS.map((option) => (
-                              <ListBox.Item key={option} id={option} textValue={option}>
-                                {option}
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                    </div>
-
-                    <TextField defaultValue="Q4 Global Expansion Strategy">
-                      <Label className="mb-2 flex items-center justify-between">
-                        Campaign
-                        <Chip size="sm" color="accent" variant="soft">
-                          AI
-                        </Chip>
-                      </Label>
-                      <Input />
-                    </TextField>
-
-                    <TextField>
-                      <Label className="mb-2 flex items-center justify-between">
-                        JD content
-                        <Chip size="sm" color="accent" variant="soft">
-                          AI Suggestion
-                        </Chip>
-                      </Label>
-                      <TextArea
-                        className="min-h-[11rem]"
-                        defaultValue="As an Executive Director of Product, you will lead the strategic vision for our global digital footprint. You will be responsible for scaling product teams across three continents, fostering a culture of innovation, and aligning product roadmaps with executive business goals..."
-                      />
-                    </TextField>
-                  </Modal.Body>
-                <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
-                  <Button variant="ghost" onPress={() => void discardJdDraft()}>
-                    Discard Draft
-                  </Button>
-                  <div className="flex gap-2">
-                    <Button variant="secondary">Save Draft</Button>
-                    <Button variant="primary">Create</Button>
-                  </div>
-                </Modal.Footer>
-              </Modal.Dialog>
-            </Modal.Container>
-          </Modal.Backdrop>
         </div>
       </div>
 
+      {/* ── Create / Edit Modal ── */}
+      <Modal.Backdrop
+        className="bg-black/40 backdrop-blur-sm"
+        isOpen={jdModal.isOpen}
+        onOpenChange={jdModal.setOpen}
+      >
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-[820px] overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="items-start border-b border-divider px-6 py-5">
+              <Modal.Heading className="text-xl">
+                {editingRow ? "Edit Job Description" : "Create New Definition"}
+              </Modal.Heading>
+            </Modal.Header>
+
+            <Modal.Body className="max-h-[72vh] space-y-6 overflow-y-auto px-6 py-6">
+              {/* File upload (optional) */}
+              {!editingRow && (
+                <Card
+                  variant="secondary"
+                  className={
+                    jdDragOver
+                      ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                      : undefined
+                  }
+                >
+                  <Card.Content
+                    className="items-center gap-3 py-6 text-center"
+                    onDragOver={(e: DragEvent) => {
+                      if (
+                        jdUploadPhase === "uploading" ||
+                        jdUploadPhase === "extracting"
+                      )
+                        return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setJdDragOver(true);
+                    }}
+                    onDragLeave={() => setJdDragOver(false)}
+                    onDrop={(e: DragEvent) => {
+                      if (
+                        jdUploadPhase === "uploading" ||
+                        jdUploadPhase === "extracting"
+                      )
+                        return;
+                      e.preventDefault();
+                      setJdDragOver(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) void ingestJdFile(f);
+                    }}
+                  >
+                    <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                      {jdUploadPhase === "done" ? (
+                        <CheckCircleIcon className="size-6 text-success" />
+                      ) : (
+                        <span className="text-lg">+</span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Attach JD Document{" "}
+                      <span className="font-normal text-muted">(optional)</span>
+                    </p>
+                    <p className="text-xs text-muted">
+                      PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
+                      form for you to review.
+                    </p>
+                    {jdUploadPhase === "uploading" && (
+                      <p className="text-xs text-accent">Uploading…</p>
+                    )}
+                    {jdUploadPhase === "extracting" && (
+                      <p className="text-xs text-accent">
+                        Reading document with AI…
+                      </p>
+                    )}
+                    {jdUploadPhase === "done" && jdSelectedFileName && (
+                      <p className="text-xs font-medium text-success">
+                        ✓ {jdSelectedFileName}
+                      </p>
+                    )}
+                    {(jdUploadPhase === "done" || jdUploadPhase === "error") &&
+                      jdUploadError && (
+                        <p className="text-xs text-danger">{jdUploadError}</p>
+                      )}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      isDisabled={
+                        jdUploadPhase === "uploading" ||
+                        jdUploadPhase === "extracting"
+                      }
+                      onPress={() => jdFileInputRef.current?.click()}
+                    >
+                      Browse Files
+                    </Button>
+                  </Card.Content>
+                </Card>
+              )}
+
+              <div className="space-y-4">
+                <SectionLabel>Basic information</SectionLabel>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    value={form.position}
+                    onChange={(v) => setField("position", v)}
+                    isRequired
+                  >
+                    <Label>Position *</Label>
+                    <Input placeholder="e.g. AI Engineer (Mid-level)" />
+                  </TextField>
+
+                  <TextField
+                    value={form.department}
+                    onChange={(v) => setField("department", v)}
+                  >
+                    <Label>Department</Label>
+                    <Input placeholder="e.g. Solutions Team" />
+                  </TextField>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    value={form.employment_status}
+                    onChange={(v) => setField("employment_status", v)}
+                  >
+                    <Label>Employment type (from JD)</Label>
+                    <Input placeholder="e.g. Fulltime, Part-time" />
+                  </TextField>
+
+                  <TextField
+                    value={form.update_note}
+                    onChange={(v) => setField("update_note", v)}
+                  >
+                    <Label>Update / revision</Label>
+                    <Input placeholder="e.g. 2026 or revision note" />
+                  </TextField>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Select
+                    value={form.status}
+                    onChange={(key) => {
+                      if (typeof key === "string")
+                        setField("status", key as JdStatus);
+                    }}
+                  >
+                    <Label>Recruitment status</Label>
+                    <Select.Trigger>
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        {STATUS_OPTIONS.map((s) => (
+                          <ListBox.Item key={s} id={s} textValue={s}>
+                            {s}
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+
+                  <TextField
+                    value={form.work_location}
+                    onChange={(v) => setField("work_location", v)}
+                  >
+                    <Label>Work location</Label>
+                    <Input placeholder="e.g. Hanoi / Remote / Hybrid" />
+                  </TextField>
+                </div>
+              </div>
+
+              {/* Organisational */}
+              <div className="space-y-4">
+                <SectionLabel>Organisation</SectionLabel>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    value={form.reporting}
+                    onChange={(v) => setField("reporting", v)}
+                  >
+                    <Label>Reporting to</Label>
+                    <Input placeholder="e.g. VP of Engineering" />
+                  </TextField>
+
+                  <TextField
+                    value={form.role_overview}
+                    onChange={(v) => setField("role_overview", v)}
+                  >
+                    <Label>Role overview</Label>
+                    <Input placeholder="One-line summary of the role" />
+                  </TextField>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="space-y-4">
+                <SectionLabel>Job content</SectionLabel>
+
+                <TextField
+                  value={form.duties_and_responsibilities}
+                  onChange={(v) => setField("duties_and_responsibilities", v)}
+                >
+                  <Label>Duties &amp; responsibilities</Label>
+                  <TextArea className="min-h-[8rem]" />
+                </TextField>
+
+                <TextField
+                  value={form.experience_requirements_must_have}
+                  onChange={(v) =>
+                    setField("experience_requirements_must_have", v)
+                  }
+                >
+                  <Label>Experience requirements — must have</Label>
+                  <TextArea className="min-h-[6rem]" />
+                </TextField>
+
+                <TextField
+                  value={form.experience_requirements_nice_to_have}
+                  onChange={(v) =>
+                    setField("experience_requirements_nice_to_have", v)
+                  }
+                >
+                  <Label>Experience requirements — nice to have</Label>
+                  <TextArea className="min-h-[6rem]" />
+                </TextField>
+
+                <TextField
+                  value={form.what_we_offer}
+                  onChange={(v) => setField("what_we_offer", v)}
+                >
+                  <Label>What we offer</Label>
+                  <TextArea className="min-h-[6rem]" />
+                </TextField>
+              </div>
+
+              {formError && (
+                <p className="text-sm text-danger">{formError}</p>
+              )}
+            </Modal.Body>
+
+            <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
+              <Button
+                variant="ghost"
+                onPress={() => void discardJdDraft()}
+                isDisabled={
+                  formSubmitting ||
+                  jdUploadPhase === "uploading" ||
+                  jdUploadPhase === "extracting"
+                }
+              >
+                {editingRow ? "Cancel" : "Discard draft"}
+              </Button>
+              <div className="flex gap-2">
+                {!editingRow && (
+                  <Button
+                    variant="secondary"
+                    isDisabled={
+                      formSubmitting ||
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    }
+                    onPress={() => void handleSave(true)}
+                  >
+                    Save draft
+                  </Button>
+                )}
+                <Button
+                  variant="primary"
+                  isDisabled={
+                    formSubmitting ||
+                    jdUploadPhase === "uploading" ||
+                    jdUploadPhase === "extracting"
+                  }
+                  onPress={() => void handleSave(false)}
+                >
+                  {formSubmitting
+                    ? "Saving…"
+                    : editingRow
+                      ? "Save changes"
+                      : "Create"}
+                </Button>
+              </div>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      {/* ── Delete confirm modal ── */}
+      <Modal.Backdrop
+        className="bg-black/40 backdrop-blur-sm"
+        isOpen={deleteModal.isOpen}
+        onOpenChange={deleteModal.setOpen}
+      >
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-sm overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-6 py-5">
+              <Modal.Heading>Delete job description</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="px-6 py-5">
+              <p className="text-sm text-muted">
+                This action cannot be undone. The job description will be
+                permanently removed.
+              </p>
+              {deleteError && (
+                <p className="mt-3 text-sm text-danger">{deleteError}</p>
+              )}
+            </Modal.Body>
+            <Modal.Footer className="justify-end gap-2 border-t border-divider px-6 py-4">
+              <Button variant="secondary" onPress={deleteModal.close}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="bg-danger text-white hover:bg-danger/90"
+                onPress={() => void confirmDelete()}
+              >
+                Delete
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      {/* ── Status filter chips ── */}
       <div className="flex flex-wrap gap-2">
-        {JD_VERSION_CHIPS.map((chip) => {
-          const selected = titleFilter === chip.filter;
-          return (
-            <Button
-              key={chip.id}
-              size="sm"
-              variant={selected ? "primary" : "secondary"}
-              onPress={() => {
-                setTitleFilter((prev) =>
-                  prev === chip.filter ? null : chip.filter,
-                );
-                setPage(1);
-              }}
-            >
-              {chip.label}
-            </Button>
-          );
-        })}
+        <Button
+          size="sm"
+          variant={statusFilter === null ? "primary" : "secondary"}
+          onPress={() => {
+            setStatusFilter(null);
+            setPage(1);
+          }}
+        >
+          All
+        </Button>
+        {STATUS_OPTIONS.map((s) => (
+          <Button
+            key={s}
+            size="sm"
+            variant={statusFilter === s ? "primary" : "secondary"}
+            onPress={() => {
+              setStatusFilter((prev) => (prev === s ? null : s));
+              setPage(1);
+            }}
+          >
+            {s}
+          </Button>
+        ))}
       </div>
 
+      {/* ── KPI cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {JD_KPIS.map((kpi) => (
+        {kpis.map((kpi) => (
           <Card key={kpi.id} variant="secondary">
             <Card.Header className="gap-1">
               <Card.Title className="text-2xl font-semibold tabular-nums">
-                {kpi.value}
+                {loading ? "—" : kpi.value}
               </Card.Title>
               <Card.Description>{kpi.label}</Card.Description>
             </Card.Header>
-            {kpi.hint ? (
-              <Card.Content className="pt-0">
-                <p className="text-xs text-muted">{kpi.hint}</p>
-              </Card.Content>
-            ) : null}
           </Card>
         ))}
       </div>
 
+      {/* ── Table ── */}
       <Card>
         <Card.Content className="gap-0 p-0">
+          {fetchError && (
+            <p className="px-6 py-4 text-sm text-danger">{fetchError}</p>
+          )}
           <Table>
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Job descriptions"
-                className="min-w-[640px]"
+                className="min-w-[700px]"
               >
                 <Table.Header>
-                  <Table.Column isRowHeader>Job title</Table.Column>
-                  <Table.Column>Chapter</Table.Column>
-                  <Table.Column>Campaign</Table.Column>
+                  <Table.Column isRowHeader>Position</Table.Column>
+                  <Table.Column>Department</Table.Column>
+                  <Table.Column>Work location</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column>Actions</Table.Column>
                 </Table.Header>
-                <Table.Body>
-                  {paginatedRows.map((row) => (
-                    <Table.Row key={row.id} id={row.id}>
-                      <Table.Cell className="font-medium">
-                        {row.jobTitle}
-                      </Table.Cell>
-                      <Table.Cell>{row.chapter}</Table.Cell>
-                      <Table.Cell>{row.campaign}</Table.Cell>
-                      <Table.Cell>
-                        <Chip
-                          color={statusChipColor(row.status)}
-                          size="sm"
-                          variant="soft"
-                        >
-                          {row.status}
-                        </Chip>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href={`/admin/jd/${row.id}/pipeline`}
-                            aria-label={`Open pipeline spreadsheet for ${row.jobTitle}`}
-                            className="inline-flex size-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
-                          >
-                            <TableIcon className="size-4" />
-                          </Link>
-                          <Button
-                            aria-label={`View ${row.jobTitle}`}
-                            variant="ghost"
-                            size="sm"
-                            className="min-w-0 px-2"
-                            onPress={() => openRow(row)}
-                          >
-                            <EyeIcon className="size-4" />
-                          </Button>
-                        </div>
+                <Table.Body
+                  key={
+                    loading
+                      ? "jd-table-loading"
+                      : paginatedRows.length === 0
+                        ? "jd-table-empty"
+                        : "jd-table-data"
+                  }
+                >
+                  {loading ? (
+                    <Table.Row id="jd-row-loading">
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={5}>
+                        Loading…
                       </Table.Cell>
                     </Table.Row>
-                  ))}
+                  ) : paginatedRows.length === 0 ? (
+                    <Table.Row id="jd-row-empty">
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={5}>
+                        No job descriptions found.
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : (
+                    paginatedRows.map((row) => (
+                      <Table.Row key={row.id} id={String(row.id)}>
+                        <Table.Cell className="font-medium">
+                          {row.position}
+                        </Table.Cell>
+                        <Table.Cell>{row.department ?? "—"}</Table.Cell>
+                        <Table.Cell>{row.work_location ?? "—"}</Table.Cell>
+                        <Table.Cell>
+                          <Chip
+                            color={statusChipColor(row.status)}
+                            size="sm"
+                            variant="soft"
+                          >
+                            {row.status}
+                          </Chip>
+                        </Table.Cell>
+                        <Table.Cell>
+                          <div className="flex items-center gap-1">
+                            <Link
+                              href={`/admin/jd/${row.id}/pipeline`}
+                              aria-label={`Open pipeline for ${row.position}`}
+                              className="inline-flex size-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
+                            >
+                              <TableIcon className="size-4" />
+                            </Link>
+                            <Button
+                              aria-label={`View ${row.position}`}
+                              variant="ghost"
+                              size="sm"
+                              className="min-w-0 px-2"
+                              onPress={() => {
+                                setActiveRow(row);
+                                setDrawerOpen(true);
+                              }}
+                            >
+                              <EyeIcon className="size-4" />
+                            </Button>
+                            <Button
+                              aria-label={`Edit ${row.position}`}
+                              variant="ghost"
+                              size="sm"
+                              className="min-w-0 px-2"
+                              onPress={() => openEdit(row)}
+                            >
+                              <PencilIcon className="size-4" />
+                            </Button>
+                            <Button
+                              aria-label={`Delete ${row.position}`}
+                              variant="ghost"
+                              size="sm"
+                              className="min-w-0 px-2 text-danger hover:bg-danger/10"
+                              onPress={() => {
+                                setDeletingId(row.id);
+                                deleteModal.open();
+                              }}
+                            >
+                              <TrashIcon className="size-4" />
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))
+                  )}
                 </Table.Body>
               </Table.Content>
             </Table.ScrollContainer>
             <Table.Footer className="border-t border-divider px-4 py-3">
               <Pagination size="sm">
                 <Pagination.Summary>
-                  Showing {filteredRows.length === 0 ? 0 : startIdx} to {endIdx}{" "}
-                  of {filteredRows.length} records
+                  Showing {startIdx} to {endIdx} of {filteredRows.length} records
                 </Pagination.Summary>
                 <Pagination.Content>
                   <Pagination.Item>
@@ -576,24 +1104,20 @@ export function JdManagementDashboard() {
                       <Pagination.PreviousIcon />
                     </Pagination.Previous>
                   </Pagination.Item>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                    (p) => (
-                      <Pagination.Item key={p}>
-                        <Pagination.Link
-                          isActive={p === safePage}
-                          onPress={() => setPage(p)}
-                        >
-                          {p}
-                        </Pagination.Link>
-                      </Pagination.Item>
-                    ),
-                  )}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                    <Pagination.Item key={p}>
+                      <Pagination.Link
+                        isActive={p === safePage}
+                        onPress={() => setPage(p)}
+                      >
+                        {p}
+                      </Pagination.Link>
+                    </Pagination.Item>
+                  ))}
                   <Pagination.Item>
                     <Pagination.Next
                       isDisabled={safePage >= totalPages}
-                      onPress={() =>
-                        setPage((p) => Math.min(totalPages, p + 1))
-                      }
+                      onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
                     >
                       <Pagination.NextIcon />
                     </Pagination.Next>
@@ -605,109 +1129,128 @@ export function JdManagementDashboard() {
         </Card.Content>
       </Card>
 
+      {/* ── Detail Drawer ── */}
       <Drawer.Backdrop isOpen={drawerOpen} onOpenChange={setDrawerOpen}>
         <Drawer.Content placement="right">
           <Drawer.Dialog className="w-full max-w-md sm:max-w-lg">
             <Drawer.CloseTrigger />
-            {detail ? (
+            {activeRow ? (
               <>
                 <Drawer.Header>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Chip color={statusChipColor(detail.status)} size="sm" variant="soft">
-                      {detail.status}
+                    <Chip
+                      color={statusChipColor(activeRow.status)}
+                      size="sm"
+                      variant="soft"
+                    >
+                      {activeRow.status}
                     </Chip>
+                    {activeRow.department && (
+                      <Chip size="sm" variant="soft">
+                        {activeRow.department}
+                      </Chip>
+                    )}
                   </div>
-                  <Drawer.Heading className="mt-2">{detail.title}</Drawer.Heading>
-                  <p className="text-sm text-muted">
-                    category {detail.category} · campaign {detail.campaign}
-                  </p>
+                  <Drawer.Heading className="mt-2">{activeRow.position}</Drawer.Heading>
+                  <div className="mt-1 flex flex-wrap gap-3 text-sm text-muted">
+                    {activeRow.employment_status ? (
+                      <span>JD status: {activeRow.employment_status}</span>
+                    ) : null}
+                    {activeRow.work_location && (
+                      <span>📍 {activeRow.work_location}</span>
+                    )}
+                    {activeRow.reporting && (
+                      <span>Reports to: {activeRow.reporting}</span>
+                    )}
+                  </div>
                 </Drawer.Header>
+
                 <Drawer.Body className="flex flex-col gap-6">
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Job description
-                    </h3>
-                    <p className="mt-2 text-sm leading-relaxed text-muted">
-                      {detail.description}
-                    </p>
-                    <p className="mt-3 text-sm font-medium text-foreground">
-                      Key responsibilities
-                    </p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
-                      {detail.responsibilities.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                    <p className="mt-3 text-sm text-muted">
-                      <span className="font-medium text-foreground">
-                        Requirements:{" "}
-                      </span>
-                      {detail.requirements}
-                    </p>
-                  </section>
+                  {activeRow.role_overview && (
+                    <section>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Role overview
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-muted">
+                        {activeRow.role_overview}
+                      </p>
+                    </section>
+                  )}
+
+                  {activeRow.duties_and_responsibilities && (
+                    <>
+                      <Separator />
+                      <section>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Duties &amp; responsibilities
+                        </h3>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
+                          {activeRow.duties_and_responsibilities}
+                        </p>
+                      </section>
+                    </>
+                  )}
+
+                  {activeRow.experience_requirements_must_have && (
+                    <>
+                      <Separator />
+                      <section>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Experience — must have
+                        </h3>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
+                          {activeRow.experience_requirements_must_have}
+                        </p>
+                      </section>
+                    </>
+                  )}
+
+                  {activeRow.experience_requirements_nice_to_have && (
+                    <>
+                      <Separator />
+                      <section>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Experience — nice to have
+                        </h3>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
+                          {activeRow.experience_requirements_nice_to_have}
+                        </p>
+                      </section>
+                    </>
+                  )}
+
+                  {activeRow.what_we_offer && (
+                    <>
+                      <Separator />
+                      <section>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          What we offer
+                        </h3>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
+                          {activeRow.what_we_offer}
+                        </p>
+                      </section>
+                    </>
+                  )}
 
                   <Separator />
 
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Version history
-                    </h3>
-                    <ul className="mt-3 space-y-3">
-                      {detail.versions.map((v) => (
-                        <li
-                          key={v.version}
-                          className="flex gap-2 text-sm text-muted"
-                        >
-                          {v.isCurrent ? (
-                            <CheckCircleIcon className="mt-0.5 size-4 shrink-0 text-success" />
-                          ) : (
-                            <span className="mt-0.5 size-4 shrink-0" />
-                          )}
-                          <div>
-                            <span className="font-medium text-foreground">
-                              {v.version}
-                              {v.isCurrent ? " (Current)" : ""}
-                            </span>
-                            <span>
-                              {" "}
-                              · {v.date} · by {v.author}
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-
-                  <Separator />
-
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Candidates ({detail.candidates.length})
-                    </h3>
-                    <ul className="mt-3 space-y-3">
-                      {detail.candidates.map((c) => (
-                        <li key={c.id} className="flex items-center gap-3">
-                          <Avatar className="size-9" aria-label={c.name}>
-                            <Avatar.Fallback className="text-xs">
-                              {c.initials}
-                            </Avatar.Fallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                              {c.name}
-                            </p>
-                            <p className="text-xs text-muted">{c.stage}</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                  <section className="space-y-1 text-xs text-muted">
+                    <p>Created: {formatDate(activeRow.created_at)}</p>
+                    <p>Last updated: {formatDate(activeRow.updated_at)}</p>
+                    {activeRow.update_note && (
+                      <p>Update note: {activeRow.update_note}</p>
+                    )}
                   </section>
                 </Drawer.Body>
+
                 <Drawer.Footer className="flex flex-wrap gap-2">
                   <Button slot="close" variant="secondary">
                     Close
                   </Button>
-                  <Button variant="primary">Edit JD</Button>
+                  <Button variant="primary" onPress={() => openEdit(activeRow)}>
+                    Edit JD
+                  </Button>
                 </Drawer.Footer>
               </>
             ) : null}

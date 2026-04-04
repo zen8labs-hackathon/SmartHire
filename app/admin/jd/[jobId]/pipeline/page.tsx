@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
 import { getJobPipelineView } from "@/lib/jd/pipeline-mock-data";
-import { JD_ROWS } from "@/lib/jd/mock-data";
+import { createClient } from "@/lib/supabase/server";
 
 type PageProps = {
   params: Promise<{ jobId: string }>;
@@ -10,15 +10,24 @@ type PageProps = {
 
 export default async function JobPipelinePage({ params }: PageProps) {
   const { jobId } = await params;
-  const exists = JD_ROWS.some((r) => r.id === jobId);
-  if (!exists) {
-    notFound();
-  }
+  const numId = Number(jobId);
+  if (!Number.isInteger(numId) || numId <= 0) notFound();
+
+  const supabase = await createClient();
+  const { data: jd } = await supabase
+    .from("job_descriptions")
+    .select("id, position")
+    .eq("id", numId)
+    .maybeSingle();
+
+  if (!jd) notFound();
+
   const model = getJobPipelineView(jobId);
+
   return (
     <JobPipelineSpreadsheet
-      jobId={model.jobId}
-      jobTitle={model.jobTitle}
+      jobId={String(jd.id)}
+      jobTitle={jd.position}
       totalCandidates={model.totalCandidates}
       activeOffers={model.activeOffers}
       rows={model.rows}
