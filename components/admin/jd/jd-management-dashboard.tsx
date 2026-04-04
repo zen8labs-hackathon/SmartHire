@@ -43,8 +43,6 @@ import {
   MAX_JD_BYTES,
   isAllowedJdFilename,
 } from "@/lib/jd/upload-constants";
-import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -345,13 +343,6 @@ export function JdManagementDashboard() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
-  const [jdDrawerCandidatesDb, setJdDrawerCandidatesDb] = useState<
-    CandidateDbRow[]
-  >([]);
-  const [jdDrawerCandidatesState, setJdDrawerCandidatesState] = useState<
-    "idle" | "loading" | "error" | "ok"
-  >("idle");
-
   // ── overlay state ────────────────────────────────────────────────────────
   const resetUploadState = useCallback(() => {
     setJdUploadPhase("idle");
@@ -425,59 +416,6 @@ export function JdManagementDashboard() {
   useEffect(() => {
     void loadDescriptions();
   }, [loadDescriptions]);
-
-  const refetchJdDrawerCandidates = useCallback(async () => {
-    if (!activeRow) return;
-    try {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch(
-        `/api/admin/candidates?jobDescriptionId=${activeRow.id}`,
-        { credentials: "include", headers: { ...h } },
-      );
-      if (!res.ok) return;
-      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
-      setJdDrawerCandidatesDb(json.candidates ?? []);
-      setJdDrawerCandidatesState("ok");
-    } catch {
-      setJdDrawerCandidatesState("error");
-    }
-  }, [activeRow, supabase]);
-
-  useEffect(() => {
-    if (!drawerOpen || !activeRow) {
-      setJdDrawerCandidatesState("idle");
-      setJdDrawerCandidatesDb([]);
-      return;
-    }
-
-    let cancelled = false;
-    setJdDrawerCandidatesState("loading");
-
-    void (async () => {
-      try {
-        const h = await getSessionAuthorizationHeaders(supabase);
-        const res = await fetch(
-          `/api/admin/candidates?jobDescriptionId=${activeRow.id}`,
-          { credentials: "include", headers: { ...h } },
-        );
-        if (!res.ok) {
-          if (!cancelled) setJdDrawerCandidatesState("error");
-          return;
-        }
-        const json = (await res.json()) as { candidates?: CandidateDbRow[] };
-        if (!cancelled) {
-          setJdDrawerCandidatesDb(json.candidates ?? []);
-          setJdDrawerCandidatesState("ok");
-        }
-      } catch {
-        if (!cancelled) setJdDrawerCandidatesState("error");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [drawerOpen, activeRow?.id, supabase]);
 
   const updateJdStatus = useCallback(
     async (id: number, next: JdStatus) => {
@@ -1460,7 +1398,7 @@ export function JdManagementDashboard() {
       {/* ── Detail Drawer ── */}
       <Drawer.Backdrop isOpen={drawerOpen} onOpenChange={setDrawerOpen}>
         <Drawer.Content placement="right">
-          <Drawer.Dialog className="w-full max-w-md sm:max-w-2xl">
+          <Drawer.Dialog className="w-full max-w-md sm:max-w-lg">
             <Drawer.CloseTrigger />
             {activeRow ? (
               <>
@@ -1570,23 +1508,6 @@ export function JdManagementDashboard() {
                       </section>
                     </>
                   )}
-
-                  <Separator />
-
-                  <section>
-                    <SectionLabel>Applied candidates</SectionLabel>
-                    <p className="mt-1 text-xs text-muted">
-                      Pipeline by stage for this job description. JD match scores
-                      match the Candidates page. Select rows to move stages or
-                      schedule interviews and onboarding.
-                    </p>
-                    <JdAppliedCandidatesPipeline
-                      jobDescriptionId={activeRow.id}
-                      dbRows={jdDrawerCandidatesDb}
-                      loadState={jdDrawerCandidatesState}
-                      onRefetch={() => void refetchJdDrawerCandidates()}
-                    />
-                  </section>
 
                   <Separator />
 
