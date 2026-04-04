@@ -1,8 +1,7 @@
 "use client";
 
 import type { Key } from "@heroui/react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Avatar,
@@ -19,8 +18,18 @@ import {
   Table,
 } from "@heroui/react";
 
+import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
+import {
+  type CandidateDbRow,
+  candidateDbRowToTableRow,
+} from "@/lib/candidates/db-row";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import { createClient } from "@/lib/supabase/client";
+
+type Props = {
+  initialRows?: CandidateDbRow[];
+};
 
 const ROWS_PER_PAGE = 4;
 
@@ -82,22 +91,79 @@ function SortIcon({ className }: { className?: string }) {
   );
 }
 
-export function CandidatePipelineDashboard() {
-  const router = useRouter();
+export function CandidatePipelineDashboard({ initialRows }: Props) {
+  const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [statusKey, setStatusKey] = useState<Key | null>("all");
   const [chapter, setChapter] = useState<Key | null>("Chapter: Global");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    initialRows ? "ok" : "loading",
+  );
+
+  // Fetch via server API route — bypasses browser Supabase session entirely,
+  // uses cookie-based server auth which is always reliable.
+  const fetchCandidates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/candidates", { credentials: "include" });
+      if (!res.ok) {
+        setDbLoadState("error");
+        return;
+      }
+      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
+      setDbRows(json.candidates ?? []);
+      setDbLoadState("ok");
+    } catch {
+      setDbLoadState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    // Skip initial fetch if the page already provided server-side data.
+    if (!initialRows) {
+      void fetchCandidates();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("candidates-admin-table")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "candidates" },
+        () => {
+          void fetchCandidates();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchCandidates]);
 
   useEffect(() => {
     setPage(1);
   }, [query]);
 
+  const tableSourceRows = useMemo(() => {
+    if (dbLoadState === "error") {
+      return CANDIDATE_ROWS;
+    }
+    if (dbLoadState !== "ok") {
+      return [];
+    }
+    return dbRows.map(candidateDbRowToTableRow);
+  }, [dbLoadState, dbRows]);
+
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return CANDIDATE_ROWS.filter((row) => {
+    return tableSourceRows.filter((row) => {
       if (statusKey != null && statusKey !== "all" && row.status !== statusKey) {
         return false;
       }
@@ -152,11 +218,25 @@ export function CandidatePipelineDashboard() {
         <Button
           variant="primary"
           className="bg-gradient-to-br from-[#002542] to-[#1b3b5a] shadow-sm"
+          onPress={() => setAddModalOpen(true)}
         >
           <span className="text-lg leading-none">+</span>
           Add Candidate
         </Button>
       </div>
+
+      {dbLoadState === "error" ? (
+        <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
+          Could not load candidates from the database. Showing sample data until
+          the connection works.
+        </p>
+      ) : null}
+
+      <AddCandidateModal
+        open={addModalOpen}
+        onOpenChange={setAddModalOpen}
+        onCandidatesChanged={fetchCandidates}
+      />
 
       <Card variant="secondary" className="overflow-hidden">
         <Card.Content className="gap-4 p-4">
@@ -253,6 +333,36 @@ export function CandidatePipelineDashboard() {
                   <Table.Column className="text-right">Actions</Table.Column>
                 </Table.Header>
                 <Table.Body>
+                  {dbLoadState === "loading" && tableSourceRows.length === 0 ? (
+                    <Table.Row id="loading">
+                      <Table.Cell>
+                        <span className="text-sm text-muted">
+                          Loading candidates…
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                    </Table.Row>
+                  ) : null}
+                  {dbLoadState === "ok" &&
+                  filteredRows.length === 0 &&
+                  tableSourceRows.length === 0 ? (
+                    <Table.Row id="empty">
+                      <Table.Cell>
+                        <span className="text-sm text-muted">
+                          No candidates yet. Use Add Candidate to upload CVs.
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                    </Table.Row>
+                  ) : null}
                   {paginatedRows.map((row) => (
                     <Table.Row key={row.id} id={row.id}>
                       <Table.Cell>
@@ -465,14 +575,6 @@ export function CandidatePipelineDashboard() {
                 <Drawer.Footer className="flex flex-wrap gap-2">
                   <Button slot="close" variant="secondary">
                     Close
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onPress={() => {
-                      router.push(`/admin/candidates/${activeRow.id}/review`);
-                    }}
-                  >
-                    Review scanned CV
                   </Button>
                   <Button variant="primary">Move stage</Button>
                 </Drawer.Footer>
