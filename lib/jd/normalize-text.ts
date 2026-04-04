@@ -34,3 +34,28 @@ export function optionalToDb(value: unknown, maxLen?: number): string | null {
 export function requiredLine(value: unknown, maxLen: number): string {
   return normalizeFormText(value).slice(0, maxLen);
 }
+
+const DATE_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Empty or invalid → null; accepts YYYY-MM-DD or ISO datetime (date part used). */
+export function optionalDateToDb(value: unknown): string | null {
+  const n = normalizeFormText(value);
+  if (n === "") return null;
+  const ymd = n.length >= 10 ? n.slice(0, 10) : n;
+  if (!DATE_ISO_RE.test(ymd)) return null;
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const dt = new Date(y, mo - 1, d);
+  if (
+    dt.getFullYear() !== y ||
+    dt.getMonth() !== mo - 1 ||
+    dt.getDate() !== d
+  ) {
+    return null;
+  }
+  return ymd;
+}
+
+/** YYYY-MM-DD for the current UTC calendar day (server default for end_date). */
+export function utcDateStringToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}

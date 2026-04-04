@@ -27,6 +27,10 @@ export type JobDescription = {
   /** From JD text (e.g. Fulltime) — not workflow JD status */
   employment_status?: string | null;
   status: JdStatus;
+  /** YYYY-MM-DD — first day of active hiring for this JD */
+  start_date: string | null;
+  /** YYYY-MM-DD — set when status is Done or Closed */
+  end_date: string | null;
   update_note: string | null;
   work_location: string | null;
   reporting: string | null;
@@ -48,6 +52,8 @@ export type JobDescriptionFormData = {
   /** From JD (e.g. Fulltime, Part-time) */
   employment_status: string;
   status: JdStatus;
+  /** YYYY-MM-DD or "" when unset */
+  start_date: string;
   update_note: string;
   work_location: string;
   reporting: string;
