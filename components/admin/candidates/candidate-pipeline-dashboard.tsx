@@ -10,6 +10,7 @@ import {
   Card,
   Chip,
   Drawer,
+  Input,
   Label,
   ListBox,
   Pagination,
@@ -32,7 +33,8 @@ import {
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
-import type { CandidateRow } from "@/lib/candidates/types";
+import { allowedTargetsFromStatus } from "@/lib/candidates/pipeline-allowed-transitions";
+import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
@@ -114,12 +116,53 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function CalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <path d="M16 2v4M8 2v4M3 10h18" />
+    </svg>
+  );
+}
+
+/** Local calendar day YYYY-MM-DD for upload timestamp (for date filter). */
+function uploadDateKeyLocal(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatUploadedAtDisplay(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export function CandidatePipelineDashboard({ initialRows }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [statusKey, setStatusKey] = useState<Key | null>("all");
   const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
+  /** `YYYY-MM-DD` from `<input type="date" />`, or "" when not filtering */
+  const [uploadDateFilter, setUploadDateFilter] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -129,6 +172,8 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   );
   const [deleteInProgress, setDeleteInProgress] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
+  const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     initialRows ? "ok" : "loading",
@@ -184,6 +229,10 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     setPage(1);
   }, [jdFilterKey]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [uploadDateFilter]);
+
   const tableSourceRows = useMemo(() => {
     if (dbLoadState === "error") {
       const rows = [...CANDIDATE_ROWS];
@@ -236,6 +285,10 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
           return false;
         }
       }
+      if (uploadDateFilter) {
+        const key = uploadDateKeyLocal(row.cvUploadedAtIso);
+        if (key !== uploadDateFilter) return false;
+      }
       if (!q) return true;
       const hay = [
         row.name,
@@ -251,7 +304,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [jdFilterKey, query, statusKey, tableSourceRows]);
+  }, [jdFilterKey, query, statusKey, tableSourceRows, uploadDateFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -264,10 +317,60 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
 
+  const noResultsForUploadDate =
+    uploadDateFilter.length > 0 &&
+    dbLoadState === "ok" &&
+    filteredRows.length === 0 &&
+    tableSourceRows.length > 0;
+
   function openRow(row: CandidateRow) {
+    setStatusUpdateError(null);
     setActiveRow(row);
     setDrawerOpen(true);
   }
+
+  const drawerStatusOptions = useMemo(() => {
+    if (!activeRow) return [];
+    return allowedTargetsFromStatus(activeRow.status);
+  }, [activeRow]);
+
+  const patchCandidateStatus = useCallback(
+    async (next: CandidateStatus) => {
+      if (!activeRow || next === activeRow.status) return;
+      setStatusUpdateError(null);
+      setStatusUpdateBusy(true);
+      try {
+        const res = await fetch(`/api/admin/candidates/${activeRow.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: next }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setStatusUpdateError(body.error ?? "Could not update status.");
+          return;
+        }
+        const json = (await res.json()) as { candidate?: CandidateDbRow };
+        const c = json.candidate;
+        if (!c) {
+          await fetchCandidates();
+          return;
+        }
+        setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+        setActiveRow((prev) =>
+          prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+        );
+      } catch {
+        setStatusUpdateError("Could not update status.");
+      } finally {
+        setStatusUpdateBusy(false);
+      }
+    },
+    [activeRow, fetchCandidates],
+  );
 
   const confirmDeleteCandidate = useCallback(async () => {
     if (!rowPendingDelete) return;
@@ -341,78 +444,108 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
 
       <Card variant="secondary" className="overflow-hidden">
         <Card.Content className="gap-4 p-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              className="min-w-[280px] flex-1"
-            >
-              <SearchField.Group className="w-full">
-                <SearchField.SearchIcon />
-                <SearchField.Input
-                  placeholder="Search by name, role, skill, source, JD, or match…"
-                  className="w-full min-w-0"
-                />
-                <SearchField.ClearButton />
-              </SearchField.Group>
-            </SearchField>
+          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+              <SearchField
+                value={query}
+                onChange={setQuery}
+                className="min-w-[280px] flex-1"
+              >
+                <SearchField.Group className="w-full">
+                  <SearchField.SearchIcon />
+                  <SearchField.Input
+                    placeholder="Search by name, role, skill, source, JD, or match…"
+                    className="w-full min-w-0"
+                  />
+                  <SearchField.ClearButton />
+                </SearchField.Group>
+              </SearchField>
 
-            <Select
-              value={statusKey}
-              onChange={(key) => {
-                setStatusKey(key);
-                setPage(1);
-              }}
-            >
-              <Label className="sr-only">Status</Label>
-              <Select.Trigger className="min-w-[160px]">
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  {STATUS_OPTIONS.map((opt) => (
-                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                      {opt.label}
-                      <ListBox.ItemIndicator />
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </Select.Popover>
-            </Select>
+              <Select
+                value={statusKey}
+                onChange={(key) => {
+                  setStatusKey(key);
+                  setPage(1);
+                }}
+              >
+                <Label className="sr-only">Status</Label>
+                <Select.Trigger className="min-w-[160px]">
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    {STATUS_OPTIONS.map((opt) => (
+                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                        {opt.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
 
-            <Select
-              value={jdFilterKey}
-              onChange={(key) => {
-                setJdFilterKey(key);
-                setPage(1);
-              }}
-            >
-              <Label className="sr-only">Job description</Label>
-              <Select.Trigger className="min-w-[200px]">
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  {jdFilterOptions.map((opt) => (
-                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                      {opt.label}
-                      <ListBox.ItemIndicator />
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </Select.Popover>
-            </Select>
+              <Select
+                value={jdFilterKey}
+                onChange={(key) => {
+                  setJdFilterKey(key);
+                  setPage(1);
+                }}
+              >
+                <Label className="sr-only">Job description</Label>
+                <Select.Trigger className="min-w-[200px]">
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    {jdFilterOptions.map((opt) => (
+                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                        {opt.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0"
-              aria-label="Sort or filter"
-            >
-              <SortIcon className="size-5" />
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0"
+                aria-label="Sort or filter"
+              >
+                <SortIcon className="size-5" />
+              </Button>
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+              <CalendarIcon className="size-4 shrink-0 text-muted" />
+              <Label
+                htmlFor="cv-upload-date-filter"
+                className="whitespace-nowrap text-xs font-medium text-muted"
+              >
+                Filter by date
+              </Label>
+              <Input
+                id="cv-upload-date-filter"
+                type="date"
+                value={uploadDateFilter}
+                onChange={(e) => setUploadDateFilter(e.target.value)}
+                className="w-[11rem] min-w-0"
+              />
+              {uploadDateFilter ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-w-0 px-2 font-semibold text-muted"
+                  aria-label="Clear date filter"
+                  onPress={() => setUploadDateFilter("")}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
           </div>
         </Card.Content>
       </Card>
@@ -423,7 +556,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Candidate pipeline"
-                className="min-w-[1280px]"
+                className="min-w-[1400px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
@@ -434,6 +567,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Table.Column>Applied JD</Table.Column>
                   <Table.Column className="text-center">JD match</Table.Column>
                   <Table.Column>Status</Table.Column>
+                  <Table.Column className="whitespace-nowrap">
+                    Uploaded at
+                  </Table.Column>
                   <Table.Column className="text-right">Actions</Table.Column>
                 </Table.Header>
                 <Table.Body>
@@ -444,6 +580,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           Loading candidates…
                         </span>
                       </Table.Cell>
+                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -463,6 +600,25 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           No candidates yet. Use Add Candidate to upload CVs.
                         </span>
                       </Table.Cell>
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                      <Table.Cell />
+                    </Table.Row>
+                  ) : null}
+                  {noResultsForUploadDate ? (
+                    <Table.Row id="empty-upload-date">
+                      <Table.Cell>
+                        <span className="text-sm text-muted">
+                          No results found for this date.
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -579,6 +735,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                         >
                           {row.status}
                         </Chip>
+                      </Table.Cell>
+                      <Table.Cell className="whitespace-nowrap text-sm text-foreground">
+                        {formatUploadedAtDisplay(row.cvUploadedAtIso)}
                       </Table.Cell>
                       <Table.Cell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -702,6 +861,52 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                 <Drawer.Body className="flex flex-col gap-6">
                   <section>
                     <h3 className="text-sm font-semibold text-foreground">
+                      Status
+                    </h3>
+                    <div className="mt-2 max-w-xs">
+                      <Select
+                        value={activeRow.status}
+                        isDisabled={
+                          statusUpdateBusy || dbLoadState === "error"
+                        }
+                        onChange={(key) => {
+                          if (key == null || typeof key !== "string") return;
+                          void patchCandidateStatus(key as CandidateStatus);
+                        }}
+                      >
+                        <Label className="sr-only">Pipeline status</Label>
+                        <Select.Trigger className="w-full">
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            {drawerStatusOptions.map((s) => (
+                              <ListBox.Item
+                                key={s}
+                                id={s}
+                                textValue={s}
+                              >
+                                {s}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                      {statusUpdateBusy ? (
+                        <p className="mt-1.5 text-xs text-muted">Updating…</p>
+                      ) : null}
+                      {statusUpdateError ? (
+                        <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">
+                          {statusUpdateError}
+                        </p>
+                      ) : null}
+                    </div>
+                  </section>
+                  <Separator />
+                  <section>
+                    <h3 className="text-sm font-semibold text-foreground">
                       Experience
                     </h3>
                     <p className="mt-1 text-sm text-muted">
@@ -794,7 +999,6 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Button slot="close" variant="secondary">
                     Close
                   </Button>
-                  <Button variant="primary">Move stage</Button>
                 </Drawer.Footer>
               </>
             ) : null}

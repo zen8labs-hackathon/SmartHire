@@ -130,6 +130,9 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
 
   const { score: jdMatchScore, label: jdMatchLabel } = jdMatchLabelFromRow(r);
 
+  const uploaded =
+    r.cv_uploaded_at?.trim() || r.created_at || null;
+
   return {
     id: r.id,
     hasCvFile: Boolean(r.cv_storage_path?.trim()),
@@ -150,5 +153,6 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     jdMatchLabel,
     jdMatchRationale: r.jd_match_rationale?.trim() || null,
     jdMatchError: r.jd_match_error?.trim() || null,
+    cvUploadedAtIso: uploaded,
   };
 }

@@ -30,6 +30,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchRationale:
       "Strong React and TypeScript alignment with senior frontend expectations; solid tenure and relevant education.",
     jdMatchError: null,
+    cvUploadedAtIso: "2026-04-01T10:00:00.000Z",
   },
   {
     hasCvFile: false,
@@ -51,6 +52,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchRationale:
       "Design leadership experience matches role level; lighter overlap on listed design-system requirements.",
     jdMatchError: null,
+    cvUploadedAtIso: "2026-04-02T14:30:00.000Z",
   },
   {
     hasCvFile: false,
@@ -72,6 +74,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchRationale:
       "Backend and cloud skills are relevant; fewer years than ideal for a principal-level posting.",
     jdMatchError: null,
+    cvUploadedAtIso: "2026-04-01T09:15:00.000Z",
   },
   {
     hasCvFile: false,
@@ -93,6 +96,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchRationale:
       "Marketing profile is strong but light on technical product metrics requested in the JD.",
     jdMatchError: null,
+    cvUploadedAtIso: "2026-04-03T16:00:00.000Z",
   },
 ];
 
@@ -184,6 +188,9 @@ function buildRows(total: number): CandidateRow[] {
       jdMatchRationale:
         "Mock AI rationale: skills partially overlap role requirements; score is illustrative offline data.",
       jdMatchError: null,
+      cvUploadedAtIso: new Date(
+        Date.UTC(2026, 3, 4 + (i % 25), 8 + (i % 10), (i * 7) % 60, 0, 0),
+      ).toISOString(),
     });
   }
   return rows;

@@ -35,4 +35,6 @@ export type CandidateRow = {
   jdMatchRationale: string | null;
   /** Populated when jd_match_status is failed */
   jdMatchError: string | null;
+  /** ISO timestamp for CV upload time (`cv_uploaded_at`), else `created_at` — used for filters and display */
+  cvUploadedAtIso: string | null;
 };
