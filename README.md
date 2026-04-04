@@ -2,6 +2,12 @@
 
 Next.js (App Router), Supabase Auth, Tailwind CSS v4, and [HeroUI v3](https://heroui.com/docs/react/getting-started), deployed to Vercel.
 
+## Demo
+
+**Live app (beta):** [https://smart-hire-web-beta.vercel.app/](https://smart-hire-web-beta.vercel.app/)
+
+Access is via **admin-provisioned accounts** (no public self-service sign-up on this deployment). Use credentials supplied by the team, or run locally / deploy your own instance with Supabase Auth as described below.
+
 Users sign up and sign in with **email** and password. A database trigger creates a matching `profiles` row with a derived internal `username` slug (for example from the part before `@` in the email). Users with **`profiles.is_admin = true`** can open **`/admin`** and create accounts with the Supabase Auth Admin API (requires **`SUPABASE_SECRET_KEY`**).
 
 ## Prerequisites
@@ -147,3 +153,7 @@ Use the HeroUI MCP or [component docs](https://heroui.com/docs/react/getting-sta
 | `npm run db:migrate` | Apply pending migrations only (needs `SUPABASE_DATABASE_URL` or `DATABASE_URL`) |
 | `npm run start` | Start production server |
 | `npm run lint` | ESLint |
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 Zen8 Labs.
