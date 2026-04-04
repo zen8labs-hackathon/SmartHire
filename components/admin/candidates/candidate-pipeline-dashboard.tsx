@@ -20,6 +20,10 @@ import {
 
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import {
+  candidateDisplayInitials,
+  jdMatchChipColor,
+} from "@/lib/candidates/candidate-display";
+import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
@@ -46,22 +50,6 @@ const CHAPTER_OPTIONS = [
   "Design",
   "Marketing",
 ];
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  const a = parts[0]?.[0] ?? "";
-  const b = parts[1]?.[0] ?? "";
-  return `${a}${b}`.toUpperCase() || "?";
-}
-
-function jdMatchChipColor(
-  row: CandidateRow,
-): "success" | "accent" | "danger" | "default" {
-  if (row.jdMatchScore == null) return "default";
-  if (row.jdMatchScore >= 75) return "success";
-  if (row.jdMatchScore >= 50) return "accent";
-  return "danger";
-}
 
 function statusChipProps(
   status: CandidateStatus,
@@ -397,7 +385,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                               <Avatar.Image alt="" src={row.avatarUrl} />
                             ) : null}
                             <Avatar.Fallback className="text-xs">
-                              {initials(row.name)}
+                              {candidateDisplayInitials(row.name)}
                             </Avatar.Fallback>
                           </Avatar>
                           <div className="min-w-0">
@@ -547,7 +535,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       {activeRow.avatarUrl ? (
                         <Avatar.Image alt="" src={activeRow.avatarUrl} />
                       ) : null}
-                      <Avatar.Fallback>{initials(activeRow.name)}</Avatar.Fallback>
+                      <Avatar.Fallback>
+                        {candidateDisplayInitials(activeRow.name)}
+                      </Avatar.Fallback>
                     </Avatar>
                     <div className="min-w-0">
                       <Drawer.Heading className="truncate">
