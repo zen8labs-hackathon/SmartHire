@@ -99,6 +99,7 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
 
   return {
     id: r.id,
+    hasCvFile: Boolean(r.cv_storage_path?.trim()),
     name,
     role,
     avatarUrl: r.avatar_url,

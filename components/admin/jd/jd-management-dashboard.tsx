@@ -190,24 +190,6 @@ function CheckCircleIcon({ className }: { className?: string }) {
   );
 }
 
-function TableIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M3 9h18M9 21V9" />
-    </svg>
-  );
-}
-
 function PencilIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -1232,7 +1214,12 @@ export function JdManagementDashboard() {
                       <Table.Row key={row.id} id={String(row.id)}>
                         <Table.Cell>
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-medium">{row.position}</span>
+                            <Link
+                              href={`/admin/jd/${row.id}/pipeline`}
+                              className="font-medium text-foreground underline-offset-2 hover:text-accent hover:underline"
+                            >
+                              {row.position}
+                            </Link>
                             {row.has_jd_source_file ? (
                               <a
                                 href={`/api/admin/job-descriptions/${row.id}/jd-download`}
@@ -1290,13 +1277,6 @@ export function JdManagementDashboard() {
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-1">
-                            <Link
-                              href={`/admin/jd/${row.id}/pipeline`}
-                              aria-label={`Open pipeline for ${row.position}`}
-                              className="inline-flex size-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
-                            >
-                              <TableIcon className="size-4" />
-                            </Link>
                             <Button
                               aria-label={`View ${row.position}`}
                               variant="ghost"
