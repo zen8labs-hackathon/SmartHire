@@ -36,6 +36,7 @@ import {
   JD_STATUS_OPTIONS,
   type JobDescription,
   type JobDescriptionFormData,
+  type JdEditFormData,
   type JdStatus,
 } from "@/lib/jd/types";
 import { normalizeFormText, utcDateStringToday } from "@/lib/jd/normalize-text";
@@ -67,6 +68,27 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
   start_date: "",
+};
+
+const HIRE_TYPE_OPTIONS = ["Tuyển mới", "Tuyển thay thế"] as const;
+
+const DEFAULT_EDIT_FORM: JdEditFormData = {
+  level: "",
+  headcount: "",
+  hire_type: "",
+  reporting: "",
+  project_info: "",
+  duties_and_responsibilities: "",
+  team_size: "",
+  experience_requirements_must_have: "",
+  experience_requirements_nice_to_have: "",
+  language_requirements: "",
+  career_development: "",
+  other_requirements: "",
+  salary_range: "",
+  project_allowances: "",
+  interview_process: "",
+  hiring_deadline: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -265,11 +287,16 @@ export function JdManagementDashboard() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
 
-  // ── modal / form ────────────────────────────────────────────────────────
-  const [editingRow, setEditingRow] = useState<JobDescription | null>(null);
+  // ── create modal / form ──────────────────────────────────────────────────
   const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // ── edit intake modal ────────────────────────────────────────────────────
+  const [editIntakeRow, setEditIntakeRow] = useState<JobDescription | null>(null);
+  const [editForm, setEditForm] = useState<JdEditFormData>(DEFAULT_EDIT_FORM);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // ── file upload ──────────────────────────────────────────────────────────
   const [jdUploadPhase, setJdUploadPhase] = useState<JdUploadPhase>("idle");
@@ -297,7 +324,6 @@ export function JdManagementDashboard() {
       if (!open) {
         resetUploadState();
         setFormError(null);
-        setEditingRow(null);
         setForm(DEFAULT_FORM);
       }
     },
@@ -308,6 +334,16 @@ export function JdManagementDashboard() {
       if (!open) {
         setDeletingId(null);
         setDeleteError(null);
+      }
+    },
+  });
+
+  const editIntakeModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) {
+        setEditIntakeRow(null);
+        setEditForm(DEFAULT_EDIT_FORM);
+        setEditError(null);
       }
     },
   });
@@ -542,49 +578,33 @@ export function JdManagementDashboard() {
 
   const handleSave = useCallback(
     async (asDraft: boolean) => {
-      if (editingRow && !form.position.trim()) {
-        setFormError("Position is required.");
-        return;
-      }
       setFormSubmitting(true);
       setFormError(null);
       const positionFromFile =
         jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
         "";
-      const resolvedPosition = editingRow
-        ? form.position.trim()
-        : form.position.trim() || positionFromFile || "Untitled JD";
+      const resolvedPosition =
+        form.position.trim() || positionFromFile || "Untitled JD";
       const payload: JobDescriptionFormData = {
         ...form,
         position: resolvedPosition,
         status: asDraft
           ? "Pending"
-          : !editingRow && form.status === "Pending"
+          : form.status === "Pending"
             ? "Hiring"
             : form.status,
       };
-      const postBody =
-        !editingRow && jdDraftJobOpeningId
-          ? { ...payload, jdDraftJobOpeningId }
-          : payload;
+      const postBody = jdDraftJobOpeningId
+        ? { ...payload, jdDraftJobOpeningId }
+        : payload;
       try {
         const headers = await authHeaders();
-        let res: Response;
-        if (editingRow) {
-          res = await fetch(`/api/admin/job-descriptions/${editingRow.id}`, {
-            method: "PUT",
-            credentials: "include",
-            headers,
-            body: JSON.stringify(payload),
-          });
-        } else {
-          res = await fetch("/api/admin/job-descriptions", {
-            method: "POST",
-            credentials: "include",
-            headers,
-            body: JSON.stringify(postBody),
-          });
-        }
+        const res = await fetch("/api/admin/job-descriptions", {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: JSON.stringify(postBody),
+        });
         const json = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(json.error ?? "Save failed.");
         jdModal.close();
@@ -597,7 +617,6 @@ export function JdManagementDashboard() {
     },
     [
       authHeaders,
-      editingRow,
       form,
       jdDraftJobOpeningId,
       jdModal,
@@ -633,32 +652,59 @@ export function JdManagementDashboard() {
     }
   }, [activeRow, authHeaders, deleteModal, deletingId, loadDescriptions]);
 
-  // ── open modal for edit ──────────────────────────────────────────────────
+  // ── open edit intake modal ───────────────────────────────────────────────
 
   function openEdit(row: JobDescription) {
-    setEditingRow(row);
-    setForm({
-      position: normalizeFormText(row.position),
-      department: normalizeFormText(row.department),
-      employment_status: normalizeFormText(row.employment_status),
-      status: coerceJdStatus(String(row.status)),
-      update_note: normalizeFormText(row.update_note),
-      work_location: normalizeFormText(row.work_location),
+    setEditIntakeRow(row);
+    setEditForm({
+      level: normalizeFormText(row.level),
+      headcount: row.headcount != null ? String(row.headcount) : "",
+      hire_type: normalizeFormText(row.hire_type),
       reporting: normalizeFormText(row.reporting),
-      role_overview: normalizeFormText(row.role_overview),
-      duties_and_responsibilities: normalizeFormText(
-        row.duties_and_responsibilities,
-      ),
-      experience_requirements_must_have: normalizeFormText(
-        row.experience_requirements_must_have,
-      ),
-      experience_requirements_nice_to_have: normalizeFormText(
-        row.experience_requirements_nice_to_have,
-      ),
-      what_we_offer: normalizeFormText(row.what_we_offer),
-      start_date: row.start_date ? row.start_date.slice(0, 10) : "",
+      project_info: normalizeFormText(row.project_info),
+      duties_and_responsibilities: normalizeFormText(row.duties_and_responsibilities),
+      team_size: normalizeFormText(row.team_size),
+      experience_requirements_must_have: normalizeFormText(row.experience_requirements_must_have),
+      experience_requirements_nice_to_have: normalizeFormText(row.experience_requirements_nice_to_have),
+      language_requirements: normalizeFormText(row.language_requirements),
+      career_development: normalizeFormText(row.career_development),
+      other_requirements: normalizeFormText(row.other_requirements),
+      salary_range: normalizeFormText(row.salary_range),
+      project_allowances: normalizeFormText(row.project_allowances),
+      interview_process: normalizeFormText(row.interview_process),
+      hiring_deadline: row.hiring_deadline ? row.hiring_deadline.slice(0, 10) : "",
     });
-    jdModal.open();
+    editIntakeModal.open();
+  }
+
+  const handleEditSave = useCallback(async () => {
+    if (!editIntakeRow) return;
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`/api/admin/job-descriptions/${editIntakeRow.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ ...editForm, _editMode: true }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Save failed.");
+      editIntakeModal.close();
+      await loadDescriptions();
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "Unknown error.");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }, [authHeaders, editForm, editIntakeModal, editIntakeRow, loadDescriptions]);
+
+  function setEditField<K extends keyof JdEditFormData>(
+    key: K,
+    value: JdEditFormData[K],
+  ) {
+    setEditForm((prev) => ({ ...prev, [key]: value }));
   }
 
   // ── table data ───────────────────────────────────────────────────────────
@@ -728,7 +774,6 @@ export function JdManagementDashboard() {
           <Button
             variant="primary"
             onPress={() => {
-              setEditingRow(null);
               setForm(DEFAULT_FORM);
               jdModal.open();
             }}
@@ -750,7 +795,7 @@ export function JdManagementDashboard() {
         </div>
       </div>
 
-      {/* ── Create / Edit Modal ── */}
+      {/* ── Create Modal ── */}
       <Modal.Backdrop
         className="bg-black/40 backdrop-blur-sm"
         isOpen={jdModal.isOpen}
@@ -760,246 +805,110 @@ export function JdManagementDashboard() {
           <Modal.Dialog className="w-full max-w-[820px] overflow-hidden p-0">
             <Modal.CloseTrigger />
             <Modal.Header className="items-start border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-xl">
-                {editingRow ? "Edit Job Description" : "Create New Definition"}
-              </Modal.Heading>
+              <Modal.Heading className="text-xl">Create New Definition</Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="max-h-[72vh] space-y-6 overflow-y-auto px-6 py-6">
               {/* File upload (optional) */}
-              {!editingRow && (
-                <Card
-                  variant="secondary"
-                  className={
-                    jdDragOver
-                      ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
-                      : undefined
-                  }
+              <Card
+                variant="secondary"
+                className={
+                  jdDragOver
+                    ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                    : undefined
+                }
+              >
+                <Card.Content
+                  className="items-center gap-3 py-6 text-center"
+                  onDragOver={(e: DragEvent) => {
+                    if (
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setJdDragOver(true);
+                  }}
+                  onDragLeave={() => setJdDragOver(false)}
+                  onDrop={(e: DragEvent) => {
+                    if (
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    setJdDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) void ingestJdFile(f);
+                  }}
                 >
-                  <Card.Content
-                    className="items-center gap-3 py-6 text-center"
-                    onDragOver={(e: DragEvent) => {
-                      if (
-                        jdUploadPhase === "uploading" ||
-                        jdUploadPhase === "extracting"
-                      )
-                        return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setJdDragOver(true);
-                    }}
-                    onDragLeave={() => setJdDragOver(false)}
-                    onDrop={(e: DragEvent) => {
-                      if (
-                        jdUploadPhase === "uploading" ||
-                        jdUploadPhase === "extracting"
-                      )
-                        return;
-                      e.preventDefault();
-                      setJdDragOver(false);
-                      const f = e.dataTransfer.files?.[0];
-                      if (f) void ingestJdFile(f);
-                    }}
+                  <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    {jdUploadPhase === "done" ? (
+                      <CheckCircleIcon className="size-6 text-success" />
+                    ) : (
+                      <span className="text-lg">+</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Attach JD Document{" "}
+                    <span className="font-normal text-muted">(optional)</span>
+                  </p>
+                  <p className="text-xs text-muted">
+                    PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
+                    form for you to review.
+                  </p>
+                  {jdUploadPhase === "uploading" && (
+                    <p className="text-xs text-accent">Uploading…</p>
+                  )}
+                  {jdUploadPhase === "extracting" && (
+                    <p className="text-xs text-accent">
+                      Reading document with AI…
+                    </p>
+                  )}
+                  {jdUploadPhase === "done" && jdSelectedFileName && (
+                    <p className="text-xs font-medium text-success">
+                      ✓ {jdSelectedFileName}
+                    </p>
+                  )}
+                  {(jdUploadPhase === "done" || jdUploadPhase === "error") &&
+                    jdUploadError && (
+                      <p className="text-xs text-danger">{jdUploadError}</p>
+                    )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    }
+                    onPress={() => jdFileInputRef.current?.click()}
                   >
-                    <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
-                      {jdUploadPhase === "done" ? (
-                        <CheckCircleIcon className="size-6 text-success" />
-                      ) : (
-                        <span className="text-lg">+</span>
-                      )}
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Attach JD Document{" "}
-                      <span className="font-normal text-muted">(optional)</span>
-                    </p>
-                    <p className="text-xs text-muted">
-                      PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
-                      form for you to review.
-                    </p>
-                    {jdUploadPhase === "uploading" && (
-                      <p className="text-xs text-accent">Uploading…</p>
-                    )}
-                    {jdUploadPhase === "extracting" && (
-                      <p className="text-xs text-accent">
-                        Reading document with AI…
-                      </p>
-                    )}
-                    {jdUploadPhase === "done" && jdSelectedFileName && (
-                      <p className="text-xs font-medium text-success">
-                        ✓ {jdSelectedFileName}
-                      </p>
-                    )}
-                    {(jdUploadPhase === "done" || jdUploadPhase === "error") &&
-                      jdUploadError && (
-                        <p className="text-xs text-danger">{jdUploadError}</p>
-                      )}
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      isDisabled={
-                        jdUploadPhase === "uploading" ||
-                        jdUploadPhase === "extracting"
-                      }
-                      onPress={() => jdFileInputRef.current?.click()}
-                    >
-                      Browse Files
-                    </Button>
-                  </Card.Content>
-                </Card>
-              )}
+                    Browse Files
+                  </Button>
+                </Card.Content>
+              </Card>
 
               <div className="space-y-4">
-                <SectionLabel>Basic information</SectionLabel>
+                <SectionLabel>Thông tin vị trí</SectionLabel>
                 <div className="grid gap-4 md:grid-cols-2">
                   <TextField
                     value={form.position}
                     onChange={(v) => setField("position", v)}
                     isRequired
                   >
-                    <Label>Position *</Label>
-                    <Input placeholder="e.g. AI Engineer (Mid-level)" />
+                    <Label>Tên vị trí *</Label>
+                    <Input placeholder="VD: AI Engineer (Mid-level)" />
                   </TextField>
 
                   <TextField
                     value={form.department}
                     onChange={(v) => setField("department", v)}
                   >
-                    <Label>Department</Label>
-                    <Input placeholder="e.g. Solutions Team" />
+                    <Label>Phòng / Team</Label>
+                    <Input placeholder="VD: Solutions Team" />
                   </TextField>
                 </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextField
-                    value={form.employment_status}
-                    onChange={(v) => setField("employment_status", v)}
-                  >
-                    <Label>Status</Label>
-                    <Input placeholder="e.g. Fulltime, Part-time" />
-                  </TextField>
-
-                  <TextField
-                    value={form.update_note}
-                    onChange={(v) => setField("update_note", v)}
-                  >
-                    <Label>Update / revision</Label>
-                    <Input placeholder="e.g. 2026 or revision note" />
-                  </TextField>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextField
-                    value={form.start_date}
-                    onChange={(v) => setField("start_date", v)}
-                  >
-                    <Label>Hiring start date</Label>
-                    <Input type="date" />
-                  </TextField>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Select
-                    value={form.status}
-                    onChange={(key) => {
-                      if (typeof key === "string")
-                        setField("status", key as JdStatus);
-                    }}
-                  >
-                    <Label>JD status</Label>
-                    <Select.Trigger
-                      className={`border ${jdStatusSelectTriggerClass(form.status)}`}
-                    >
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {JD_STATUS_OPTIONS.map((s) => (
-                          <ListBox.Item
-                            key={s}
-                            id={s}
-                            textValue={s}
-                            className={jdStatusListItemClass(s)}
-                          >
-                            {s}
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
-
-                  <TextField
-                    value={form.work_location}
-                    onChange={(v) => setField("work_location", v)}
-                  >
-                    <Label>Work location</Label>
-                    <Input placeholder="e.g. Hanoi / Remote / Hybrid" />
-                  </TextField>
-                </div>
-              </div>
-
-              {/* Organisational */}
-              <div className="space-y-4">
-                <SectionLabel>Organisation</SectionLabel>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <TextField
-                    value={form.reporting}
-                    onChange={(v) => setField("reporting", v)}
-                  >
-                    <Label>Reporting to</Label>
-                    <Input placeholder="e.g. VP of Engineering" />
-                  </TextField>
-
-                  <TextField
-                    value={form.role_overview}
-                    onChange={(v) => setField("role_overview", v)}
-                  >
-                    <Label>Role overview</Label>
-                    <Input placeholder="One-line summary of the role" />
-                  </TextField>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="space-y-4">
-                <SectionLabel>Job content</SectionLabel>
-
-                <TextField
-                  value={form.duties_and_responsibilities}
-                  onChange={(v) => setField("duties_and_responsibilities", v)}
-                >
-                  <Label>Duties &amp; responsibilities</Label>
-                  <TextArea className="min-h-[8rem]" />
-                </TextField>
-
-                <TextField
-                  value={form.experience_requirements_must_have}
-                  onChange={(v) =>
-                    setField("experience_requirements_must_have", v)
-                  }
-                >
-                  <Label>Experience requirements — must have</Label>
-                  <TextArea className="min-h-[6rem]" />
-                </TextField>
-
-                <TextField
-                  value={form.experience_requirements_nice_to_have}
-                  onChange={(v) =>
-                    setField("experience_requirements_nice_to_have", v)
-                  }
-                >
-                  <Label>Experience requirements — nice to have</Label>
-                  <TextArea className="min-h-[6rem]" />
-                </TextField>
-
-                <TextField
-                  value={form.what_we_offer}
-                  onChange={(v) => setField("what_we_offer", v)}
-                >
-                  <Label>What we offer</Label>
-                  <TextArea className="min-h-[6rem]" />
-                </TextField>
               </div>
 
               {formError && (
@@ -1017,22 +926,20 @@ export function JdManagementDashboard() {
                   jdUploadPhase === "extracting"
                 }
               >
-                {editingRow ? "Cancel" : "Discard draft"}
+                Discard draft
               </Button>
               <div className="flex gap-2">
-                {!editingRow && (
-                  <Button
-                    variant="secondary"
-                    isDisabled={
-                      formSubmitting ||
-                      jdUploadPhase === "uploading" ||
-                      jdUploadPhase === "extracting"
-                    }
-                    onPress={() => void handleSave(true)}
-                  >
-                    Save draft
-                  </Button>
-                )}
+                <Button
+                  variant="secondary"
+                  isDisabled={
+                    formSubmitting ||
+                    jdUploadPhase === "uploading" ||
+                    jdUploadPhase === "extracting"
+                  }
+                  onPress={() => void handleSave(true)}
+                >
+                  Save draft
+                </Button>
                 <Button
                   variant="primary"
                   isDisabled={
@@ -1042,11 +949,7 @@ export function JdManagementDashboard() {
                   }
                   onPress={() => void handleSave(false)}
                 >
-                  {formSubmitting
-                    ? "Saving…"
-                    : editingRow
-                      ? "Save changes"
-                      : "Create"}
+                  {formSubmitting ? "Saving…" : "Create"}
                 </Button>
               </div>
             </Modal.Footer>
@@ -1085,6 +988,251 @@ export function JdManagementDashboard() {
                 onPress={() => void confirmDelete()}
               >
                 Delete
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      {/* ── Edit Intake Modal ── */}
+      <Modal.Backdrop
+        className="bg-black/40 backdrop-blur-sm"
+        isOpen={editIntakeModal.isOpen}
+        onOpenChange={editIntakeModal.setOpen}
+      >
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-[860px] overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="items-start border-b border-divider px-6 py-5">
+              <Modal.Heading className="text-xl">
+                Thông tin tuyển dụng
+                {editIntakeRow ? (
+                  <span className="ml-2 text-base font-normal text-muted">
+                    — {editIntakeRow.position}
+                  </span>
+                ) : null}
+              </Modal.Heading>
+            </Modal.Header>
+
+            <Modal.Body className="max-h-[76vh] space-y-6 overflow-y-auto px-6 py-6">
+
+              {/* 1 – Vị trí & Tổ chức */}
+              <div className="space-y-4">
+                <SectionLabel>Vị trí &amp; Tổ chức</SectionLabel>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <TextField
+                    value={editForm.level}
+                    onChange={(v) => setEditField("level", v)}
+                  >
+                    <Label>Level</Label>
+                    <Input placeholder="VD: Junior, Mid, Senior, Lead" />
+                  </TextField>
+
+                  <TextField
+                    value={editForm.headcount}
+                    onChange={(v) => setEditField("headcount", v)}
+                  >
+                    <Label>Số lượng cần tuyển</Label>
+                    <Input type="number" min="1" placeholder="VD: 2" />
+                  </TextField>
+
+                  <Select
+                    value={editForm.hire_type || undefined}
+                    onChange={(key) => {
+                      if (typeof key === "string") setEditField("hire_type", key);
+                    }}
+                  >
+                    <Label>Tuyển mới hay thay thế</Label>
+                    <Select.Trigger>
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        {HIRE_TYPE_OPTIONS.map((opt) => (
+                          <ListBox.Item key={opt} id={opt} textValue={opt}>
+                            {opt}
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
+                </div>
+
+                <TextField
+                  value={editForm.reporting}
+                  onChange={(v) => setEditField("reporting", v)}
+                >
+                  <Label>Báo cáo cho ai</Label>
+                  <Input placeholder="VD: VP of Engineering, CTO, Project Manager..." />
+                </TextField>
+              </div>
+
+              {/* 2 – Dự án & Team */}
+              <div className="space-y-4">
+                <SectionLabel>Dự án &amp; Team</SectionLabel>
+
+                <TextField
+                  value={editForm.project_info}
+                  onChange={(v) => setEditField("project_info", v)}
+                >
+                  <Label>Thông tin chung về dự án</Label>
+                  <TextArea
+                    className="min-h-[7rem]"
+                    placeholder="Dự án gì? Sản phẩm gì? Đang trong giai đoạn nào? Có căng không, có hay OT không?..."
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.duties_and_responsibilities}
+                  onChange={(v) => setEditField("duties_and_responsibilities", v)}
+                >
+                  <Label>Kỳ vọng về trách nhiệm công việc trong dự án</Label>
+                  <TextArea
+                    className="min-h-[6rem]"
+                    placeholder="Ứng viên sẽ đảm nhận những công việc / trách nhiệm gì trong dự án?"
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.team_size}
+                  onChange={(v) => setEditField("team_size", v)}
+                >
+                  <Label>Team size</Label>
+                  <TextArea
+                    className="min-h-[4rem]"
+                    placeholder="Bao nhiêu thành viên? Gồm những vị trí gì? VD: 6 người (1 BA, 2 FE, 2 BE, 1 QA)"
+                  />
+                </TextField>
+              </div>
+
+              {/* 3 – Yêu cầu */}
+              <div className="space-y-4">
+                <SectionLabel>Yêu cầu ứng viên</SectionLabel>
+
+                <TextField
+                  value={editForm.experience_requirements_must_have}
+                  onChange={(v) => setEditField("experience_requirements_must_have", v)}
+                >
+                  <Label>Yêu cầu bắt buộc — Must have</Label>
+                  <TextArea
+                    className="min-h-[7rem]"
+                    placeholder="Các yêu cầu quan trọng, bắt buộc về chuyên môn, nghiệp vụ, kỹ năng mềm..."
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.experience_requirements_nice_to_have}
+                  onChange={(v) => setEditField("experience_requirements_nice_to_have", v)}
+                >
+                  <Label>Yêu cầu nếu có thì tốt — Nice to have</Label>
+                  <TextArea
+                    className="min-h-[5rem]"
+                    placeholder="Các yêu cầu không bắt buộc nhưng là lợi thế..."
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.language_requirements}
+                  onChange={(v) => setEditField("language_requirements", v)}
+                >
+                  <Label>Yêu cầu về ngoại ngữ</Label>
+                  <TextArea
+                    className="min-h-[4rem]"
+                    placeholder="Ngôn ngữ gì? Mức độ? Có cần bằng cấp không? VD: Tiếng Anh đọc hiểu tài liệu kỹ thuật, TOEIC 600+"
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.other_requirements}
+                  onChange={(v) => setEditField("other_requirements", v)}
+                >
+                  <Label>Yêu cầu khác</Label>
+                  <TextArea
+                    className="min-h-[4rem]"
+                    placeholder="Tính cách, giới tính, độ tuổi (nếu có)..."
+                  />
+                </TextField>
+              </div>
+
+              {/* 4 – Phát triển & Đãi ngộ */}
+              <div className="space-y-4">
+                <SectionLabel>Phát triển &amp; Đãi ngộ</SectionLabel>
+
+                <TextField
+                  value={editForm.career_development}
+                  onChange={(v) => setEditField("career_development", v)}
+                >
+                  <Label>Cơ hội phát triển &amp; định hướng vị trí</Label>
+                  <TextArea
+                    className="min-h-[5rem]"
+                    placeholder="Lộ trình phát triển, định hướng thăng tiến, cơ hội học hỏi..."
+                  />
+                </TextField>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    value={editForm.salary_range}
+                    onChange={(v) => setEditField("salary_range", v)}
+                  >
+                    <Label>Lương (Range gross)</Label>
+                    <Input placeholder="VD: 20,000,000 – 35,000,000 VNĐ" />
+                  </TextField>
+
+                  <TextField
+                    value={editForm.project_allowances}
+                    onChange={(v) => setEditField("project_allowances", v)}
+                  >
+                    <Label>Phụ cấp / Thưởng riêng dự án</Label>
+                    <Input placeholder="VD: Phụ cấp ăn trưa, thưởng KPI quý..." />
+                  </TextField>
+                </div>
+              </div>
+
+              {/* 5 – Quy trình & Timeline */}
+              <div className="space-y-4">
+                <SectionLabel>Quy trình &amp; Timeline</SectionLabel>
+
+                <TextField
+                  value={editForm.interview_process}
+                  onChange={(v) => setEditField("interview_process", v)}
+                >
+                  <Label>Quy trình phỏng vấn</Label>
+                  <TextArea
+                    className="min-h-[6rem]"
+                    placeholder="Phỏng vấn mấy vòng? Ai tham gia từng vòng? Có bài test không?&#10;VD: Vòng 1: HR screening / Vòng 2: Technical test + CTO / Vòng 3: Offer"
+                  />
+                </TextField>
+
+                <TextField
+                  value={editForm.hiring_deadline}
+                  onChange={(v) => setEditField("hiring_deadline", v)}
+                >
+                  <Label>Deadline tuyển dụng</Label>
+                  <Input type="date" />
+                </TextField>
+              </div>
+
+              {editError && (
+                <p className="text-sm text-danger">{editError}</p>
+              )}
+            </Modal.Body>
+
+            <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
+              <Button
+                variant="ghost"
+                onPress={editIntakeModal.close}
+                isDisabled={editSubmitting}
+              >
+                Hủy
+              </Button>
+              <Button
+                variant="primary"
+                isDisabled={editSubmitting}
+                onPress={() => void handleEditSave()}
+              >
+                {editSubmitting ? "Đang lưu…" : "Lưu thông tin"}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>
@@ -1404,54 +1552,136 @@ export function JdManagementDashboard() {
                 </Drawer.Header>
 
                 <Drawer.Body className="flex flex-col gap-6">
-                  {activeRow.role_overview && (
-                    <section>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Role overview
-                      </h3>
-                      <p className="mt-2 text-sm leading-relaxed text-muted">
-                        {activeRow.role_overview}
-                      </p>
+                  {/* Intake fields */}
+                  {(activeRow.level || activeRow.headcount != null || activeRow.hire_type || activeRow.reporting) && (
+                    <section className="space-y-2">
+                      <h3 className="text-sm font-semibold text-foreground">Vị trí &amp; Tổ chức</h3>
+                      <dl className="space-y-1 text-sm text-muted">
+                        {activeRow.level && <div><dt className="inline font-medium text-foreground">Level: </dt><dd className="inline">{activeRow.level}</dd></div>}
+                        {activeRow.headcount != null && <div><dt className="inline font-medium text-foreground">Số lượng tuyển: </dt><dd className="inline">{activeRow.headcount}</dd></div>}
+                        {activeRow.hire_type && <div><dt className="inline font-medium text-foreground">Loại tuyển: </dt><dd className="inline">{activeRow.hire_type}</dd></div>}
+                        {activeRow.reporting && <div><dt className="inline font-medium text-foreground">Báo cáo cho: </dt><dd className="inline">{activeRow.reporting}</dd></div>}
+                      </dl>
                     </section>
                   )}
 
-                  {activeRow.duties_and_responsibilities && (
+                  {(activeRow.project_info || activeRow.duties_and_responsibilities || activeRow.team_size) && (
                     <>
                       <Separator />
-                      <section>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          Duties &amp; responsibilities
-                        </h3>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
-                          {activeRow.duties_and_responsibilities}
-                        </p>
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">Dự án &amp; Team</h3>
+                        {activeRow.project_info && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Thông tin dự án</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_info}</p>
+                          </div>
+                        )}
+                        {activeRow.duties_and_responsibilities && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Kỳ vọng trách nhiệm</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.duties_and_responsibilities}</p>
+                          </div>
+                        )}
+                        {activeRow.team_size && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Team size</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.team_size}</p>
+                          </div>
+                        )}
                       </section>
                     </>
                   )}
 
-                  {activeRow.experience_requirements_must_have && (
+                  {(activeRow.experience_requirements_must_have || activeRow.experience_requirements_nice_to_have || activeRow.language_requirements || activeRow.other_requirements) && (
                     <>
                       <Separator />
-                      <section>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          Experience — must have
-                        </h3>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
-                          {activeRow.experience_requirements_must_have}
-                        </p>
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">Yêu cầu ứng viên</h3>
+                        {activeRow.experience_requirements_must_have && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Must have</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.experience_requirements_must_have}</p>
+                          </div>
+                        )}
+                        {activeRow.experience_requirements_nice_to_have && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Nice to have</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.experience_requirements_nice_to_have}</p>
+                          </div>
+                        )}
+                        {activeRow.language_requirements && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Ngoại ngữ</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.language_requirements}</p>
+                          </div>
+                        )}
+                        {activeRow.other_requirements && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Yêu cầu khác</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.other_requirements}</p>
+                          </div>
+                        )}
                       </section>
                     </>
                   )}
 
-                  {activeRow.experience_requirements_nice_to_have && (
+                  {(activeRow.career_development || activeRow.salary_range || activeRow.project_allowances) && (
+                    <>
+                      <Separator />
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">Phát triển &amp; Đãi ngộ</h3>
+                        {activeRow.career_development && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Cơ hội phát triển</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.career_development}</p>
+                          </div>
+                        )}
+                        {activeRow.salary_range && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Lương (gross)</p>
+                            <p className="mt-1 text-sm text-muted">{activeRow.salary_range}</p>
+                          </div>
+                        )}
+                        {activeRow.project_allowances && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Phụ cấp / Thưởng dự án</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_allowances}</p>
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+
+                  {(activeRow.interview_process || activeRow.hiring_deadline) && (
+                    <>
+                      <Separator />
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">Quy trình &amp; Timeline</h3>
+                        {activeRow.interview_process && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Quy trình phỏng vấn</p>
+                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.interview_process}</p>
+                          </div>
+                        )}
+                        {activeRow.hiring_deadline && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Deadline tuyển dụng</p>
+                            <p className="mt-1 text-sm text-muted">{formatJdCalendarDate(activeRow.hiring_deadline)}</p>
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+
+                  {activeRow.role_overview && (
                     <>
                       <Separator />
                       <section>
                         <h3 className="text-sm font-semibold text-foreground">
-                          Experience — nice to have
+                          Role overview
                         </h3>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted">
-                          {activeRow.experience_requirements_nice_to_have}
+                        <p className="mt-2 text-sm leading-relaxed text-muted">
+                          {activeRow.role_overview}
                         </p>
                       </section>
                     </>

@@ -9,6 +9,7 @@ import {
   coerceJdStatus,
   isJdStatus,
   type JobDescriptionFormData,
+  type JdEditFormData,
   type JdStatus,
 } from "@/lib/jd/types";
 
@@ -57,6 +58,47 @@ function sanitize(body: Partial<JobDescriptionFormData>) {
   return result;
 }
 
+function sanitizeEdit(body: Partial<JdEditFormData>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  if (body.level !== undefined)
+    result.level = optionalToDb(body.level, 100);
+  if (body.headcount !== undefined) {
+    const n = body.headcount === "" ? null : Number(body.headcount);
+    result.headcount = n !== null && !Number.isNaN(n) && n > 0 ? n : null;
+  }
+  if (body.hire_type !== undefined)
+    result.hire_type = optionalToDb(body.hire_type, 50);
+  if (body.reporting !== undefined)
+    result.reporting = optionalToDb(body.reporting, 255);
+  if (body.project_info !== undefined)
+    result.project_info = optionalToDb(body.project_info);
+  if (body.duties_and_responsibilities !== undefined)
+    result.duties_and_responsibilities = optionalToDb(body.duties_and_responsibilities);
+  if (body.team_size !== undefined)
+    result.team_size = optionalToDb(body.team_size);
+  if (body.experience_requirements_must_have !== undefined)
+    result.experience_requirements_must_have = optionalToDb(body.experience_requirements_must_have);
+  if (body.experience_requirements_nice_to_have !== undefined)
+    result.experience_requirements_nice_to_have = optionalToDb(body.experience_requirements_nice_to_have);
+  if (body.language_requirements !== undefined)
+    result.language_requirements = optionalToDb(body.language_requirements);
+  if (body.career_development !== undefined)
+    result.career_development = optionalToDb(body.career_development);
+  if (body.other_requirements !== undefined)
+    result.other_requirements = optionalToDb(body.other_requirements);
+  if (body.salary_range !== undefined)
+    result.salary_range = optionalToDb(body.salary_range, 255);
+  if (body.project_allowances !== undefined)
+    result.project_allowances = optionalToDb(body.project_allowances);
+  if (body.interview_process !== undefined)
+    result.interview_process = optionalToDb(body.interview_process);
+  if (body.hiring_deadline !== undefined)
+    result.hiring_deadline = optionalDateToDb(body.hiring_deadline);
+
+  return result;
+}
+
 function endDateForStatusTransition(
   prevStatus: string,
   next: JdStatus,
@@ -97,9 +139,9 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const numId = parseId(id);
   if (!numId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
-  let body: Partial<JobDescriptionFormData>;
+  let body: Partial<JobDescriptionFormData> & Partial<JdEditFormData> & { _editMode?: boolean };
   try {
-    body = (await request.json()) as Partial<JobDescriptionFormData>;
+    body = (await request.json()) as typeof body;
   } catch {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
@@ -117,19 +159,28 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const payload = sanitize(body);
-  if (payload.position === null || payload.position === undefined) {
-    delete payload.position;
-  }
+  let payload: Record<string, unknown>;
 
-  if (body.status !== undefined && isJdStatus(String(body.status))) {
-    const endDelta = endDateForStatusTransition(
-      String(existing.status),
-      body.status as JdStatus,
-    );
-    if (endDelta !== undefined) {
-      payload.end_date = endDelta;
+  if (body._editMode) {
+    // Detailed intake edit — use edit sanitizer
+    const { _editMode: _, ...editBody } = body;
+    payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
+  } else {
+    // Standard create/update form sanitizer
+    const stdPayload = sanitize(body as Partial<JobDescriptionFormData>);
+    if (stdPayload.position === null || stdPayload.position === undefined) {
+      delete stdPayload.position;
     }
+    if (body.status !== undefined && isJdStatus(String(body.status))) {
+      const endDelta = endDateForStatusTransition(
+        String(existing.status),
+        body.status as JdStatus,
+      );
+      if (endDelta !== undefined) {
+        (stdPayload as Record<string, unknown>).end_date = endDelta;
+      }
+    }
+    payload = stdPayload;
   }
 
   const { data, error } = await auth.supabase

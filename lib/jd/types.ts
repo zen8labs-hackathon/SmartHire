@@ -39,6 +39,20 @@ export type JobDescription = {
   experience_requirements_must_have: string | null;
   experience_requirements_nice_to_have: string | null;
   what_we_offer: string | null;
+  // Detailed intake fields (managed via Edit modal)
+  level: string | null;
+  headcount: number | null;
+  hire_type: string | null;
+  project_info: string | null;
+  team_size: string | null;
+  language_requirements: string | null;
+  career_development: string | null;
+  other_requirements: string | null;
+  salary_range: string | null;
+  project_allowances: string | null;
+  interview_process: string | null;
+  /** YYYY-MM-DD */
+  hiring_deadline: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;
@@ -66,6 +80,46 @@ export type JobDescriptionFormData = {
   experience_requirements_must_have: string;
   experience_requirements_nice_to_have: string;
   what_we_offer: string;
+};
+
+/**
+ * Form payload for the Edit JD modal.
+ * Covers the structured intake fields collected from hiring managers.
+ * Uses strings for all text fields; headcount is a numeric string.
+ */
+export type JdEditFormData = {
+  /** Level (e.g. Junior, Mid, Senior, Lead) */
+  level: string;
+  /** Number of hires needed — stored as integer, used as numeric string in form */
+  headcount: string;
+  /** "Tuyển mới" | "Tuyển thay thế" | free text */
+  hire_type: string;
+  /** Reporting to (reuses existing column) */
+  reporting: string;
+  /** General project info: product, stage, pressure, OT, etc. */
+  project_info: string;
+  /** Expected responsibilities of the candidate in the project */
+  duties_and_responsibilities: string;
+  /** Team composition: size and roles */
+  team_size: string;
+  /** Must-have requirements (reuses existing column) */
+  experience_requirements_must_have: string;
+  /** Nice-to-have requirements (reuses existing column) */
+  experience_requirements_nice_to_have: string;
+  /** Language requirements: language, proficiency, certifications */
+  language_requirements: string;
+  /** Career growth and development opportunities */
+  career_development: string;
+  /** Other requirements: personality, gender, age if applicable */
+  other_requirements: string;
+  /** Gross salary range */
+  salary_range: string;
+  /** Project / role-specific allowances or bonuses */
+  project_allowances: string;
+  /** Interview process: rounds, participants, tests */
+  interview_process: string;
+  /** Hiring deadline — YYYY-MM-DD or "" */
+  hiring_deadline: string;
 };
 
 /** Document fields returned by POST /api/admin/job-descriptions/extract */
