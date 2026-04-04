@@ -26,7 +26,13 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
-type JobOpening = { id: string; title: string; status: string };
+type JobOpening = {
+  id: string;
+  title: string;
+  status: string;
+  /** Matches `job_descriptions.position` when linked; falls back to `title`. */
+  displayTitle: string;
+};
 
 type UploadPhase =
   | "signing"
@@ -178,7 +184,13 @@ export function AddCandidateModal({
     });
     if (!res.ok) return;
     const json = (await res.json()) as { jobOpenings?: JobOpening[] };
-    setJobs(json.jobOpenings ?? []);
+    const list = json.jobOpenings ?? [];
+    setJobs(
+      list.map((j) => ({
+        ...j,
+        displayTitle: j.displayTitle ?? j.title,
+      })),
+    );
   }, [sessionAuthHeaders]);
 
   useEffect(() => {
@@ -427,9 +439,9 @@ export function AddCandidateModal({
                               <ListBox.Item
                                 key={j.id}
                                 id={j.id}
-                                textValue={j.title}
+                                textValue={j.displayTitle}
                               >
-                                {j.title}
+                                {j.displayTitle}
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
