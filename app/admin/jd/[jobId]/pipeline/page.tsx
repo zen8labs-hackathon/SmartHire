@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
-import { getJobPipelineView } from "@/lib/jd/pipeline-mock-data";
+import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = {
@@ -30,17 +30,19 @@ export default async function JobPipelinePage({ params }: PageProps) {
     .limit(1)
     .maybeSingle();
 
-  const model = getJobPipelineView(jobId);
+  const { rows: initialPipelineCandidates, error: pipelineFetchError } =
+    await fetchCandidatesForJobDescription(supabase, numId);
 
   return (
     <JobPipelineSpreadsheet
+      key={String(jd.id)}
+      jobDescriptionId={numId}
       jobId={String(jd.id)}
       jobTitle={jd.position}
-      totalCandidates={model.totalCandidates}
-      activeOffers={model.activeOffers}
-      rows={model.rows}
       linkedJobOpeningId={linkedOpening?.id ?? null}
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
+      initialPipelineCandidates={initialPipelineCandidates}
+      initialPipelineFetchFailed={pipelineFetchError != null}
     />
   );
 }
