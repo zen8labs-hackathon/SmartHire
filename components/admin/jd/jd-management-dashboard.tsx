@@ -27,6 +27,7 @@ import {
   Table,
   TextArea,
   TextField,
+  Tooltip,
   useOverlayState,
 } from "@heroui/react";
 
@@ -1470,39 +1471,57 @@ export function JdManagementDashboard() {
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-1">
-                            <Button
-                              aria-label={`View ${row.position}`}
-                              variant="ghost"
-                              size="sm"
-                              className="min-w-0 px-2"
-                              onPress={() => {
-                                setActiveRow(row);
-                                setDrawerOpen(true);
-                              }}
-                            >
-                              <EyeIcon className="size-4" />
-                            </Button>
-                            <Button
-                              aria-label={`Edit ${row.position}`}
-                              variant="ghost"
-                              size="sm"
-                              className="min-w-0 px-2"
-                              onPress={() => openEdit(row)}
-                            >
-                              <PencilIcon className="size-4" />
-                            </Button>
-                            <Button
-                              aria-label={`Delete ${row.position}`}
-                              variant="ghost"
-                              size="sm"
-                              className="min-w-0 px-2 text-danger hover:bg-danger/10"
-                              onPress={() => {
-                                setDeletingId(row.id);
-                                deleteModal.open();
-                              }}
-                            >
-                              <TrashIcon className="size-4" />
-                            </Button>
+                            <Tooltip delay={0}>
+                              <Button
+                                aria-label={`View ${row.position}`}
+                                variant="ghost"
+                                size="sm"
+                                className="min-w-0 px-2"
+                                onPress={() => {
+                                  setActiveRow(row);
+                                  setDrawerOpen(true);
+                                }}
+                              >
+                                <EyeIcon className="size-4" />
+                              </Button>
+                              <Tooltip.Content placement="top" showArrow>
+                                <Tooltip.Arrow />
+                                <p>View detail</p>
+                              </Tooltip.Content>
+                            </Tooltip>
+                            <Tooltip delay={0}>
+                              <Button
+                                aria-label={`Edit ${row.position}`}
+                                variant="ghost"
+                                size="sm"
+                                className="min-w-0 px-2"
+                                onPress={() => openEdit(row)}
+                              >
+                                <PencilIcon className="size-4" />
+                              </Button>
+                              <Tooltip.Content placement="top" showArrow>
+                                <Tooltip.Arrow />
+                                <p>Edit</p>
+                              </Tooltip.Content>
+                            </Tooltip>
+                            <Tooltip delay={0}>
+                              <Button
+                                aria-label={`Delete ${row.position}`}
+                                variant="ghost"
+                                size="sm"
+                                className="min-w-0 px-2 text-danger hover:bg-danger/10"
+                                onPress={() => {
+                                  setDeletingId(row.id);
+                                  deleteModal.open();
+                                }}
+                              >
+                                <TrashIcon className="size-4" />
+                              </Button>
+                              <Tooltip.Content placement="top" showArrow>
+                                <Tooltip.Arrow />
+                                <p>Delete</p>
+                              </Tooltip.Content>
+                            </Tooltip>
                           </div>
                         </Table.Cell>
                       </Table.Row>

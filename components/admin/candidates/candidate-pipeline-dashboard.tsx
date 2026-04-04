@@ -4,6 +4,7 @@ import type { Key } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  AlertDialog,
   Avatar,
   Button,
   Card,
@@ -15,7 +16,9 @@ import {
   SearchField,
   Select,
   Separator,
+  Spinner,
   Table,
+  Tooltip,
 } from "@heroui/react";
 
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
@@ -29,7 +32,7 @@ import {
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import type { CandidateRow } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
@@ -73,6 +76,44 @@ function SortIcon({ className }: { className?: string }) {
   );
 }
 
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 export function CandidatePipelineDashboard({ initialRows }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
@@ -82,6 +123,12 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [rowPendingDelete, setRowPendingDelete] = useState<CandidateRow | null>(
+    null,
+  );
+  const [deleteInProgress, setDeleteInProgress] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     initialRows ? "ok" : "loading",
@@ -222,6 +269,36 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     setDrawerOpen(true);
   }
 
+  const confirmDeleteCandidate = useCallback(async () => {
+    if (!rowPendingDelete) return;
+    setDeleteError(null);
+    setDeleteInProgress(true);
+    try {
+      const res = await fetch(
+        `/api/admin/candidates/${rowPendingDelete.id}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setDeleteError(body.error ?? "Could not delete candidate.");
+        return;
+      }
+      if (activeRow?.id === rowPendingDelete.id) {
+        setDrawerOpen(false);
+        setActiveRow(null);
+      }
+      setDeleteDialogOpen(false);
+      setRowPendingDelete(null);
+      await fetchCandidates();
+    } catch {
+      setDeleteError("Could not delete candidate.");
+    } finally {
+      setDeleteInProgress(false);
+    }
+  }, [activeRow?.id, fetchCandidates, rowPendingDelete]);
+
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -247,6 +324,12 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
           Could not load candidates from the database. Showing sample data until
           the connection works.
+        </p>
+      ) : null}
+
+      {deleteError ? (
+        <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
+          {deleteError}
         </p>
       ) : null}
 
@@ -498,14 +581,44 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                         </Chip>
                       </Table.Cell>
                       <Table.Cell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="min-w-0 font-bold text-accent"
-                          onPress={() => openRow(row)}
-                        >
-                          View Detail
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Tooltip delay={0}>
+                            <Button
+                              isIconOnly
+                              variant="ghost"
+                              size="sm"
+                              className="text-accent"
+                              aria-label="View details"
+                              onPress={() => openRow(row)}
+                            >
+                              <EyeIcon className="size-5" />
+                            </Button>
+                            <Tooltip.Content placement="top" showArrow>
+                              <Tooltip.Arrow />
+                              <p>View details</p>
+                            </Tooltip.Content>
+                          </Tooltip>
+                          <Tooltip delay={0}>
+                            <Button
+                              isIconOnly
+                              variant="ghost"
+                              size="sm"
+                              className="text-rose-600 dark:text-rose-400"
+                              aria-label="Delete CV"
+                              onPress={() => {
+                                setDeleteError(null);
+                                setRowPendingDelete(row);
+                                setDeleteDialogOpen(true);
+                              }}
+                            >
+                              <TrashIcon className="size-5" />
+                            </Button>
+                            <Tooltip.Content placement="top" showArrow>
+                              <Tooltip.Arrow />
+                              <p>Delete CV</p>
+                            </Tooltip.Content>
+                          </Tooltip>
+                        </div>
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -688,6 +801,55 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer.Backdrop>
+
+      <AlertDialog.Backdrop
+        isOpen={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setRowPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialog.Container>
+          <AlertDialog.Dialog className="sm:max-w-[400px]">
+            <AlertDialog.CloseTrigger />
+            <AlertDialog.Header>
+              <AlertDialog.Icon status="danger" />
+              <AlertDialog.Heading>Delete CV candidate?</AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body>
+              <p className="text-sm text-muted">
+                This will permanently remove{" "}
+                <strong className="text-foreground">
+                  {rowPendingDelete?.name ?? "this candidate"}
+                </strong>{" "}
+                and the stored CV file. This cannot be undone.
+              </p>
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              <Button slot="close" variant="tertiary" isDisabled={deleteInProgress}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                isPending={deleteInProgress}
+                onPress={() => void confirmDeleteCandidate()}
+              >
+                {({ isPending }) => (
+                  <>
+                    {isPending ? (
+                      <Spinner color="current" size="sm" className="mr-1.5" />
+                    ) : null}
+                    Delete
+                  </>
+                )}
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
     </div>
   );
 }
