@@ -61,13 +61,11 @@ comment on column public.profiles.work_chapter is
   'NULL = dashboard-only or chapter-only (see profile_chapters). HR = full recruiting access.';
 
 -- ---------------------------------------------------------------------------
--- Candidates: attribution + drop legacy chapter column
+-- Candidates: attribution (drop chapter column after RLS policies below — old
+-- policies from rbac_rls_recruiter_read still reference candidates.chapter)
 -- ---------------------------------------------------------------------------
 alter table public.candidates
   add column if not exists uploaded_by_email text;
-
-alter table public.candidates
-  drop column if exists chapter;
 
 -- HR (work_chapter) may create candidate rows for CV upload, not only is_admin.
 drop policy if exists candidates_admin_insert on public.candidates;
@@ -372,3 +370,7 @@ create policy candidate_interview_notes_staff_insert
       )
     )
   );
+
+-- Safe only after policies above no longer reference candidates.chapter.
+alter table public.candidates
+  drop column if exists chapter;
