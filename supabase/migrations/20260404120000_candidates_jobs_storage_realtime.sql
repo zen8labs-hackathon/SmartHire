@@ -78,6 +78,7 @@ create trigger candidates_set_updated_at
 alter table public.job_openings enable row level security;
 alter table public.candidates enable row level security;
 
+drop policy if exists job_openings_admin_select on public.job_openings;
 create policy job_openings_admin_select
   on public.job_openings for select to authenticated
   using (
@@ -87,6 +88,7 @@ create policy job_openings_admin_select
     )
   );
 
+drop policy if exists job_openings_admin_insert on public.job_openings;
 create policy job_openings_admin_insert
   on public.job_openings for insert to authenticated
   with check (
@@ -96,6 +98,7 @@ create policy job_openings_admin_insert
     )
   );
 
+drop policy if exists job_openings_admin_update on public.job_openings;
 create policy job_openings_admin_update
   on public.job_openings for update to authenticated
   using (
@@ -111,6 +114,7 @@ create policy job_openings_admin_update
     )
   );
 
+drop policy if exists job_openings_admin_delete on public.job_openings;
 create policy job_openings_admin_delete
   on public.job_openings for delete to authenticated
   using (
@@ -120,6 +124,7 @@ create policy job_openings_admin_delete
     )
   );
 
+drop policy if exists candidates_admin_select on public.candidates;
 create policy candidates_admin_select
   on public.candidates for select to authenticated
   using (
@@ -129,6 +134,7 @@ create policy candidates_admin_select
     )
   );
 
+drop policy if exists candidates_admin_insert on public.candidates;
 create policy candidates_admin_insert
   on public.candidates for insert to authenticated
   with check (
@@ -138,6 +144,7 @@ create policy candidates_admin_insert
     )
   );
 
+drop policy if exists candidates_admin_update on public.candidates;
 create policy candidates_admin_update
   on public.candidates for update to authenticated
   using (
@@ -153,6 +160,7 @@ create policy candidates_admin_update
     )
   );
 
+drop policy if exists candidates_admin_delete on public.candidates;
 create policy candidates_admin_delete
   on public.candidates for delete to authenticated
   using (
@@ -200,6 +208,7 @@ on conflict (id) do update set
 
 -- Storage RLS: admins may manage objects in candidate-cvs (signed uploads use service role + token)
 
+drop policy if exists candidate_cvs_objects_admin_select on storage.objects;
 create policy candidate_cvs_objects_admin_select
   on storage.objects for select to authenticated
   using (
@@ -210,6 +219,7 @@ create policy candidate_cvs_objects_admin_select
     )
   );
 
+drop policy if exists candidate_cvs_objects_admin_insert on storage.objects;
 create policy candidate_cvs_objects_admin_insert
   on storage.objects for insert to authenticated
   with check (
@@ -220,6 +230,7 @@ create policy candidate_cvs_objects_admin_insert
     )
   );
 
+drop policy if exists candidate_cvs_objects_admin_update on storage.objects;
 create policy candidate_cvs_objects_admin_update
   on storage.objects for update to authenticated
   using (
@@ -230,6 +241,7 @@ create policy candidate_cvs_objects_admin_update
     )
   );
 
+drop policy if exists candidate_cvs_objects_admin_delete on storage.objects;
 create policy candidate_cvs_objects_admin_delete
   on storage.objects for delete to authenticated
   using (
