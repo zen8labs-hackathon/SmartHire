@@ -62,6 +62,14 @@ export default async function DashboardPage() {
                     Candidates — talent pool
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    href="/admin/evaluation-template"
+                    className="font-medium text-accent underline"
+                  >
+                    Evaluation template — interview form PDF
+                  </Link>
+                </li>
               </ul>
             </div>
           ) : null}
