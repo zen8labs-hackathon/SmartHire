@@ -21,6 +21,7 @@ import {
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import {
   candidateDisplayInitials,
+  candidateStatusChipColor,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
 import {
@@ -42,6 +43,8 @@ const STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "New", label: "New" },
   { id: "Shortlisted", label: "Shortlisted" },
   { id: "Interviewing", label: "Interviewing" },
+  { id: "Offer", label: "Offer" },
+  { id: "Failed", label: "Failed" },
 ];
 
 const CHAPTER_OPTIONS = [
@@ -50,19 +53,6 @@ const CHAPTER_OPTIONS = [
   "Design",
   "Marketing",
 ];
-
-function statusChipProps(
-  status: CandidateStatus,
-): { color: "success" | "accent" | "default" } {
-  switch (status) {
-    case "Interviewing":
-      return { color: "success" };
-    case "Shortlisted":
-      return { color: "accent" };
-    default:
-      return { color: "default" };
-  }
-}
 
 function pageWindow(current: number, total: number, width: number) {
   let start = Math.max(1, current - Math.floor(width / 2));
@@ -460,7 +450,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                         <Chip
                           size="sm"
                           variant="soft"
-                          color={statusChipProps(row.status).color}
+                          color={candidateStatusChipColor(row.status)}
                           className="text-[10px] font-bold uppercase"
                         >
                           {row.status}
@@ -549,7 +539,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Chip
                     size="sm"
                     variant="soft"
-                    color={statusChipProps(activeRow.status).color}
+                    color={candidateStatusChipColor(activeRow.status)}
                     className="mt-2 w-fit uppercase"
                   >
                     {activeRow.status}
