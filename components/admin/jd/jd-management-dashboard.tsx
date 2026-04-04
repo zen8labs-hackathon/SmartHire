@@ -30,7 +30,13 @@ import {
 } from "@heroui/react";
 
 import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
-import type { JobDescription, JobDescriptionFormData, JdStatus } from "@/lib/jd/types";
+import {
+  coerceJdStatus,
+  JD_STATUS_OPTIONS,
+  type JobDescription,
+  type JobDescriptionFormData,
+  type JdStatus,
+} from "@/lib/jd/types";
 import { normalizeFormText } from "@/lib/jd/normalize-text";
 import {
   JD_BUCKET,
@@ -46,13 +52,11 @@ import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-head
 
 const ROWS_PER_PAGE = 10;
 
-const STATUS_OPTIONS: JdStatus[] = ["Active", "Draft", "Closed"];
-
 const DEFAULT_FORM: JobDescriptionFormData = {
   position: "",
   department: "",
   employment_status: "",
-  status: "Draft",
+  status: "Pending",
   update_note: "",
   work_location: "",
   reporting: "",
@@ -71,9 +75,9 @@ type JdUploadPhase = "idle" | "uploading" | "extracting" | "done" | "error";
 
 function statusChipColor(status: JdStatus): "success" | "warning" | "default" {
   switch (status) {
-    case "Active":
+    case "Hiring":
       return "success";
-    case "Draft":
+    case "Pending":
       return "warning";
     default:
       return "default";
@@ -206,6 +210,7 @@ export function JdManagementDashboard() {
   const [rows, setRows] = useState<JobDescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
 
   // ── pagination / filter ─────────────────────────────────────────────────
   const [page, setPage] = useState(1);
@@ -230,6 +235,7 @@ export function JdManagementDashboard() {
   // ── delete confirm ───────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
   // ── overlay state ────────────────────────────────────────────────────────
   const resetUploadState = useCallback(() => {
@@ -271,6 +277,7 @@ export function JdManagementDashboard() {
   const loadDescriptions = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
+    setStatusUpdateError(null);
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch("/api/admin/job-descriptions", {
@@ -282,7 +289,12 @@ export function JdManagementDashboard() {
         error?: string;
       };
       if (!res.ok) throw new Error(json.error ?? "Failed to load.");
-      setRows(json.jobDescriptions ?? []);
+      setRows(
+        (json.jobDescriptions ?? []).map((r) => ({
+          ...r,
+          status: coerceJdStatus(String(r.status)),
+        })),
+      );
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : "Unknown error.");
     } finally {
@@ -293,6 +305,59 @@ export function JdManagementDashboard() {
   useEffect(() => {
     void loadDescriptions();
   }, [loadDescriptions]);
+
+  const updateJdStatus = useCallback(
+    async (id: number, next: JdStatus) => {
+      let prevStatus: JdStatus | null = null;
+      setRows((rs) => {
+        const row = rs.find((r) => r.id === id);
+        if (!row || row.status === next) return rs;
+        prevStatus = row.status;
+        return rs.map((r) => (r.id === id ? { ...r, status: next } : r));
+      });
+      if (prevStatus === null) return;
+
+      setStatusUpdatingId(id);
+      setStatusUpdateError(null);
+      try {
+        const headers = await authHeaders();
+        const res = await fetch(`/api/admin/job-descriptions/${id}`, {
+          method: "PUT",
+          credentials: "include",
+          headers,
+          body: JSON.stringify({ status: next }),
+        });
+        const json = (await res.json()) as {
+          error?: string;
+          jobDescription?: JobDescription;
+        };
+        if (!res.ok) throw new Error(json.error ?? "Update failed.");
+        if (json.jobDescription) {
+          const jd = json.jobDescription;
+          const normalized: JobDescription = {
+            ...jd,
+            status: coerceJdStatus(String(jd.status)),
+          };
+          setRows((rs) => rs.map((r) => (r.id === id ? normalized : r)));
+          setActiveRow((ar) =>
+            ar?.id === id ? { ...ar, ...normalized } : ar,
+          );
+        }
+      } catch (e) {
+        setRows((rs) =>
+          rs.map((r) =>
+            r.id === id ? { ...r, status: prevStatus! } : r,
+          ),
+        );
+        setStatusUpdateError(
+          e instanceof Error ? e.message : "Status update failed.",
+        );
+      } finally {
+        setStatusUpdatingId(null);
+      }
+    },
+    [authHeaders],
+  );
 
   // ── file upload ──────────────────────────────────────────────────────────
 
@@ -425,7 +490,11 @@ export function JdManagementDashboard() {
       const payload: JobDescriptionFormData = {
         ...form,
         position: resolvedPosition,
-        status: asDraft ? "Draft" : (form.status === "Draft" && !editingRow ? "Active" : form.status),
+        status: asDraft
+          ? "Pending"
+          : !editingRow && form.status === "Pending"
+            ? "Hiring"
+            : form.status,
       };
       const postBody =
         !editingRow && jdDraftJobOpeningId
@@ -505,7 +574,7 @@ export function JdManagementDashboard() {
       position: normalizeFormText(row.position),
       department: normalizeFormText(row.department),
       employment_status: normalizeFormText(row.employment_status),
-      status: row.status,
+      status: coerceJdStatus(String(row.status)),
       update_note: normalizeFormText(row.update_note),
       work_location: normalizeFormText(row.work_location),
       reporting: normalizeFormText(row.reporting),
@@ -551,14 +620,19 @@ export function JdManagementDashboard() {
     () => [
       { id: "total", value: String(rows.length), label: "Total JDs" },
       {
-        id: "active",
-        value: String(rows.filter((r) => r.status === "Active").length),
-        label: "Active",
+        id: "done",
+        value: String(rows.filter((r) => r.status === "Done").length),
+        label: "Done",
       },
       {
-        id: "draft",
-        value: String(rows.filter((r) => r.status === "Draft").length),
-        label: "Draft",
+        id: "hiring",
+        value: String(rows.filter((r) => r.status === "Hiring").length),
+        label: "Hiring",
+      },
+      {
+        id: "pending",
+        value: String(rows.filter((r) => r.status === "Pending").length),
+        label: "Pending",
       },
       {
         id: "closed",
@@ -770,7 +844,7 @@ export function JdManagementDashboard() {
                     </Select.Trigger>
                     <Select.Popover>
                       <ListBox>
-                        {STATUS_OPTIONS.map((s) => (
+                        {JD_STATUS_OPTIONS.map((s) => (
                           <ListBox.Item key={s} id={s} textValue={s}>
                             {s}
                             <ListBox.ItemIndicator />
@@ -954,7 +1028,7 @@ export function JdManagementDashboard() {
         >
           All
         </Button>
-        {STATUS_OPTIONS.map((s) => (
+        {JD_STATUS_OPTIONS.map((s) => (
           <Button
             key={s}
             size="sm"
@@ -970,7 +1044,7 @@ export function JdManagementDashboard() {
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {kpis.map((kpi) => (
           <Card key={kpi.id} variant="secondary">
             <Card.Header className="gap-1">
@@ -986,8 +1060,11 @@ export function JdManagementDashboard() {
       {/* ── Table ── */}
       <Card>
         <Card.Content className="gap-0 p-0">
-          {fetchError && (
-            <p className="px-6 py-4 text-sm text-danger">{fetchError}</p>
+          {(fetchError || statusUpdateError) && (
+            <div className="space-y-1 px-6 py-4 text-sm text-danger">
+              {fetchError ? <p>{fetchError}</p> : null}
+              {statusUpdateError ? <p>{statusUpdateError}</p> : null}
+            </div>
           )}
           <Table>
             <Table.ScrollContainer>
@@ -1031,14 +1108,30 @@ export function JdManagementDashboard() {
                         </Table.Cell>
                         <Table.Cell>{row.department ?? "—"}</Table.Cell>
                         <Table.Cell>{row.work_location ?? "—"}</Table.Cell>
-                        <Table.Cell>
-                          <Chip
-                            color={statusChipColor(row.status)}
-                            size="sm"
-                            variant="soft"
+                        <Table.Cell className="min-w-[9.5rem]">
+                          <Select
+                            value={row.status}
+                            isDisabled={statusUpdatingId === row.id}
+                            onChange={(key) => {
+                              if (typeof key === "string")
+                                void updateJdStatus(row.id, key as JdStatus);
+                            }}
                           >
-                            {row.status}
-                          </Chip>
+                            <Select.Trigger className="h-9 min-h-9">
+                              <Select.Value />
+                              <Select.Indicator />
+                            </Select.Trigger>
+                            <Select.Popover>
+                              <ListBox>
+                                {JD_STATUS_OPTIONS.map((s) => (
+                                  <ListBox.Item key={s} id={s} textValue={s}>
+                                    {s}
+                                    <ListBox.ItemIndicator />
+                                  </ListBox.Item>
+                                ))}
+                              </ListBox>
+                            </Select.Popover>
+                          </Select>
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-1">

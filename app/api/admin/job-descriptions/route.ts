@@ -1,8 +1,10 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { optionalToDb, requiredLine } from "@/lib/jd/normalize-text";
-import type { JdStatus, JobDescriptionFormData } from "@/lib/jd/types";
-
-const VALID_STATUSES: JdStatus[] = ["Active", "Draft", "Closed"];
+import {
+  isJdStatus,
+  type JdStatus,
+  type JobDescriptionFormData,
+} from "@/lib/jd/types";
 
 /** Shape returned by sanitize() in POST /api/admin/job-descriptions */
 type SanitizedJdInsertPayload = {
@@ -36,9 +38,10 @@ function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPaylo
     position: requiredLine(body.position, 50),
     department: optionalToDb(body.department, 50),
     employment_status: optionalToDb(body.employment_status, 50),
-    status: VALID_STATUSES.includes(body.status as JdStatus)
-      ? (body.status as JdStatus)
-      : "Draft",
+    status:
+      body.status !== undefined && isJdStatus(String(body.status))
+        ? (body.status as JdStatus)
+        : "Pending",
     update_note: optionalToDb(body.update_note, 50),
     work_location: optionalToDb(body.work_location, 255),
     reporting: optionalToDb(body.reporting, 255),
@@ -66,7 +69,7 @@ export async function GET(request: Request) {
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (status && VALID_STATUSES.includes(status as JdStatus)) {
+  if (status && isJdStatus(status)) {
     query = query.eq("status", status);
   }
 

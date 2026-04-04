@@ -1,10 +1,8 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { optionalToDb, requiredLine } from "@/lib/jd/normalize-text";
-import type { JdStatus, JobDescriptionFormData } from "@/lib/jd/types";
+import { isJdStatus, type JobDescriptionFormData } from "@/lib/jd/types";
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-const VALID_STATUSES: JdStatus[] = ["Active", "Draft", "Closed"];
 
 function parseId(raw: string): number | null {
   const n = Number(raw);
@@ -39,11 +37,8 @@ function sanitize(body: Partial<JobDescriptionFormData>) {
     result.reporting = optionalToDb(body.reporting, 255);
   if (body.role_overview !== undefined)
     result.role_overview = optionalToDb(body.role_overview, 255);
-  if (
-    body.status !== undefined &&
-    VALID_STATUSES.includes(body.status as JdStatus)
-  ) {
-    result.status = body.status as string;
+  if (body.status !== undefined && isJdStatus(String(body.status))) {
+    result.status = body.status;
   }
 
   return result;

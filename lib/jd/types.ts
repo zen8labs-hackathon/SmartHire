@@ -1,11 +1,30 @@
-export type JdStatus = "Active" | "Draft" | "Closed";
+export type JdStatus = "Done" | "Hiring" | "Pending" | "Closed";
+
+export const JD_STATUS_OPTIONS: readonly JdStatus[] = [
+  "Done",
+  "Hiring",
+  "Pending",
+  "Closed",
+];
+
+export function isJdStatus(value: string): value is JdStatus {
+  return (JD_STATUS_OPTIONS as readonly string[]).includes(value);
+}
+
+/** Map legacy DB values and unknown strings to the current enum. */
+export function coerceJdStatus(value: string): JdStatus {
+  if (isJdStatus(value)) return value;
+  if (value === "Active") return "Hiring";
+  if (value === "Draft") return "Pending";
+  return "Pending";
+}
 
 /** DB row shape for public.job_descriptions */
 export type JobDescription = {
   id: number;
   position: string;
   department: string | null;
-  /** From JD text (e.g. Fulltime) — not Active/Draft/Closed */
+  /** From JD text (e.g. Fulltime) — not workflow JD status */
   employment_status?: string | null;
   status: JdStatus;
   update_note: string | null;
