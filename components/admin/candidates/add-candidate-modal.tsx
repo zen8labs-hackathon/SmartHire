@@ -21,6 +21,7 @@ import {
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
 import { createClient } from "@/lib/supabase/client";
+import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 type JobOpening = { id: string; title: string; status: string };
 
@@ -140,21 +141,10 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
 
   const selectedJobId = jobKey === "__none__" ? null : jobKey;
 
-  const sessionAuthHeaders = useCallback(async (): Promise<
-    Record<string, string>
-  > => {
-    // Use getSession() — @supabase/ssr middleware manages refresh via cookies.
-    // Never call refreshSession() from the browser client: it burns the refresh
-    // token and desyncs the server-managed session, causing RLS to fail.
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const h: Record<string, string> = {};
-    if (session?.access_token) {
-      h.Authorization = `Bearer ${session.access_token}`;
-    }
-    return h;
-  }, [supabase]);
+  const sessionAuthHeaders = useCallback(
+    () => getSessionAuthorizationHeaders(supabase),
+    [supabase],
+  );
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();

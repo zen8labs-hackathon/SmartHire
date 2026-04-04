@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import Link from "next/link";
 
 import {
@@ -19,12 +26,23 @@ import {
   Table,
   TextArea,
   TextField,
+  useOverlayState,
 } from "@heroui/react";
 
 import { getJdDetail, JD_KPIS, JD_ROWS, JD_VERSION_CHIPS } from "@/lib/jd/mock-data";
 import type { JdRow, JdStatus } from "@/lib/jd/types";
+import {
+  JD_BUCKET,
+  MAX_JD_BYTES,
+  isAllowedJdFilename,
+} from "@/lib/jd/upload-constants";
+import { createClient } from "@/lib/supabase/client";
+import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 const ROWS_PER_PAGE = 4;
+
+type JdUploadPhase = "idle" | "uploading" | "done" | "error";
+
 const CHAPTER_OPTIONS = [
   "Product Management",
   "Engineering",
@@ -98,11 +116,157 @@ function TableIcon({ className }: { className?: string }) {
 }
 
 export function JdManagementDashboard() {
+  const supabase = useMemo(() => createClient(), []);
+  const jdFileInputRef = useRef<HTMLInputElement>(null);
+
   const [page, setPage] = useState(1);
   const [titleFilter, setTitleFilter] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JdRow | null>(null);
   const [chapter, setChapter] = useState("Product Management");
+
+  const [jdUploadPhase, setJdUploadPhase] = useState<JdUploadPhase>("idle");
+  const [jdUploadError, setJdUploadError] = useState<string | null>(null);
+  const [jdDraftJobOpeningId, setJdDraftJobOpeningId] = useState<string | null>(
+    null,
+  );
+  const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(
+    null,
+  );
+  const [jdDragOver, setJdDragOver] = useState(false);
+
+  const resetJdUploadState = useCallback(() => {
+    setJdUploadPhase("idle");
+    setJdUploadError(null);
+    setJdDraftJobOpeningId(null);
+    setJdSelectedFileName(null);
+    setJdDragOver(false);
+    if (jdFileInputRef.current) jdFileInputRef.current.value = "";
+  }, []);
+
+  const jdModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) resetJdUploadState();
+    },
+  });
+
+  const deleteJdDraftOnServer = useCallback(
+    async (jobOpeningId: string) => {
+      const auth = await getSessionAuthorizationHeaders(supabase);
+      await fetch(
+        `/api/admin/job-openings/sign-upload?jobOpeningId=${encodeURIComponent(jobOpeningId)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: { ...auth },
+        },
+      );
+    },
+    [supabase],
+  );
+
+  const discardJdDraft = useCallback(async () => {
+    if (jdDraftJobOpeningId) {
+      await deleteJdDraftOnServer(jdDraftJobOpeningId);
+    }
+    resetJdUploadState();
+    jdModal.close();
+  }, [deleteJdDraftOnServer, jdDraftJobOpeningId, jdModal, resetJdUploadState]);
+
+  const ingestJdFile = useCallback(
+    async (file: File) => {
+      if (!isAllowedJdFilename(file.name)) {
+        setJdUploadError("Only PDF, DOCX, or TXT files are supported.");
+        setJdUploadPhase("error");
+        return;
+      }
+      if (file.size > MAX_JD_BYTES) {
+        setJdUploadError("File exceeds 10MB limit.");
+        setJdUploadPhase("error");
+        return;
+      }
+
+      setJdUploadError(null);
+      setJdUploadPhase("uploading");
+      let newJobId: string | undefined;
+
+      try {
+        const auth = await getSessionAuthorizationHeaders(supabase);
+        if (!auth.Authorization) {
+          setJdUploadError("Session expired. Sign in again.");
+          setJdUploadPhase("error");
+          return;
+        }
+
+        const signRes = await fetch("/api/admin/job-openings/sign-upload", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...auth },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type || null,
+            replaceJobOpeningId: jdDraftJobOpeningId,
+          }),
+        });
+        const signJson = (await signRes.json()) as {
+          error?: string;
+          jobOpeningId?: string;
+          path?: string;
+          token?: string;
+        };
+        if (
+          !signRes.ok ||
+          !signJson.jobOpeningId ||
+          !signJson.path ||
+          !signJson.token
+        ) {
+          throw new Error(signJson.error ?? "Could not start upload");
+        }
+        newJobId = signJson.jobOpeningId;
+
+        const { error: upErr } = await supabase.storage
+          .from(JD_BUCKET)
+          .uploadToSignedUrl(signJson.path, signJson.token, file, {
+            contentType: file.type || undefined,
+          });
+
+        if (upErr) {
+          throw new Error(upErr.message);
+        }
+
+        setJdDraftJobOpeningId(signJson.jobOpeningId);
+        setJdSelectedFileName(file.name);
+        setJdUploadPhase("done");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        setJdUploadError(msg);
+        setJdUploadPhase("error");
+        if (newJobId) {
+          await deleteJdDraftOnServer(newJobId);
+          setJdDraftJobOpeningId(null);
+        }
+      }
+    },
+    [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase],
+  );
+
+  const onJdFileInputChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0];
+      if (f) void ingestJdFile(f);
+    },
+    [ingestJdFile],
+  );
+
+  const onJdDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      setJdDragOver(false);
+      const f = e.dataTransfer.files?.[0];
+      if (f) void ingestJdFile(f);
+    },
+    [ingestJdFile],
+  );
 
   const filteredRows = useMemo(() => {
     if (!titleFilter) return JD_ROWS;
@@ -140,44 +304,91 @@ export function JdManagementDashboard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary">View templates</Button>
-          <Modal>
-            <Button variant="primary">New definition</Button>
-            <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
-              <Modal.Container>
-                <Modal.Dialog className="w-full max-w-[760px] overflow-hidden p-0">
-                  <Modal.CloseTrigger />
-                  <Modal.Header className="items-start border-b border-divider px-6 py-5">
-                    <div className="flex w-full flex-wrap items-center justify-between gap-3">
-                      <div className="space-y-2">
-                        <Modal.Heading className="text-xl">
-                          Create New Definition
-                        </Modal.Heading>
-                        <Button variant="secondary" size="sm">
-                          View Templates
-                        </Button>
-                      </div>
-                      <Chip variant="soft" size="sm">
-                        Version Control: v1.0
-                      </Chip>
+          <Button variant="primary" onPress={jdModal.open}>
+            New definition
+          </Button>
+          <input
+            ref={jdFileInputRef}
+            type="file"
+            className="sr-only"
+            accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            aria-hidden
+            tabIndex={-1}
+            onChange={onJdFileInputChange}
+          />
+          <Modal.Backdrop
+            className="bg-black/40 backdrop-blur-sm"
+            isOpen={jdModal.isOpen}
+            onOpenChange={jdModal.setOpen}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="w-full max-w-[760px] overflow-hidden p-0">
+                <Modal.CloseTrigger />
+                <Modal.Header className="items-start border-b border-divider px-6 py-5">
+                  <div className="flex w-full flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-2">
+                      <Modal.Heading className="text-xl">
+                        Create New Definition
+                      </Modal.Heading>
+                      <Button variant="secondary" size="sm">
+                        View Templates
+                      </Button>
                     </div>
-                  </Modal.Header>
-                  <Modal.Body className="max-h-[70vh] space-y-7 overflow-y-auto px-6 py-6">
-                    <Card variant="secondary">
-                      <Card.Content className="items-center gap-3 py-8 text-center">
-                        <div className="flex size-12 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    <Chip variant="soft" size="sm">
+                      Version Control: v1.0
+                    </Chip>
+                  </div>
+                </Modal.Header>
+                <Modal.Body className="max-h-[70vh] space-y-7 overflow-y-auto px-6 py-6">
+                  <Card
+                    variant="secondary"
+                    className={
+                      jdDragOver ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : undefined
+                    }
+                  >
+                    <Card.Content
+                      className="items-center gap-3 py-8 text-center"
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                        setJdDragOver(true);
+                      }}
+                      onDragLeave={() => setJdDragOver(false)}
+                      onDrop={onJdDrop}
+                    >
+                      <div className="flex size-12 items-center justify-center rounded-full bg-accent/15 text-accent">
+                        {jdUploadPhase === "done" ? (
+                          <CheckCircleIcon className="size-7 text-success" />
+                        ) : (
                           <span className="text-xl">+</span>
-                        </div>
-                        <p className="text-sm font-semibold text-foreground">
-                          Drag & Drop JD Document
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">
+                        Drag & Drop JD Document
+                      </p>
+                      <p className="text-xs text-muted">
+                        PDF, DOCX or TXT files supported. Max 10MB.
+                      </p>
+                      {jdUploadPhase === "uploading" ? (
+                        <p className="text-xs text-accent">Uploading…</p>
+                      ) : null}
+                      {jdUploadPhase === "done" && jdSelectedFileName ? (
+                        <p className="text-xs font-medium text-foreground">
+                          {jdSelectedFileName}
                         </p>
-                        <p className="text-xs text-muted">
-                          PDF, DOCX or TXT files supported. Max 10MB.
-                        </p>
-                        <Button variant="secondary" size="sm">
-                          Browse Files
-                        </Button>
-                      </Card.Content>
-                    </Card>
+                      ) : null}
+                      {jdUploadPhase === "error" && jdUploadError ? (
+                        <p className="text-xs text-danger">{jdUploadError}</p>
+                      ) : null}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={() => jdFileInputRef.current?.click()}
+                      >
+                        Browse Files
+                      </Button>
+                    </Card.Content>
+                  </Card>
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <TextField defaultValue="Executive Director of Product">
@@ -239,19 +450,18 @@ export function JdManagementDashboard() {
                       />
                     </TextField>
                   </Modal.Body>
-                  <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
-                    <Button slot="close" variant="ghost">
-                      Discard Draft
-                    </Button>
-                    <div className="flex gap-2">
-                      <Button variant="secondary">Save Draft</Button>
-                      <Button variant="primary">Create</Button>
-                    </div>
-                  </Modal.Footer>
-                </Modal.Dialog>
-              </Modal.Container>
-            </Modal.Backdrop>
-          </Modal>
+                <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
+                  <Button variant="ghost" onPress={() => void discardJdDraft()}>
+                    Discard Draft
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="secondary">Save Draft</Button>
+                    <Button variant="primary">Create</Button>
+                  </div>
+                </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
         </div>
       </div>
 
