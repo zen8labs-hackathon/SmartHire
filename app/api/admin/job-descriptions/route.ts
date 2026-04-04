@@ -1,5 +1,10 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import { optionalToDb, requiredLine } from "@/lib/jd/normalize-text";
+import {
+  optionalDateToDb,
+  optionalToDb,
+  requiredLine,
+  utcDateStringToday,
+} from "@/lib/jd/normalize-text";
 import {
   isJdStatus,
   type JdStatus,
@@ -20,6 +25,8 @@ type SanitizedJdInsertPayload = {
   experience_requirements_nice_to_have: string | null;
   what_we_offer: string | null;
   status: string;
+  start_date: string | null;
+  end_date: string | null;
 };
 
 const UUID_RE =
@@ -34,14 +41,17 @@ type CreateBody = Partial<JobDescriptionFormData> & {
 };
 
 function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPayload {
+  const status =
+    body.status !== undefined && isJdStatus(String(body.status))
+      ? (body.status as JdStatus)
+      : "Pending";
+  const endDate =
+    status === "Done" || status === "Closed" ? utcDateStringToday() : null;
   return {
     position: requiredLine(body.position, 50),
     department: optionalToDb(body.department, 50),
     employment_status: optionalToDb(body.employment_status, 50),
-    status:
-      body.status !== undefined && isJdStatus(String(body.status))
-        ? (body.status as JdStatus)
-        : "Pending",
+    status,
     update_note: optionalToDb(body.update_note, 50),
     work_location: optionalToDb(body.work_location, 255),
     reporting: optionalToDb(body.reporting, 255),
@@ -54,6 +64,8 @@ function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPaylo
       body.experience_requirements_nice_to_have,
     ),
     what_we_offer: optionalToDb(body.what_we_offer),
+    start_date: optionalDateToDb(body.start_date),
+    end_date: endDate,
   };
 }
 

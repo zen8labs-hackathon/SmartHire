@@ -1,6 +1,16 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import { optionalToDb, requiredLine } from "@/lib/jd/normalize-text";
-import { isJdStatus, type JobDescriptionFormData } from "@/lib/jd/types";
+import {
+  optionalDateToDb,
+  optionalToDb,
+  requiredLine,
+  utcDateStringToday,
+} from "@/lib/jd/normalize-text";
+import {
+  coerceJdStatus,
+  isJdStatus,
+  type JobDescriptionFormData,
+  type JdStatus,
+} from "@/lib/jd/types";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -37,11 +47,26 @@ function sanitize(body: Partial<JobDescriptionFormData>) {
     result.reporting = optionalToDb(body.reporting, 255);
   if (body.role_overview !== undefined)
     result.role_overview = optionalToDb(body.role_overview, 255);
+  if (body.start_date !== undefined) {
+    result.start_date = optionalDateToDb(body.start_date);
+  }
   if (body.status !== undefined && isJdStatus(String(body.status))) {
     result.status = body.status;
   }
 
   return result;
+}
+
+function endDateForStatusTransition(
+  prevStatus: string,
+  next: JdStatus,
+): string | null | undefined {
+  const prev = coerceJdStatus(prevStatus);
+  const prevTerminal = prev === "Done" || prev === "Closed";
+  const nextTerminal = next === "Done" || next === "Closed";
+  if (nextTerminal && !prevTerminal) return utcDateStringToday();
+  if (!nextTerminal && prevTerminal) return null;
+  return undefined;
 }
 
 export async function GET(request: Request, { params }: RouteContext) {
@@ -79,9 +104,32 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
+  const { data: existing, error: existingErr } = await auth.supabase
+    .from("job_descriptions")
+    .select("status")
+    .eq("id", numId)
+    .maybeSingle();
+
+  if (existingErr) {
+    return Response.json({ error: existingErr.message }, { status: 500 });
+  }
+  if (!existing) {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
   const payload = sanitize(body);
   if (payload.position === null || payload.position === undefined) {
     delete payload.position;
+  }
+
+  if (body.status !== undefined && isJdStatus(String(body.status))) {
+    const endDelta = endDateForStatusTransition(
+      String(existing.status),
+      body.status as JdStatus,
+    );
+    if (endDelta !== undefined) {
+      payload.end_date = endDelta;
+    }
   }
 
   const { data, error } = await auth.supabase

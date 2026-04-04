@@ -38,7 +38,7 @@ import {
   type JobDescriptionFormData,
   type JdStatus,
 } from "@/lib/jd/types";
-import { normalizeFormText } from "@/lib/jd/normalize-text";
+import { normalizeFormText, utcDateStringToday } from "@/lib/jd/normalize-text";
 import {
   JD_BUCKET,
   MAX_JD_BYTES,
@@ -75,6 +75,7 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   experience_requirements_must_have: "",
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
+  start_date: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,27 @@ function statusChipColor(status: JdStatus): "success" | "warning" | "default" {
     default:
       return "default";
   }
+}
+
+function jdRowDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  const s = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function formatJdCalendarDate(value: string | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const ymd = value.slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "—";
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(y, mo - 1, d).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function formatDate(iso: string) {
@@ -320,10 +342,15 @@ export function JdManagementDashboard() {
       };
       if (!res.ok) throw new Error(json.error ?? "Failed to load.");
       setRows(
-        (json.jobDescriptions ?? []).map((r) => ({
-          ...r,
-          status: coerceJdStatus(String(r.status)),
-        })),
+        (json.jobDescriptions ?? []).map((r) => {
+          const row = r as JobDescription;
+          return {
+            ...row,
+            status: coerceJdStatus(String(row.status)),
+            start_date: jdRowDate(row.start_date),
+            end_date: jdRowDate(row.end_date),
+          };
+        }),
       );
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : "Unknown error.");
@@ -382,11 +409,24 @@ export function JdManagementDashboard() {
   const updateJdStatus = useCallback(
     async (id: number, next: JdStatus) => {
       let prevStatus: JdStatus | null = null;
+      let prevEndDate: string | null = null;
       setRows((rs) => {
         const row = rs.find((r) => r.id === id);
         if (!row || row.status === next) return rs;
         prevStatus = row.status;
-        return rs.map((r) => (r.id === id ? { ...r, status: next } : r));
+        prevEndDate = row.end_date;
+        const prevTerminal =
+          row.status === "Done" || row.status === "Closed";
+        const nextTerminal = next === "Done" || next === "Closed";
+        let endDate = row.end_date;
+        if (nextTerminal && !prevTerminal) {
+          endDate = utcDateStringToday();
+        } else if (!nextTerminal && prevTerminal) {
+          endDate = null;
+        }
+        return rs.map((r) =>
+          r.id === id ? { ...r, status: next, end_date: endDate } : r,
+        );
       });
       if (prevStatus === null) return;
 
@@ -410,6 +450,8 @@ export function JdManagementDashboard() {
           const normalized: JobDescription = {
             ...jd,
             status: coerceJdStatus(String(jd.status)),
+            start_date: jdRowDate(jd.start_date),
+            end_date: jdRowDate(jd.end_date),
           };
           setRows((rs) => rs.map((r) => (r.id === id ? normalized : r)));
           setActiveRow((ar) =>
@@ -419,7 +461,9 @@ export function JdManagementDashboard() {
       } catch (e) {
         setRows((rs) =>
           rs.map((r) =>
-            r.id === id ? { ...r, status: prevStatus! } : r,
+            r.id === id
+              ? { ...r, status: prevStatus!, end_date: prevEndDate }
+              : r,
           ),
         );
         setStatusUpdateError(
@@ -662,6 +706,7 @@ export function JdManagementDashboard() {
         row.experience_requirements_nice_to_have,
       ),
       what_we_offer: normalizeFormText(row.what_we_offer),
+      start_date: row.start_date ? row.start_date.slice(0, 10) : "",
     });
     jdModal.open();
   }
@@ -899,6 +944,16 @@ export function JdManagementDashboard() {
                   >
                     <Label>Update / revision</Label>
                     <Input placeholder="e.g. 2026 or revision note" />
+                  </TextField>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <TextField
+                    value={form.start_date}
+                    onChange={(v) => setField("start_date", v)}
+                  >
+                    <Label>Hiring start date</Label>
+                    <Input type="date" />
                   </TextField>
                 </div>
 
@@ -1143,12 +1198,14 @@ export function JdManagementDashboard() {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Job descriptions"
-                className="min-w-[700px]"
+                className="min-w-[960px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Position</Table.Column>
                   <Table.Column>Department</Table.Column>
                   <Table.Column>Work location</Table.Column>
+                  <Table.Column>Start date</Table.Column>
+                  <Table.Column>End date</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column>Actions</Table.Column>
                 </Table.Header>
@@ -1163,13 +1220,13 @@ export function JdManagementDashboard() {
                 >
                   {loading ? (
                     <Table.Row id="jd-row-loading">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={5}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
                         Loading…
                       </Table.Cell>
                     </Table.Row>
                   ) : paginatedRows.length === 0 ? (
                     <Table.Row id="jd-row-empty">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={5}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
                         No job descriptions found.
                       </Table.Cell>
                     </Table.Row>
@@ -1181,6 +1238,12 @@ export function JdManagementDashboard() {
                         </Table.Cell>
                         <Table.Cell>{row.department ?? "—"}</Table.Cell>
                         <Table.Cell>{row.work_location ?? "—"}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap text-muted">
+                          {formatJdCalendarDate(row.start_date)}
+                        </Table.Cell>
+                        <Table.Cell className="whitespace-nowrap text-muted">
+                          {formatJdCalendarDate(row.end_date)}
+                        </Table.Cell>
                         <Table.Cell className="min-w-[9.5rem]">
                           <Select
                             value={row.status}
@@ -1321,6 +1384,16 @@ export function JdManagementDashboard() {
                   <div className="mt-1 flex flex-wrap gap-3 text-sm text-muted">
                     {activeRow.employment_status ? (
                       <span>JD status: {activeRow.employment_status}</span>
+                    ) : null}
+                    {activeRow.start_date ? (
+                      <span>
+                        Hiring starts: {formatJdCalendarDate(activeRow.start_date)}
+                      </span>
+                    ) : null}
+                    {activeRow.end_date ? (
+                      <span>
+                        Hiring ends: {formatJdCalendarDate(activeRow.end_date)}
+                      </span>
                     ) : null}
                     {activeRow.work_location && (
                       <span>📍 {activeRow.work_location}</span>
