@@ -2,6 +2,7 @@ import type { CandidateRow, CandidateStatus } from "./types";
 
 const BASE: Omit<CandidateRow, "id">[] = [
   {
+    hasCvFile: false,
     name: "Elena Rodriguez",
     role: "Senior Frontend Engineer",
     avatarUrl:
@@ -21,6 +22,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchError: null,
   },
   {
+    hasCvFile: false,
     name: "Julian Vane",
     role: "Product Design Lead",
     avatarUrl:
@@ -39,6 +41,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchError: null,
   },
   {
+    hasCvFile: false,
     name: "Maya Okoro",
     role: "Backend Architecture",
     avatarUrl:
@@ -57,6 +60,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     jdMatchError: null,
   },
   {
+    hasCvFile: false,
     name: "David Chen",
     role: "Growth Marketing",
     avatarUrl:
@@ -139,6 +143,7 @@ function buildRows(total: number): CandidateRow[] {
     const name = `${EXTRA_FIRST[fi]} ${EXTRA_LAST[li]}`;
     rows.push({
       id: `c-${i + 1}`,
+      hasCvFile: false,
       name,
       role: ROLES[i % ROLES.length],
       avatarUrl: null,

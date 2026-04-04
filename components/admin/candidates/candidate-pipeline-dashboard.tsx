@@ -379,9 +379,21 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                             </Avatar.Fallback>
                           </Avatar>
                           <div className="min-w-0">
-                            <p className="font-semibold text-foreground">
-                              {row.name}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <p className="font-semibold text-foreground">
+                                {row.name}
+                              </p>
+                              {row.hasCvFile ? (
+                                <a
+                                  href={`/api/admin/candidates/${row.id}/cv-download`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                                >
+                                  CV file
+                                </a>
+                              ) : null}
+                            </div>
                             <p className="text-xs font-medium text-muted">
                               {row.role}
                             </p>

@@ -7,6 +7,8 @@ export type CandidateStatus =
 
 export type CandidateRow = {
   id: string;
+  /** True when a CV object exists in storage for this candidate (signed URL via API). */
+  hasCvFile: boolean;
   name: string;
   role: string;
   avatarUrl: string | null;
