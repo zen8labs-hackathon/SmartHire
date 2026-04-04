@@ -7,13 +7,21 @@
  *   SKIP_DB_MIGRATIONS — set to "1" or "true" to skip (local or emergency).
  *
  * On Vercel, if SUPABASE_DATABASE_URL is unset, skips with a warning (deploy still succeeds).
+ *
+ * Vercel build environments often cannot reach IPv6-only routes. Node otherwise may pick an
+ * AAAA record first and fail with ENETUNREACH — we prefer IPv4 (A records) when both exist.
  */
 
+import dns from "node:dns";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import pg from "pg";
+
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -34,6 +42,74 @@ function fail(msg) {
 function migrationVersion(filename) {
   const m = /^(\d{14})_[^/]+\.sql$/i.exec(filename);
   return m ? m[1] : null;
+}
+
+/**
+ * Vercel build workers often have no IPv6 route; Supabase hostnames may resolve to IPv6 first.
+ * On VERCEL, resolve the DB host to an IPv4 address and connect there, preserving TLS SNI.
+ */
+async function pgClientConfigFromUrl(urlString) {
+  const isLocal =
+    urlString.includes("localhost") || urlString.includes("127.0.0.1");
+
+  const connectionTimeoutMillis = 25_000;
+  const sslBase =
+    isLocal ? undefined : { rejectUnauthorized: false };
+
+  if (isLocal || process.env.VERCEL !== "1") {
+    return {
+      connectionString: urlString,
+      connectionTimeoutMillis,
+      ssl: sslBase,
+    };
+  }
+
+  let canonical;
+  try {
+    canonical = new URL(urlString.replace(/^postgres(ql)?:/i, "http:"));
+  } catch {
+    return {
+      connectionString: urlString,
+      connectionTimeoutMillis,
+      ssl: sslBase,
+    };
+  }
+
+  const logicalHost = canonical.hostname;
+  if (!logicalHost) {
+    return {
+      connectionString: urlString,
+      connectionTimeoutMillis,
+      ssl: sslBase,
+    };
+  }
+
+  try {
+    const { address } = await dns.promises.lookup(logicalHost, {
+      family: 4,
+    });
+    canonical.hostname = address;
+    const connectionString = canonical
+      .toString()
+      .replace(/^http:/, "postgresql:");
+    return {
+      connectionString,
+      connectionTimeoutMillis,
+      ssl: {
+        ...sslBase,
+        servername: logicalHost,
+      },
+    };
+  } catch (e) {
+    console.warn(
+      `[db-migrate] IPv4 lookup for ${logicalHost} failed (${e instanceof Error ? e.message : e}); connecting with original hostname.`,
+    );
+    return {
+      connectionString: urlString,
+      connectionTimeoutMillis,
+      ssl: sslBase,
+    };
+  }
 }
 
 async function main() {
@@ -74,14 +150,7 @@ async function main() {
     return;
   }
 
-  const client = new pg.Client({
-    connectionString: url,
-    connectionTimeoutMillis: 25_000,
-    ssl:
-      url.includes("localhost") || url.includes("127.0.0.1")
-        ? undefined
-        : { rejectUnauthorized: false },
-  });
+  const client = new pg.Client(await pgClientConfigFromUrl(url));
 
   try {
     await client.connect();

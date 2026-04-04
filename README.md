@@ -101,6 +101,8 @@ If `SUPABASE_DATABASE_URL` is **not** set on Vercel, the script logs a warning a
 
 You can run the same step locally when the URL is set: `npm run db:migrate`.
 
+**Vercel `ENETUNREACH` / IPv6:** Build machines often cannot reach IPv6 addresses. The migration script prefers IPv4: it sets `dns.setDefaultResultOrder("ipv4first")` and, on Vercel, resolves the database host with IPv4 and connects using TLS `servername` so certificates still validate. If connection still fails, check Supabase **Database** settings for an IPv4-compatible connection string or [IPv4 add-on](https://supabase.com/docs/guides/platform/ipv4-address).
+
 **Smoke test:** [`supabase/migrations/20260404150000_migration_smoke_test.sql`](supabase/migrations/20260404150000_migration_smoke_test.sql) adds standalone table `public.migration_smoke_test` (no FKs, RLS on with no policies so the app does not expose it). After a successful Vercel build, confirm in the Supabase SQL Editor: `select * from public.migration_smoke_test;` (empty row set is fine). Drop the table when you no longer need the check.
 
 ### Vercel MCP
