@@ -34,12 +34,16 @@ export type CandidateDbRow = {
   jd_match_status?: JdMatchStatus | string | null;
   jd_match_error?: string | null;
   jd_match_rationale?: string | null;
+  interview_at?: string | null;
+  onboarding_at?: string | null;
   created_at: string;
   updated_at: string;
 };
 
 function asCandidateStatus(s: string): CandidateStatus {
   if (s === "Shortlisted" || s === "Interviewing") return s;
+  if (s === "Offer") return "Offer";
+  if (s === "Failed") return "Failed";
   return "New";
 }
 

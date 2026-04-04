@@ -1,4 +1,9 @@
-export type CandidateStatus = "New" | "Shortlisted" | "Interviewing";
+export type CandidateStatus =
+  | "New"
+  | "Shortlisted"
+  | "Interviewing"
+  | "Offer"
+  | "Failed";
 
 export type CandidateRow = {
   id: string;

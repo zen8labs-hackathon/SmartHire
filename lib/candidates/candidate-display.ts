@@ -1,4 +1,4 @@
-import type { CandidateRow } from "@/lib/candidates/types";
+import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 
 export function candidateDisplayInitials(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -14,4 +14,21 @@ export function jdMatchChipColor(
   if (row.jdMatchScore >= 75) return "success";
   if (row.jdMatchScore >= 50) return "accent";
   return "danger";
+}
+
+export function candidateStatusChipColor(
+  status: CandidateStatus,
+): "success" | "accent" | "danger" | "warning" | "default" {
+  switch (status) {
+    case "Interviewing":
+      return "success";
+    case "Shortlisted":
+      return "accent";
+    case "Offer":
+      return "warning";
+    case "Failed":
+      return "danger";
+    default:
+      return "default";
+  }
 }

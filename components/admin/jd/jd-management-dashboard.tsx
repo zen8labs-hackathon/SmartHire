@@ -12,7 +12,6 @@ import {
 import Link from "next/link";
 
 import {
-  Avatar,
   Button,
   Card,
   Chip,
@@ -44,15 +43,8 @@ import {
   MAX_JD_BYTES,
   isAllowedJdFilename,
 } from "@/lib/jd/upload-constants";
-import {
-  candidateDisplayInitials,
-  jdMatchChipColor,
-} from "@/lib/candidates/candidate-display";
-import {
-  type CandidateDbRow,
-  candidateDbRowToTableRow,
-} from "@/lib/candidates/db-row";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
+import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -83,19 +75,6 @@ const DEFAULT_FORM: JobDescriptionFormData = {
 // ---------------------------------------------------------------------------
 
 type JdUploadPhase = "idle" | "uploading" | "extracting" | "done" | "error";
-
-function candidateStatusChipColor(
-  status: CandidateStatus,
-): "success" | "accent" | "default" {
-  switch (status) {
-    case "Interviewing":
-      return "success";
-    case "Shortlisted":
-      return "accent";
-    default:
-      return "default";
-  }
-}
 
 function statusChipColor(status: JdStatus): "success" | "warning" | "default" {
   switch (status) {
@@ -282,9 +261,9 @@ export function JdManagementDashboard() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
-  const [jdDrawerCandidates, setJdDrawerCandidates] = useState<CandidateRow[]>(
-    [],
-  );
+  const [jdDrawerCandidatesDb, setJdDrawerCandidatesDb] = useState<
+    CandidateDbRow[]
+  >([]);
   const [jdDrawerCandidatesState, setJdDrawerCandidatesState] = useState<
     "idle" | "loading" | "error" | "ok"
   >("idle");
@@ -363,10 +342,27 @@ export function JdManagementDashboard() {
     void loadDescriptions();
   }, [loadDescriptions]);
 
+  const refetchJdDrawerCandidates = useCallback(async () => {
+    if (!activeRow) return;
+    try {
+      const h = await getSessionAuthorizationHeaders(supabase);
+      const res = await fetch(
+        `/api/admin/candidates?jobDescriptionId=${activeRow.id}`,
+        { credentials: "include", headers: { ...h } },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
+      setJdDrawerCandidatesDb(json.candidates ?? []);
+      setJdDrawerCandidatesState("ok");
+    } catch {
+      setJdDrawerCandidatesState("error");
+    }
+  }, [activeRow, supabase]);
+
   useEffect(() => {
     if (!drawerOpen || !activeRow) {
       setJdDrawerCandidatesState("idle");
-      setJdDrawerCandidates([]);
+      setJdDrawerCandidatesDb([]);
       return;
     }
 
@@ -385,15 +381,8 @@ export function JdManagementDashboard() {
           return;
         }
         const json = (await res.json()) as { candidates?: CandidateDbRow[] };
-        const mapped = (json.candidates ?? []).map(candidateDbRowToTableRow);
-        mapped.sort((a, b) => {
-          const as = a.jdMatchScore ?? -1;
-          const bs = b.jdMatchScore ?? -1;
-          if (bs !== as) return bs - as;
-          return a.name.localeCompare(b.name);
-        });
         if (!cancelled) {
-          setJdDrawerCandidates(mapped);
+          setJdDrawerCandidatesDb(json.candidates ?? []);
           setJdDrawerCandidatesState("ok");
         }
       } catch {
@@ -1361,7 +1350,7 @@ export function JdManagementDashboard() {
       {/* ── Detail Drawer ── */}
       <Drawer.Backdrop isOpen={drawerOpen} onOpenChange={setDrawerOpen}>
         <Drawer.Content placement="right">
-          <Drawer.Dialog className="w-full max-w-md sm:max-w-lg">
+          <Drawer.Dialog className="w-full max-w-md sm:max-w-2xl">
             <Drawer.CloseTrigger />
             {activeRow ? (
               <>
@@ -1477,72 +1466,16 @@ export function JdManagementDashboard() {
                   <section>
                     <SectionLabel>Applied candidates</SectionLabel>
                     <p className="mt-1 text-xs text-muted">
-                      Candidates assigned to a job opening linked to this job
-                      description, with the same JD match scores as on the
-                      Candidates page.
+                      Pipeline by stage for this job description. JD match scores
+                      match the Candidates page. Select rows to move stages or
+                      schedule interviews and onboarding.
                     </p>
-                    {jdDrawerCandidatesState === "loading" ? (
-                      <p className="mt-3 text-sm text-muted">Loading…</p>
-                    ) : null}
-                    {jdDrawerCandidatesState === "error" ? (
-                      <p className="mt-3 text-sm text-danger">
-                        Could not load candidates. Try again later.
-                      </p>
-                    ) : null}
-                    {jdDrawerCandidatesState === "ok" &&
-                    jdDrawerCandidates.length === 0 ? (
-                      <p className="mt-3 text-sm text-muted">
-                        No candidates yet. Link a job opening to this JD and add
-                        applicants from the Candidates page or the JD
-                        pipeline.
-                      </p>
-                    ) : null}
-                    {jdDrawerCandidatesState === "ok" &&
-                    jdDrawerCandidates.length > 0 ? (
-                      <ul className="mt-3 flex flex-col gap-3">
-                        {jdDrawerCandidates.map((c) => (
-                          <li
-                            key={c.id}
-                            className="flex items-start gap-3 rounded-xl border border-divider bg-surface-secondary/40 p-3"
-                          >
-                            <Avatar className="size-10 shrink-0" size="md">
-                              {c.avatarUrl ? (
-                                <Avatar.Image alt="" src={c.avatarUrl} />
-                              ) : null}
-                              <Avatar.Fallback className="text-xs">
-                                {candidateDisplayInitials(c.name)}
-                              </Avatar.Fallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold text-foreground">
-                                {c.name}
-                              </p>
-                              <p className="truncate text-xs text-muted">
-                                {c.role}
-                              </p>
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <Chip
-                                  size="sm"
-                                  variant="soft"
-                                  color={jdMatchChipColor(c)}
-                                  className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
-                                >
-                                  {c.jdMatchLabel}
-                                </Chip>
-                                <Chip
-                                  size="sm"
-                                  variant="soft"
-                                  color={candidateStatusChipColor(c.status)}
-                                  className="text-[10px] font-bold uppercase"
-                                >
-                                  {c.status}
-                                </Chip>
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
+                    <JdAppliedCandidatesPipeline
+                      jobDescriptionId={activeRow.id}
+                      dbRows={jdDrawerCandidatesDb}
+                      loadState={jdDrawerCandidatesState}
+                      onRefetch={() => void refetchJdDrawerCandidates()}
+                    />
                   </section>
 
                   <Separator />

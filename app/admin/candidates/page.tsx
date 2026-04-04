@@ -1,4 +1,5 @@
 import { CandidatePipelineDashboard } from "@/components/admin/candidates/candidate-pipeline-dashboard";
+import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { isProfileAdmin } from "@/lib/admin/config";
 import { createClient } from "@/lib/supabase/server";
@@ -15,9 +16,7 @@ export default async function AdminCandidatesPage() {
     if (user && (await isProfileAdmin(supabase, user.id))) {
       const { data } = await supabase
         .from("candidates")
-        .select(
-          "id, job_opening_id, cv_storage_path, original_filename, mime_type, parsing_status, parsing_error, parsed_payload, name, role, avatar_url, experience_years, skills, degree, school, status, chapter, source, source_other, jd_match_score, jd_match_status, jd_match_error, jd_match_rationale, created_at, updated_at",
-        )
+        .select(ADMIN_CANDIDATES_SELECT)
         .order("jd_match_score", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
       initialRows = (data ?? []) as CandidateDbRow[];
