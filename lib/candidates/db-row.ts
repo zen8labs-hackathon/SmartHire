@@ -3,6 +3,13 @@ import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 
 export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
 
+export type JdMatchStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "skipped";
+
 export type CandidateDbRow = {
   id: string;
   job_opening_id: string | null;
@@ -23,6 +30,10 @@ export type CandidateDbRow = {
   chapter: string;
   source: string;
   source_other: string | null;
+  jd_match_score?: number | null;
+  jd_match_status?: JdMatchStatus | string | null;
+  jd_match_error?: string | null;
+  jd_match_rationale?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -30,6 +41,22 @@ export type CandidateDbRow = {
 function asCandidateStatus(s: string): CandidateStatus {
   if (s === "Shortlisted" || s === "Interviewing") return s;
   return "New";
+}
+
+function jdMatchLabelFromRow(r: CandidateDbRow): {
+  score: number | null;
+  label: string;
+} {
+  const st = (r.jd_match_status ?? "pending") as JdMatchStatus;
+  const sc =
+    r.jd_match_score == null ? null : Number(r.jd_match_score);
+  if (st === "completed" && sc != null && Number.isFinite(sc)) {
+    return { score: sc, label: String(Math.round(sc)) };
+  }
+  if (st === "processing") return { score: null, label: "Scoring…" };
+  if (st === "failed") return { score: null, label: "Error" };
+  if (st === "skipped") return { score: null, label: "N/A" };
+  return { score: null, label: "Pending" };
 }
 
 export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
@@ -63,6 +90,8 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     r.source_other,
   );
 
+  const { score: jdMatchScore, label: jdMatchLabel } = jdMatchLabelFromRow(r);
+
   return {
     id: r.id,
     name,
@@ -76,5 +105,9 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     status: asCandidateStatus(r.status),
     chapter: r.chapter,
     sourceLabel,
+    jdMatchScore,
+    jdMatchLabel,
+    jdMatchRationale: r.jd_match_rationale?.trim() || null,
+    jdMatchError: r.jd_match_error?.trim() || null,
   };
 }

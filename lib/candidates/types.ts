@@ -15,4 +15,11 @@ export type CandidateRow = {
   chapter: string;
   /** Display label for HR sourcing channel (includes custom text when source is Other) */
   sourceLabel: string;
+  /** 0–100 from AI vs job description; null if not computed yet */
+  jdMatchScore: number | null;
+  /** Short UI label for the match column */
+  jdMatchLabel: string;
+  jdMatchRationale: string | null;
+  /** Populated when jd_match_status is failed */
+  jdMatchError: string | null;
 };

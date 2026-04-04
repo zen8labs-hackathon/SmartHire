@@ -54,6 +54,15 @@ function initials(name: string) {
   return `${a}${b}`.toUpperCase() || "?";
 }
 
+function jdMatchChipColor(
+  row: CandidateRow,
+): "success" | "accent" | "danger" | "default" {
+  if (row.jdMatchScore == null) return "default";
+  if (row.jdMatchScore >= 75) return "success";
+  if (row.jdMatchScore >= 50) return "accent";
+  return "danger";
+}
+
 function statusChipProps(
   status: CandidateStatus,
 ): { color: "success" | "accent" | "default" } {
@@ -152,13 +161,21 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   }, [query]);
 
   const tableSourceRows = useMemo(() => {
+    let rows: CandidateRow[];
     if (dbLoadState === "error") {
-      return CANDIDATE_ROWS;
-    }
-    if (dbLoadState !== "ok") {
+      rows = [...CANDIDATE_ROWS];
+    } else if (dbLoadState !== "ok") {
       return [];
+    } else {
+      rows = dbRows.map(candidateDbRowToTableRow);
     }
-    return dbRows.map(candidateDbRowToTableRow);
+    rows.sort((a, b) => {
+      const as = a.jdMatchScore ?? -1;
+      const bs = b.jdMatchScore ?? -1;
+      if (bs !== as) return bs - as;
+      return a.name.localeCompare(b.name);
+    });
+    return rows;
   }, [dbLoadState, dbRows]);
 
   const filteredRows = useMemo(() => {
@@ -182,6 +199,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         row.degree,
         row.school,
         row.sourceLabel,
+        row.jdMatchLabel,
       ]
         .join(" ")
         .toLowerCase();
@@ -250,7 +268,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  placeholder="Search by name, role, skill, or source…"
+                  placeholder="Search by name, role, skill, source, or match…"
                   className="w-full min-w-0"
                 />
                 <SearchField.ClearButton />
@@ -323,7 +341,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Candidate pipeline"
-                className="min-w-[1040px]"
+                className="min-w-[1160px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
@@ -331,6 +349,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   <Table.Column>Key Skills</Table.Column>
                   <Table.Column>Education</Table.Column>
                   <Table.Column>Source</Table.Column>
+                  <Table.Column className="text-center">JD match</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column className="text-right">Actions</Table.Column>
                 </Table.Header>
@@ -348,6 +367,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
+                      <Table.Cell />
                     </Table.Row>
                   ) : null}
                   {dbLoadState === "ok" &&
@@ -359,6 +379,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           No candidates yet. Use Add Candidate to upload CVs.
                         </span>
                       </Table.Cell>
+                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -436,6 +457,16 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                         <p className="max-w-[200px] text-sm text-foreground">
                           {row.sourceLabel}
                         </p>
+                      </Table.Cell>
+                      <Table.Cell className="text-center align-middle">
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color={jdMatchChipColor(row)}
+                          className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
+                        >
+                          {row.jdMatchLabel}
+                        </Chip>
                       </Table.Cell>
                       <Table.Cell>
                         <Chip
@@ -588,6 +619,39 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                     <p className="mt-1 text-sm text-muted">
                       {activeRow.sourceLabel}
                     </p>
+                  </section>
+                  <Separator />
+                  <section>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      JD match (AI)
+                    </h3>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Chip
+                        size="sm"
+                        variant="soft"
+                        color={jdMatchChipColor(activeRow)}
+                        className="text-sm font-bold tabular-nums"
+                      >
+                        {activeRow.jdMatchLabel}
+                      </Chip>
+                      {activeRow.jdMatchScore != null ? (
+                        <span className="text-xs text-muted">/ 100</span>
+                      ) : null}
+                    </div>
+                    {activeRow.jdMatchError ? (
+                      <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
+                        {activeRow.jdMatchError}
+                      </p>
+                    ) : activeRow.jdMatchRationale ? (
+                      <p className="mt-2 text-sm leading-relaxed text-muted">
+                        {activeRow.jdMatchRationale}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted">
+                        No rationale yet. Match runs after the CV is parsed and a
+                        job description is available for the campaign.
+                      </p>
+                    )}
                   </section>
                 </Drawer.Body>
                 <Drawer.Footer className="flex flex-wrap gap-2">

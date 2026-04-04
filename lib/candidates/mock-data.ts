@@ -14,6 +14,11 @@ const BASE: Omit<CandidateRow, "id">[] = [
     status: "Interviewing",
     chapter: "Engineering",
     sourceLabel: "LinkedIn",
+    jdMatchScore: 88,
+    jdMatchLabel: "88",
+    jdMatchRationale:
+      "Strong React and TypeScript alignment with senior frontend expectations; solid tenure and relevant education.",
+    jdMatchError: null,
   },
   {
     name: "Julian Vane",
@@ -27,6 +32,11 @@ const BASE: Omit<CandidateRow, "id">[] = [
     status: "Shortlisted",
     chapter: "Design",
     sourceLabel: "TopCV",
+    jdMatchScore: 72,
+    jdMatchLabel: "72",
+    jdMatchRationale:
+      "Design leadership experience matches role level; lighter overlap on listed design-system requirements.",
+    jdMatchError: null,
   },
   {
     name: "Maya Okoro",
@@ -40,6 +50,11 @@ const BASE: Omit<CandidateRow, "id">[] = [
     status: "New",
     chapter: "Engineering",
     sourceLabel: "ITViec",
+    jdMatchScore: 65,
+    jdMatchLabel: "65",
+    jdMatchRationale:
+      "Backend and cloud skills are relevant; fewer years than ideal for a principal-level posting.",
+    jdMatchError: null,
   },
   {
     name: "David Chen",
@@ -53,6 +68,11 @@ const BASE: Omit<CandidateRow, "id">[] = [
     status: "Interviewing",
     chapter: "Marketing",
     sourceLabel: "Other (Referral network)",
+    jdMatchScore: 41,
+    jdMatchLabel: "41",
+    jdMatchRationale:
+      "Marketing profile is strong but light on technical product metrics requested in the JD.",
+    jdMatchError: null,
   },
 ];
 
@@ -130,6 +150,11 @@ function buildRows(total: number): CandidateRow[] {
       status: STATUSES[i % STATUSES.length],
       chapter: CHAPTERS[i % CHAPTERS.length],
       sourceLabel: MOCK_SOURCES[i % MOCK_SOURCES.length],
+      jdMatchScore: 30 + (i % 55),
+      jdMatchLabel: String(30 + (i % 55)),
+      jdMatchRationale:
+        "Mock AI rationale: skills partially overlap role requirements; score is illustrative offline data.",
+      jdMatchError: null,
     });
   }
   return rows;
