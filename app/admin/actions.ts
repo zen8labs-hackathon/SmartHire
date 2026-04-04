@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import {
+  getStaffProfileAccess,
+  HR_WORK_CHAPTER,
+} from "@/lib/admin/profile-access";
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -37,6 +40,26 @@ export async function adminAddUser(
     return { error: "Password must be at least 8 characters." };
   }
 
+  const recruitingAccess = String(
+    formData.get("recruiting_access") ?? "none",
+  ).trim();
+  const rawChapter = String(formData.get("work_chapter") ?? "").trim();
+
+  let workChapter: string | null = null;
+  if (recruitingAccess === "hr") {
+    workChapter = HR_WORK_CHAPTER;
+  } else if (recruitingAccess === "chapter") {
+    if (!rawChapter) {
+      return {
+        error:
+          "Enter a chapter name (must match candidate chapter labels, e.g. Engineering).",
+      };
+    }
+    workChapter = rawChapter.slice(0, 50);
+  } else if (recruitingAccess !== "none") {
+    return { error: "Invalid recruiting access selection." };
+  }
+
   let admin: ReturnType<typeof createAdminClient>;
   try {
     admin = createAdminClient();
@@ -47,7 +70,7 @@ export async function adminAddUser(
     };
   }
 
-  const { error } = await admin.auth.admin.createUser({
+  const { data: created, error } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -64,6 +87,32 @@ export async function adminAddUser(
     return { error: error.message };
   }
 
+  const newId = created.user?.id;
+  if (!newId) {
+    return {
+      error: "User was created but no user id was returned. Check Supabase logs.",
+    };
+  }
+
+  const { error: profileErr } = await admin
+    .from("profiles")
+    .update({ work_chapter: workChapter })
+    .eq("id", newId);
+
+  if (profileErr) {
+    return {
+      error: `Account was created but recruiting access could not be saved: ${profileErr.message}`,
+    };
+  }
+
   revalidatePath("/admin");
-  return { message: `Created account for ${email}. They can sign in with this email and password.` };
+  const accessHint =
+    workChapter == null
+      ? "Dashboard only."
+      : workChapter === HR_WORK_CHAPTER
+        ? "Full HR recruiting access."
+        : `Chapter recruiter (${workChapter}).`;
+  return {
+    message: `Created account for ${email}. ${accessHint} They can sign in with this email and password.`,
+  };
 }
