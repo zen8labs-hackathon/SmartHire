@@ -31,7 +31,10 @@ import {
   useOverlayState,
 } from "@heroui/react";
 
-import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
+import {
+  extractedApiToFormPatch,
+  extractedPatchToEditFormPatch,
+} from "@/lib/jd/extracted-to-form";
 import {
   coerceJdStatus,
   JD_STATUS_OPTIONS,
@@ -271,6 +274,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function JdManagementDashboard() {
   const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
+  const editJdFileInputRef = useRef<HTMLInputElement>(null);
+  const editDraftJobOpeningIdRef = useRef<string | null>(null);
 
   // ── data ────────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<JobDescription[]>([]);
@@ -306,6 +311,15 @@ export function JdManagementDashboard() {
   const [editForm, setEditForm] = useState<JdEditFormData>(DEFAULT_EDIT_FORM);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editUploadPhase, setEditUploadPhase] = useState<JdUploadPhase>("idle");
+  const [editUploadError, setEditUploadError] = useState<string | null>(null);
+  const [editDraftJobOpeningId, setEditDraftJobOpeningId] = useState<
+    string | null
+  >(null);
+  const [editSelectedFileName, setEditSelectedFileName] = useState<string | null>(
+    null,
+  );
+  const [editDragOver, setEditDragOver] = useState(false);
 
   // ── file upload ──────────────────────────────────────────────────────────
   const [jdUploadPhase, setJdUploadPhase] = useState<JdUploadPhase>("idle");
@@ -328,6 +342,16 @@ export function JdManagementDashboard() {
     if (jdFileInputRef.current) jdFileInputRef.current.value = "";
   }, []);
 
+  const resetEditUploadState = useCallback(() => {
+    setEditUploadPhase("idle");
+    setEditUploadError(null);
+    setEditDraftJobOpeningId(null);
+    editDraftJobOpeningIdRef.current = null;
+    setEditSelectedFileName(null);
+    setEditDragOver(false);
+    if (editJdFileInputRef.current) editJdFileInputRef.current.value = "";
+  }, []);
+
   const jdModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) {
@@ -343,16 +367,6 @@ export function JdManagementDashboard() {
       if (!open) {
         setDeletingId(null);
         setDeleteError(null);
-      }
-    },
-  });
-
-  const editIntakeModal = useOverlayState({
-    onOpenChange: (open) => {
-      if (!open) {
-        setEditIntakeRow(null);
-        setEditForm(DEFAULT_EDIT_FORM);
-        setEditError(null);
       }
     },
   });
@@ -616,6 +630,115 @@ export function JdManagementDashboard() {
     [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase],
   );
 
+  const editIntakeModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) {
+        const draftId = editDraftJobOpeningIdRef.current;
+        if (draftId) void deleteJdDraftOnServer(draftId);
+        resetEditUploadState();
+        setEditIntakeRow(null);
+        setEditForm(DEFAULT_EDIT_FORM);
+        setEditError(null);
+      }
+    },
+  });
+
+  const ingestJdFileForEdit = useCallback(
+    async (file: File) => {
+      if (!isAllowedJdFilename(file.name)) {
+        setEditUploadError("Only PDF, DOCX, or TXT files are supported.");
+        setEditUploadPhase("error");
+        return;
+      }
+      if (file.size > MAX_JD_BYTES) {
+        setEditUploadError("File exceeds 10 MB limit.");
+        setEditUploadPhase("error");
+        return;
+      }
+      setEditUploadError(null);
+      setEditUploadPhase("uploading");
+      let newJobId: string | undefined;
+      try {
+        const h = await getSessionAuthorizationHeaders(supabase);
+        if (!h.Authorization) {
+          setEditUploadError("Session expired. Sign in again.");
+          setEditUploadPhase("error");
+          return;
+        }
+        const signRes = await fetch("/api/admin/job-openings/sign-upload", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...h },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type || null,
+            replaceJobOpeningId: editDraftJobOpeningId,
+          }),
+        });
+        const signJson = (await signRes.json()) as {
+          error?: string;
+          jobOpeningId?: string;
+          path?: string;
+          token?: string;
+        };
+        if (!signRes.ok || !signJson.jobOpeningId || !signJson.path || !signJson.token) {
+          throw new Error(signJson.error ?? "Could not start upload.");
+        }
+        newJobId = signJson.jobOpeningId;
+        const { error: upErr } = await supabase.storage
+          .from(JD_BUCKET)
+          .uploadToSignedUrl(signJson.path, signJson.token, file, {
+            contentType: file.type || undefined,
+          });
+        if (upErr) throw new Error(upErr.message);
+
+        setEditDraftJobOpeningId(signJson.jobOpeningId);
+        editDraftJobOpeningIdRef.current = signJson.jobOpeningId;
+        setEditSelectedFileName(file.name);
+        setEditUploadPhase("extracting");
+        setEditUploadError(null);
+
+        try {
+          const exRes = await fetch("/api/admin/job-descriptions/extract", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...h },
+            body: JSON.stringify({ jobOpeningId: signJson.jobOpeningId }),
+          });
+          const exJson = (await exRes.json()) as {
+            error?: string;
+            extracted?: Record<string, unknown>;
+          };
+          if (!exRes.ok || !exJson.extracted) {
+            setEditUploadError(
+              exJson.error ??
+                "Could not read the JD with AI. You can fill the form manually.",
+            );
+          } else {
+            const patch = extractedApiToFormPatch(exJson.extracted);
+            const editPatch = extractedPatchToEditFormPatch(patch);
+            setEditForm((prev) => ({ ...prev, ...editPatch }));
+          }
+        } catch {
+          setEditUploadError(
+            "Could not run AI extraction. Fill the form manually.",
+          );
+        }
+
+        setEditUploadPhase("done");
+      } catch (e) {
+        setEditUploadError(e instanceof Error ? e.message : "Unknown error.");
+        setEditUploadPhase("error");
+        if (newJobId) {
+          await deleteJdDraftOnServer(newJobId);
+          setEditDraftJobOpeningId(null);
+          editDraftJobOpeningIdRef.current = null;
+        }
+      }
+    },
+    [deleteJdDraftOnServer, editDraftJobOpeningId, supabase],
+  );
+
   const discardJdDraft = useCallback(async () => {
     if (jdDraftJobOpeningId) await deleteJdDraftOnServer(jdDraftJobOpeningId);
     resetUploadState();
@@ -703,6 +826,7 @@ export function JdManagementDashboard() {
   // ── open edit intake modal ───────────────────────────────────────────────
 
   function openEdit(row: JobDescription) {
+    resetEditUploadState();
     setEditIntakeRow(row);
     setEditForm({
       level: normalizeFormText(row.level),
@@ -1063,6 +1187,98 @@ export function JdManagementDashboard() {
             </Modal.Header>
 
             <Modal.Body className="max-h-[76vh] space-y-6 overflow-y-auto px-6 py-6">
+              <input
+                ref={editJdFileInputRef}
+                type="file"
+                className="sr-only"
+                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                aria-hidden
+                tabIndex={-1}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  const f = e.target.files?.[0];
+                  if (f) void ingestJdFileForEdit(f);
+                }}
+              />
+
+              {/* Attach JD (optional) — same flow as Create; fills overlapping intake fields */}
+              <Card
+                variant="secondary"
+                className={
+                  editDragOver
+                    ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                    : undefined
+                }
+              >
+                <Card.Content
+                  className="items-center gap-3 py-6 text-center"
+                  onDragOver={(e: DragEvent) => {
+                    if (
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setEditDragOver(true);
+                  }}
+                  onDragLeave={() => setEditDragOver(false)}
+                  onDrop={(e: DragEvent) => {
+                    if (
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    setEditDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) void ingestJdFileForEdit(f);
+                  }}
+                >
+                  <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    {editUploadPhase === "done" ? (
+                      <CheckCircleIcon className="size-6 text-success" />
+                    ) : (
+                      <span className="text-lg">+</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Attach JD Document{" "}
+                    <span className="font-normal text-muted">(optional)</span>
+                  </p>
+                  <p className="text-xs text-muted">
+                    PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
+                    form for you to review.
+                  </p>
+                  {editUploadPhase === "uploading" && (
+                    <p className="text-xs text-accent">Uploading…</p>
+                  )}
+                  {editUploadPhase === "extracting" && (
+                    <p className="text-xs text-accent">
+                      Reading document with AI…
+                    </p>
+                  )}
+                  {editUploadPhase === "done" && editSelectedFileName && (
+                    <p className="text-xs font-medium text-success">
+                      ✓ {editSelectedFileName}
+                    </p>
+                  )}
+                  {(editUploadPhase === "done" || editUploadPhase === "error") &&
+                    editUploadError && (
+                      <p className="text-xs text-danger">{editUploadError}</p>
+                    )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    }
+                    onPress={() => editJdFileInputRef.current?.click()}
+                  >
+                    Browse Files
+                  </Button>
+                </Card.Content>
+              </Card>
 
               {/* 1 – Vị trí & Tổ chức */}
               <div className="space-y-4">
@@ -1271,13 +1487,21 @@ export function JdManagementDashboard() {
               <Button
                 variant="ghost"
                 onPress={editIntakeModal.close}
-                isDisabled={editSubmitting}
+                isDisabled={
+                  editSubmitting ||
+                  editUploadPhase === "uploading" ||
+                  editUploadPhase === "extracting"
+                }
               >
                 Hủy
               </Button>
               <Button
                 variant="primary"
-                isDisabled={editSubmitting}
+                isDisabled={
+                  editSubmitting ||
+                  editUploadPhase === "uploading" ||
+                  editUploadPhase === "extracting"
+                }
                 onPress={() => void handleEditSave()}
               >
                 {editSubmitting ? "Đang lưu…" : "Lưu thông tin"}
@@ -1290,7 +1514,6 @@ export function JdManagementDashboard() {
       {/* ── Filters ── */}
       <Card variant="secondary">
         <Card.Content className="flex flex-col gap-4 p-4 sm:p-5">
-          <SectionLabel>Filter job descriptions</SectionLabel>
           <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
             <SearchField
               value={jdListSearch}

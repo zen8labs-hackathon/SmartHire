@@ -1,5 +1,9 @@
 import { normalizeFormText } from "@/lib/jd/normalize-text";
-import type { JdExtractedFormFields, JobDescriptionFormData } from "@/lib/jd/types";
+import type {
+  JdEditFormData,
+  JdExtractedFormFields,
+  JobDescriptionFormData,
+} from "@/lib/jd/types";
 
 const EXTRACT_FIELD_KEYS: (keyof JdExtractedFormFields)[] = [
   "position",
@@ -53,4 +57,32 @@ export function extractedApiToFormPatch(
     }
   }
   return patch;
+}
+
+/**
+ * Maps create-form extraction patch into Edit JD intake fields (overlap only).
+ * role_overview / work_location / what_we_offer are not on JdEditFormData — omitted here;
+ * users can paste those into project_info manually if needed.
+ */
+export function extractedPatchToEditFormPatch(
+  partial: Partial<JobDescriptionFormData>,
+): Partial<JdEditFormData> {
+  const out: Partial<JdEditFormData> = {};
+  if (partial.reporting !== undefined) {
+    const v = normalizeFormText(partial.reporting);
+    if (v !== "") out.reporting = v;
+  }
+  if (partial.duties_and_responsibilities !== undefined) {
+    const v = normalizeFormText(partial.duties_and_responsibilities);
+    if (v !== "") out.duties_and_responsibilities = v;
+  }
+  if (partial.experience_requirements_must_have !== undefined) {
+    const v = normalizeFormText(partial.experience_requirements_must_have);
+    if (v !== "") out.experience_requirements_must_have = v;
+  }
+  if (partial.experience_requirements_nice_to_have !== undefined) {
+    const v = normalizeFormText(partial.experience_requirements_nice_to_have);
+    if (v !== "") out.experience_requirements_nice_to_have = v;
+  }
+  return out;
 }

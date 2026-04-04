@@ -61,23 +61,6 @@ function pageWindow(current: number, total: number, width: number) {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 }
 
-function SortIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M3 6h18M7 12h10M11 18h2" />
-    </svg>
-  );
-}
-
 function EyeIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -508,15 +491,6 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                   </ListBox>
                 </Select.Popover>
               </Select>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0"
-                aria-label="Sort or filter"
-              >
-                <SortIcon className="size-5" />
-              </Button>
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
