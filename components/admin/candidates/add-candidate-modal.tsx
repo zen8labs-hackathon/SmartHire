@@ -120,13 +120,29 @@ function PlayIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * - `undefined` — Candidates page: choose any campaign or unassigned.
+ * - `{ jobOpeningId, title }` — Job description pipeline: uploads are tied to this opening (JD match + AI).
+ * - `"no_opening_linked"` — JD context but no `job_openings` row points at this JD yet.
+ */
+export type JdPipelineCampaignOption =
+  | { jobOpeningId: string; title: string }
+  | "no_opening_linked";
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCandidatesChanged?: () => void;
+  /** When set, target campaign is fixed (or uploads blocked until a campaign is linked). */
+  jdPipelineCampaign?: JdPipelineCampaignOption;
 };
 
-export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: Props) {
+export function AddCandidateModal({
+  open,
+  onOpenChange,
+  onCandidatesChanged,
+  jdPipelineCampaign,
+}: Props) {
   const supabase = useMemo(() => createClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queueIdsRef = useRef<Set<string>>(new Set());
@@ -139,12 +155,22 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
   const [dragOver, setDragOver] = useState(false);
   const [processAllBusy, setProcessAllBusy] = useState(false);
 
+  const isJdPipeline = jdPipelineCampaign != null;
+  const isCampaignLocked =
+    isJdPipeline && typeof jdPipelineCampaign === "object";
+  const isCampaignBlocked = jdPipelineCampaign === "no_opening_linked";
+
   const modalState = useOverlayTriggerState({
     isOpen: open,
     onOpenChange,
   });
 
-  const selectedJobId = jobKey === "__none__" ? null : jobKey;
+  const selectedJobId =
+    isCampaignLocked && typeof jdPipelineCampaign === "object"
+      ? jdPipelineCampaign.jobOpeningId
+      : jobKey === "__none__"
+        ? null
+        : jobKey;
 
   const sessionAuthHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
@@ -165,8 +191,15 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
   }, [sessionAuthHeaders]);
 
   useEffect(() => {
-    if (open) void loadJobs();
-  }, [open, loadJobs]);
+    if (open && !isCampaignLocked) void loadJobs();
+  }, [open, loadJobs, isCampaignLocked]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (isCampaignLocked && typeof jdPipelineCampaign === "object") {
+      setJobKey(jdPipelineCampaign.jobOpeningId);
+    }
+  }, [open, isCampaignLocked, jdPipelineCampaign]);
 
   useEffect(() => {
     if (!open) return;
@@ -209,6 +242,12 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
   }, [open, supabase, onCandidatesChanged]);
 
   const ingestFile = async (file: File) => {
+    if (isCampaignBlocked) {
+      window.alert(
+        "Link a job campaign to this job description first (Job descriptions → publish / link opening), then try again.",
+      );
+      return;
+    }
     if (!isAllowedCvFilename(file.name)) {
       window.alert("Only PDF or DOCX files are supported.");
       return;
@@ -360,9 +399,11 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
   };
 
   const jobTitle =
-    selectedJobId == null
-      ? null
-      : jobs.find((j) => j.id === selectedJobId)?.title ?? null;
+    isCampaignLocked && typeof jdPipelineCampaign === "object"
+      ? jdPipelineCampaign.title
+      : selectedJobId == null
+        ? null
+        : jobs.find((j) => j.id === selectedJobId)?.title ?? null;
 
   return (
     <Modal state={modalState}>
@@ -373,49 +414,74 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
             <Modal.Header className="border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
               <p className="mt-1 text-sm text-muted">
-                Upload CVs to private storage; AI extracts profile fields in the
-                background.
+                {isCampaignLocked
+                  ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
+                  : "Upload CVs to private storage; AI extracts profile fields in the background."}
               </p>
             </Modal.Header>
             <Modal.Body className="max-h-[min(70vh,720px)] space-y-6 overflow-y-auto px-6 py-6">
+              {isCampaignBlocked ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                  <p className="font-semibold text-amber-900 dark:text-amber-100">
+                    No campaign linked yet
+                  </p>
+                  <p className="mt-1 text-muted">
+                    Create or link a job opening to this job description from{" "}
+                    <span className="font-medium text-foreground">
+                      Job descriptions
+                    </span>{" "}
+                    so uploads can be tied to the JD (required for AI match scoring).
+                  </p>
+                </div>
+              ) : null}
               <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr]">
                 <div className="space-y-4">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Target campaign
                     </Label>
-                    <Select
-                      value={jobKey}
-                      onChange={(k) => setJobKey(String(k ?? "__none__"))}
-                      className="mt-2"
-                    >
-                      <Select.Trigger className="w-full min-w-0">
-                        <Select.Value />
-                        <Select.Indicator />
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          <ListBox.Item
-                            id="__none__"
-                            textValue="Unassigned"
-                            key="none"
-                          >
-                            Unassigned
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                          {jobs.map((j) => (
+                    {isCampaignLocked && typeof jdPipelineCampaign === "object" ? (
+                      <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
+                        <span className="font-medium">{jdPipelineCampaign.title}</span>
+                        <p className="mt-1 text-xs text-muted">
+                          Fixed for this job description — candidates are eligible for
+                          JD-based AI evaluation.
+                        </p>
+                      </div>
+                    ) : (
+                      <Select
+                        value={jobKey}
+                        onChange={(k) => setJobKey(String(k ?? "__none__"))}
+                        className="mt-2"
+                      >
+                        <Select.Trigger className="w-full min-w-0">
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
                             <ListBox.Item
-                              key={j.id}
-                              id={j.id}
-                              textValue={j.title}
+                              id="__none__"
+                              textValue="Unassigned"
+                              key="none"
                             >
-                              {j.title}
+                              Unassigned
                               <ListBox.ItemIndicator />
                             </ListBox.Item>
-                          ))}
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>
+                            {jobs.map((j) => (
+                              <ListBox.Item
+                                key={j.id}
+                                id={j.id}
+                                textValue={j.title}
+                              >
+                                {j.title}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                    )}
                   </div>
 
                   <div>
@@ -499,16 +565,20 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
 
                 <div
                   className={`flex min-h-[200px] flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
-                    dragOver
-                      ? "border-accent bg-accent/5"
-                      : "border-divider bg-content2/30"
+                    isCampaignBlocked
+                      ? "pointer-events-none border-divider bg-content2/20 opacity-50"
+                      : dragOver
+                        ? "border-accent bg-accent/5"
+                        : "border-divider bg-content2/30"
                   }`}
                   onDragOver={(e) => {
+                    if (isCampaignBlocked) return;
                     e.preventDefault();
                     setDragOver(true);
                   }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => {
+                    if (isCampaignBlocked) return;
                     e.preventDefault();
                     setDragOver(false);
                     void handleFiles(e.dataTransfer.files);
@@ -526,6 +596,7 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
                       variant="primary"
                       className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
                       onPress={() => fileInputRef.current?.click()}
+                      isDisabled={isCampaignBlocked}
                     >
                       Select files
                     </Button>

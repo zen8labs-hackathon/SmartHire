@@ -22,6 +22,14 @@ export default async function JobPipelinePage({ params }: PageProps) {
 
   if (!jd) notFound();
 
+  const { data: linkedOpening } = await supabase
+    .from("job_openings")
+    .select("id, title")
+    .eq("job_description_id", numId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const model = getJobPipelineView(jobId);
 
   return (
@@ -31,6 +39,8 @@ export default async function JobPipelinePage({ params }: PageProps) {
       totalCandidates={model.totalCandidates}
       activeOffers={model.activeOffers}
       rows={model.rows}
+      linkedJobOpeningId={linkedOpening?.id ?? null}
+      linkedJobOpeningTitle={linkedOpening?.title ?? null}
     />
   );
 }

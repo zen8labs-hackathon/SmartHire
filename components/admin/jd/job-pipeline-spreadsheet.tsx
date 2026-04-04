@@ -4,6 +4,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import {
+  AddCandidateModal,
+  type JdPipelineCampaignOption,
+} from "@/components/admin/candidates/add-candidate-modal";
+
+import {
   Avatar,
   Breadcrumbs,
   Button,
@@ -92,6 +97,9 @@ type Props = {
   totalCandidates: number;
   activeOffers: number;
   rows: JobPipelineCandidateRow[];
+  /** Job opening linked to this job description (for CV uploads + JD match). */
+  linkedJobOpeningId: string | null;
+  linkedJobOpeningTitle: string | null;
 };
 
 export function JobPipelineSpreadsheet({
@@ -100,8 +108,18 @@ export function JobPipelineSpreadsheet({
   totalCandidates,
   activeOffers,
   rows,
+  linkedJobOpeningId,
+  linkedJobOpeningTitle,
 }: Props) {
   const [page, setPage] = useState(1);
+  const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
+
+  const jdPipelineCampaign: JdPipelineCampaignOption | undefined = useMemo(() => {
+    if (linkedJobOpeningId && linkedJobOpeningTitle) {
+      return { jobOpeningId: linkedJobOpeningId, title: linkedJobOpeningTitle };
+    }
+    return "no_opening_linked";
+  }, [linkedJobOpeningId, linkedJobOpeningTitle]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -132,6 +150,15 @@ export function JobPipelineSpreadsheet({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="primary"
+            size="sm"
+            className="gap-2 bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
+            onPress={() => setAddCandidatesOpen(true)}
+          >
+            <UserPlusIcon className="size-4" />
+            Add candidates
+          </Button>
           <Button variant="secondary" size="sm" className="gap-2">
             <DownloadIcon className="size-4" />
             Export to Excel
@@ -363,10 +390,17 @@ export function JobPipelineSpreadsheet({
         variant="primary"
         size="lg"
         className="fixed bottom-8 right-8 z-20 size-14 min-w-0 rounded-full p-0 shadow-lg"
-        aria-label="Add candidate"
+        aria-label="Add candidates to this job"
+        onPress={() => setAddCandidatesOpen(true)}
       >
         <UserPlusIcon className="size-6" />
       </Button>
+
+      <AddCandidateModal
+        open={addCandidatesOpen}
+        onOpenChange={setAddCandidatesOpen}
+        jdPipelineCampaign={jdPipelineCampaign}
+      />
 
       <p className="text-center text-xs text-muted">
         <Link href="/admin/jd" className="text-accent hover:underline">
