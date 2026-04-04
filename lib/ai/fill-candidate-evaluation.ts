@@ -145,7 +145,7 @@ ${params.templateTextSample.slice(0, 8000)}${params.templateTextSample.length > 
 
 ## Required output shape (field names are fixed)
 Fill these keys:
-- thongTinUngVien — "1. Thông Tin Ứng Viên": role, background, logistics mentioned.
+- thongTinUngVien — "1. Thông Tin Ứng Viên": role, background, logistics; use line breaks between facts (no table).
 - tomTatDanhGia — "2. Tóm Tắt Đánh Giá": short overall summary of the interview.
 - diemManh — "3. Điểm Mạnh".
 - diemCanLuuY — "4. Điểm Cần Lưu Ý".
@@ -230,6 +230,27 @@ function wrapLines(text: string, font: PDFFont, size: number, maxW: number): str
   return lines;
 }
 
+/** Wrap each line separated by \\n, then word-wrap within max width (no table layout). */
+function wrapParagraphPreservingNewlines(
+  text: string,
+  font: PDFFont,
+  size: number,
+  maxW: number,
+): string[] {
+  const parts = text.replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const segment = parts[i].trim();
+    if (segment.length === 0) {
+      if (out.length > 0) out.push("");
+      continue;
+    }
+    if (out.length > 0) out.push("");
+    out.push(...wrapLines(segment, font, size, maxW));
+  }
+  return out;
+}
+
 /**
  * Standalone evaluation PDF with fixed section headings (Noto Sans — preserves Vietnamese).
  */
@@ -285,6 +306,8 @@ async function renderStandaloneEvaluationPdf(params: {
   y -= 12;
   y -= 10;
 
+  const BODY_COLOR = rgb(0.25, 0.25, 0.28);
+
   for (const block of params.sections) {
     y -= 6;
     needPage(3);
@@ -295,12 +318,16 @@ async function renderStandaloneEvaluationPdf(params: {
       rgb(0.12, 0.14, 0.2),
     );
     y -= 4;
-    drawBlock(
-      wrapLines(clean(block.body), font, 10, maxW),
-      10,
-      font,
-      rgb(0.25, 0.25, 0.28),
-    );
+
+    const bodyLines = wrapParagraphPreservingNewlines(clean(block.body), font, 10, maxW);
+    for (const ln of bodyLines) {
+      if (ln === "") {
+        needPage(1);
+        y -= LINE_H * 0.75;
+        continue;
+      }
+      drawLine(ln, 10, font, BODY_COLOR);
+    }
     y -= 8;
   }
 
