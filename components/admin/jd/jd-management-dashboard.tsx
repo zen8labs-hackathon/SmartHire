@@ -86,7 +86,21 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   start_date: "",
 };
 
-const HIRE_TYPE_OPTIONS = ["Tuyển mới", "Tuyển thay thế"] as const;
+const HIRE_TYPE_OPTIONS = ["New hire", "Replacement"] as const;
+
+const LEGACY_HIRE_TYPE_VI_TO_EN: Record<string, string> = {
+  "Tuyển mới": "New hire",
+  "Tuyển thay thế": "Replacement",
+};
+
+function normalizeHireTypeForForm(raw: string | null | undefined): string {
+  const t = (raw ?? "").trim();
+  return LEGACY_HIRE_TYPE_VI_TO_EN[t] ?? t;
+}
+
+function formatHireTypeDisplay(raw: string | null | undefined): string {
+  return normalizeHireTypeForForm(raw);
+}
 
 const DEFAULT_EDIT_FORM: JdEditFormData = {
   level: "",
@@ -228,7 +242,7 @@ function CheckCircleIcon({ className }: { className?: string }) {
   );
 }
 
-/** Hiring intake / recruitment details (matches modal “Thông tin tuyển dụng”). */
+/** Hiring intake / recruitment details (edit intake modal). */
 function RecruitmentInfoIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -1008,7 +1022,7 @@ export function JdManagementDashboard({
     setEditForm({
       level: normalizeFormText(row.level),
       headcount: row.headcount != null ? String(row.headcount) : "",
-      hire_type: normalizeFormText(row.hire_type),
+      hire_type: normalizeHireTypeForForm(normalizeFormText(row.hire_type)),
       reporting: normalizeFormText(row.reporting),
       project_info: normalizeFormText(row.project_info),
       duties_and_responsibilities: normalizeFormText(row.duties_and_responsibilities),
@@ -1243,23 +1257,23 @@ export function JdManagementDashboard({
               </Card>
 
               <div className="space-y-4">
-                <SectionLabel>Thông tin vị trí</SectionLabel>
+                <SectionLabel>Role details</SectionLabel>
                 <div className="grid gap-4 md:grid-cols-2">
                   <TextField
                     value={form.position}
                     onChange={(v) => setField("position", v)}
                     isRequired
                   >
-                    <Label>Tên vị trí</Label>
-                    <Input placeholder="VD: AI Engineer (Mid-level)" />
+                    <Label>Job title</Label>
+                    <Input placeholder="e.g. AI Engineer (Mid-level)" />
                   </TextField>
 
                   <TextField
                     value={form.department}
                     onChange={(v) => setField("department", v)}
                   >
-                    <Label>Phòng / Team</Label>
-                    <Input placeholder="VD: Solutions Team" />
+                    <Label>Department / team</Label>
+                    <Input placeholder="e.g. Solutions Team" />
                   </TextField>
                 </div>
               </div>
@@ -1397,7 +1411,7 @@ export function JdManagementDashboard({
             <Modal.CloseTrigger />
             <Modal.Header className="items-start border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">
-                Thông tin tuyển dụng
+                Hiring details
                 {editIntakeRow ? (
                   <span className="ml-2 text-base font-normal text-muted">
                     — {editIntakeRow.position}
@@ -1500,24 +1514,24 @@ export function JdManagementDashboard({
                 </Card.Content>
               </Card>
 
-              {/* 1 – Vị trí & Tổ chức */}
+              {/* 1 – Role & organisation */}
               <div className="space-y-4">
-                <SectionLabel>Vị trí &amp; Tổ chức</SectionLabel>
+                <SectionLabel>Role &amp; organisation</SectionLabel>
                 <div className="grid gap-4 md:grid-cols-3">
                   <TextField
                     value={editForm.level}
                     onChange={(v) => setEditField("level", v)}
                   >
                     <Label>Level</Label>
-                    <Input placeholder="VD: Junior, Mid, Senior, Lead" />
+                    <Input placeholder="e.g. Junior, Mid, Senior, Lead" />
                   </TextField>
 
                   <TextField
                     value={editForm.headcount}
                     onChange={(v) => setEditField("headcount", v)}
                   >
-                    <Label>Số lượng cần tuyển</Label>
-                    <Input type="number" min="1" placeholder="VD: 2" />
+                    <Label>Headcount</Label>
+                    <Input type="number" min="1" placeholder="e.g. 2" />
                   </TextField>
 
                   <Select
@@ -1526,7 +1540,7 @@ export function JdManagementDashboard({
                       if (typeof key === "string") setEditField("hire_type", key);
                     }}
                   >
-                    <Label>Tuyển mới hay thay thế</Label>
+                    <Label>New hire or replacement</Label>
                     <Select.Trigger>
                       <Select.Value />
                       <Select.Indicator />
@@ -1548,23 +1562,23 @@ export function JdManagementDashboard({
                   value={editForm.reporting}
                   onChange={(v) => setEditField("reporting", v)}
                 >
-                  <Label>Báo cáo cho ai</Label>
-                  <Input placeholder="VD: VP of Engineering, CTO, Project Manager..." />
+                  <Label>Reports to</Label>
+                  <Input placeholder="e.g. VP of Engineering, CTO, Project Manager…" />
                 </TextField>
               </div>
 
-              {/* 2 – Dự án & Team */}
+              {/* 2 – Project & team */}
               <div className="space-y-4">
-                <SectionLabel>Dự án &amp; Team</SectionLabel>
+                <SectionLabel>Project &amp; team</SectionLabel>
 
                 <TextField
                   value={editForm.project_info}
                   onChange={(v) => setEditField("project_info", v)}
                 >
-                  <Label>Thông tin chung về dự án</Label>
+                  <Label>Project overview</Label>
                   <TextArea
                     className="min-h-[7rem]"
-                    placeholder="Dự án gì? Sản phẩm gì? Đang trong giai đoạn nào? Có căng không, có hay OT không?..."
+                    placeholder="What is the project or product? Current phase, pace, expectations on workload or overtime…"
                   />
                 </TextField>
 
@@ -1572,10 +1586,10 @@ export function JdManagementDashboard({
                   value={editForm.duties_and_responsibilities}
                   onChange={(v) => setEditField("duties_and_responsibilities", v)}
                 >
-                  <Label>Kỳ vọng về trách nhiệm công việc trong dự án</Label>
+                  <Label>Role responsibilities in the project</Label>
                   <TextArea
                     className="min-h-[6rem]"
-                    placeholder="Ứng viên sẽ đảm nhận những công việc / trách nhiệm gì trong dự án?"
+                    placeholder="What will the hire own or deliver day to day within the project?"
                   />
                 </TextField>
 
@@ -1586,23 +1600,23 @@ export function JdManagementDashboard({
                   <Label>Team size</Label>
                   <TextArea
                     className="min-h-[4rem]"
-                    placeholder="Bao nhiêu thành viên? Gồm những vị trí gì? VD: 6 người (1 BA, 2 FE, 2 BE, 1 QA)"
+                    placeholder="How many people and which roles? e.g. 6 people (1 BA, 2 FE, 2 BE, 1 QA)"
                   />
                 </TextField>
               </div>
 
-              {/* 3 – Yêu cầu */}
+              {/* 3 – Candidate requirements */}
               <div className="space-y-4">
-                <SectionLabel>Yêu cầu ứng viên</SectionLabel>
+                <SectionLabel>Candidate requirements</SectionLabel>
 
                 <TextField
                   value={editForm.experience_requirements_must_have}
                   onChange={(v) => setEditField("experience_requirements_must_have", v)}
                 >
-                  <Label>Yêu cầu bắt buộc — Must have</Label>
+                  <Label>Must have</Label>
                   <TextArea
                     className="min-h-[7rem]"
-                    placeholder="Các yêu cầu quan trọng, bắt buộc về chuyên môn, nghiệp vụ, kỹ năng mềm..."
+                    placeholder="Non‑negotiable skills, experience, domain knowledge, soft skills…"
                   />
                 </TextField>
 
@@ -1610,10 +1624,10 @@ export function JdManagementDashboard({
                   value={editForm.experience_requirements_nice_to_have}
                   onChange={(v) => setEditField("experience_requirements_nice_to_have", v)}
                 >
-                  <Label>Yêu cầu nếu có thì tốt — Nice to have</Label>
+                  <Label>Nice to have</Label>
                   <TextArea
                     className="min-h-[5rem]"
-                    placeholder="Các yêu cầu không bắt buộc nhưng là lợi thế..."
+                    placeholder="Optional strengths that would be a plus…"
                   />
                 </TextField>
 
@@ -1621,10 +1635,10 @@ export function JdManagementDashboard({
                   value={editForm.language_requirements}
                   onChange={(v) => setEditField("language_requirements", v)}
                 >
-                  <Label>Yêu cầu về ngoại ngữ</Label>
+                  <Label>Languages</Label>
                   <TextArea
                     className="min-h-[4rem]"
-                    placeholder="Ngôn ngữ gì? Mức độ? Có cần bằng cấp không? VD: Tiếng Anh đọc hiểu tài liệu kỹ thuật, TOEIC 600+"
+                    placeholder="Which languages, level, certifications? e.g. English for technical docs, TOEIC 600+"
                   />
                 </TextField>
 
@@ -1632,26 +1646,26 @@ export function JdManagementDashboard({
                   value={editForm.other_requirements}
                   onChange={(v) => setEditField("other_requirements", v)}
                 >
-                  <Label>Yêu cầu khác</Label>
+                  <Label>Other requirements</Label>
                   <TextArea
                     className="min-h-[4rem]"
-                    placeholder="Tính cách, giới tính, độ tuổi (nếu có)..."
+                    placeholder="Any other notes (only where appropriate and lawful)."
                   />
                 </TextField>
               </div>
 
-              {/* 4 – Phát triển & Đãi ngộ */}
+              {/* 4 – Growth & compensation */}
               <div className="space-y-4">
-                <SectionLabel>Phát triển &amp; Đãi ngộ</SectionLabel>
+                <SectionLabel>Growth &amp; compensation</SectionLabel>
 
                 <TextField
                   value={editForm.career_development}
                   onChange={(v) => setEditField("career_development", v)}
                 >
-                  <Label>Cơ hội phát triển &amp; định hướng vị trí</Label>
+                  <Label>Growth &amp; career path</Label>
                   <TextArea
                     className="min-h-[5rem]"
-                    placeholder="Lộ trình phát triển, định hướng thăng tiến, cơ hội học hỏi..."
+                    placeholder="Development path, promotion outlook, learning opportunities…"
                   />
                 </TextField>
 
@@ -1660,32 +1674,34 @@ export function JdManagementDashboard({
                     value={editForm.salary_range}
                     onChange={(v) => setEditField("salary_range", v)}
                   >
-                    <Label>Lương (Range gross)</Label>
-                    <Input placeholder="VD: 20,000,000 – 35,000,000 VNĐ" />
+                    <Label>Salary range (gross)</Label>
+                    <Input placeholder="e.g. 20,000,000 – 35,000,000 VND" />
                   </TextField>
 
                   <TextField
                     value={editForm.project_allowances}
                     onChange={(v) => setEditField("project_allowances", v)}
                   >
-                    <Label>Phụ cấp / Thưởng riêng dự án</Label>
-                    <Input placeholder="VD: Phụ cấp ăn trưa, thưởng KPI quý..." />
+                    <Label>Allowances / project bonuses</Label>
+                    <Input placeholder="e.g. lunch allowance, quarterly KPI bonus…" />
                   </TextField>
                 </div>
               </div>
 
-              {/* 5 – Quy trình & Timeline */}
+              {/* 5 – Process & timeline */}
               <div className="space-y-4">
-                <SectionLabel>Quy trình &amp; Timeline</SectionLabel>
+                <SectionLabel>Process &amp; timeline</SectionLabel>
 
                 <TextField
                   value={editForm.interview_process}
                   onChange={(v) => setEditField("interview_process", v)}
                 >
-                  <Label>Quy trình phỏng vấn</Label>
+                  <Label>Interview process</Label>
                   <TextArea
                     className="min-h-[6rem]"
-                    placeholder="Phỏng vấn mấy vòng? Ai tham gia từng vòng? Có bài test không?&#10;VD: Vòng 1: HR screening / Vòng 2: Technical test + CTO / Vòng 3: Offer"
+                    placeholder={
+                      "How many stages? Who joins each stage? Any tests?\ne.g. Stage 1: HR screen / Stage 2: Technical + CTO / Stage 3: Offer"
+                    }
                   />
                 </TextField>
 
@@ -1693,7 +1709,7 @@ export function JdManagementDashboard({
                   value={editForm.hiring_deadline}
                   onChange={(v) => setEditField("hiring_deadline", v)}
                 >
-                  <Label>Deadline tuyển dụng</Label>
+                  <Label>Hiring deadline</Label>
                   <Input type="date" />
                 </TextField>
               </div>
@@ -1713,7 +1729,7 @@ export function JdManagementDashboard({
                   editUploadPhase === "extracting"
                 }
               >
-                Hủy
+                Cancel
               </Button>
               <Button
                 variant="primary"
@@ -1724,7 +1740,7 @@ export function JdManagementDashboard({
                 }
                 onPress={() => void handleEditSave()}
               >
-                {editSubmitting ? "Đang lưu…" : "Lưu thông tin"}
+                {editSubmitting ? "Saving…" : "Save details"}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>
@@ -1988,7 +2004,7 @@ export function JdManagementDashboard({
                               <>
                                 <Tooltip delay={0}>
                                   <Button
-                                    aria-label={`Thông tin tuyển dụng: ${row.position}`}
+                                    aria-label={`Hiring details: ${row.position}`}
                                     variant="ghost"
                                     size="sm"
                                     className="min-w-0 px-2"
@@ -1998,7 +2014,7 @@ export function JdManagementDashboard({
                                   </Button>
                                   <Tooltip.Content placement="top" showArrow>
                                     <Tooltip.Arrow />
-                                    <p>Thông tin tuyển dụng</p>
+                                    <p>Hiring details</p>
                                   </Tooltip.Content>
                                 </Tooltip>
                                 <Tooltip delay={0}>
@@ -2143,12 +2159,12 @@ export function JdManagementDashboard({
                   {/* Intake fields */}
                   {(activeRow.level || activeRow.headcount != null || activeRow.hire_type || activeRow.reporting) && (
                     <section className="space-y-2">
-                      <h3 className="text-sm font-semibold text-foreground">Vị trí &amp; Tổ chức</h3>
+                      <h3 className="text-sm font-semibold text-foreground">Role &amp; organisation</h3>
                       <dl className="space-y-1 text-sm text-muted">
                         {activeRow.level && <div><dt className="inline font-medium text-foreground">Level: </dt><dd className="inline">{activeRow.level}</dd></div>}
-                        {activeRow.headcount != null && <div><dt className="inline font-medium text-foreground">Số lượng tuyển: </dt><dd className="inline">{activeRow.headcount}</dd></div>}
-                        {activeRow.hire_type && <div><dt className="inline font-medium text-foreground">Loại tuyển: </dt><dd className="inline">{activeRow.hire_type}</dd></div>}
-                        {activeRow.reporting && <div><dt className="inline font-medium text-foreground">Báo cáo cho: </dt><dd className="inline">{activeRow.reporting}</dd></div>}
+                        {activeRow.headcount != null && <div><dt className="inline font-medium text-foreground">Headcount: </dt><dd className="inline">{activeRow.headcount}</dd></div>}
+                        {activeRow.hire_type && <div><dt className="inline font-medium text-foreground">Hire type: </dt><dd className="inline">{formatHireTypeDisplay(activeRow.hire_type)}</dd></div>}
+                        {activeRow.reporting && <div><dt className="inline font-medium text-foreground">Reports to: </dt><dd className="inline">{activeRow.reporting}</dd></div>}
                       </dl>
                     </section>
                   )}
@@ -2157,16 +2173,16 @@ export function JdManagementDashboard({
                     <>
                       <Separator />
                       <section className="space-y-3">
-                        <h3 className="text-sm font-semibold text-foreground">Dự án &amp; Team</h3>
+                        <h3 className="text-sm font-semibold text-foreground">Project &amp; team</h3>
                         {activeRow.project_info && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Thông tin dự án</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Project overview</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_info}</p>
                           </div>
                         )}
                         {activeRow.duties_and_responsibilities && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Kỳ vọng trách nhiệm</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Responsibilities</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.duties_and_responsibilities}</p>
                           </div>
                         )}
@@ -2184,7 +2200,7 @@ export function JdManagementDashboard({
                     <>
                       <Separator />
                       <section className="space-y-3">
-                        <h3 className="text-sm font-semibold text-foreground">Yêu cầu ứng viên</h3>
+                        <h3 className="text-sm font-semibold text-foreground">Candidate requirements</h3>
                         {activeRow.experience_requirements_must_have && (
                           <div>
                             <p className="text-xs font-medium uppercase tracking-wide text-muted">Must have</p>
@@ -2199,13 +2215,13 @@ export function JdManagementDashboard({
                         )}
                         {activeRow.language_requirements && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Ngoại ngữ</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Languages</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.language_requirements}</p>
                           </div>
                         )}
                         {activeRow.other_requirements && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Yêu cầu khác</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Other requirements</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.other_requirements}</p>
                           </div>
                         )}
@@ -2217,22 +2233,22 @@ export function JdManagementDashboard({
                     <>
                       <Separator />
                       <section className="space-y-3">
-                        <h3 className="text-sm font-semibold text-foreground">Phát triển &amp; Đãi ngộ</h3>
+                        <h3 className="text-sm font-semibold text-foreground">Growth &amp; compensation</h3>
                         {activeRow.career_development && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Cơ hội phát triển</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Growth &amp; path</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.career_development}</p>
                           </div>
                         )}
                         {activeRow.salary_range && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Lương (gross)</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Salary (gross)</p>
                             <p className="mt-1 text-sm text-muted">{activeRow.salary_range}</p>
                           </div>
                         )}
                         {activeRow.project_allowances && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Phụ cấp / Thưởng dự án</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Allowances / bonuses</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_allowances}</p>
                           </div>
                         )}
@@ -2244,16 +2260,16 @@ export function JdManagementDashboard({
                     <>
                       <Separator />
                       <section className="space-y-3">
-                        <h3 className="text-sm font-semibold text-foreground">Quy trình &amp; Timeline</h3>
+                        <h3 className="text-sm font-semibold text-foreground">Process &amp; timeline</h3>
                         {activeRow.interview_process && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Quy trình phỏng vấn</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Interview process</p>
                             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.interview_process}</p>
                           </div>
                         )}
                         {activeRow.hiring_deadline && (
                           <div>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Deadline tuyển dụng</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted">Hiring deadline</p>
                             <p className="mt-1 text-sm text-muted">{formatJdCalendarDate(activeRow.hiring_deadline)}</p>
                           </div>
                         )}
@@ -2374,7 +2390,7 @@ export function JdManagementDashboard({
                   </Button>
                   {canManageJds ? (
                     <Button variant="primary" onPress={() => openEdit(activeRow)}>
-                      Thông tin tuyển dụng
+                      Hiring details
                     </Button>
                   ) : null}
                 </Drawer.Footer>

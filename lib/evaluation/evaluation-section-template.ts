@@ -50,15 +50,15 @@ export type StructuredEvaluation = z.infer<typeof structuredEvaluationSchema>;
 export type EvaluationSection = { title: string; body: string };
 
 const SPECS = [
-  { key: "thongTinUngVien" as const, title: "1. Thông Tin Ứng Viên", optional: false },
-  { key: "tomTatDanhGia" as const, title: "2. Tóm Tắt Đánh Giá", optional: false },
-  { key: "diemManh" as const, title: "3. Điểm Mạnh", optional: false },
-  { key: "diemCanLuuY" as const, title: "4. Điểm Cần Lưu Ý", optional: false },
-  { key: "danhGiaNangLuc" as const, title: "5. Đánh Giá Năng Lực", optional: false },
-  { key: "duAnNoiBat" as const, title: "6. Dự Án Nổi Bật", optional: true },
+  { key: "thongTinUngVien" as const, title: "1. Candidate information", optional: false },
+  { key: "tomTatDanhGia" as const, title: "2. Assessment summary", optional: false },
+  { key: "diemManh" as const, title: "3. Strengths", optional: false },
+  { key: "diemCanLuuY" as const, title: "4. Areas to watch", optional: false },
+  { key: "danhGiaNangLuc" as const, title: "5. Competency assessment", optional: false },
+  { key: "duAnNoiBat" as const, title: "6. Notable projects", optional: true },
   {
     key: "ketLuanKhuyenNghi" as const,
-    title: "7. Kết Luận & Khuyến Nghị",
+    title: "7. Conclusion & recommendation",
     optional: true,
   },
 ] as const;
