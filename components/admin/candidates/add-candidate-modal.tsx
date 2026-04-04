@@ -112,14 +112,6 @@ function FileIcon({ className }: { className?: string }) {
   );
 }
 
-function PlayIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
 /**
  * - `undefined` — Candidates page: choose any campaign or unassigned.
  * - `{ jobOpeningId, title }` — Job description pipeline: uploads are tied to this opening (JD match + AI).
@@ -153,7 +145,6 @@ export function AddCandidateModal({
   const [sourceOther, setSourceOther] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [processAllBusy, setProcessAllBusy] = useState(false);
 
   const isJdPipeline = jdPipelineCampaign != null;
   const isCampaignLocked =
@@ -369,47 +360,11 @@ export function AddCandidateModal({
     }
   };
 
-  const processAll = async () => {
-    setProcessAllBusy(true);
-    try {
-      const pending = queue.filter(
-        (r) =>
-          r.uploadPhase === "uploaded" &&
-          (r.parsing_status === "pending" || r.parsing_status === "failed"),
-      );
-      const batchAuth = await sessionAuthHeaders();
-      if (!batchAuth.Authorization) {
-        window.alert("Session expired. Sign in again.");
-        return;
-      }
-      for (const r of pending) {
-        const res = await fetch(`/api/admin/candidates/${r.candidateId}/process`, {
-          method: "POST",
-          credentials: "include",
-          headers: { ...batchAuth },
-        });
-        if (!res.ok) {
-          const j = (await res.json()) as { error?: string };
-          window.alert(j.error ?? "Process failed");
-        }
-      }
-    } finally {
-      setProcessAllBusy(false);
-    }
-  };
-
-  const jobTitle =
-    isCampaignLocked && typeof jdPipelineCampaign === "object"
-      ? jdPipelineCampaign.title
-      : selectedJobId == null
-        ? null
-        : jobs.find((j) => j.id === selectedJobId)?.title ?? null;
-
   return (
     <Modal state={modalState}>
       <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
-        <Modal.Container className="max-w-[min(100vw-2rem,1280px)]">
-          <Modal.Dialog className="max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
+        <Modal.Container className="w-full">
+          <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
@@ -419,7 +374,7 @@ export function AddCandidateModal({
                   : "Upload CVs to private storage; AI extracts profile fields in the background."}
               </p>
             </Modal.Header>
-            <Modal.Body className="max-h-[min(70vh,720px)] space-y-6 overflow-y-auto px-6 py-6">
+            <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
               {isCampaignBlocked ? (
                 <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
                   <p className="font-semibold text-amber-900 dark:text-amber-100">
@@ -434,8 +389,8 @@ export function AddCandidateModal({
                   </p>
                 </div>
               ) : null}
-              <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr]">
-                <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
+                <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Target campaign
@@ -527,17 +482,6 @@ export function AddCandidateModal({
                     ) : null}
                   </div>
 
-                  {jobTitle ? (
-                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-foreground">
-                      <span className="font-semibold text-emerald-800 dark:text-emerald-200">
-                        AI suggestion:{" "}
-                      </span>
-                      Linking uploads to{" "}
-                      <span className="font-medium">{jobTitle}</span> helps match
-                      candidates to that pipeline.
-                    </div>
-                  ) : null}
-
                   <div className="grid grid-cols-2 gap-3">
                     <Card variant="secondary">
                       <Card.Content className="gap-1 p-3">
@@ -563,82 +507,70 @@ export function AddCandidateModal({
                   </div>
                 </div>
 
-                <div
-                  className={`flex min-h-[200px] flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
-                    isCampaignBlocked
-                      ? "pointer-events-none border-divider bg-content2/20 opacity-50"
-                      : dragOver
-                        ? "border-accent bg-accent/5"
-                        : "border-divider bg-content2/30"
-                  }`}
-                  onDragOver={(e) => {
-                    if (isCampaignBlocked) return;
-                    e.preventDefault();
-                    setDragOver(true);
-                  }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => {
-                    if (isCampaignBlocked) return;
-                    e.preventDefault();
-                    setDragOver(false);
-                    void handleFiles(e.dataTransfer.files);
-                  }}
-                >
-                  <p className="text-sm font-semibold text-foreground">
-                    Drop CVs here to start ingestion
-                  </p>
-                  <p className="mt-2 max-w-sm text-xs text-muted">
-                    AI will parse contact info, skills, and experience. PDF or
-                    DOCX, max 25MB per file.
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    <Button
-                      variant="primary"
-                      className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-                      onPress={() => fileInputRef.current?.click()}
-                      isDisabled={isCampaignBlocked}
-                    >
-                      Select files
-                    </Button>
-                    <Button variant="secondary" isDisabled>
-                      Connect cloud
-                    </Button>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files;
-                      if (f?.length) void handleFiles(f);
-                      e.target.value = "";
+                <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
+                  <div
+                    className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
+                      isCampaignBlocked
+                        ? "pointer-events-none border-divider bg-content2/20 opacity-50"
+                        : dragOver
+                          ? "border-accent bg-accent/5"
+                          : "border-divider bg-content2/30"
+                    }`}
+                    onDragOver={(e) => {
+                      if (isCampaignBlocked) return;
+                      e.preventDefault();
+                      setDragOver(true);
                     }}
-                  />
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      if (isCampaignBlocked) return;
+                      e.preventDefault();
+                      setDragOver(false);
+                      void handleFiles(e.dataTransfer.files);
+                    }}
+                  >
+                    <p className="text-sm font-semibold text-foreground">
+                      Drop CVs here to start ingestion
+                    </p>
+                    <p className="mt-2 max-w-sm text-xs text-muted">
+                      AI will parse contact info, skills, and experience. Select or
+                      drop one or more PDF or DOCX files (max 25MB each).
+                    </p>
+                    <div className="mt-4 flex justify-center">
+                      <Button
+                        variant="primary"
+                        className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
+                        onPress={() => fileInputRef.current?.click()}
+                        isDisabled={isCampaignBlocked}
+                      >
+                        Select files
+                      </Button>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files;
+                        if (f?.length) void handleFiles(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
               <div>
-                <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Active upload queue
-                    </h3>
-                    <p className="text-xs text-muted">
-                      Manage and monitor background processing tasks.
-                    </p>
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-                    onPress={() => void processAll()}
-                    isDisabled={processAllBusy}
-                  >
-                    <PlayIcon className="mr-1 size-4" />
-                    Process all batch
-                  </Button>
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Active upload queue
+                  </h3>
+                  <p className="text-xs text-muted">
+                    Processing starts automatically after each upload; monitor
+                    progress here.
+                  </p>
                 </div>
 
                 <Card variant="secondary" className="overflow-hidden">
@@ -647,7 +579,7 @@ export function AddCandidateModal({
                       <Table.ScrollContainer>
                         <Table.Content
                           aria-label="Upload queue"
-                          className="min-w-[800px]"
+                          className="min-w-[640px]"
                         >
                           <Table.Header>
                             <Table.Column isRowHeader>File</Table.Column>
