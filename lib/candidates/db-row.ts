@@ -10,9 +10,20 @@ export type JdMatchStatus =
   | "failed"
   | "skipped";
 
+/** Embedded row from Supabase when selecting job_openings on candidates */
+export type JobOpeningEmbed = {
+  id: string;
+  title: string;
+  job_descriptions:
+    | { position: string }
+    | { position: string }[]
+    | null;
+};
+
 export type CandidateDbRow = {
   id: string;
   job_opening_id: string | null;
+  job_openings?: JobOpeningEmbed | JobOpeningEmbed[] | null;
   cv_storage_path: string;
   original_filename: string;
   mime_type: string | null;
@@ -40,6 +51,26 @@ export type CandidateDbRow = {
   created_at: string;
   updated_at: string;
 };
+
+function positionFromJdEmbed(
+  embed: JobOpeningEmbed["job_descriptions"],
+): string | undefined {
+  if (embed == null) return undefined;
+  const row = Array.isArray(embed) ? embed[0] : embed;
+  return row?.position?.trim() || undefined;
+}
+
+function jdCampaignLabelFromRow(r: CandidateDbRow): string {
+  const raw = r.job_openings;
+  if (raw == null) {
+    return r.job_opening_id ? "—" : "Unassigned";
+  }
+  const jo = Array.isArray(raw) ? raw[0] : raw;
+  if (!jo) return "Unassigned";
+  const pos = positionFromJdEmbed(jo.job_descriptions);
+  if (pos) return pos;
+  return jo.title?.trim() || "—";
+}
 
 function asCandidateStatus(s: string): CandidateStatus {
   if (s === "Shortlisted" || s === "Interviewing") return s;
@@ -109,6 +140,8 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     school: r.school?.trim() || "—",
     status: asCandidateStatus(r.status),
     chapter: r.chapter,
+    jobOpeningId: r.job_opening_id,
+    jdCampaignLabel: jdCampaignLabelFromRow(r),
     sourceLabel,
     jdMatchScore,
     jdMatchLabel,

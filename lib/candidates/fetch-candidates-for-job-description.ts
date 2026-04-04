@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
 export type FetchCandidatesForJdResult = {
   rows: CandidateDbRow[];
@@ -43,5 +44,8 @@ export async function fetchCandidatesForJobDescription(
     return { rows: [], error: error.message };
   }
 
-  return { rows: (data ?? []) as CandidateDbRow[], error: null };
+  const raw = (data ?? []) as unknown as CandidateDbRow[];
+  const rows = await enrichCandidatesWithJobOpenings(supabase, raw);
+
+  return { rows, error: null };
 }

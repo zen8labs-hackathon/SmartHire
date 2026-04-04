@@ -1,5 +1,13 @@
 import type { CandidateRow, CandidateStatus } from "./types";
 
+const MOCK_JD_LABELS = [
+  "Software Engineer",
+  "UX Architect",
+  "Full-stack Engineer",
+  "Product Designer",
+  "AI Engineer",
+] as const;
+
 const BASE: Omit<CandidateRow, "id">[] = [
   {
     name: "Elena Rodriguez",
@@ -13,6 +21,8 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "Stanford University",
     status: "Interviewing",
     chapter: "Engineering",
+    jobOpeningId: "11111111-1111-4111-8111-111111111111",
+    jdCampaignLabel: MOCK_JD_LABELS[0],
     sourceLabel: "LinkedIn",
     jdMatchScore: 88,
     jdMatchLabel: "88",
@@ -31,6 +41,8 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "RISD",
     status: "Shortlisted",
     chapter: "Design",
+    jobOpeningId: "22222222-2222-4222-8222-222222222222",
+    jdCampaignLabel: MOCK_JD_LABELS[3],
     sourceLabel: "TopCV",
     jdMatchScore: 72,
     jdMatchLabel: "72",
@@ -49,6 +61,8 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "MIT",
     status: "New",
     chapter: "Engineering",
+    jobOpeningId: "33333333-3333-4333-8333-333333333333",
+    jdCampaignLabel: MOCK_JD_LABELS[2],
     sourceLabel: "ITViec",
     jdMatchScore: 65,
     jdMatchLabel: "65",
@@ -67,6 +81,8 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "Wharton School",
     status: "Interviewing",
     chapter: "Marketing",
+    jobOpeningId: null,
+    jdCampaignLabel: "Unassigned",
     sourceLabel: "Other (Referral network)",
     jdMatchScore: 41,
     jdMatchLabel: "41",
@@ -137,6 +153,8 @@ function buildRows(total: number): CandidateRow[] {
     const fi = i % EXTRA_FIRST.length;
     const li = Math.floor(i / EXTRA_FIRST.length) % EXTRA_LAST.length;
     const name = `${EXTRA_FIRST[fi]} ${EXTRA_LAST[li]}`;
+    const unassigned = i % 8 === 0;
+    const jdIdx = i % MOCK_JD_LABELS.length;
     rows.push({
       id: `c-${i + 1}`,
       name,
@@ -149,6 +167,12 @@ function buildRows(total: number): CandidateRow[] {
       school: i % 2 === 0 ? "STATE UNIVERSITY" : "BUSINESS SCHOOL",
       status: STATUSES[i % STATUSES.length],
       chapter: CHAPTERS[i % CHAPTERS.length],
+      jobOpeningId: unassigned
+        ? null
+        : `00000000-0000-4000-8000-${String(100000 + i).padStart(12, "0")}`,
+      jdCampaignLabel: unassigned
+        ? "Unassigned"
+        : MOCK_JD_LABELS[jdIdx],
       sourceLabel: MOCK_SOURCES[i % MOCK_SOURCES.length],
       jdMatchScore: 30 + (i % 55),
       jdMatchLabel: String(30 + (i % 55)),

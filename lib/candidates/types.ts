@@ -18,6 +18,10 @@ export type CandidateRow = {
   school: string;
   status: CandidateStatus;
   chapter: string;
+  /** Campaign UUID when CV was uploaded to a job opening; null if unassigned */
+  jobOpeningId: string | null;
+  /** Job description position (or opening title) for the applied campaign */
+  jdCampaignLabel: string;
   /** Display label for HR sourcing channel (includes custom text when source is Other) */
   sourceLabel: string;
   /** 0–100 from AI vs job description; null if not computed yet */

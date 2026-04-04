@@ -1,5 +1,7 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
 export async function GET(request: Request) {
   const auth = await requireAdminForRequest(request);
@@ -49,5 +51,8 @@ export async function GET(request: Request) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 
-  return Response.json({ candidates: data ?? [] });
+  const rows = (data ?? []) as unknown as CandidateDbRow[];
+  const enriched = await enrichCandidatesWithJobOpenings(auth.supabase, rows);
+
+  return Response.json({ candidates: enriched });
 }
