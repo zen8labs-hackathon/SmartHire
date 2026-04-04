@@ -1,32 +1,29 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
   "Invalid ISO datetime",
 );
 
-const pipelineUpdateSchema = z.discriminatedUnion("status", [
-  z.object({
-    id: z.string().uuid(),
-    status: z.literal("Interviewing"),
-    interview_at: isoDateTime,
-  }),
-  z.object({
-    id: z.string().uuid(),
-    status: z.literal("Offer"),
-    onboarding_at: isoDateTime,
-  }),
-  z.object({
-    id: z.string().uuid(),
-    status: z.literal("Failed"),
-  }),
-]);
+const updateSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum([
+    "New",
+    "Shortlisted",
+    "Interviewing",
+    "Offer",
+    "Failed",
+  ]),
+  interview_at: z.union([isoDateTime, z.null()]).optional(),
+  onboarding_at: z.union([isoDateTime, z.null()]).optional(),
+});
 
 const bodySchema = z.object({
   jobDescriptionId: z.coerce.number().int().positive(),
-  updates: z.array(pipelineUpdateSchema).min(1).max(100),
+  updates: z.array(updateSchema).min(1).max(100),
 });
 
 export async function POST(request: Request) {
@@ -72,7 +69,7 @@ export async function POST(request: Request) {
   const uniqueIds = [...new Set(updates.map((u) => u.id))];
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
-    .select("id, job_opening_id")
+    .select("id, job_opening_id, status, interview_at, onboarding_at")
     .in("id", uniqueIds);
 
   if (loadError) {
@@ -85,6 +82,18 @@ export async function POST(request: Request) {
       { status: 404 },
     );
   }
+
+  const byId = new Map(
+    existing.map((row) => [
+      row.id as string,
+      {
+        job_opening_id: row.job_opening_id as string | null,
+        status: String(row.status),
+        interview_at: (row.interview_at as string | null) ?? null,
+        onboarding_at: (row.onboarding_at as string | null) ?? null,
+      },
+    ]),
+  );
 
   for (const row of existing) {
     const jo = row.job_opening_id as string | null;
@@ -100,16 +109,18 @@ export async function POST(request: Request) {
   }
 
   for (const u of updates) {
-    const patch: Record<string, unknown> = { status: u.status };
-    if (u.status === "Interviewing") {
-      patch.interview_at = u.interview_at;
-      patch.onboarding_at = null;
-    } else if (u.status === "Offer") {
-      patch.onboarding_at = u.onboarding_at;
-    } else {
-      patch.interview_at = null;
-      patch.onboarding_at = null;
+    const prev = byId.get(u.id);
+    if (!prev) {
+      return Response.json({ error: "Candidate not found." }, { status: 404 });
     }
+    const patch = buildCandidatePipelinePatch(
+      {
+        status: prev.status,
+        interview_at: prev.interview_at,
+        onboarding_at: prev.onboarding_at,
+      },
+      u,
+    );
 
     const { error: upErr } = await auth.supabase
       .from("candidates")
@@ -119,6 +130,18 @@ export async function POST(request: Request) {
     if (upErr) {
       return Response.json({ error: upErr.message }, { status: 500 });
     }
+
+    const nextInterview = patch.interview_at as string | null | undefined;
+    const nextOnboarding = patch.onboarding_at as string | null | undefined;
+    const nextStatus = patch.status as string;
+    byId.set(u.id, {
+      job_opening_id: prev.job_opening_id,
+      status: nextStatus,
+      interview_at:
+        nextInterview !== undefined ? nextInterview : prev.interview_at,
+      onboarding_at:
+        nextOnboarding !== undefined ? nextOnboarding : prev.onboarding_at,
+    });
   }
 
   return Response.json({ ok: true, updated: updates.length });

@@ -36,7 +36,7 @@ export async function fetchCandidatesForJobDescription(
     .from("candidates")
     .select(ADMIN_CANDIDATES_SELECT)
     .in("job_opening_id", openingIds)
-    .order("jd_match_score", { ascending: false, nullsFirst: false })
+    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   if (error) {

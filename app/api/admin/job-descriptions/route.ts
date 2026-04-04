@@ -88,7 +88,70 @@ export async function GET(request: Request) {
   const { data, error } = await query;
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  return Response.json({ jobDescriptions: data ?? [] });
+  const jds = data ?? [];
+  if (jds.length === 0) {
+    return Response.json({ jobDescriptions: [] });
+  }
+
+  const { data: openings, error: openingsError } = await auth.supabase
+    .from("job_openings")
+    .select("id, job_description_id, jd_storage_path, created_at")
+    .not("job_description_id", "is", null);
+
+  if (openingsError) {
+    return Response.json({ error: openingsError.message }, { status: 500 });
+  }
+
+  const { data: candRows, error: candError } = await auth.supabase
+    .from("candidates")
+    .select("job_opening_id")
+    .not("job_opening_id", "is", null);
+
+  if (candError) {
+    return Response.json({ error: candError.message }, { status: 500 });
+  }
+
+  const jdIdByOpening = new Map<string, number>();
+  const openingsByJd = new Map<number, { jd_storage_path: string | null; created_at: string }[]>();
+  for (const o of openings ?? []) {
+    const jdId = o.job_description_id as number | null;
+    const oid = o.id as string;
+    if (jdId == null) continue;
+    jdIdByOpening.set(oid, jdId);
+    const list = openingsByJd.get(jdId) ?? [];
+    list.push({
+      jd_storage_path: (o.jd_storage_path as string | null) ?? null,
+      created_at: String(o.created_at),
+    });
+    openingsByJd.set(jdId, list);
+  }
+
+  const applicantCountByJd = new Map<number, number>();
+  for (const c of candRows ?? []) {
+    const joId = c.job_opening_id as string | null;
+    if (!joId) continue;
+    const jdId = jdIdByOpening.get(joId);
+    if (jdId == null) continue;
+    applicantCountByJd.set(jdId, (applicantCountByJd.get(jdId) ?? 0) + 1);
+  }
+
+  const enriched = jds.map((row: Record<string, unknown>) => {
+    const id = row.id as number;
+    const list = openingsByJd.get(id) ?? [];
+    const withFile = list
+      .filter((x) => x.jd_storage_path)
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )[0];
+    return {
+      ...row,
+      applicant_count: applicantCountByJd.get(id) ?? 0,
+      has_jd_source_file: Boolean(withFile?.jd_storage_path),
+    };
+  });
+
+  return Response.json({ jobDescriptions: enriched });
 }
 
 export async function POST(request: Request) {

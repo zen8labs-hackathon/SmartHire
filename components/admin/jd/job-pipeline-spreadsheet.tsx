@@ -118,9 +118,10 @@ export function JobPipelineSpreadsheet({
             {jobTitle} pipeline
           </h1>
           <p className="max-w-2xl text-sm text-muted">
-            Stages: New → Interview → Offer → Failed. JD match scores match the
-            Candidates page. Select candidates to schedule interviews, set
-            onboarding, or mark failed.
+            Filter and sort by CV upload time. Use the pipeline column to change
+            status per candidate, or bulk-move New → Interview (no date required).
+            Set interview and onboarding times from the Schedule column when
+            applicable.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

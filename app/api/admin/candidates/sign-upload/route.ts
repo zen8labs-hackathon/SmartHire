@@ -112,6 +112,7 @@ export async function POST(request: Request) {
   const folder = jobOpeningId ?? "unassigned";
   const storagePath = `${folder}/${candidateId}${ext}`;
 
+  const uploadedAt = new Date().toISOString();
   const { error: insErr } = await supabase.from("candidates").insert({
     id: candidateId,
     job_opening_id: jobOpeningId,
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
     parsing_status: "pending",
     source: sourceRaw,
     source_other: sourceOther,
+    cv_uploaded_at: uploadedAt,
   });
 
   if (insErr) {
