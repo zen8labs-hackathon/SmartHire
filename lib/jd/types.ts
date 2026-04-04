@@ -43,6 +43,10 @@ export type JobDescription = {
   created_by: string | null;
   updated_at: string;
   updated_by: string | null;
+  /** Set by GET /api/admin/job-descriptions aggregation */
+  applicant_count?: number;
+  /** Whether a JD document exists on a linked job opening */
+  has_jd_source_file?: boolean;
 };
 
 /** Form payload for create / update */

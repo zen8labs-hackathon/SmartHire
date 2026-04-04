@@ -1228,10 +1228,13 @@ export function JdManagementDashboard() {
             <Table.ScrollContainer>
               <Table.Content
                 aria-label="Job descriptions"
-                className="min-w-[960px]"
+                className="min-w-[1040px]"
               >
                 <Table.Header>
                   <Table.Column isRowHeader>Position</Table.Column>
+                  <Table.Column className="text-center tabular-nums">
+                    Applicants
+                  </Table.Column>
                   <Table.Column>Department</Table.Column>
                   <Table.Column>Work location</Table.Column>
                   <Table.Column>Start date</Table.Column>
@@ -1250,21 +1253,36 @@ export function JdManagementDashboard() {
                 >
                   {loading ? (
                     <Table.Row id="jd-row-loading">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
                         Loading…
                       </Table.Cell>
                     </Table.Row>
                   ) : paginatedRows.length === 0 ? (
                     <Table.Row id="jd-row-empty">
-                      <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
+                      <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
                         No job descriptions found.
                       </Table.Cell>
                     </Table.Row>
                   ) : (
                     paginatedRows.map((row) => (
                       <Table.Row key={row.id} id={String(row.id)}>
-                        <Table.Cell className="font-medium">
-                          {row.position}
+                        <Table.Cell>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-medium">{row.position}</span>
+                            {row.has_jd_source_file ? (
+                              <a
+                                href={`/api/admin/job-descriptions/${row.id}/jd-download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                              >
+                                JD file
+                              </a>
+                            ) : null}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell className="text-center tabular-nums text-muted">
+                          {row.applicant_count ?? 0}
                         </Table.Cell>
                         <Table.Cell>{row.department ?? "—"}</Table.Cell>
                         <Table.Cell>{row.work_location ?? "—"}</Table.Cell>

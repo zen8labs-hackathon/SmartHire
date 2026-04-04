@@ -19,6 +19,10 @@ type ParsedResume = {
   degree: string | null;
   school: string | null;
   experienceSummary: string | null;
+  /** e.g. IELTS 7.5, Fluent, B2 */
+  englishLevel: string | null;
+  /** Grade point if mentioned */
+  gpa: string | null;
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -105,6 +109,13 @@ function safeParseParsedResume(raw: string): ParsedResume | null {
       const n = parseFloat(exp);
       if (!Number.isNaN(n)) experienceYears = n;
     }
+    const gpaRaw = o.gpa;
+    let gpa: string | null = null;
+    if (typeof gpaRaw === "number" && Number.isFinite(gpaRaw)) {
+      gpa = String(gpaRaw);
+    } else if (typeof gpaRaw === "string" && gpaRaw.trim()) {
+      gpa = gpaRaw.trim();
+    }
     return {
       name: typeof o.name === "string" ? o.name : null,
       email: typeof o.email === "string" ? o.email : null,
@@ -117,6 +128,12 @@ function safeParseParsedResume(raw: string): ParsedResume | null {
       experienceSummary: typeof o.experienceSummary === "string"
         ? o.experienceSummary
         : null,
+      englishLevel: typeof o.englishLevel === "string" && o.englishLevel.trim()
+        ? o.englishLevel.trim()
+        : typeof o.english === "string" && o.english.trim()
+        ? o.english.trim()
+        : null,
+      gpa,
     };
   } catch {
     return null;
@@ -163,8 +180,8 @@ async function grokParseResume(plainText: string): Promise<ParsedResume | null> 
   const route = resolveLlmRoute();
   const system =
     `You extract structured candidate data from resume text. Respond with a single JSON object only, no markdown, with keys:
-name (string|null), email (string|null), phone (string|null), role (string|null), experienceYears (number|null), skills (string array), degree (string|null), school (string|null), experienceSummary (string|null).
-Use null when unknown. skills should be concise skill tokens. experienceYears is total years of professional experience if inferable.`;
+name (string|null), email (string|null), phone (string|null), role (string|null), experienceYears (number|null), skills (string array), degree (string|null), school (string|null), experienceSummary (string|null), englishLevel (string|null), gpa (string|null).
+Use null when unknown. skills should be concise skill tokens. experienceYears is total years of professional experience if inferable. englishLevel should summarize language proficiency if stated (e.g. IELTS 7.5, Fluent English). gpa should be numeric grade or scale if clearly stated (e.g. 3.7/4.0).`;
 
   async function callApi(useJsonObjectFormat: boolean): Promise<string | null> {
     const body: Record<string, unknown> = {

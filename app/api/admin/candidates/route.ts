@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   let query = auth.supabase
     .from("candidates")
     .select(ADMIN_CANDIDATES_SELECT)
-    .order("jd_match_score", { ascending: false, nullsFirst: false })
+    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   if (openingIds) {
