@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { scoreCvAgainstJobDescription } from "@/lib/ai/jd-cv-match";
+import { scoreCvAgainstJobDescriptionHybrid } from "@/lib/ai/jd-cv-match";
+import { computeJdMatchFormulaAnchor } from "@/lib/candidates/jd-match-formula";
 import { resolveJobDescriptionText } from "@/lib/candidates/resolve-job-description-text";
 
 type ParsedPayload = {
@@ -145,9 +146,18 @@ export async function runJdMatchForCandidate(
       return { ok: false, error: "empty_cv_summary" };
     }
 
-    const { score, rationale } = await scoreCvAgainstJobDescription(
+    const formula = computeJdMatchFormulaAnchor({
+      jdText,
+      cvSummary,
+      skills: row.skills,
+      role: row.role,
+      experienceYears: row.experience_years,
+    });
+
+    const { score, rationale } = await scoreCvAgainstJobDescriptionHybrid(
       cvSummary,
       jdText,
+      formula,
     );
 
     const { error: upErr } = await supabase
