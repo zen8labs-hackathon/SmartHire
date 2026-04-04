@@ -1,15 +1,22 @@
 import "@/lib/ai/pdf-node-polyfill";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
+import type { PDFFont, PDFPage } from "pdf-lib";
+import { PDFDocument, PDFDropdown, PDFTextField, rgb } from "pdf-lib";
 import {
-  PDFDocument,
-  PDFDropdown,
-  PDFTextField,
-  StandardFonts,
-  rgb,
-} from "pdf-lib";
-import { sanitizeForPdfStandardFont } from "@/lib/evaluation/pdf-standard-font-text";
+  type EvaluationSection,
+  MAX_EVAL_SECTION_CHARS,
+  fallbackStructuredEvaluation,
+  structuredEvaluationSchema,
+  structuredEvaluationToDocumentSections,
+} from "@/lib/evaluation/evaluation-section-template";
+import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
 import { z } from "zod";
+
+const UNICODE_FONT_ERROR =
+  "Không thể tải font Noto Sans để hiển thị tiếng Việt trong PDF. Đặt NotoSans-Regular.ttf và NotoSans-Bold.ttf trong thư mục assets/fonts/ hoặc đảm bảo server có thể tải font (CDN).";
+
+export type { EvaluationSection };
 
 function getGateway() {
   const apiKey = process.env.AI_GATEWAY_API_KEY;
@@ -20,6 +27,8 @@ function getGateway() {
   });
 }
 
+const LANGUAGE_RULE = `LANGUAGE (critical): Write every generated string in the SAME language as the "Reviewer free-form notes" section. If the notes are Vietnamese, the entire output must be Vietnamese. If English, use English. Do not translate the reviewer’s content into another language.`;
+
 const aiMappingSchema = z.object({
   entries: z
     .array(
@@ -27,36 +36,19 @@ const aiMappingSchema = z.object({
         key: z.string().describe("Exact form field name from the template PDF"),
         text: z
           .string()
-          .describe("Evaluator text to place in that field; concise, professional"),
+          .describe("Evaluator text for that field; same language as reviewer notes"),
       }),
     )
     .describe("One entry per listed form field when fields exist"),
 });
 
-const aiSectionSchema = z.object({
-  sections: z
-    .array(
-      z.object({
-        title: z.string(),
-        body: z.string(),
-      }),
-    )
-    .describe(
-      "Structured evaluation sections derived from the template headings and reviewer notes",
-    ),
-});
-
-const MAX_FIELD_CHARS = 4000;
-
 export type FillEvaluationAiResult = {
-  /** Values applied to AcroForm fields (by exact field name) */
   fieldMap: Record<string, string>;
-  /** When no form fields, sections appended on a new page */
-  appendixSections: { title: string; body: string }[];
+  documentSections: EvaluationSection[];
 };
 
 /**
- * Ask the model to map reviewer notes onto template form field names and/or sections.
+ * Ask the model to map reviewer notes onto AcroForm fields or the fixed 7-part evaluation outline.
  */
 export async function buildEvaluationFillPayload(params: {
   formFieldNames: string[];
@@ -68,20 +60,20 @@ export async function buildEvaluationFillPayload(params: {
   if (!key) {
     if (params.formFieldNames.length > 0) {
       const fieldMap: Record<string, string> = {};
-      const fallback = params.reviewerNotes.trim().slice(0, MAX_FIELD_CHARS) || "—";
+      const fallback =
+        params.reviewerNotes.trim().slice(0, MAX_EVAL_SECTION_CHARS) || "—";
       for (const name of params.formFieldNames) {
         fieldMap[name] = fallback;
       }
-      return { fieldMap, appendixSections: [] };
+      return { fieldMap, documentSections: [] };
     }
+    const fb = fallbackStructuredEvaluation(
+      params.candidateSummary,
+      params.reviewerNotes,
+    );
     return {
       fieldMap: {},
-      appendixSections: [
-        {
-          title: "Evaluator notes",
-          body: params.reviewerNotes.trim() || "—",
-        },
-      ],
+      documentSections: structuredEvaluationToDocumentSections(fb),
     };
   }
 
@@ -91,199 +83,290 @@ export async function buildEvaluationFillPayload(params: {
       ? params.formFieldNames.map((n) => `- ${n}`).join("\n")
       : "(no fillable form fields detected)";
 
-  const prompt = `You are completing an interview evaluation PDF for a hiring team.
+  try {
+    if (params.formFieldNames.length > 0) {
+      const prompt = `You are completing an interview evaluation PDF for a hiring team.
+
+${LANGUAGE_RULE}
 
 ## Candidate summary
 ${params.candidateSummary}
 
-## Reviewer free-form notes (source of truth)
+## Reviewer free-form notes (source of truth — do not invent facts)
 ${params.reviewerNotes}
 
-## Plain text extracted from the evaluation template (for context)
+## Plain text extracted from the evaluation template (context only)
 ${params.templateTextSample.slice(0, 8000)}${params.templateTextSample.length > 8000 ? "\n…[truncated]" : ""}
 
-## PDF AcroForm field names (fill each when possible)
+## PDF AcroForm field names — return one entry per name, exact "key"
 ${fieldList}
 
-Instructions:
-- When form field names exist: return "entries" with one object per field name listed above. Use the exact "key" string. Split and adapt the reviewer notes into the appropriate fields. If a field is not applicable, use "N/A" or a short dash.
-- When NO form fields were listed: return "sections" only: 4–12 sections with short titles matching themes from the template text (e.g. Technical skills, Communication, Overall recommendation) and bodies drawn from the notes.
-- Keep each text value under ${MAX_FIELD_CHARS} characters. Be concise and professional.`;
+Map interview insights into the appropriate fields. Use "N/A" or "—" where not applicable. Max ${MAX_EVAL_SECTION_CHARS} characters per value.`;
 
-  if (params.formFieldNames.length > 0) {
+      const { output } = await generateText({
+        model: gateway("openai/gpt-4o-mini"),
+        output: Output.object({
+          name: "evaluation_form_fill",
+          schema: aiMappingSchema,
+        }),
+        system: `${LANGUAGE_RULE} You output only structured JSON; keys must match PDF field names exactly.`,
+        prompt,
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+      });
+
+      const fieldMap: Record<string, string> = {};
+      const allowed = new Set(params.formFieldNames);
+      for (const e of output.entries) {
+        if (!allowed.has(e.key)) continue;
+        fieldMap[e.key] = e.text.slice(0, MAX_EVAL_SECTION_CHARS);
+      }
+      for (const name of params.formFieldNames) {
+        if (fieldMap[name] == null || fieldMap[name] === "") {
+          fieldMap[name] =
+            params.reviewerNotes.trim().slice(0, MAX_EVAL_SECTION_CHARS) || "—";
+        }
+      }
+      return { fieldMap, documentSections: [] };
+    }
+
+    const prompt = `You are drafting a structured interview evaluation document.
+
+${LANGUAGE_RULE}
+
+## Candidate summary (use for section 1 where relevant)
+${params.candidateSummary}
+
+## Reviewer free-form notes (primary source — expand clearly, no fabricated facts)
+${params.reviewerNotes}
+
+## Template PDF plain text (context only; your output structure is fixed below)
+${params.templateTextSample.slice(0, 8000)}${params.templateTextSample.length > 8000 ? "\n…[truncated]" : ""}
+
+## Required output shape (field names are fixed)
+Fill these keys:
+- thongTinUngVien — "1. Thông Tin Ứng Viên": role, background, logistics mentioned.
+- tomTatDanhGia — "2. Tóm Tắt Đánh Giá": short overall summary of the interview.
+- diemManh — "3. Điểm Mạnh".
+- diemCanLuuY — "4. Điểm Cần Lưu Ý".
+- danhGiaNangLuc — "5. Đánh Giá Năng Lực" (technical/soft skills as implied by notes).
+
+Optional (omit the key or use empty string if not applicable):
+- duAnNoiBat — "6. Dự Án Nổi Bật" only if projects are discussed.
+- ketLuanKhuyenNghi — "7. Kết Luận & Khuyến Nghị" only if a conclusion or hire recommendation is appropriate.
+
+Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
+
     const { output } = await generateText({
       model: gateway("openai/gpt-4o-mini"),
       output: Output.object({
-        name: "evaluation_form_fill",
-        schema: aiMappingSchema,
+        name: "structured_evaluation",
+        schema: structuredEvaluationSchema,
       }),
-      system:
-        "You output only structured JSON per schema. Keys must match PDF field names exactly.",
+      system: `${LANGUAGE_RULE} You output only JSON matching the schema. Section semantics follow the Vietnamese outline described in the prompt.`,
       prompt,
       temperature: 0.2,
       maxOutputTokens: 4096,
     });
 
-    const fieldMap: Record<string, string> = {};
-    const allowed = new Set(params.formFieldNames);
-    for (const e of output.entries) {
-      if (!allowed.has(e.key)) continue;
-      fieldMap[e.key] = e.text.slice(0, MAX_FIELD_CHARS);
+    const parsed = structuredEvaluationSchema.safeParse(output);
+    if (!parsed.success) {
+      const fb = fallbackStructuredEvaluation(
+        params.candidateSummary,
+        params.reviewerNotes,
+      );
+      return {
+        fieldMap: {},
+        documentSections: structuredEvaluationToDocumentSections(fb),
+      };
     }
-    for (const name of params.formFieldNames) {
-      if (fieldMap[name] == null || fieldMap[name] === "") {
-        fieldMap[name] = params.reviewerNotes.trim().slice(0, MAX_FIELD_CHARS) || "—";
-      }
-    }
-    return { fieldMap, appendixSections: [] };
-  }
 
-  const { output } = await generateText({
-    model: gateway("openai/gpt-4o-mini"),
-    output: Output.object({
-      name: "evaluation_sections",
-      schema: aiSectionSchema,
-    }),
-    system:
-      "You output only structured JSON. Derive section titles from the evaluation template wording.",
-    prompt,
-    temperature: 0.2,
-    maxOutputTokens: 4096,
-  });
-
-  const appendixSections = output.sections.map((s) => ({
-    title: s.title.slice(0, 200),
-    body: s.body.slice(0, MAX_FIELD_CHARS),
-  }));
-  if (appendixSections.length === 0) {
     return {
       fieldMap: {},
-      appendixSections: [
-        {
-          title: "Evaluator notes",
-          body: params.reviewerNotes.trim().slice(0, MAX_FIELD_CHARS) || "—",
-        },
-      ],
+      documentSections: structuredEvaluationToDocumentSections(parsed.data),
+    };
+  } catch {
+    if (params.formFieldNames.length > 0) {
+      const fieldMap: Record<string, string> = {};
+      const fallback =
+        params.reviewerNotes.trim().slice(0, MAX_EVAL_SECTION_CHARS) || "—";
+      for (const name of params.formFieldNames) {
+        fieldMap[name] = fallback;
+      }
+      return { fieldMap, documentSections: [] };
+    }
+    const fb = fallbackStructuredEvaluation(
+      params.candidateSummary,
+      params.reviewerNotes,
+    );
+    return {
+      fieldMap: {},
+      documentSections: structuredEvaluationToDocumentSections(fb),
     };
   }
-  return { fieldMap: {}, appendixSections };
+}
+
+const PAGE_SIZE: [number, number] = [612, 792];
+const MARGIN = 48;
+const LINE_H = 13;
+
+function normalizeUnicodePdfText(s: string): string {
+  return s.replace(/\0/g, "").normalize("NFC");
+}
+
+function wrapLines(text: string, font: PDFFont, size: number, maxW: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    const next = line ? `${line} ${w}` : w;
+    if (font.widthOfTextAtSize(next, size) <= maxW) line = next;
+    else {
+      if (line) lines.push(line);
+      line = w;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 /**
- * Apply AI output to a copy of the template PDF and return serialized bytes.
+ * Standalone evaluation PDF with fixed section headings (Noto Sans — preserves Vietnamese).
  */
+async function renderStandaloneEvaluationPdf(params: {
+  candidateName: string;
+  sections: EvaluationSection[];
+}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const noto = await tryEmbedNotoSans(doc);
+  if (!noto) {
+    throw new Error(UNICODE_FONT_ERROR);
+  }
+  const font = noto.regular;
+  const bold = noto.bold;
+  const clean = (s: string) => normalizeUnicodePdfText(s);
+
+  const [pageW, pageH] = PAGE_SIZE;
+  const maxW = pageW - 2 * MARGIN;
+
+  let page: PDFPage = doc.addPage(PAGE_SIZE);
+  let y = pageH - MARGIN;
+
+  const needPage = (minLines: number) => {
+    if (y < MARGIN + minLines * LINE_H) {
+      page = doc.addPage(PAGE_SIZE);
+      y = pageH - MARGIN;
+    }
+  };
+
+  const drawLine = (ln: string, size: number, f: PDFFont, color: ReturnType<typeof rgb>) => {
+    needPage(1);
+    page.drawText(ln, { x: MARGIN, y, size, font: f, color });
+    y -= LINE_H;
+  };
+
+  const drawBlock = (lines: string[], size: number, f: PDFFont, color: ReturnType<typeof rgb>) => {
+    for (const ln of lines) drawLine(ln, size, f, color);
+  };
+
+  const titleMain = clean("Đánh giá phỏng vấn");
+  const candLine = clean(`Ứng viên: ${params.candidateName}`);
+  const genDate = new Date().toLocaleDateString("vi-VN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const dateLine = clean(`Ngày tạo: ${genDate}`);
+
+  drawBlock(wrapLines(titleMain, bold, 16, maxW), 16, bold, rgb(0.07, 0.12, 0.18));
+  y -= 4;
+  drawBlock(wrapLines(candLine, font, 11, maxW), 11, font, rgb(0.22, 0.22, 0.26));
+  drawBlock(wrapLines(dateLine, font, 9, maxW), 9, font, rgb(0.45, 0.45, 0.5));
+  y -= 12;
+  y -= 10;
+
+  for (const block of params.sections) {
+    y -= 6;
+    needPage(3);
+    drawBlock(
+      wrapLines(clean(block.title), bold, 12, maxW),
+      12,
+      bold,
+      rgb(0.12, 0.14, 0.2),
+    );
+    y -= 4;
+    drawBlock(
+      wrapLines(clean(block.body), font, 10, maxW),
+      10,
+      font,
+      rgb(0.25, 0.25, 0.28),
+    );
+    y -= 8;
+  }
+
+  return doc.save({ updateFieldAppearances: false });
+}
+
 export async function renderFilledEvaluationPdf(params: {
   templatePdfBytes: Uint8Array;
   fill: FillEvaluationAiResult;
+  candidateName: string;
+  templateHasAcroFormFields: boolean;
 }): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.load(params.templatePdfBytes, {
-    ignoreEncryption: true,
-  });
-
-  const form = pdfDoc.getForm();
-  const fields = form.getFields();
   const fieldMap = Object.fromEntries(
     Object.entries(params.fill.fieldMap).map(([k, v]) => [
       k,
-      sanitizeForPdfStandardFont(v),
+      normalizeUnicodePdfText(v),
     ]),
   );
-  const appendixSections = params.fill.appendixSections.map((s) => ({
-    title: sanitizeForPdfStandardFont(s.title),
-    body: sanitizeForPdfStandardFont(s.body),
-  }));
 
-  for (const field of fields) {
-    const name = field.getName();
-    const value = fieldMap[name];
-    if (value == null) continue;
-    try {
-      if (field instanceof PDFTextField) {
-        field.setText(value);
-      } else if (field instanceof PDFDropdown) {
-        const options = field.getOptions();
-        const pick =
-          options.find((o) => o.toLowerCase() === value.toLowerCase()) ??
-          options[0];
-        if (pick) field.select(pick);
-      }
-    } catch {
-      // skip fields that cannot accept the value
-    }
-  }
-
-  if (fields.length > 0) {
-    try {
-      form.flatten();
-    } catch {
-      // some PDFs fail flatten; still save
-    }
-  }
-
-  if (appendixSections.length > 0) {
-    const page = pdfDoc.addPage([612, 792]);
-    const { width, height } = page.getSize();
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    let y = height - 48;
-    const margin = 48;
-    const lineHeight = 13;
-    const maxW = width - margin * 2;
-
-    const wrap = (text: string, size: number, f: typeof font) => {
-      const words = text.split(/\s+/).filter(Boolean);
-      const lines: string[] = [];
-      let line = "";
-      for (const w of words) {
-        const next = line ? `${line} ${w}` : w;
-        if (f.widthOfTextAtSize(next, size) <= maxW) line = next;
-        else {
-          if (line) lines.push(line);
-          line = w;
-        }
-      }
-      if (line) lines.push(line);
-      return lines;
-    };
-
-    page.drawText("Completed evaluation (AI-assisted)", {
-      x: margin,
-      y,
-      size: 14,
-      font: bold,
-      color: rgb(0.1, 0.15, 0.25),
+  if (params.templateHasAcroFormFields) {
+    const pdfDoc = await PDFDocument.load(params.templatePdfBytes, {
+      ignoreEncryption: true,
     });
-    y -= 28;
-
-    for (const block of appendixSections) {
-      for (const ln of wrap(block.title, 11, bold)) {
-        if (y < 56) break;
-        page.drawText(ln, {
-          x: margin,
-          y,
-          size: 11,
-          font: bold,
-          color: rgb(0.15, 0.15, 0.2),
-        });
-        y -= lineHeight;
-      }
-      y -= 4;
-      for (const ln of wrap(block.body, 10, font)) {
-        if (y < 44) break;
-        page.drawText(ln, {
-          x: margin,
-          y,
-          size: 10,
-          font,
-          color: rgb(0.25, 0.25, 0.28),
-        });
-        y -= lineHeight;
-      }
-      y -= 10;
+    const noto = await tryEmbedNotoSans(pdfDoc);
+    if (!noto) {
+      throw new Error(UNICODE_FONT_ERROR);
     }
+    const form = pdfDoc.getForm();
+    const fields = form.getFields();
+
+    for (const field of fields) {
+      const name = field.getName();
+      const value = fieldMap[name];
+      if (value == null) continue;
+      try {
+        if (field instanceof PDFTextField) {
+          field.setText(value);
+        } else if (field instanceof PDFDropdown) {
+          const options = field.getOptions();
+          const pick =
+            options.find((o) => o.toLowerCase() === value.toLowerCase()) ??
+            options[0];
+          if (pick) field.select(pick);
+        }
+      } catch {
+        // skip fields that cannot accept the value
+      }
+    }
+
+    form.updateFieldAppearances(noto.regular);
+
+    if (fields.length > 0) {
+      try {
+        form.flatten({ updateFieldAppearances: false });
+      } catch {
+        // some PDFs fail flatten; still save
+      }
+    }
+
+    return pdfDoc.save({ updateFieldAppearances: false });
   }
 
-  return pdfDoc.save();
+  return renderStandaloneEvaluationPdf({
+    candidateName: params.candidateName,
+    sections: params.fill.documentSections,
+  });
 }
 
 export async function listPdfFormFieldNames(

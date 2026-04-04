@@ -200,6 +200,8 @@ export async function POST(
     pdfOut = await renderFilledEvaluationPdf({
       templatePdfBytes: templateBytes,
       fill,
+      candidateName: body.candidateName,
+      templateHasAcroFormFields: formFieldNames.length > 0,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "PDF render failed.";
@@ -223,7 +225,9 @@ export async function POST(
   const aiPayload = {
     formFields: formFieldNames,
     fieldMap: fill.fieldMap,
-    appendixSections: fill.appendixSections,
+    documentSections: fill.documentSections,
+    outputMode:
+      formFieldNames.length > 0 ? "filled_template_pdf" : "standalone_sections_pdf",
   };
 
   const { data: inserted, error: insErr } = await auth.supabase

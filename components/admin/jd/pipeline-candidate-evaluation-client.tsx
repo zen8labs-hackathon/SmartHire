@@ -229,8 +229,15 @@ export function PipelineCandidateEvaluationClient({
           </Card.Header>
           <Card.Content className="flex flex-col gap-3">
             <div>
-              <Label className="text-xs text-muted">Preview link (share)</Label>
-              <TextField value={shareUrl} isReadOnly className="mt-1">
+              <Label className="text-xs text-muted" id="eval-share-url-label">
+                Preview link (share)
+              </Label>
+              <TextField
+                value={shareUrl}
+                isReadOnly
+                className="mt-1"
+                aria-labelledby="eval-share-url-label"
+              >
                 <TextArea className="min-h-[3rem] font-mono text-xs" />
               </TextField>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -272,11 +279,14 @@ export function PipelineCandidateEvaluationClient({
 
       <Card>
         <Card.Header>
-          <Card.Title>Evaluation notes</Card.Title>
+          <Card.Title id="eval-notes-heading">Evaluation notes</Card.Title>
           <Card.Description>
-            Write your interview notes. On submit, the system uses the admin
-            evaluation template PDF and AI to distribute this text into the
-            template fields (or an appendix if the PDF has no form fields).
+            Write notes in whatever language you use (e.g. Vietnamese or
+            English); the generated evaluation stays in that language. If the
+            template has fillable fields, those are filled on a copy of the
+            file; otherwise a new PDF is built with sections 1–5 (and 6–7 when
+            relevant): Thông tin ứng viên, Tóm tắt đánh giá, Điểm mạnh, Điểm cần
+            lưu ý, Đánh giá năng lực, optional Dự án nổi bật & Kết luận.
           </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4">
@@ -285,8 +295,11 @@ export function PipelineCandidateEvaluationClient({
               {error}
             </p>
           ) : null}
-          <TextField value={notes} onChange={setNotes}>
-            {/* <Label>Evaluation notes</Label> */}
+          <TextField
+            value={notes}
+            onChange={setNotes}
+            aria-labelledby="eval-notes-heading"
+          >
             <TextArea
               placeholder="Strengths, concerns, recommendation, scores, etc."
               className="min-h-[10rem] w-full"
