@@ -1,11 +1,11 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { JD_BUCKET } from "@/lib/jd/upload-constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(_request);
+  const auth = await requireStaffForRequest(_request);
   if (!auth.ok) return auth.response;
 
   const { id: idParam } = await params;

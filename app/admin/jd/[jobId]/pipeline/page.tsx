@@ -1,6 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { JobPipelineSpreadsheetLoader } from "./job-pipeline-spreadsheet-loader";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,6 +15,14 @@ export default async function JobPipelinePage({ params }: PageProps) {
   if (!Number.isInteger(numId) || numId <= 0) notFound();
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login?next=/admin/jd");
+
+  const access = await getStaffProfileAccess(supabase, user.id);
+  if (!access?.isStaff) redirect("/dashboard");
+
   const { data: jd } = await supabase
     .from("job_descriptions")
     .select("id, position")
@@ -43,6 +52,8 @@ export default async function JobPipelinePage({ params }: PageProps) {
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
       initialPipelineCandidates={initialPipelineCandidates}
       initialPipelineFetchFailed={pipelineFetchError != null}
+      canEditPipeline={access.isHr}
+      canAddCandidates={access.isHr}
     />
   );
 }

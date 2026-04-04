@@ -7,7 +7,8 @@ import {
 } from "@/lib/ai/fill-candidate-evaluation";
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
 import { CANDIDATE_EVAL_FILLED_BUCKET } from "@/lib/evaluation/filled-pdf-bucket";
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { loadInterviewNotesAggregatedText } from "@/lib/evaluation/interview-notes-text";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { newUuidV7 } from "@/lib/uuid-v7";
 
@@ -16,14 +17,18 @@ const postBodySchema = z.object({
   candidateName: z.string().min(1).max(200),
   /** Optional extra lines for the AI (e.g. email, role) */
   candidateSnapshot: z.record(z.string(), z.string()).optional(),
-  reviewerNotes: z.string().min(1).max(32_000),
+  /**
+   * Optional note saved immediately before generation (same request).
+   * All saved notes for this candidate are always included in the AI input.
+   */
+  newInterviewNote: z.string().max(32_000).optional(),
 });
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: jdParam } = await context.params;
@@ -103,7 +108,7 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: jdParam } = await context.params;
@@ -121,6 +126,49 @@ export async function POST(
     return Response.json({ error: msg }, { status: 400 });
   }
 
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return Response.json(
+      { error: "Server missing service role key." },
+      { status: 500 },
+    );
+  }
+
+  const newNote = body.newInterviewNote?.trim();
+  if (newNote) {
+    const { error: noteErr } = await auth.supabase
+      .from("candidate_interview_notes")
+      .insert({
+        job_description_id: jdId,
+        pipeline_candidate_id: body.pipelineCandidateId,
+        author_id: auth.userId,
+        body: newNote,
+      });
+    if (noteErr) {
+      return Response.json(
+        { error: noteErr.message ?? "Could not save interview note." },
+        { status: 400 },
+      );
+    }
+  }
+
+  const reviewerNotes = await loadInterviewNotesAggregatedText(
+    admin,
+    jdId,
+    body.pipelineCandidateId,
+  );
+  if (!reviewerNotes.trim()) {
+    return Response.json(
+      {
+        error:
+          "Add at least one interview note (save a note first, or include newInterviewNote) before generating an evaluation.",
+      },
+      { status: 400 },
+    );
+  }
+
   const { data: jd, error: jdErr } = await auth.supabase
     .from("job_descriptions")
     .select("id")
@@ -131,7 +179,7 @@ export async function POST(
     return Response.json({ error: "Job description not found." }, { status: 404 });
   }
 
-  const { data: tmpl, error: tmplErr } = await auth.supabase
+  const { data: tmpl, error: tmplErr } = await admin
     .from("candidate_evaluation_template")
     .select("storage_path, mime_type")
     .eq("id", 1)
@@ -149,16 +197,6 @@ export async function POST(
           "No evaluation template uploaded yet. Go to Admin → Evaluation template and upload a PDF.",
       },
       { status: 400 },
-    );
-  }
-
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      { error: "Server missing service role key." },
-      { status: 500 },
     );
   }
 
@@ -192,7 +230,7 @@ export async function POST(
     formFieldNames,
     templateTextSample: templateText,
     candidateSummary,
-    reviewerNotes: body.reviewerNotes,
+    reviewerNotes,
   });
 
   let pdfOut: Uint8Array;
@@ -237,7 +275,7 @@ export async function POST(
       job_description_id: jdId,
       pipeline_candidate_id: body.pipelineCandidateId,
       candidate_name: body.candidateName,
-      reviewer_notes: body.reviewerNotes,
+      reviewer_notes: reviewerNotes,
       filled_pdf_storage_path: outPath,
       ai_field_mapping: aiPayload,
       created_by: auth.userId,

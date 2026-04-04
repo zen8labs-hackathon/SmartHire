@@ -1,24 +1,30 @@
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import {
+  getStaffProfileAccess,
+  type StaffProfileAccess,
+} from "@/lib/admin/profile-access";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
-export type AdminRequestAuthResult =
-  | { ok: true; userId: string; supabase: SupabaseClient }
+export type StaffRequestAuthResult =
+  | {
+      ok: true;
+      userId: string;
+      access: StaffProfileAccess;
+      supabase: SupabaseClient;
+    }
   | { ok: false; response: Response };
 
 /**
- * HR-level auth (full product management): `is_admin` or `work_chapter = HR`.
- * Prefers `Authorization: Bearer` from the browser and falls back to cookies.
+ * Authenticated user with recruiter access (work_chapter set or is_admin).
  */
-export async function requireAdminForRequest(
+export async function requireStaffForRequest(
   request: Request,
-): Promise<AdminRequestAuthResult> {
+): Promise<StaffRequestAuthResult> {
   const raw = request.headers.get("Authorization");
-  const bearer =
-    raw?.startsWith("Bearer ") ? raw.slice(7).trim() : "";
+  const bearer = raw?.startsWith("Bearer ") ? raw.slice(7).trim() : "";
 
   if (bearer) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -34,13 +40,8 @@ export async function requireAdminForRequest(
     }
 
     const supabase = createSupabaseJsClient(url, key, {
-      global: {
-        headers: { Authorization: `Bearer ${bearer}` },
-      },
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
+      global: { headers: { Authorization: `Bearer ${bearer}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
     const {
@@ -53,14 +54,15 @@ export async function requireAdminForRequest(
         response: Response.json({ error: "Unauthorized" }, { status: 401 }),
       };
     }
+
     const access = await getStaffProfileAccess(supabase, user.id);
-    if (!access?.isHr) {
+    if (!access?.isStaff) {
       return {
         ok: false,
         response: Response.json({ error: "Forbidden" }, { status: 403 }),
       };
     }
-    return { ok: true, userId: user.id, supabase };
+    return { ok: true, userId: user.id, access, supabase };
   }
 
   const supabase = await createClient();
@@ -73,12 +75,30 @@ export async function requireAdminForRequest(
       response: Response.json({ error: "Unauthorized" }, { status: 401 }),
     };
   }
+
   const access = await getStaffProfileAccess(supabase, user.id);
-  if (!access?.isHr) {
+  if (!access?.isStaff) {
     return {
       ok: false,
       response: Response.json({ error: "Forbidden" }, { status: 403 }),
     };
   }
-  return { ok: true, userId: user.id, supabase };
+  return { ok: true, userId: user.id, access, supabase };
+}
+
+/**
+ * HR / admin only (full product management).
+ */
+export async function requireHrForRequest(
+  request: Request,
+): Promise<StaffRequestAuthResult> {
+  const base = await requireStaffForRequest(request);
+  if (!base.ok) return base;
+  if (!base.access.isHr) {
+    return {
+      ok: false,
+      response: Response.json({ error: "Forbidden" }, { status: 403 }),
+    };
+  }
+  return base;
 }

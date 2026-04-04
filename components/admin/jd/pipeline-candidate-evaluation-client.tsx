@@ -30,6 +30,14 @@ type LatestEval = {
   downloadUrl: string;
 };
 
+type InterviewNoteRow = {
+  id: string;
+  body: string;
+  createdAt: string;
+  authorId: string;
+  authorUsername: string | null;
+};
+
 export function PipelineCandidateEvaluationClient({
   jobDescriptionId,
   jobTitle,
@@ -37,11 +45,14 @@ export function PipelineCandidateEvaluationClient({
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [draftNote, setDraftNote] = useState("");
+  const [notesBusy, setNotesBusy] = useState(false);
+  const [evalBusy, setEvalBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latest, setLatest] = useState<LatestEval | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<InterviewNoteRow[]>([]);
+  const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
 
   const authHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
@@ -78,9 +89,37 @@ export function PipelineCandidateEvaluationClient({
     }
   }, [authHeaders, jobDescriptionId, candidate.id]);
 
+  const loadNotes = useCallback(async () => {
+    setNotesLoadError(null);
+    try {
+      const h = await authHeaders();
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes?pipelineCandidateId=${encodeURIComponent(candidate.id)}`,
+        {
+          credentials: "include",
+          headers: {
+            ...(h.Authorization ? { Authorization: h.Authorization } : {}),
+          },
+        },
+      );
+      const json = (await res.json()) as {
+        notes?: InterviewNoteRow[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setNotesLoadError(json.error ?? "Could not load interview notes.");
+        return;
+      }
+      setNotes(json.notes ?? []);
+    } catch {
+      setNotesLoadError("Could not load interview notes.");
+    }
+  }, [authHeaders, jobDescriptionId, candidate.id]);
+
   useEffect(() => {
     void loadLatest();
-  }, [loadLatest]);
+    void loadNotes();
+  }, [loadLatest, loadNotes]);
 
   const snapshot = useMemo(
     () => ({
@@ -96,20 +135,59 @@ export function PipelineCandidateEvaluationClient({
     [candidate],
   );
 
-  const submit = async () => {
+  const saveNoteOnly = async () => {
     setError(null);
-    const trimmed = notes.trim();
-    if (trimmed.length < 3) {
-      setError("Please enter evaluation notes (at least a few characters).");
+    const trimmed = draftNote.trim();
+    if (trimmed.length < 2) {
+      setError("Enter a note with at least a couple of characters.");
       return;
     }
-    setBusy(true);
+    setNotesBusy(true);
     try {
       const h = await authHeaders();
       if (!h.Authorization) {
         setError("Session expired. Sign in again.");
         return;
       }
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...h,
+          },
+          body: JSON.stringify({
+            pipelineCandidateId: candidate.id,
+            body: trimmed,
+          }),
+        },
+      );
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setError(json.error ?? "Could not save note.");
+        return;
+      }
+      setDraftNote("");
+      await loadNotes();
+    } catch {
+      setError("Could not save note.");
+    } finally {
+      setNotesBusy(false);
+    }
+  };
+
+  const regenerateEvaluation = async () => {
+    setError(null);
+    setEvalBusy(true);
+    try {
+      const h = await authHeaders();
+      if (!h.Authorization) {
+        setError("Session expired. Sign in again.");
+        return;
+      }
+      const trimmedDraft = draftNote.trim();
       const res = await fetch(
         `/api/admin/job-descriptions/${jobDescriptionId}/evaluations`,
         {
@@ -123,7 +201,9 @@ export function PipelineCandidateEvaluationClient({
             pipelineCandidateId: candidate.id,
             candidateName: candidate.name,
             candidateSnapshot: snapshot,
-            reviewerNotes: trimmed,
+            ...(trimmedDraft.length >= 2
+              ? { newInterviewNote: trimmedDraft }
+              : {}),
           }),
         },
       );
@@ -133,18 +213,21 @@ export function PipelineCandidateEvaluationClient({
         downloadUrl?: string | null;
       };
       if (!res.ok) {
-        setError(json.error ?? "Submit failed.");
+        setError(json.error ?? "Generation failed.");
         return;
       }
-      setNotes("");
+      if (trimmedDraft.length >= 2) {
+        setDraftNote("");
+        await loadNotes();
+      }
       await loadLatest();
       if (json.downloadUrl) {
         window.open(json.downloadUrl, "_blank", "noopener,noreferrer");
       }
     } catch {
-      setError("Submit failed.");
+      setError("Generation failed.");
     } finally {
-      setBusy(false);
+      setEvalBusy(false);
     }
   };
 
@@ -218,13 +301,14 @@ export function PipelineCandidateEvaluationClient({
       {latest ? (
         <Card>
           <Card.Header>
-            <Card.Title>Latest submitted review</Card.Title>
+            <Card.Title>Latest generated evaluation</Card.Title>
             <Card.Description>
               Generated{" "}
               {new Date(latest.createdAt).toLocaleString(undefined, {
                 dateStyle: "medium",
                 timeStyle: "short",
               })}
+              . Add more interview notes below and regenerate to include them.
             </Card.Description>
           </Card.Header>
           <Card.Content className="flex flex-col gap-3">
@@ -279,14 +363,51 @@ export function PipelineCandidateEvaluationClient({
 
       <Card>
         <Card.Header>
-          <Card.Title id="eval-notes-heading">Evaluation notes</Card.Title>
+          <Card.Title>Saved interview notes</Card.Title>
           <Card.Description>
-            Write notes in whatever language you use (e.g. Vietnamese or
-            English); the generated evaluation stays in that language. If the
-            template has fillable fields, those are filled on a copy of the
-            file; otherwise a new PDF is built with sections 1–5 (and 6–7 when
-            relevant): Thông tin ứng viên, Tóm tắt đánh giá, Điểm mạnh, Điểm cần
-            lưu ý, Đánh giá năng lực, optional Dự án nổi bật & Kết luận.
+            Everyone on the hiring team can add notes. The PDF uses the combined
+            notes in chronological order.
+          </Card.Description>
+        </Card.Header>
+        <Card.Content className="flex flex-col gap-4">
+          {notesLoadError ? (
+            <p className="text-sm text-danger" role="alert">
+              {notesLoadError}
+            </p>
+          ) : null}
+          {notes.length === 0 ? (
+            <p className="text-sm text-muted">No notes yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-4">
+              {notes.map((n) => (
+                <li
+                  key={n.id}
+                  className="rounded-xl border border-divider bg-surface-secondary/40 px-4 py-3 text-sm"
+                >
+                  <p className="text-xs text-muted">
+                    {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
+                    {new Date(n.createdAt).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-foreground">
+                    {n.body}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card.Content>
+      </Card>
+
+      <Card>
+        <Card.Header>
+          <Card.Title id="eval-notes-heading">Add a note</Card.Title>
+          <Card.Description>
+            Write in Vietnamese or English; the evaluation follows your language.
+            Save a note on its own, or type and use “Regenerate” to save that
+            text and create the PDF in one step.
           </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4">
@@ -296,8 +417,8 @@ export function PipelineCandidateEvaluationClient({
             </p>
           ) : null}
           <TextField
-            value={notes}
-            onChange={setNotes}
+            value={draftNote}
+            onChange={setDraftNote}
             aria-labelledby="eval-notes-heading"
           >
             <TextArea
@@ -306,8 +427,19 @@ export function PipelineCandidateEvaluationClient({
             />
           </TextField>
           <div className="flex flex-wrap gap-2">
-            <Button variant="primary" isDisabled={busy} onPress={() => void submit()}>
-              {busy ? "Submitting…" : "Submit review"}
+            <Button
+              variant="secondary"
+              isDisabled={notesBusy}
+              onPress={() => void saveNoteOnly()}
+            >
+              {notesBusy ? "Saving…" : "Save note"}
+            </Button>
+            <Button
+              variant="primary"
+              isDisabled={evalBusy}
+              onPress={() => void regenerateEvaluation()}
+            >
+              {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
             </Button>
             <Button
               variant="secondary"

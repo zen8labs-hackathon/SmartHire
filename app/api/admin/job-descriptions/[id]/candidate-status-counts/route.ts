@@ -1,10 +1,10 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: raw } = await params;

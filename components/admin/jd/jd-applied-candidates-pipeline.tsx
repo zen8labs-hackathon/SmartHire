@@ -52,6 +52,8 @@ type Props = {
   dbRows: CandidateDbRow[];
   loadState: "idle" | "loading" | "error" | "ok";
   onRefetch: () => void;
+  /** HR may change pipeline status and schedule; chapter recruiters are view-only here. */
+  canEditPipeline?: boolean;
 };
 
 function isNewPoolStatus(status: string) {
@@ -127,6 +129,7 @@ export function JdAppliedCandidatesPipeline({
   dbRows,
   loadState,
   onRefetch,
+  canEditPipeline = true,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -547,7 +550,9 @@ export function JdAppliedCandidatesPipeline({
               size="sm"
               variant="primary"
               className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-              isDisabled={pipelineBusy || !bulkInterviewEligible}
+              isDisabled={
+                !canEditPipeline || pipelineBusy || !bulkInterviewEligible
+              }
               onPress={() => void moveSelectedToInterview()}
             >
               Move to interview
@@ -556,7 +561,7 @@ export function JdAppliedCandidatesPipeline({
               size="sm"
               variant="primary"
               className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-              isDisabled={pipelineBusy || !bulkOfferEligible}
+              isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
               onPress={openOfferModal}
             >
               Move to offer…
@@ -564,7 +569,7 @@ export function JdAppliedCandidatesPipeline({
             <Button
               size="sm"
               variant="secondary"
-              isDisabled={pipelineBusy || !bulkFailEligible}
+              isDisabled={!canEditPipeline || pipelineBusy || !bulkFailEligible}
               onPress={() => void markSelectedFailed()}
             >
               Mark failed
@@ -606,6 +611,7 @@ export function JdAppliedCandidatesPipeline({
                         type="checkbox"
                         className="mt-1 size-4 rounded border-divider accent-accent"
                         checked={selected.has(r.id)}
+                        disabled={!canEditPipeline}
                         onChange={() => toggleSelect(r.id)}
                         aria-label={`Select ${row.name}`}
                       />
@@ -660,7 +666,7 @@ export function JdAppliedCandidatesPipeline({
                     <Table.Cell className="align-top">
                       <Select
                         value={row.status}
-                        isDisabled={busy}
+                        isDisabled={!canEditPipeline || busy}
                         onChange={(key) => {
                           if (typeof key === "string")
                             void onStatusChange(r.id, key as CandidateStatus);
@@ -691,6 +697,7 @@ export function JdAppliedCandidatesPipeline({
                           <Input
                             type="datetime-local"
                             value={interviewDrafts[r.id] ?? ""}
+                            disabled={!canEditPipeline}
                             onChange={(e) =>
                               setInterviewDrafts((d) => ({
                                 ...d,
@@ -703,7 +710,7 @@ export function JdAppliedCandidatesPipeline({
                             size="sm"
                             variant="secondary"
                             className="self-start"
-                            isDisabled={busy}
+                            isDisabled={!canEditPipeline || busy}
                             onPress={() => void saveInterviewTime(r.id)}
                           >
                             Save interview time
@@ -714,6 +721,7 @@ export function JdAppliedCandidatesPipeline({
                           <Input
                             type="datetime-local"
                             value={interviewDrafts[`ob-${r.id}`] ?? ""}
+                            disabled={!canEditPipeline}
                             onChange={(e) =>
                               setInterviewDrafts((d) => ({
                                 ...d,
@@ -726,7 +734,7 @@ export function JdAppliedCandidatesPipeline({
                             size="sm"
                             variant="secondary"
                             className="self-start"
-                            isDisabled={busy}
+                            isDisabled={!canEditPipeline || busy}
                             onPress={() => void saveOnboardingTime(r.id)}
                           >
                             Save onboarding

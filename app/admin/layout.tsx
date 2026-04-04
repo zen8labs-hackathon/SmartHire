@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminSidebarNav } from "@/components/admin/admin-sidebar-nav";
-import { isProfileAdmin } from "@/lib/admin/config";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +20,12 @@ export default async function AdminLayout({
   if (!user) {
     redirect("/login?next=/admin");
   }
-  if (!(await isProfileAdmin(supabase, user.id))) {
+  const access = await getStaffProfileAccess(supabase, user.id);
+  if (!access?.isStaff) {
     redirect("/dashboard");
   }
 
-  const display = user.email ?? "Admin";
+  const display = user.email ?? "Recruiting";
 
   return (
     <div className="flex min-h-full flex-1">
@@ -35,10 +36,10 @@ export default async function AdminLayout({
         >
           Smart Hire
         </Link>
-        <AdminSidebarNav />
+        <AdminSidebarNav isHr={access.isHr} />
         <div className="mt-auto pt-8 text-xs text-muted">
           <p className="truncate font-medium text-foreground">{display}</p>
-          <p className="mt-1">Admin</p>
+          <p className="mt-1">{access.isHr ? "HR" : "Recruiter"}</p>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col bg-background">

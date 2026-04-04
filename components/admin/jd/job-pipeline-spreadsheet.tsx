@@ -61,6 +61,8 @@ type Props = {
   initialPipelineFetchFailed: boolean;
   linkedJobOpeningId: string | null;
   linkedJobOpeningTitle: string | null;
+  canEditPipeline: boolean;
+  canAddCandidates: boolean;
 };
 
 export function JobPipelineSpreadsheet({
@@ -71,6 +73,8 @@ export function JobPipelineSpreadsheet({
   initialPipelineFetchFailed,
   linkedJobOpeningId,
   linkedJobOpeningTitle,
+  canEditPipeline,
+  canAddCandidates,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
@@ -118,10 +122,10 @@ export function JobPipelineSpreadsheet({
             {jobTitle} pipeline
           </h1>
           <p className="max-w-2xl text-sm text-muted">
-            Filter and sort by CV upload time. Use the pipeline column to change
-            status per candidate, or bulk-move New → Interview (no date required).
-            Set interview and onboarding times from the Schedule column when
-            applicable.
+            Filter and sort by CV upload time.
+            {canEditPipeline
+              ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
+              : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -134,15 +138,17 @@ export function JobPipelineSpreadsheet({
               Retry load
             </Button>
           ) : null}
-          <Button
-            variant="primary"
-            size="sm"
-            className="gap-2 bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-            onPress={() => setAddCandidatesOpen(true)}
-          >
-            <UserPlusIcon className="size-4" />
-            Add candidates
-          </Button>
+          {canAddCandidates ? (
+            <Button
+              variant="primary"
+              size="sm"
+              className="gap-2 bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
+              onPress={() => setAddCandidatesOpen(true)}
+            >
+              <UserPlusIcon className="size-4" />
+              Add candidates
+            </Button>
+          ) : null}
           <Button variant="secondary" size="sm" className="gap-2">
             <DownloadIcon className="size-4" />
             Export to Excel
@@ -158,26 +164,31 @@ export function JobPipelineSpreadsheet({
             dbRows={pipelineRows}
             loadState={pipelineLoadState}
             onRefetch={() => void refetchPipeline()}
+            canEditPipeline={canEditPipeline}
           />
         </Card.Content>
       </Card>
 
-      <Button
-        variant="primary"
-        size="lg"
-        className="fixed bottom-8 right-8 z-20 size-14 min-w-0 rounded-full p-0 shadow-lg"
-        aria-label="Add candidates to this job"
-        onPress={() => setAddCandidatesOpen(true)}
-      >
-        <UserPlusIcon className="size-6" />
-      </Button>
+      {canAddCandidates ? (
+        <Button
+          variant="primary"
+          size="lg"
+          className="fixed bottom-8 right-8 z-20 size-14 min-w-0 rounded-full p-0 shadow-lg"
+          aria-label="Add candidates to this job"
+          onPress={() => setAddCandidatesOpen(true)}
+        >
+          <UserPlusIcon className="size-6" />
+        </Button>
+      ) : null}
 
-      <AddCandidateModal
-        open={addCandidatesOpen}
-        onOpenChange={setAddCandidatesOpen}
-        jdPipelineCampaign={jdPipelineCampaign}
-        onCandidatesChanged={() => void refetchPipeline()}
-      />
+      {canAddCandidates ? (
+        <AddCandidateModal
+          open={addCandidatesOpen}
+          onOpenChange={setAddCandidatesOpen}
+          jdPipelineCampaign={jdPipelineCampaign}
+          onCandidatesChanged={() => void refetchPipeline()}
+        />
+      ) : null}
 
       <p className="text-center text-xs text-muted">
         <Link href="/admin/jd" className="text-accent hover:underline">

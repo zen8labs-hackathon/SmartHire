@@ -27,6 +27,8 @@ type Props = {
   initialPipelineFetchFailed: boolean;
   linkedJobOpeningId: string | null;
   linkedJobOpeningTitle: string | null;
+  canEditPipeline: boolean;
+  canAddCandidates: boolean;
 };
 
 export function JobPipelineSpreadsheetLoader(props: Props) {

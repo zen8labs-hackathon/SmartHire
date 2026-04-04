@@ -1,4 +1,4 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { CV_BUCKET } from "@/lib/candidates/upload-constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -8,7 +8,7 @@ const UUID_RE =
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;

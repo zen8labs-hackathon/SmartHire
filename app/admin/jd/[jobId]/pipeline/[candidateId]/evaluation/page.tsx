@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipeline-candidate-evaluation-client";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { candidateDbRowToEvaluationPipelineRow } from "@/lib/jd/candidate-to-evaluation-pipeline-row";
 import { createClient } from "@/lib/supabase/server";
 
@@ -20,6 +21,14 @@ export default async function PipelineCandidateEvaluationPage({ params }: PagePr
   if (!z.string().uuid().safeParse(candidateId).success) notFound();
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login?next=/admin/jd");
+
+  const access = await getStaffProfileAccess(supabase, user.id);
+  if (!access?.isStaff) redirect("/dashboard");
+
   const { data: jd } = await supabase
     .from("job_descriptions")
     .select("id, position")

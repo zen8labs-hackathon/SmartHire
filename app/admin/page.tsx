@@ -1,11 +1,22 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { AddUserForm } from "@/components/admin/add-user-form";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { createClient } from "@/lib/supabase/server";
 import { Card } from "@heroui/react";
 
 export const dynamic = "force-dynamic";
 
-export default function AdminPage() {
+export default async function AdminPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login?next=/admin");
+  const access = await getStaffProfileAccess(supabase, user.id);
+  if (!access?.isHr) redirect("/admin/jd");
+
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
       <Card>

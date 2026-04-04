@@ -1,4 +1,11 @@
+import {
+  parseViewerEmailInput,
+  resolveViewerEmailsToUserIds,
+  syncJobDescriptionViewersFromEmails,
+} from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -38,6 +45,8 @@ function isUuid(s: string) {
 
 type CreateBody = Partial<JobDescriptionFormData> & {
   jdDraftJobOpeningId?: string | null;
+  /** Recruiter accounts that may open this JD (must already exist in Auth). */
+  viewerEmails?: string[] | string | null;
 };
 
 function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPayload {
@@ -70,7 +79,7 @@ function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPaylo
 }
 
 export async function GET(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
@@ -174,8 +183,38 @@ export async function POST(request: Request) {
       ? jdDraftJobOpeningIdRaw
       : null;
 
-  const { jdDraftJobOpeningId: _ignore, ...formFields } = body;
+  const {
+    jdDraftJobOpeningId: _ignore,
+    viewerEmails: viewerEmailsRaw,
+    ...formFields
+  } = body;
   void _ignore;
+
+  const viewerEmails = parseViewerEmailInput(viewerEmailsRaw);
+
+  let adminForViewers: ReturnType<typeof createAdminClient> | null = null;
+  if (viewerEmails.length > 0) {
+    try {
+      adminForViewers = createAdminClient();
+    } catch {
+      return Response.json(
+        { error: "Server missing service role key for viewer lookup." },
+        { status: 500 },
+      );
+    }
+    const { notFound } = await resolveViewerEmailsToUserIds(
+      adminForViewers,
+      viewerEmails,
+    );
+    if (notFound.length > 0) {
+      return Response.json(
+        {
+          error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
+        },
+        { status: 400 },
+      );
+    }
+  }
 
   const payload = sanitize(formFields);
   if (!payload.position) {
@@ -232,6 +271,21 @@ export async function POST(request: Request) {
         { error: `Saved JD but could not link file: ${linkErr.message}` },
         { status: 500 },
       );
+    }
+  }
+
+  if (viewerEmails.length > 0 && data?.id != null) {
+    try {
+      const admin = adminForViewers ?? createAdminClient();
+      await syncJobDescriptionViewersFromEmails(admin, {
+        jobDescriptionId: data.id as number,
+        emails: viewerEmails,
+        grantedBy: auth.userId,
+      });
+    } catch (e) {
+      await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
+      const msg = e instanceof Error ? e.message : "Viewer sync failed.";
+      return Response.json({ error: msg }, { status: 500 });
     }
   }
 

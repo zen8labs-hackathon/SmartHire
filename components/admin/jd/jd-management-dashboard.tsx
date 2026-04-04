@@ -31,6 +31,7 @@ import {
   useOverlayState,
 } from "@heroui/react";
 
+import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
 import {
   extractedApiToFormPatch,
   extractedPatchToEditFormPatch,
@@ -271,7 +272,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function JdManagementDashboard() {
+export function JdManagementDashboard({
+  canManageJds = true,
+}: {
+  canManageJds?: boolean;
+} = {}) {
   const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
   const editJdFileInputRef = useRef<HTMLInputElement>(null);
@@ -305,6 +310,14 @@ export function JdManagementDashboard() {
   const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [createViewerEmailsText, setCreateViewerEmailsText] = useState("");
+
+  const [drawerViewerDraft, setDrawerViewerDraft] = useState("");
+  const [drawerViewersLoading, setDrawerViewersLoading] = useState(false);
+  const [drawerViewersBusy, setDrawerViewersBusy] = useState(false);
+  const [drawerViewersError, setDrawerViewersError] = useState<string | null>(
+    null,
+  );
 
   // ── edit intake modal ────────────────────────────────────────────────────
   const [editIntakeRow, setEditIntakeRow] = useState<JobDescription | null>(null);
@@ -358,6 +371,7 @@ export function JdManagementDashboard() {
         resetUploadState();
         setFormError(null);
         setForm(DEFAULT_FORM);
+        setCreateViewerEmailsText("");
       }
     },
   });
@@ -377,6 +391,53 @@ export function JdManagementDashboard() {
     const h = await getSessionAuthorizationHeaders(supabase);
     return { "Content-Type": "application/json", ...h };
   }, [supabase]);
+
+  useEffect(() => {
+    if (!drawerOpen || !activeRow?.id || !canManageJds) {
+      setDrawerViewerDraft("");
+      setDrawerViewersError(null);
+      setDrawerViewersLoading(false);
+    }
+  }, [drawerOpen, activeRow?.id, canManageJds]);
+
+  useEffect(() => {
+    if (!drawerOpen || !activeRow?.id || !canManageJds) {
+      return;
+    }
+    let cancelled = false;
+    setDrawerViewersLoading(true);
+    setDrawerViewersError(null);
+    void (async () => {
+      try {
+        const h = await getSessionAuthorizationHeaders(supabase);
+        const res = await fetch(
+          `/api/admin/job-descriptions/${activeRow.id}`,
+          { credentials: "include", headers: { ...h } },
+        );
+        const json = (await res.json()) as {
+          viewerEmails?: string[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setDrawerViewersError(json.error ?? "Could not load viewers.");
+          setDrawerViewerDraft("");
+          return;
+        }
+        setDrawerViewerDraft((json.viewerEmails ?? []).join("\n"));
+      } catch {
+        if (!cancelled) {
+          setDrawerViewersError("Could not load viewers.");
+          setDrawerViewerDraft("");
+        }
+      } finally {
+        if (!cancelled) setDrawerViewersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [drawerOpen, activeRow?.id, canManageJds, supabase]);
 
   useEffect(() => {
     if (!drawerOpen || !activeRow) {
@@ -765,9 +826,14 @@ export function JdManagementDashboard() {
             ? "Hiring"
             : form.status,
       };
-      const postBody = jdDraftJobOpeningId
+      const postBodyBase = jdDraftJobOpeningId
         ? { ...payload, jdDraftJobOpeningId }
         : payload;
+      const viewerEmails = parseViewerEmailInput(createViewerEmailsText);
+      const postBody =
+        viewerEmails.length > 0
+          ? { ...postBodyBase, viewerEmails }
+          : postBodyBase;
       try {
         const headers = await authHeaders();
         const res = await fetch("/api/admin/job-descriptions", {
@@ -788,6 +854,7 @@ export function JdManagementDashboard() {
     },
     [
       authHeaders,
+      createViewerEmailsText,
       form,
       jdDraftJobOpeningId,
       jdModal,
@@ -795,6 +862,36 @@ export function JdManagementDashboard() {
       loadDescriptions,
     ],
   );
+
+  const saveDrawerViewers = useCallback(async () => {
+    if (!activeRow) return;
+    setDrawerViewersBusy(true);
+    setDrawerViewersError(null);
+    try {
+      const headers = await authHeaders();
+      const emails = parseViewerEmailInput(drawerViewerDraft);
+      const res = await fetch(`/api/admin/job-descriptions/${activeRow.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ viewerEmails: emails }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        viewerEmails?: string[];
+      };
+      if (!res.ok) throw new Error(json.error ?? "Save failed.");
+      if (json.viewerEmails) {
+        setDrawerViewerDraft(json.viewerEmails.join("\n"));
+      }
+    } catch (e) {
+      setDrawerViewersError(
+        e instanceof Error ? e.message : "Save failed.",
+      );
+    } finally {
+      setDrawerViewersBusy(false);
+    }
+  }, [activeRow, authHeaders, drawerViewerDraft]);
 
   // ── delete ───────────────────────────────────────────────────────────────
 
@@ -942,29 +1039,31 @@ export function JdManagementDashboard() {
             Manage and monitor recruitment job descriptions across the organisation.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="primary"
-            onPress={() => {
-              setForm(DEFAULT_FORM);
-              jdModal.open();
-            }}
-          >
-            New definition
-          </Button>
-          <input
-            ref={jdFileInputRef}
-            type="file"
-            className="sr-only"
-            accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-            aria-hidden
-            tabIndex={-1}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              const f = e.target.files?.[0];
-              if (f) void ingestJdFile(f);
-            }}
-          />
-        </div>
+        {canManageJds ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              onPress={() => {
+                setForm(DEFAULT_FORM);
+                jdModal.open();
+              }}
+            >
+              New definition
+            </Button>
+            <input
+              ref={jdFileInputRef}
+              type="file"
+              className="sr-only"
+              accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+              aria-hidden
+              tabIndex={-1}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                const f = e.target.files?.[0];
+                if (f) void ingestJdFile(f);
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* ── Create Modal ── */}
@@ -1081,6 +1180,27 @@ export function JdManagementDashboard() {
                     <Input placeholder="VD: Solutions Team" />
                   </TextField>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <SectionLabel>Recruiter access</SectionLabel>
+                <p className="text-xs text-muted">
+                  Optional. Existing account emails (one per line or
+                  comma-separated). Non-HR recruiters must be listed here to
+                  open this JD; they only see candidates in their own chapter.
+                </p>
+                <TextField
+                  value={createViewerEmailsText}
+                  onChange={setCreateViewerEmailsText}
+                >
+                  <Label className="text-xs text-muted">Viewer emails</Label>
+                  <TextArea
+                    placeholder={
+                      "chapter-lead@company.com\nrecruiter@company.com"
+                    }
+                    className="min-h-[5rem] font-mono text-xs"
+                  />
+                </TextField>
               </div>
 
               {formError && (
@@ -1663,7 +1783,9 @@ export function JdManagementDashboard() {
                         <Table.Cell className="min-w-[9.5rem]">
                           <Select
                             value={row.status}
-                            isDisabled={statusUpdatingId === row.id}
+                            isDisabled={
+                              !canManageJds || statusUpdatingId === row.id
+                            }
                             onChange={(key) => {
                               if (typeof key === "string")
                                 void updateJdStatus(row.id, key as JdStatus);
@@ -1712,39 +1834,43 @@ export function JdManagementDashboard() {
                                 <p>View detail</p>
                               </Tooltip.Content>
                             </Tooltip>
-                            <Tooltip delay={0}>
-                              <Button
-                                aria-label={`Edit ${row.position}`}
-                                variant="ghost"
-                                size="sm"
-                                className="min-w-0 px-2"
-                                onPress={() => openEdit(row)}
-                              >
-                                <PencilIcon className="size-4" />
-                              </Button>
-                              <Tooltip.Content placement="top" showArrow>
-                                <Tooltip.Arrow />
-                                <p>Edit</p>
-                              </Tooltip.Content>
-                            </Tooltip>
-                            <Tooltip delay={0}>
-                              <Button
-                                aria-label={`Delete ${row.position}`}
-                                variant="ghost"
-                                size="sm"
-                                className="min-w-0 px-2 text-danger hover:bg-danger/10"
-                                onPress={() => {
-                                  setDeletingId(row.id);
-                                  deleteModal.open();
-                                }}
-                              >
-                                <TrashIcon className="size-4" />
-                              </Button>
-                              <Tooltip.Content placement="top" showArrow>
-                                <Tooltip.Arrow />
-                                <p>Delete</p>
-                              </Tooltip.Content>
-                            </Tooltip>
+                            {canManageJds ? (
+                              <>
+                                <Tooltip delay={0}>
+                                  <Button
+                                    aria-label={`Edit ${row.position}`}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="min-w-0 px-2"
+                                    onPress={() => openEdit(row)}
+                                  >
+                                    <PencilIcon className="size-4" />
+                                  </Button>
+                                  <Tooltip.Content placement="top" showArrow>
+                                    <Tooltip.Arrow />
+                                    <p>Edit</p>
+                                  </Tooltip.Content>
+                                </Tooltip>
+                                <Tooltip delay={0}>
+                                  <Button
+                                    aria-label={`Delete ${row.position}`}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="min-w-0 px-2 text-danger hover:bg-danger/10"
+                                    onPress={() => {
+                                      setDeletingId(row.id);
+                                      deleteModal.open();
+                                    }}
+                                  >
+                                    <TrashIcon className="size-4" />
+                                  </Button>
+                                  <Tooltip.Content placement="top" showArrow>
+                                    <Tooltip.Arrow />
+                                    <p>Delete</p>
+                                  </Tooltip.Content>
+                                </Tooltip>
+                              </>
+                            ) : null}
                           </div>
                         </Table.Cell>
                       </Table.Row>
@@ -2013,6 +2139,55 @@ export function JdManagementDashboard() {
                     </>
                   )}
 
+                  {canManageJds ? (
+                    <>
+                      <Separator />
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">
+                          Chapter recruiter access
+                        </h3>
+                        <p className="text-xs text-muted">
+                          Emails must match existing accounts. HR always has
+                          full access; listed users can open this job and
+                          pipeline for their chapter only.
+                        </p>
+                        {drawerViewersLoading ? (
+                          <p className="text-xs text-muted">Loading viewers…</p>
+                        ) : (
+                          <TextField
+                            value={drawerViewerDraft}
+                            onChange={setDrawerViewerDraft}
+                          >
+                            <Label className="text-xs text-muted">
+                              Viewer emails
+                            </Label>
+                            <TextArea
+                              placeholder={
+                                "recruiter@company.com\nlead@company.com"
+                              }
+                              className="min-h-[6rem] font-mono text-xs"
+                            />
+                          </TextField>
+                        )}
+                        {drawerViewersError ? (
+                          <p className="text-sm text-danger" role="alert">
+                            {drawerViewersError}
+                          </p>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={
+                            drawerViewersBusy || drawerViewersLoading
+                          }
+                          onPress={() => void saveDrawerViewers()}
+                        >
+                          {drawerViewersBusy ? "Saving…" : "Save viewers"}
+                        </Button>
+                      </section>
+                    </>
+                  ) : null}
+
                   <Separator />
 
                   <section className="space-y-1 text-xs text-muted">
@@ -2028,9 +2203,11 @@ export function JdManagementDashboard() {
                   <Button slot="close" variant="secondary">
                     Close
                   </Button>
-                  <Button variant="primary" onPress={() => openEdit(activeRow)}>
-                    Edit JD
-                  </Button>
+                  {canManageJds ? (
+                    <Button variant="primary" onPress={() => openEdit(activeRow)}>
+                      Edit JD
+                    </Button>
+                  ) : null}
                 </Drawer.Footer>
               </>
             ) : null}
