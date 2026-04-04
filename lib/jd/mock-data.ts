@@ -24,7 +24,7 @@ const CAMPAIGNS = [
   "Platform Reliability",
 ] as const;
 
-const STATUSES: JdStatus[] = ["Active", "Draft", "Closed"];
+const STATUSES: JdStatus[] = ["Done", "Hiring", "Pending", "Closed"];
 
 function buildRows(): JdRow[] {
   const rows: JdRow[] = [];
