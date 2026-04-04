@@ -15,12 +15,15 @@ import {
   Button,
   Card,
   Chip,
+  DateField,
+  DateRangePicker,
   Drawer,
   Input,
   Label,
   ListBox,
   Modal,
   Pagination,
+  RangeCalendar,
   SearchField,
   Select,
   Separator,
@@ -30,6 +33,9 @@ import {
   Tooltip,
   useOverlayState,
 } from "@heroui/react";
+import type { CalendarDate } from "@internationalized/date";
+import type { RangeValue } from "react-aria-components";
+import { Dialog } from "react-aria-components";
 
 import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
 import {
@@ -292,8 +298,8 @@ export function JdManagementDashboard({
   const [page, setPage] = useState(1);
   const [jdListSearch, setJdListSearch] = useState("");
   const [jdListStatusKey, setJdListStatusKey] = useState<string>("all");
-  const [jdStartDateFrom, setJdStartDateFrom] = useState("");
-  const [jdStartDateTo, setJdStartDateTo] = useState("");
+  const [jdStartDateRange, setJdStartDateRange] =
+    useState<RangeValue<CalendarDate> | null>(null);
 
   // ── drawer ──────────────────────────────────────────────────────────────
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -985,11 +991,12 @@ export function JdManagementDashboard({
       if (jdListStatusKey !== "all" && r.status !== jdListStatusKey) {
         return false;
       }
-      if (jdStartDateFrom || jdStartDateTo) {
+      if (jdStartDateRange) {
         const d = r.start_date;
         if (!d) return false;
-        if (jdStartDateFrom && d < jdStartDateFrom) return false;
-        if (jdStartDateTo && d > jdStartDateTo) return false;
+        const from = jdStartDateRange.start.toString();
+        const to = jdStartDateRange.end.toString();
+        if (d < from || d > to) return false;
       }
       return true;
     });
@@ -997,13 +1004,12 @@ export function JdManagementDashboard({
     rows,
     jdListSearch,
     jdListStatusKey,
-    jdStartDateFrom,
-    jdStartDateTo,
+    jdStartDateRange,
   ]);
 
   useEffect(() => {
     setPage(1);
-  }, [jdListSearch, jdListStatusKey, jdStartDateFrom, jdStartDateTo]);
+  }, [jdListSearch, jdListStatusKey, jdStartDateRange]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -1676,25 +1682,75 @@ export function JdManagementDashboard({
                 </ListBox>
               </Select.Popover>
             </Select>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted">Start date from</Label>
-                <Input
-                  type="date"
-                  value={jdStartDateFrom}
-                  onChange={(e) => setJdStartDateFrom(e.target.value)}
-                  className="w-[11rem]"
-                />
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1 min-w-[min(100%,280px)] max-w-md flex-1">
+                <Label className="text-xs text-muted" id="jd-start-range-label">
+                  Start date range
+                </Label>
+                <DateRangePicker
+                  aria-labelledby="jd-start-range-label"
+                  value={jdStartDateRange}
+                  onChange={setJdStartDateRange}
+                  className="w-full"
+                >
+                  <DateField.Group fullWidth variant="secondary">
+                    <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                      <DateField.Input slot="start">
+                        {(segment) => <DateField.Segment segment={segment} />}
+                      </DateField.Input>
+                      <DateRangePicker.RangeSeparator className="text-muted shrink-0 px-0.5" />
+                      <DateField.Input slot="end">
+                        {(segment) => <DateField.Segment segment={segment} />}
+                      </DateField.Input>
+                    </DateField.InputContainer>
+                    <DateField.Suffix>
+                      <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted outline-none hover:bg-muted pressed:bg-muted">
+                        <DateRangePicker.TriggerIndicator />
+                      </DateRangePicker.Trigger>
+                    </DateField.Suffix>
+                  </DateField.Group>
+                  <DateRangePicker.Popover>
+                    <Dialog className="outline-none">
+                      <RangeCalendar>
+                        <RangeCalendar.Header>
+                          <RangeCalendar.NavButton slot="previous" />
+                          <RangeCalendar.Heading />
+                          <RangeCalendar.NavButton slot="next" />
+                        </RangeCalendar.Header>
+                        <RangeCalendar.Grid weekdayStyle="short">
+                          <RangeCalendar.GridHeader>
+                            {(day) => (
+                              <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
+                            )}
+                          </RangeCalendar.GridHeader>
+                          <RangeCalendar.GridBody>
+                            {(date) => (
+                              <RangeCalendar.Cell date={date}>
+                                {({ formattedDate }) => (
+                                  <>
+                                    <RangeCalendar.CellIndicator />
+                                    <span className="relative z-[1]">{formattedDate}</span>
+                                  </>
+                                )}
+                              </RangeCalendar.Cell>
+                            )}
+                          </RangeCalendar.GridBody>
+                        </RangeCalendar.Grid>
+                      </RangeCalendar>
+                    </Dialog>
+                  </DateRangePicker.Popover>
+                </DateRangePicker>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted">Start date to</Label>
-                <Input
-                  type="date"
-                  value={jdStartDateTo}
-                  onChange={(e) => setJdStartDateTo(e.target.value)}
-                  className="w-[11rem]"
-                />
-              </div>
+              {jdStartDateRange ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  onPress={() => setJdStartDateRange(null)}
+                >
+                  Clear dates
+                </Button>
+              ) : null}
             </div>
           </div>
         </Card.Content>
