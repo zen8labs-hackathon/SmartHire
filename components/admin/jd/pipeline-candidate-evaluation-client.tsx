@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  Alert,
   Breadcrumbs,
   Button,
   Card,
@@ -59,6 +60,19 @@ export function PipelineCandidateEvaluationClient({
     string | null
   >(null);
   const [preInterviewSaveBusy, setPreInterviewSaveBusy] = useState(false);
+  const [preInterviewSaveSuccess, setPreInterviewSaveSuccess] = useState(false);
+  const preInterviewSuccessTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  const clearPreInterviewSuccessTimer = useCallback(() => {
+    if (preInterviewSuccessTimerRef.current) {
+      clearTimeout(preInterviewSuccessTimerRef.current);
+      preInterviewSuccessTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearPreInterviewSuccessTimer(), [clearPreInterviewSuccessTimer]);
 
   const authHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
@@ -269,6 +283,8 @@ export function PipelineCandidateEvaluationClient({
 
   const savePreInterviewNote = async () => {
     setError(null);
+    clearPreInterviewSuccessTimer();
+    setPreInterviewSaveSuccess(false);
     setPreInterviewSaveBusy(true);
     try {
       const h = await authHeaders();
@@ -299,6 +315,12 @@ export function PipelineCandidateEvaluationClient({
       if (typeof json.preInterviewNote === "string") {
         setPreInterviewNote(json.preInterviewNote);
       }
+      setPreInterviewSaveSuccess(true);
+      clearPreInterviewSuccessTimer();
+      preInterviewSuccessTimerRef.current = setTimeout(() => {
+        setPreInterviewSaveSuccess(false);
+        preInterviewSuccessTimerRef.current = null;
+      }, 4500);
     } catch {
       setError("Could not save pre-interview note.");
     } finally {
@@ -382,9 +404,21 @@ export function PipelineCandidateEvaluationClient({
               {preInterviewLoadError}
             </p>
           ) : null}
+          {preInterviewSaveSuccess ? (
+            <Alert status="success" role="status">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>Save success</Alert.Title>
+              </Alert.Content>
+            </Alert>
+          ) : null}
           <TextField
             value={preInterviewNote}
-            onChange={setPreInterviewNote}
+            onChange={(v) => {
+              clearPreInterviewSuccessTimer();
+              setPreInterviewSaveSuccess(false);
+              setPreInterviewNote(v);
+            }}
             aria-labelledby="pre-interview-note-heading"
           >
             <TextArea
