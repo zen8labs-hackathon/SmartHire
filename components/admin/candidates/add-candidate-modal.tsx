@@ -7,14 +7,17 @@ import {
   Button,
   Card,
   Chip,
+  Input,
   Label,
   ListBox,
   Modal,
   Select,
   Table,
+  TextField,
 } from "@heroui/react";
 
 import type { ParsingStatus } from "@/lib/candidates/db-row";
+import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
 import {
   CV_BUCKET,
   MAX_CV_BYTES,
@@ -130,6 +133,8 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
   const [jobKey, setJobKey] = useState<string>("__none__");
+  const [sourceKey, setSourceKey] = useState<string>(CANDIDATE_SOURCE_VALUES[0]);
+  const [sourceOther, setSourceOther] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [processAllBusy, setProcessAllBusy] = useState(false);
@@ -212,6 +217,10 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
       window.alert("File exceeds 25MB limit.");
       return;
     }
+    if (sourceKey === "Other" && !sourceOther.trim()) {
+      window.alert("Please describe where this candidate was sourced (Other).");
+      return;
+    }
 
     let candidateId = "";
     try {
@@ -228,6 +237,9 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
           jobOpeningId: selectedJobId,
           filename: file.name,
           mimeType: file.type || null,
+          source: sourceKey,
+          sourceOther:
+            sourceKey === "Other" ? sourceOther.trim() : null,
         }),
       });
       const signJson = (await signRes.json()) as {
@@ -355,8 +367,8 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
   return (
     <Modal state={modalState}>
       <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
-        <Modal.Container className="max-w-5xl">
-          <Modal.Dialog className="max-h-[90vh] w-full overflow-hidden p-0">
+        <Modal.Container className="max-w-[min(100vw-2rem,1280px)]">
+          <Modal.Dialog className="max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
@@ -366,7 +378,7 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
               </p>
             </Modal.Header>
             <Modal.Body className="max-h-[min(70vh,720px)] space-y-6 overflow-y-auto px-6 py-6">
-              <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+              <div className="grid gap-4 lg:grid-cols-[1fr_1.15fr]">
                 <div className="space-y-4">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
@@ -404,6 +416,49 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
                         </ListBox>
                       </Select.Popover>
                     </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                      Sourced from
+                    </Label>
+                    <Select
+                      value={sourceKey}
+                      onChange={(k) => {
+                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                        setSourceKey(next);
+                        if (next !== "Other") setSourceOther("");
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {CANDIDATE_SOURCE_VALUES.map((s) => (
+                            <ListBox.Item key={s} id={s} textValue={s}>
+                              {s}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    {sourceKey === "Other" ? (
+                      <TextField className="mt-3">
+                        <Label className="text-xs text-muted">
+                          Describe the source
+                        </Label>
+                        <Input
+                          value={sourceOther}
+                          onChange={(e) => setSourceOther(e.target.value)}
+                          placeholder="e.g. University career fair, referral name…"
+                          className="mt-1"
+                        />
+                      </TextField>
+                    ) : null}
                   </div>
 
                   {jobTitle ? (
@@ -521,7 +576,7 @@ export function AddCandidateModal({ open, onOpenChange, onCandidatesChanged }: P
                       <Table.ScrollContainer>
                         <Table.Content
                           aria-label="Upload queue"
-                          className="min-w-[640px]"
+                          className="min-w-[800px]"
                         >
                           <Table.Header>
                             <Table.Column isRowHeader>File</Table.Column>

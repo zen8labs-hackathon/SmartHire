@@ -13,6 +13,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "Stanford University",
     status: "Interviewing",
     chapter: "Engineering",
+    sourceLabel: "LinkedIn",
   },
   {
     name: "Julian Vane",
@@ -25,6 +26,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "RISD",
     status: "Shortlisted",
     chapter: "Design",
+    sourceLabel: "TopCV",
   },
   {
     name: "Maya Okoro",
@@ -37,6 +39,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "MIT",
     status: "New",
     chapter: "Engineering",
+    sourceLabel: "ITViec",
   },
   {
     name: "David Chen",
@@ -49,6 +52,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     school: "Wharton School",
     status: "Interviewing",
     chapter: "Marketing",
+    sourceLabel: "Other (Referral network)",
   },
 ];
 
@@ -91,6 +95,15 @@ const STATUSES: CandidateStatus[] = ["New", "Shortlisted", "Interviewing"];
 
 const CHAPTERS = ["Engineering", "Design", "Marketing", "Global"];
 
+const MOCK_SOURCES = [
+  "LinkedIn",
+  "TopCV",
+  "ITViec",
+  "Facebook",
+  "TopDev",
+  "Other (Meetup)",
+] as const;
+
 function buildRows(total: number): CandidateRow[] {
   const rows: CandidateRow[] = [];
   for (let i = 0; i < total; i++) {
@@ -116,6 +129,7 @@ function buildRows(total: number): CandidateRow[] {
       school: i % 2 === 0 ? "STATE UNIVERSITY" : "BUSINESS SCHOOL",
       status: STATUSES[i % STATUSES.length],
       chapter: CHAPTERS[i % CHAPTERS.length],
+      sourceLabel: MOCK_SOURCES[i % MOCK_SOURCES.length],
     });
   }
   return rows;

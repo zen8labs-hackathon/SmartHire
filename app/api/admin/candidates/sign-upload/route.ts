@@ -1,4 +1,5 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { isCandidateSource } from "@/lib/candidates/source-constants";
 import {
   CV_BUCKET,
   extensionFromFilename,
@@ -11,7 +12,11 @@ type Body = {
   jobOpeningId?: string | null;
   filename?: string;
   mimeType?: string | null;
+  source?: string;
+  sourceOther?: string | null;
 };
+
+const MAX_SOURCE_OTHER_LEN = 500;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,6 +52,34 @@ export async function POST(request: Request) {
 
   if (jobOpeningId && !isUuid(jobOpeningId)) {
     return Response.json({ error: "Invalid job opening id." }, { status: 400 });
+  }
+
+  const sourceRaw =
+    typeof body.source === "string" ? body.source.trim() : "";
+  if (!sourceRaw || !isCandidateSource(sourceRaw)) {
+    return Response.json(
+      { error: "Select a valid candidate source." },
+      { status: 400 },
+    );
+  }
+
+  let sourceOther: string | null = null;
+  if (sourceRaw === "Other") {
+    const detail =
+      typeof body.sourceOther === "string" ? body.sourceOther.trim() : "";
+    if (!detail) {
+      return Response.json(
+        { error: "Please describe the source when you select Other." },
+        { status: 400 },
+      );
+    }
+    if (detail.length > MAX_SOURCE_OTHER_LEN) {
+      return Response.json(
+        { error: `Source description must be at most ${MAX_SOURCE_OTHER_LEN} characters.` },
+        { status: 400 },
+      );
+    }
+    sourceOther = detail;
   }
 
   const { supabase } = auth;
@@ -86,6 +119,8 @@ export async function POST(request: Request) {
     original_filename: filename,
     mime_type: typeof body.mimeType === "string" ? body.mimeType : null,
     parsing_status: "pending",
+    source: sourceRaw,
+    source_other: sourceOther,
   });
 
   if (insErr) {

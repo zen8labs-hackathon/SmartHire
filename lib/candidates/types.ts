@@ -13,4 +13,6 @@ export type CandidateRow = {
   school: string;
   status: CandidateStatus;
   chapter: string;
+  /** Display label for HR sourcing channel (includes custom text when source is Other) */
+  sourceLabel: string;
 };
