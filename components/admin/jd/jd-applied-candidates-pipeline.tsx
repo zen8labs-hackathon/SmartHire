@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import {
   Avatar,
@@ -29,6 +30,8 @@ type Section = "new" | "interview" | "offer" | "failed";
 
 type Props = {
   jobDescriptionId: number;
+  /** Numeric job description id string for evaluation URLs */
+  jobId: string;
   dbRows: CandidateDbRow[];
   loadState: "idle" | "loading" | "error" | "ok";
   onRefetch: () => void;
@@ -73,6 +76,7 @@ function emptySelection(): Record<Section, Set<string>> {
 
 export function JdAppliedCandidatesPipeline({
   jobDescriptionId,
+  jobId,
   dbRows,
   loadState,
   onRefetch,
@@ -325,9 +329,12 @@ export function JdAppliedCandidatesPipeline({
           </Avatar.Fallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">
+          <Link
+            href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
+            className="block truncate text-sm font-semibold text-accent hover:underline"
+          >
             {row.name}
-          </p>
+          </Link>
           <p className="truncate text-xs text-muted">{row.role}</p>
           {sched ? (
             <p className="mt-1 text-xs text-muted">
