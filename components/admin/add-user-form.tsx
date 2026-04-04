@@ -21,6 +21,8 @@ import {
 
 type RecruitingAccessKey = "none" | "hr" | "chapter";
 
+export type AddUserChapterOption = { id: string; name: string };
+
 function SubmitButton({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
   return (
@@ -35,17 +37,31 @@ function SubmitButton({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AddUserForm() {
+export function AddUserForm({
+  chapters,
+}: {
+  chapters: readonly AddUserChapterOption[];
+}) {
   const [state, formAction] = useActionState<AdminUserFormState, FormData>(
     adminAddUser,
     null,
   );
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("none");
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+
+  function toggleChapter(id: string) {
+    setSelectedChapterIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
 
   return (
     <form action={formAction} className="flex w-full flex-col gap-4">
       <input type="hidden" name="recruiting_access" value={recruitingAccess} />
+      {selectedChapterIds.map((id) => (
+        <input key={id} type="hidden" name="chapter_ids" value={id} />
+      ))}
       {state?.error ? (
         <Alert status="danger">
           <Alert.Indicator />
@@ -106,6 +122,7 @@ export function AddUserForm() {
             const next = String(k ?? "none") as RecruitingAccessKey;
             if (next === "none" || next === "hr" || next === "chapter") {
               setRecruitingAccess(next);
+              if (next !== "chapter") setSelectedChapterIds([]);
             }
           }}
         >
@@ -131,27 +148,39 @@ export function AddUserForm() {
           </Select.Popover>
         </Select>
         <Description>
-          Chapter names must match how candidates are labeled (e.g. Engineering).
-          Grant JD access separately on each job description.
+          Chapter recruiters need at least one chapter and must be granted on each
+          job (by email or whole chapter) to open that job.
         </Description>
       </div>
 
       {recruitingAccess === "chapter" ? (
-        <TextField
-          isRequired
-          name="work_chapter"
-          autoComplete="off"
-          validate={(value) => {
-            const v = value.trim();
-            if (!v) return "Chapter name is required.";
-            if (v.length > 50) return "Max 50 characters.";
-            return null;
-          }}
-        >
-          <Label>Chapter name</Label>
-          <Input placeholder="e.g. Engineering" />
-          <FieldError />
-        </TextField>
+        <div className="space-y-2">
+          <Label className="text-sm font-medium text-foreground">
+            Chapters
+          </Label>
+          {chapters.length === 0 ? (
+            <p className="text-sm text-muted">
+              No chapters defined yet. Add them under Setup → Chapters first.
+            </p>
+          ) : (
+            <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-divider p-3">
+              {chapters.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex cursor-pointer items-center gap-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    className="rounded border-divider"
+                    checked={selectedChapterIds.includes(c.id)}
+                    onChange={() => toggleChapter(c.id)}
+                  />
+                  <span>{c.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       ) : null}
 
       <SubmitButton>Add user</SubmitButton>

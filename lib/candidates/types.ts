@@ -21,7 +21,8 @@ export type CandidateRow = {
   degree: string;
   school: string;
   status: CandidateStatus;
-  chapter: string;
+  /** HR user email recorded at CV upload (when available). */
+  uploadedByEmail: string | null;
   /** Campaign UUID when CV was uploaded to a job opening; null if unassigned */
   jobOpeningId: string | null;
   /** Job description position (or opening title) for the applied campaign */

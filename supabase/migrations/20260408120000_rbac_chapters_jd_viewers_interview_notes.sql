@@ -12,7 +12,7 @@ set work_chapter = 'HR'
 where is_admin is true and (work_chapter is null or trim(work_chapter) = '');
 
 comment on column public.profiles.work_chapter is
-  'Recruiter chapter: NULL = no admin app. HR = full access. Other values match candidates.chapter for CV visibility.';
+  'NULL = dashboard-only or chapter-only (see profile_chapters). HR = full access. (Legacy non-HR strings migrated to profile_chapters.)';
 
 -- ---------------------------------------------------------------------------
 -- JD explicit viewers (non-HR must be listed here to open a JD)

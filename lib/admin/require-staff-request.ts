@@ -18,7 +18,7 @@ export type StaffRequestAuthResult =
   | { ok: false; response: Response };
 
 /**
- * Authenticated user with recruiter access (work_chapter set or is_admin).
+ * Authenticated user with recruiter access (HR, chapter memberships, or legacy admin).
  */
 export async function requireStaffForRequest(
   request: Request,

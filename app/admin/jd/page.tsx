@@ -9,7 +9,15 @@ export default async function AdminJdPage() {
   } = await supabase.auth.getUser();
   const access = user ? await getStaffProfileAccess(supabase, user.id) : null;
 
+  const { data: chapterRows } = await supabase
+    .from("chapters")
+    .select("id, name")
+    .order("name", { ascending: true });
+
   return (
-    <JdManagementDashboard canManageJds={access?.isHr === true} />
+    <JdManagementDashboard
+      canManageJds={access?.isHr === true}
+      chapters={chapterRows ?? []}
+    />
   );
 }

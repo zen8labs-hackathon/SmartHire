@@ -1,6 +1,10 @@
 import {
+  assertChapterIdsExist,
+  fetchViewerChapterIdsForJobDescription,
   fetchViewerEmailsForJobDescription,
+  parseViewerChapterIds,
   parseViewerEmailInput,
+  replaceJobDescriptionViewerChapters,
   syncJobDescriptionViewersFromEmails,
 } from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
@@ -136,14 +140,19 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!data) return Response.json({ error: "Not found." }, { status: 404 });
 
   let viewerEmails: string[] = [];
+  let viewerChapterIds: string[] = [];
   try {
     const admin = createAdminClient();
     viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
+    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(
+      admin,
+      numId,
+    );
   } catch {
     // optional
   }
 
-  return Response.json({ jobDescription: data, viewerEmails });
+  return Response.json({ jobDescription: data, viewerEmails, viewerChapterIds });
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
@@ -165,8 +174,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const viewerEmailsRaw = raw.viewerEmails;
   delete raw.viewerEmails;
 
+  const hasViewerChapterKey = Object.prototype.hasOwnProperty.call(
+    raw,
+    "viewerChapterIds",
+  );
+  const viewerChapterIdsRaw = raw.viewerChapterIds;
+  delete raw.viewerChapterIds;
+
   const hasJdUpdate = Object.keys(raw).length > 0;
-  if (!hasJdUpdate && !hasViewerKey) {
+  if (!hasJdUpdate && !hasViewerKey && !hasViewerChapterKey) {
     return Response.json({ error: "No updates provided." }, { status: 400 });
   }
 
@@ -217,7 +233,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     if (error) return Response.json({ error: error.message }, { status: 500 });
   }
 
-  if (hasViewerKey) {
+  if (hasViewerKey || hasViewerChapterKey) {
     let admin;
     try {
       admin = createAdminClient();
@@ -227,21 +243,42 @@ export async function PUT(request: Request, { params }: RouteContext) {
         { status: 500 },
       );
     }
-    const emails = parseViewerEmailInput(
-      viewerEmailsRaw as string | string[] | null | undefined,
-    );
-    const { notFound } = await syncJobDescriptionViewersFromEmails(admin, {
-      jobDescriptionId: numId,
-      emails,
-      grantedBy: auth.userId,
-    });
-    if (notFound.length > 0) {
-      return Response.json(
-        {
-          error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
-        },
-        { status: 400 },
+    if (hasViewerKey) {
+      const emails = parseViewerEmailInput(
+        viewerEmailsRaw as string | string[] | null | undefined,
       );
+      const { notFound } = await syncJobDescriptionViewersFromEmails(admin, {
+        jobDescriptionId: numId,
+        emails,
+        grantedBy: auth.userId,
+      });
+      if (notFound.length > 0) {
+        return Response.json(
+          {
+            error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+    if (hasViewerChapterKey) {
+      const chapterIds = parseViewerChapterIds(
+        viewerChapterIdsRaw as string[] | string | null | undefined,
+      );
+      const chapterCheck = await assertChapterIdsExist(admin, chapterIds);
+      if (!chapterCheck.ok) {
+        return Response.json(
+          {
+            error: `Unknown chapter id(s): ${chapterCheck.unknownIds.join(", ")}.`,
+          },
+          { status: 400 },
+        );
+      }
+      await replaceJobDescriptionViewerChapters(admin, {
+        jobDescriptionId: numId,
+        chapterIds,
+        grantedBy: auth.userId,
+      });
     }
   }
 
@@ -255,14 +292,23 @@ export async function PUT(request: Request, { params }: RouteContext) {
   if (!jdRow) return Response.json({ error: "Not found." }, { status: 404 });
 
   let viewerEmails: string[] = [];
+  let viewerChapterIds: string[] = [];
   try {
     const admin = createAdminClient();
     viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
+    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(
+      admin,
+      numId,
+    );
   } catch {
     // optional
   }
 
-  return Response.json({ jobDescription: jdRow, viewerEmails });
+  return Response.json({
+    jobDescription: jdRow,
+    viewerEmails,
+    viewerChapterIds,
+  });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {

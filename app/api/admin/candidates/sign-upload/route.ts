@@ -1,4 +1,5 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { isCandidateSource } from "@/lib/candidates/source-constants";
 import {
   CV_BUCKET,
@@ -113,6 +114,12 @@ export async function POST(request: Request) {
   const storagePath = `${folder}/${candidateId}${ext}`;
 
   const uploadedAt = new Date().toISOString();
+  const rawUploader = auth.userEmail?.trim() ?? "";
+  const uploadedByEmail =
+    rawUploader && isValidEmail(normalizeEmail(rawUploader))
+      ? normalizeEmail(rawUploader)
+      : null;
+
   const { error: insErr } = await supabase.from("candidates").insert({
     id: candidateId,
     job_opening_id: jobOpeningId,
@@ -123,6 +130,7 @@ export async function POST(request: Request) {
     source: sourceRaw,
     source_other: sourceOther,
     cv_uploaded_at: uploadedAt,
+    uploaded_by_email: uploadedByEmail,
   });
 
   if (insErr) {

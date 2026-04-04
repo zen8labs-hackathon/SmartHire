@@ -12,6 +12,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminUserFormState = { error?: string; message?: string } | null;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function adminAddUser(
   _prev: AdminUserFormState,
   formData: FormData,
@@ -43,19 +46,23 @@ export async function adminAddUser(
   const recruitingAccess = String(
     formData.get("recruiting_access") ?? "none",
   ).trim();
-  const rawChapter = String(formData.get("work_chapter") ?? "").trim();
+
+  const chapterIdSet = new Set<string>();
+  for (const x of formData.getAll("chapter_ids")) {
+    const s = String(x).trim();
+    if (UUID_RE.test(s)) chapterIdSet.add(s);
+  }
+  const chapterIds = [...chapterIdSet];
 
   let workChapter: string | null = null;
   if (recruitingAccess === "hr") {
     workChapter = HR_WORK_CHAPTER;
   } else if (recruitingAccess === "chapter") {
-    if (!rawChapter) {
+    if (chapterIds.length === 0) {
       return {
-        error:
-          "Enter a chapter name (must match candidate chapter labels, e.g. Engineering).",
+        error: "Select at least one chapter for a chapter recruiter.",
       };
     }
-    workChapter = rawChapter.slice(0, 50);
   } else if (recruitingAccess !== "none") {
     return { error: "Invalid recruiting access selection." };
   }
@@ -68,6 +75,19 @@ export async function adminAddUser(
       error:
         "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to create users from the admin panel.",
     };
+  }
+
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const { data: found, error: chErr } = await admin
+      .from("chapters")
+      .select("id")
+      .in("id", chapterIds);
+    if (chErr) {
+      return { error: `Could not validate chapters: ${chErr.message}` };
+    }
+    if ((found?.length ?? 0) !== chapterIds.length) {
+      return { error: "One or more selected chapters are invalid." };
+    }
   }
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -94,6 +114,17 @@ export async function adminAddUser(
     };
   }
 
+  const { error: delPcErr } = await admin
+    .from("profile_chapters")
+    .delete()
+    .eq("profile_id", newId);
+
+  if (delPcErr) {
+    return {
+      error: `Account was created but chapter membership could not be reset: ${delPcErr.message}`,
+    };
+  }
+
   const { error: profileErr } = await admin
     .from("profiles")
     .update({ work_chapter: workChapter })
@@ -105,13 +136,28 @@ export async function adminAddUser(
     };
   }
 
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const { error: insPcErr } = await admin.from("profile_chapters").insert(
+      chapterIds.map((chapter_id) => ({
+        profile_id: newId,
+        chapter_id,
+      })),
+    );
+    if (insPcErr) {
+      return {
+        error: `Account was created but chapter membership could not be saved: ${insPcErr.message}`,
+      };
+    }
+  }
+
   revalidatePath("/admin");
+  revalidatePath("/admin/chapters");
   const accessHint =
-    workChapter == null
+    workChapter == null && chapterIds.length === 0
       ? "Dashboard only."
       : workChapter === HR_WORK_CHAPTER
         ? "Full HR recruiting access."
-        : `Chapter recruiter (${workChapter}).`;
+        : `Chapter recruiter (${chapterIds.length} chapter${chapterIds.length === 1 ? "" : "s"}).`;
   return {
     message: `Created account for ${email}. ${accessHint} They can sign in with this email and password.`,
   };

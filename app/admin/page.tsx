@@ -17,6 +17,11 @@ export default async function AdminPage() {
   const access = await getStaffProfileAccess(supabase, user.id);
   if (!access?.isHr) redirect("/admin/jd");
 
+  const { data: chapters } = await supabase
+    .from("chapters")
+    .select("id, name")
+    .order("name", { ascending: true });
+
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-6">
       <Card>
@@ -28,7 +33,7 @@ export default async function AdminPage() {
           </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4">
-          <AddUserForm />
+          <AddUserForm chapters={chapters ?? []} />
           <p className="text-center text-sm text-muted">
             <Link href="/dashboard" className="font-medium text-accent underline">
               Back to dashboard

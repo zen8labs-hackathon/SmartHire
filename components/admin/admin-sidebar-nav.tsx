@@ -8,11 +8,12 @@ import { cn } from "@heroui/react";
 
 const mainItems = [
   { href: "/admin", label: "Users" },
-  { href: "/admin/jd", label: "Job descriptions" },
+  { href: "/admin/jd", label: "Jobs list" },
   { href: "/admin/candidates", label: "CV management" },
 ] as const;
 
 const setupItems = [
+  { href: "/admin/chapters", label: "Chapters" },
   { href: "/admin/evaluation-template", label: "Evaluation template" },
 ] as const;
 
