@@ -99,24 +99,6 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
-function CalendarIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <path d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
-  );
-}
-
 /** Local calendar day YYYY-MM-DD for upload timestamp (for date filter). */
 function uploadDateKeyLocal(iso: string | null): string | null {
   if (!iso) return null;
@@ -493,32 +475,33 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
               </Select>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-              <CalendarIcon className="size-4 shrink-0 text-muted" />
+            <div className="ml-auto flex shrink-0 flex-col gap-1 self-end">
               <Label
                 htmlFor="cv-upload-date-filter"
-                className="whitespace-nowrap text-xs font-medium text-muted"
+                className="block text-left text-xs font-medium text-muted"
               >
                 Filter by date
               </Label>
-              <Input
-                id="cv-upload-date-filter"
-                type="date"
-                value={uploadDateFilter}
-                onChange={(e) => setUploadDateFilter(e.target.value)}
-                className="w-[11rem] min-w-0"
-              />
-              {uploadDateFilter ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="min-w-0 px-2 font-semibold text-muted"
-                  aria-label="Clear date filter"
-                  onPress={() => setUploadDateFilter("")}
-                >
-                  Clear
-                </Button>
-              ) : null}
+              <div className="flex items-center gap-2">
+                <Input
+                  id="cv-upload-date-filter"
+                  type="date"
+                  value={uploadDateFilter}
+                  onChange={(e) => setUploadDateFilter(e.target.value)}
+                  className="w-[11rem] min-w-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-moz-calendar-picker-indicator]:opacity-0"
+                />
+                {uploadDateFilter ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="min-w-0 px-2 font-semibold text-muted"
+                    aria-label="Clear date filter"
+                    onPress={() => setUploadDateFilter("")}
+                  >
+                    Clear
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
         </Card.Content>
