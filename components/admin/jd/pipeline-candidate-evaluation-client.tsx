@@ -29,7 +29,7 @@ type LatestEval = {
   id: string;
   createdAt: string;
   previewPath: string;
-  downloadUrl: string;
+  downloadPath: string;
 };
 
 type InterviewNoteRow = {
@@ -260,7 +260,7 @@ export function PipelineCandidateEvaluationClient({
       const json = (await res.json()) as {
         error?: string;
         previewPath?: string;
-        downloadUrl?: string | null;
+        downloadPath?: string | null;
       };
       if (!res.ok) {
         setError(json.error ?? "Generation failed.");
@@ -271,8 +271,8 @@ export function PipelineCandidateEvaluationClient({
         await loadNotes();
       }
       await loadLatest();
-      if (json.downloadUrl) {
-        window.open(json.downloadUrl, "_blank", "noopener,noreferrer");
+      if (json.downloadPath) {
+        router.push(json.downloadPath);
       }
     } catch {
       setError("Generation failed.");
@@ -485,7 +485,7 @@ export function PipelineCandidateEvaluationClient({
                   variant="secondary"
                   size="sm"
                   onPress={() => {
-                    window.open(latest.previewPath, "_blank", "noopener,noreferrer");
+                    router.push(latest.previewPath);
                   }}
                 >
                   Open preview
@@ -494,7 +494,7 @@ export function PipelineCandidateEvaluationClient({
                   variant="primary"
                   size="sm"
                   onPress={() => {
-                    window.open(latest.downloadUrl, "_blank", "noopener,noreferrer");
+                    router.push(latest.downloadPath);
                   }}
                 >
                   Download PDF

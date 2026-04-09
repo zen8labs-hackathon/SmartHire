@@ -111,24 +111,24 @@ export function JobPipelineSpreadsheet({
   }, [jobDescriptionId, supabase]);
 
   return (
-    <div className="relative flex flex-col gap-6 pb-20">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
+    <div className="relative flex flex-col gap-4 pb-16">
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
           <Breadcrumbs className="text-xs text-muted">
             <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
             <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
           </Breadcrumbs>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
             {jobTitle} pipeline
           </h1>
-          <p className="max-w-2xl text-sm text-muted">
+          <p className="max-w-2xl text-xs text-muted">
             Filter and sort by CV upload time.
             {canEditPipeline
               ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
               : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {pipelineLoadState === "error" ? (
             <Button
               variant="secondary"
@@ -157,7 +157,7 @@ export function JobPipelineSpreadsheet({
       </header>
 
       <Card>
-        <Card.Content className="p-4 sm:p-6">
+        <Card.Content className="p-3 sm:p-4">
           <JdAppliedCandidatesPipeline
             jobDescriptionId={jobDescriptionId}
             jobId={jobId}

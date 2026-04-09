@@ -65,28 +65,6 @@ export async function GET(
     return Response.json({ latest: null });
   }
 
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      { error: "Server missing service role key." },
-      { status: 500 },
-    );
-  }
-
-  const path = row.filled_pdf_storage_path as string;
-  const { data: signed, error: signErr } = await admin.storage
-    .from(CANDIDATE_EVAL_FILLED_BUCKET)
-    .createSignedUrl(path, 3600);
-
-  if (signErr || !signed?.signedUrl) {
-    return Response.json(
-      { error: signErr?.message ?? "Could not sign download URL." },
-      { status: 500 },
-    );
-  }
-
   const r = row as {
     id: string;
     created_at: string;
@@ -99,7 +77,7 @@ export async function GET(
       id: r.id,
       createdAt: r.created_at,
       previewPath: `/evaluation-preview/${r.preview_token}`,
-      downloadUrl: signed.signedUrl,
+      downloadPath: `/api/public/evaluation-preview/${r.preview_token}?download=1`,
     },
   });
 }
@@ -290,13 +268,9 @@ export async function POST(
 
   const ins = inserted as { id: string; preview_token: string };
 
-  const { data: dlSigned } = await admin.storage
-    .from(CANDIDATE_EVAL_FILLED_BUCKET)
-    .createSignedUrl(outPath, 3600);
-
   return Response.json({
     reviewId: ins.id,
     previewPath: `/evaluation-preview/${ins.preview_token}`,
-    downloadUrl: dlSigned?.signedUrl ?? null,
+    downloadPath: `/api/public/evaluation-preview/${ins.preview_token}?download=1`,
   });
 }

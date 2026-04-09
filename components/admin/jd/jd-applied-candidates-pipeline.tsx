@@ -427,48 +427,48 @@ export function JdAppliedCandidatesPipeline({
   }
 
   return (
-    <div className="mt-3 flex flex-col gap-4">
+    <div className="mt-1 flex flex-col gap-3">
       {pipelineError ? (
         <p className="text-sm text-danger">{pipelineError}</p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
+          <Card.Header className="gap-0 px-4 py-3">
+            <Card.Title className="text-xl font-semibold tabular-nums leading-none">
               {statusCounts.newPool}
             </Card.Title>
-            <Card.Description>New / Shortlisted</Card.Description>
+            <Card.Description className="text-xs">New / Shortlisted</Card.Description>
           </Card.Header>
         </Card>
         <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
+          <Card.Header className="gap-0 px-4 py-3">
+            <Card.Title className="text-xl font-semibold tabular-nums leading-none">
               {statusCounts.interviewing}
             </Card.Title>
-            <Card.Description>Interview</Card.Description>
+            <Card.Description className="text-xs">Interview</Card.Description>
           </Card.Header>
         </Card>
         <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
+          <Card.Header className="gap-0 px-4 py-3">
+            <Card.Title className="text-xl font-semibold tabular-nums leading-none">
               {statusCounts.offer}
             </Card.Title>
-            <Card.Description>Offer</Card.Description>
+            <Card.Description className="text-xs">Offer</Card.Description>
           </Card.Header>
         </Card>
         <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
+          <Card.Header className="gap-0 px-4 py-3">
+            <Card.Title className="text-xl font-semibold tabular-nums leading-none">
               {statusCounts.matched}
             </Card.Title>
-            <Card.Description>Matched</Card.Description>
+            <Card.Description className="text-xs">Matched</Card.Description>
           </Card.Header>
         </Card>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary/30 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+      <div className="flex flex-col gap-2 rounded-xl border border-divider bg-surface-secondary/30 p-3">
+        <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-end">
           <SearchField
             value={query}
             onChange={setQuery}
@@ -510,31 +510,31 @@ export function JdAppliedCandidatesPipeline({
               </ListBox>
             </Select.Popover>
           </Select>
-          <div className="w-full min-w-0 rounded-xl border border-divider bg-surface-secondary/50 px-4 py-3 lg:w-auto lg:max-w-md">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
+          <div className="w-full min-w-0 rounded-xl border border-divider bg-surface-secondary/50 px-3 py-2 lg:w-auto lg:max-w-md">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
               CV upload date
             </p>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Label className="text-sm font-medium text-foreground">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <Label className="text-xs font-medium text-foreground">
                   From
                 </Label>
                 <Input
                   type="date"
                   value={uploadFrom}
                   onChange={(e) => setUploadFrom(e.target.value)}
-                  className="w-full min-w-0 sm:w-[12rem]"
+                  className="w-full min-w-0 sm:w-[10.5rem]"
                 />
               </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Label className="text-sm font-medium text-foreground">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <Label className="text-xs font-medium text-foreground">
                   To
                 </Label>
                 <Input
                   type="date"
                   value={uploadTo}
                   onChange={(e) => setUploadTo(e.target.value)}
-                  className="w-full min-w-0 sm:w-[12rem]"
+                  className="w-full min-w-0 sm:w-[10.5rem]"
                 />
               </div>
             </div>

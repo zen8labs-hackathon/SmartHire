@@ -173,32 +173,11 @@ export function CandidateEvaluationTemplateManager() {
     }
   };
 
-  const getTemplateSignedUrl = useCallback(async (): Promise<string> => {
-    const { data: row } = await supabase
-      .from("candidate_evaluation_template")
-      .select("storage_path")
-      .eq("id", 1)
-      .maybeSingle();
-    const path = (row as { storage_path: string | null } | null)
-      ?.storage_path;
-    if (!path) {
-      throw new Error("No file path on record.");
-    }
-    const { data: signed, error } = await supabase.storage
-      .from(CANDIDATE_EVAL_TEMPLATE_BUCKET)
-      .createSignedUrl(path, 3600);
-    if (error || !signed?.signedUrl) {
-      throw new Error(error?.message ?? "Could not create link for the template.");
-    }
-    return signed.signedUrl;
-  }, [supabase]);
-
   const onPreview = async () => {
     setActionError(null);
     if (!info?.hasFile) return;
     try {
-      const url = await getTemplateSignedUrl();
-      window.open(url, "_blank", "noopener,noreferrer");
+      window.location.assign("/api/admin/candidate-evaluation-template/file");
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Preview failed.");
     }
@@ -208,25 +187,9 @@ export function CandidateEvaluationTemplateManager() {
     setActionError(null);
     if (!info?.hasFile) return;
     try {
-      const url = await getTemplateSignedUrl();
-      const filename =
-        info.originalFilename?.trim() || "evaluation-template.pdf";
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("Could not download file.");
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        a.rel = "noopener";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(blobUrl);
-      } catch {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
+      window.location.assign(
+        "/api/admin/candidate-evaluation-template/file?download=1",
+      );
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Download failed.");
     }

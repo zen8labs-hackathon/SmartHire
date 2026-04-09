@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { token } = await context.params;
   const clean = token?.trim() ?? "";
   if (!/^[0-9a-f]{48}$/i.test(clean)) {
@@ -38,11 +38,16 @@ export async function GET(_request: Request, context: RouteContext) {
 
   const buf = Buffer.from(await blob.arrayBuffer());
 
+  const url = new URL(request.url);
+  const asDownload = url.searchParams.get("download") === "1";
+
   return new Response(buf, {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": 'inline; filename="evaluation.pdf"',
+      "Content-Disposition": asDownload
+        ? 'attachment; filename="evaluation.pdf"'
+        : 'inline; filename="evaluation.pdf"',
       "Cache-Control": "private, max-age=300",
     },
   });
