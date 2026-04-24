@@ -14,13 +14,15 @@ Set Supabase secrets:
 npx supabase secrets set AI_GATEWAY_API_KEY=your_key_from_vercel_dashboard
 ```
 
-Optional — override the gateway model id (must match [AI Gateway models](https://vercel.com/ai-gateway/models)):
+Optional — override the gateway model id (must match [AI Gateway models](https://vercel.com/ai-gateway/models)). The same name as the Next.js app is supported for consistency:
 
 ```bash
+npx supabase secrets set LLM_MODEL=xai/grok-4-fast-reasoning
+# or legacy:
 npx supabase secrets set AI_GATEWAY_MODEL=xai/grok-4-fast-reasoning
 ```
 
-If `AI_GATEWAY_MODEL` is **not** set, the function uses the built-in default `xai/grok-4-fast-reasoning` (see `DEFAULT_AI_GATEWAY_MODEL` in `index.ts`). Change that constant or set the secret to switch models without redeploying.
+If neither `LLM_MODEL` nor `AI_GATEWAY_MODEL` is set, the function uses the built-in default `xai/grok-4-fast-reasoning` (see `DEFAULT_AI_GATEWAY_MODEL` in `index.ts`). Change that constant or set a secret to switch models without redeploying.
 
 ### Fallback: direct xAI API
 

@@ -1,5 +1,4 @@
 import "@/lib/ai/pdf-node-polyfill";
-import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { PDFDocument, PDFDropdown, PDFTextField, rgb } from "pdf-lib";
@@ -11,21 +10,13 @@ import {
   structuredEvaluationToDocumentSections,
 } from "@/lib/evaluation/evaluation-section-template";
 import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
+import { getVercelGatewayLanguageModel, isLlmInferenceConfigured } from "@/lib/llm";
 import { z } from "zod";
 
 const UNICODE_FONT_ERROR =
   "Could not load Noto Sans for Unicode text in the PDF. Place NotoSans-Regular.ttf and NotoSans-Bold.ttf under assets/fonts/ or ensure the server can load the fonts (e.g. CDN).";
 
 export type { EvaluationSection };
-
-function getGateway() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey?.trim()) throw new Error("AI_GATEWAY_API_KEY is not configured.");
-  return createOpenAI({
-    apiKey,
-    baseURL: "https://ai-gateway.vercel.sh/v1",
-  });
-}
 
 const LANGUAGE_RULE = `LANGUAGE (critical): Write every generated string in the SAME language as the "Reviewer free-form notes" section. If the notes are Vietnamese, the entire output must be Vietnamese. If English, use English. Do not translate the reviewer’s content into another language.`;
 
@@ -56,8 +47,7 @@ export async function buildEvaluationFillPayload(params: {
   candidateSummary: string;
   reviewerNotes: string;
 }): Promise<FillEvaluationAiResult> {
-  const key = process.env.AI_GATEWAY_API_KEY?.trim();
-  if (!key) {
+  if (!isLlmInferenceConfigured()) {
     if (params.formFieldNames.length > 0) {
       const fieldMap: Record<string, string> = {};
       const fallback =
@@ -77,7 +67,7 @@ export async function buildEvaluationFillPayload(params: {
     };
   }
 
-  const gateway = getGateway();
+  const model = getVercelGatewayLanguageModel();
   const fieldList =
     params.formFieldNames.length > 0
       ? params.formFieldNames.map((n) => `- ${n}`).join("\n")
@@ -104,7 +94,7 @@ ${fieldList}
 Map interview insights into the appropriate fields. Use "N/A" or "—" where not applicable. Max ${MAX_EVAL_SECTION_CHARS} characters per value.`;
 
       const { output } = await generateText({
-        model: gateway("openai/gpt-4o-mini"),
+        model,
         output: Output.object({
           name: "evaluation_form_fill",
           schema: aiMappingSchema,
@@ -158,7 +148,7 @@ Optional (omit the key or use empty string if not applicable):
 Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
 
     const { output } = await generateText({
-      model: gateway("openai/gpt-4o-mini"),
+      model,
       output: Output.object({
         name: "structured_evaluation",
         schema: structuredEvaluationSchema,

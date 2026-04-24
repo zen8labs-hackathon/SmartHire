@@ -123,17 +123,6 @@ export async function runJdMatchForCandidate(
       return { ok: true, skipped: true, reason: "no_job_description_text" };
     }
 
-    if (!process.env.AI_GATEWAY_API_KEY?.trim()) {
-      await supabase
-        .from("candidates")
-        .update({
-          jd_match_status: "failed",
-          jd_match_error: "AI_GATEWAY_API_KEY is not configured.",
-        })
-        .eq("id", candidateId);
-      return { ok: false, error: "AI_GATEWAY_API_KEY is not configured." };
-    }
-
     const cvSummary = buildCvSummary(row);
     if (!cvSummary.trim()) {
       await supabase

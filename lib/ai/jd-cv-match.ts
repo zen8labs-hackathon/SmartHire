@@ -1,4 +1,3 @@
-import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
@@ -7,6 +6,11 @@ import {
   blendAiAndFormulaScores,
   type JdMatchFormulaResult,
 } from "@/lib/candidates/jd-match-formula";
+import {
+  getVercelGatewayLanguageModel,
+  isLlmInferenceConfigured,
+  llmInferenceDisabledReason,
+} from "@/lib/llm";
 
 const matchOutputSchema = z.object({
   score: z
@@ -23,30 +27,12 @@ const matchOutputSchema = z.object({
     ),
 });
 
-function getGateway() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("AI_GATEWAY_API_KEY is not configured.");
-  }
-  return createOpenAI({
-    apiKey,
-    baseURL: "https://ai-gateway.vercel.sh/v1",
-  });
-}
-
-function gatewayModelId(): string {
-  return (
-    process.env.AI_GATEWAY_JD_MATCH_MODEL?.trim() || "openai/gpt-4o-mini"
-  );
-}
-
 async function runLlmJdMatch(
   cv: string,
   jd: string,
   options?: { heuristicSuffix?: string },
 ): Promise<{ score: number; rationale: string }> {
-  const gateway = getGateway();
-  const model = gateway(gatewayModelId());
+  const model = getVercelGatewayLanguageModel();
   const suffix = options?.heuristicSuffix?.trim() ?? "";
   const systemBase = `You are an experienced technical recruiter. Compare the candidate summary to the job description.
 Score 0–100 for overall fit: required skills, experience level, education, and role alignment.
@@ -80,6 +66,9 @@ export async function scoreCvAgainstJobDescription(
   cvSummary: string,
   jobDescriptionText: string,
 ): Promise<{ score: number; rationale: string }> {
+  if (!isLlmInferenceConfigured()) {
+    throw new Error(llmInferenceDisabledReason());
+  }
   const cv =
     cvSummary.length > 14_000
       ? cvSummary.slice(0, 14_000) + "\n…[truncated]"
@@ -102,6 +91,9 @@ export type HybridJdMatchResult = {
  * AI fit score blended with a deterministic anchor (skills + experience heuristics).
  * See ai-ezpassed-main `GapAnalyzer._calculate_fit_score` (60% AI / 40% formula there;
  * here default 65% AI via JD_MATCH_AI_WEIGHT).
+ *
+ * When the LLM is not configured or the AI call fails, the final score falls back to
+ * the formula anchor only (same numeric value as `formula.score`).
  */
 export async function scoreCvAgainstJobDescriptionHybrid(
   cvSummary: string,
@@ -124,11 +116,43 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     ? `\n(Heuristic: ~${formula.breakdown.matchedHints}/${formula.breakdown.jdHintCount} requirement phrases overlap the profile; ~${formula.breakdown.candidateSkillsMatchedInJd}/${Math.max(1, formula.breakdown.candidateSkillCount)} listed skills appear in the JD.)`
     : `\n(Heuristic: ~${formula.breakdown.candidateSkillsMatchedInJd}/${Math.max(1, formula.breakdown.candidateSkillCount)} listed skills appear in the JD.)`;
 
-  const { score: aiScore, rationale: baseRationale } = await runLlmJdMatch(cv, jd, {
-    heuristicSuffix: formulaContext,
-  });
-
   const formulaScore = formula.score;
+
+  if (!isLlmInferenceConfigured()) {
+    const note = llmInferenceDisabledReason();
+    const rationale = `${formula.summary} ${note} Using formula anchor only (score ${formulaScore}).`.slice(
+      0,
+      1000,
+    );
+    return {
+      score: formulaScore,
+      rationale,
+      aiScore: formulaScore,
+      formulaScore,
+    };
+  }
+
+  let aiScore: number;
+  let baseRationale: string;
+  try {
+    const out = await runLlmJdMatch(cv, jd, { heuristicSuffix: formulaContext });
+    aiScore = out.score;
+    baseRationale = out.rationale;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const rationale =
+      `${formula.summary} AI scoring failed; using formula anchor only (${msg.slice(0, 240)}). Score ${formulaScore}.`.slice(
+        0,
+        1000,
+      );
+    return {
+      score: formulaScore,
+      rationale,
+      aiScore: formulaScore,
+      formulaScore,
+    };
+  }
+
   const score = blend
     ? blendAiAndFormulaScores(aiScore, formulaScore)
     : aiScore;
