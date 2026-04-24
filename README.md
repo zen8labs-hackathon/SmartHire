@@ -29,9 +29,10 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key (`sb_publishable_...`; Settings → API Keys). Legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still read if unset. |
 | `SUPABASE_SECRET_KEY` | Secret key (`sb_secret_...`) or legacy `SUPABASE_SERVICE_ROLE_KEY` JWT — **server only**. Needed for the admin “add user” action. |
 | `SUPABASE_DATABASE_URL` | Optional locally: Postgres URI for `npm run db:migrate` (see [.env.example](.env.example)). **Required on Vercel** if you use auto-migrations on build. From **Settings → Database → Connection string** (URI), typically `postgresql://postgres:[PASSWORD]@db.<project-ref>.supabase.co:5432/postgres`. |
-| `LLM_PROVIDER` | Which LLM backend the Next.js app uses. Default `vercel_gateway`. Value `gemini` is reserved (not implemented yet; inference stays off). |
-| `LLM_MODEL` | Optional **global** [AI Gateway](https://vercel.com/docs/ai-gateway) catalog model id for `vercel_gateway` (JD extraction, evaluation fill, JD–CV match). If unset, falls back to `AI_GATEWAY_JD_MATCH_MODEL`, then `openai/gpt-4o-mini`. |
+| `LLM_PROVIDER` | Which LLM backend the Next.js app uses. Default `vercel_gateway`. Supported values: `vercel_gateway`, `gemini` (direct Google AI Studio). |
+| `LLM_MODEL` | Optional **global** model id for the selected provider. For `vercel_gateway`, use [AI Gateway catalog ids](https://vercel.com/ai-gateway/models) (e.g. `openai/gpt-4o-mini`). For `gemini`, use Gemini ids (e.g. `gemini-2.0-flash`). If unset: falls back to `AI_GATEWAY_JD_MATCH_MODEL`, then provider default (`openai/gpt-4o-mini` for gateway, `gemini-2.0-flash` for Gemini). |
 | `AI_GATEWAY_API_KEY` | [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) key — **server only**. Powers JD document extraction and LLM-assisted **CV vs job-description match** when set; without it, JD match uses the **formula anchor only** (still stored as a completed score). |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI Studio API key — **server only**. Required when `LLM_PROVIDER=gemini`. |
 | `AI_GATEWAY_JD_MATCH_MODEL` | Legacy optional model id; used only when `LLM_MODEL` is unset (default `openai/gpt-4o-mini`). |
 | `JD_MATCH_AI_WEIGHT` | When the LLM is available, blend weight for hybrid JD match (0–1, default `0.65`). |
 

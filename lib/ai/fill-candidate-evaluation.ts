@@ -10,7 +10,7 @@ import {
   structuredEvaluationToDocumentSections,
 } from "@/lib/evaluation/evaluation-section-template";
 import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
-import { getVercelGatewayLanguageModel, isLlmInferenceConfigured } from "@/lib/llm";
+import { getConfiguredLanguageModel, isLlmInferenceConfigured } from "@/lib/llm";
 import { z } from "zod";
 
 const UNICODE_FONT_ERROR =
@@ -67,7 +67,7 @@ export async function buildEvaluationFillPayload(params: {
     };
   }
 
-  const model = getVercelGatewayLanguageModel();
+  const model = getConfiguredLanguageModel();
   const fieldList =
     params.formFieldNames.length > 0
       ? params.formFieldNames.map((n) => `- ${n}`).join("\n")
