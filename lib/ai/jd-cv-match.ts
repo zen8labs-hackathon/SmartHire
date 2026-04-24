@@ -7,7 +7,7 @@ import {
   type JdMatchFormulaResult,
 } from "@/lib/candidates/jd-match-formula";
 import {
-  getVercelGatewayLanguageModel,
+  getConfiguredLanguageModel,
   isLlmInferenceConfigured,
   llmInferenceDisabledReason,
 } from "@/lib/llm";
@@ -32,7 +32,7 @@ async function runLlmJdMatch(
   jd: string,
   options?: { heuristicSuffix?: string },
 ): Promise<{ score: number; rationale: string }> {
-  const model = getVercelGatewayLanguageModel();
+  const model = getConfiguredLanguageModel();
   const suffix = options?.heuristicSuffix?.trim() ?? "";
   const systemBase = `You are an experienced technical recruiter. Compare the candidate summary to the job description.
 Score 0–100 for overall fit: required skills, experience level, education, and role alignment.

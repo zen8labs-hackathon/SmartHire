@@ -14,7 +14,7 @@ import {
 } from "@/lib/jd/parse-jd-headers";
 import { SYSTEM_PROMPT } from "@/lib/ai/extract-jd-system-prompt";
 import {
-  getVercelGatewayLanguageModel,
+  getConfiguredLanguageModel,
   isLlmInferenceConfigured,
 } from "@/lib/llm";
 
@@ -265,7 +265,7 @@ export async function extractJdFromDocument(text: string): Promise<ExtractedJd> 
 }
 
 export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
-  const model = getVercelGatewayLanguageModel();
+  const model = getConfiguredLanguageModel();
 
   // Truncate to ~12 000 chars to stay within token budget
   const truncated =

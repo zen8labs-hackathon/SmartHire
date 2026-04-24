@@ -1,8 +1,23 @@
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+
+import { getGlobalLlmModelId } from "@/lib/llm/config";
+
+export const GEMINI_API_KEY_MISSING_MESSAGE =
+  "GOOGLE_GENERATIVE_AI_API_KEY is not configured for LLM_PROVIDER=gemini.";
+
 /**
- * Placeholder for direct Google AI Studio (Gemini) integration.
- *
- * Implement on a follow-up branch (e.g. `@ai-sdk/google` + `GOOGLE_GENERATIVE_AI_API_KEY`).
- * Until then, set `LLM_PROVIDER=vercel_gateway` (or leave unset) for live LLM calls.
+ * Direct Google AI Studio provider (Gemini).
+ * Requires `GOOGLE_GENERATIVE_AI_API_KEY`.
  */
-export const GEMINI_LLM_NOT_IMPLEMENTED_MESSAGE =
-  "LLM_PROVIDER=gemini is not implemented yet. Use LLM_PROVIDER=vercel_gateway (default) with AI_GATEWAY_API_KEY, or leave LLM_PROVIDER unset.";
+export function createGeminiClient() {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error(GEMINI_API_KEY_MISSING_MESSAGE);
+  }
+  return createGoogleGenerativeAI({ apiKey });
+}
+
+/** Language model handle for globally configured Gemini model id. */
+export function getGeminiLanguageModel(modelId = getGlobalLlmModelId()) {
+  return createGeminiClient()(modelId);
+}
