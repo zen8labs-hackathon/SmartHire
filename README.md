@@ -28,7 +28,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_URL` | Project URL (Settings → API) |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key (`sb_publishable_...`; Settings → API Keys). Legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still read if unset. |
 | `SUPABASE_SECRET_KEY` | Secret key (`sb_secret_...`) or legacy `SUPABASE_SERVICE_ROLE_KEY` JWT — **server only**. Needed for the admin “add user” action. |
-| `SUPABASE_DATABASE_URL` | Optional locally: Postgres URI for `npm run db:migrate` (see [.env.example](.env.example)). **Required on Vercel** if you use auto-migrations on build. From **Settings → Database → Connection string** (URI), typically `postgresql://postgres:[PASSWORD]@db.<project-ref>.supabase.co:5432/postgres`. |
+| `SUPABASE_DATABASE_URL` | Optional locally: Postgres URI for `npm run db:migrate` (see [.env.example](.env.example)). Required only when running the migration script. From **Settings → Database → Connection string** (URI), typically `postgresql://postgres:[PASSWORD]@db.<project-ref>.supabase.co:5432/postgres`. |
 | `LLM_PROVIDER` | Which LLM backend the Next.js app uses. Default `vercel_gateway`. Supported values: `vercel_gateway`, `gemini` (direct Google AI Studio). |
 | `LLM_MODEL` | Optional **global** model id for the selected provider. For `vercel_gateway`, use [AI Gateway catalog ids](https://vercel.com/ai-gateway/models) (e.g. `openai/gpt-4o-mini`). For `gemini`, use Gemini ids (e.g. `gemini-2.0-flash`). If unset: falls back to `AI_GATEWAY_JD_MATCH_MODEL`, then provider default (`openai/gpt-4o-mini` for gateway, `gemini-2.0-flash` for Gemini). |
 | `AI_GATEWAY_API_KEY` | [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) key — **server only**. Powers JD document extraction and LLM-assisted **CV vs job-description match** when set; without it, JD match uses the **formula anchor only** (still stored as a completed score). |
@@ -93,24 +93,24 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## 5. Deploy to Vercel
+## 5. Deploy
 
-1. Push this repository to GitHub (or GitLab/Bitbucket) and import the repo in [Vercel](https://vercel.com).  
-2. Set the environment variables in the Vercel project (**Settings → Environment Variables**), including `SUPABASE_SECRET_KEY` if you use `/admin`.  
+1. Push this repository to GitHub (or GitLab/Bitbucket) and import it in your hosting platform (Vercel, Cloudflare Pages, etc.).  
+2. Set environment variables for each environment (production and preview), including `SUPABASE_SECRET_KEY` if you use `/admin`.  
 3. Redeploy after changing env vars.
 
-### Auto database migrations on build
+### Database migrations (explicit step; not part of build)
 
-Each `npm run build` on Vercel (including **preview** deployments for branches) runs [`scripts/apply-vercel-migrations.mjs`](scripts/apply-vercel-migrations.mjs) first. It applies any pending `supabase/migrations/*.sql` files in order, tracked in `public._smart_hire_schema_migrations`.
+Use [`scripts/apply-vercel-migrations.mjs`](scripts/apply-vercel-migrations.mjs) explicitly via `npm run db:migrate`.  
+Do this before production deploys (ideally in CI), instead of coupling schema changes to app build output.
 
 | Variable | Purpose |
 |----------|---------|
 | `SUPABASE_DATABASE_URL` | **Postgres connection URI** from **Settings → Database → Connection string → URI** (same details as the dashboard “Code” snippet: host `db.<project-ref>.supabase.co`, port **5432**, database `postgres`, user `postgres`). Example: `postgresql://postgres:[YOUR-PASSWORD]@db.YOUR_PROJECT_REF.supabase.co:5432/postgres`. Prefer **direct** `5432` for DDL; the transaction pooler (`6543`) can fail on some migrations. |
 | `SKIP_DB_MIGRATIONS` | Set to `1` or `true` to skip migration step (debug only). |
 
-If `SUPABASE_DATABASE_URL` is **not** set on Vercel, the script logs a warning and **skips** migrations so existing projects keep deploying. To enable auto-migrate, add the URI for the environments you want (**Production** vs **Preview**).
-
-**Important:** Point **Preview** at a **staging** Supabase project (or omit the URL for Preview) if you do not want every branch deploy to migrate **production** data.
+If `SUPABASE_DATABASE_URL` is not set, the migration script skips safely.
+Point preview deployments to a staging Supabase project (or skip migrations in preview) to avoid accidental production schema changes.
 
 You can run the same step locally when the URL is set: `npm run db:migrate`.
 
@@ -125,6 +125,12 @@ Supabase publishes optional [agent skills](https://supabase.com/docs/guides/gett
 ```bash
 npx skills add supabase/agent-skills
 ```
+
+### Host migration guide
+
+For a detailed Vercel -> Cloudflare Pages migration runbook (env matrix, canary rollout, DNS cutover, rollback), see:
+
+- [`docs/deployment/cloudflare-pages-migration.md`](docs/deployment/cloudflare-pages-migration.md)
 
 ### Vercel MCP
 
@@ -153,8 +159,10 @@ Use the HeroUI MCP or [component docs](https://heroui.com/docs/react/getting-sta
 | Command | Purpose |
 |---------|---------|
 | `npm run dev` | Development server |
-| `npm run build` | Apply pending DB migrations (if configured), then production build |
+| `npm run build` | Production app build only |
 | `npm run db:migrate` | Apply pending migrations only (needs `SUPABASE_DATABASE_URL` or `DATABASE_URL`) |
+| `npm run deploy:prepare` | Convenience command: migrate DB, then build app |
+| `npm run deploy:build` | Alias for `npm run build` |
 | `npm run start` | Start production server |
 | `npm run lint` | ESLint |
 

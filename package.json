@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/apply-vercel-migrations.mjs && next build",
+    "build": "next build",
     "db:migrate": "node scripts/apply-vercel-migrations.mjs",
+    "deploy:build": "npm run build",
+    "deploy:prepare": "npm run db:migrate && npm run build",
     "start": "next start",
     "lint": "eslint"
   },
