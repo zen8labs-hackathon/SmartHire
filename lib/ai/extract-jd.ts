@@ -1,7 +1,6 @@
 import "@/lib/ai/pdf-node-polyfill";
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
-import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
@@ -14,19 +13,10 @@ import {
   sliceWhatWeOfferBlock,
 } from "@/lib/jd/parse-jd-headers";
 import { SYSTEM_PROMPT } from "@/lib/ai/extract-jd-system-prompt";
-
-// ---------------------------------------------------------------------------
-// Vercel AI Gateway provider
-// ---------------------------------------------------------------------------
-
-function getGateway() {
-  const apiKey = process.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is not configured.");
-  return createOpenAI({
-    apiKey,
-    baseURL: "https://ai-gateway.vercel.sh/v1",
-  });
-}
+import {
+  getVercelGatewayLanguageModel,
+  isLlmInferenceConfigured,
+} from "@/lib/llm";
 
 // ---------------------------------------------------------------------------
 // Text extraction from file buffer
@@ -260,9 +250,8 @@ export function mergeHeuristicAndAi(rawText: string, ai: ExtractedJd): Extracted
  */
 export async function extractJdFromDocument(text: string): Promise<ExtractedJd> {
   const trimmed = text.trim();
-  const key = process.env.AI_GATEWAY_API_KEY?.trim();
   let merged: ExtractedJd;
-  if (!key) {
+  if (!isLlmInferenceConfigured()) {
     merged = mergeHeuristicAndAi(trimmed, EMPTY_EXTRACTED);
   } else {
     try {
@@ -276,14 +265,14 @@ export async function extractJdFromDocument(text: string): Promise<ExtractedJd> 
 }
 
 export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
-  const gateway = getGateway();
+  const model = getVercelGatewayLanguageModel();
 
   // Truncate to ~12 000 chars to stay within token budget
   const truncated =
     text.length > 12_000 ? text.slice(0, 12_000) + "\n…[truncated]" : text;
 
   const { output } = await generateText({
-    model: gateway("openai/gpt-4o"),
+    model,
     output: Output.object({
       name: "job_description_extraction",
       description: "Structured data extracted from a job description document",
