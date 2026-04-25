@@ -73,11 +73,14 @@ function jdCampaignLabelFromRow(r: CandidateDbRow): string {
 }
 
 function asCandidateStatus(s: string): CandidateStatus {
-  if (s === "Shortlisted" || s === "Interviewing") return s;
-  if (s === "Offer") return "Offer";
-  if (s === "Failed") return "Failed";
-  if (s === "Matched") return "Matched";
-  if (s === "Rejected") return "Rejected";
+  const normalized = s.trim().toLowerCase();
+  if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "interviewing") return "Interviewing";
+  if (normalized === "offer") return "Offer";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "matched") return "Matched";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "new") return "New";
   return "New";
 }
 

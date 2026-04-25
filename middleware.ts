@@ -7,6 +7,7 @@ import { getSupabasePublishableKey } from "@/lib/supabase/env";
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = getSupabasePublishableKey();
+  const path = request.nextUrl.pathname;
 
   if (!url || !key) {
     return NextResponse.next({ request });
@@ -31,11 +32,17 @@ export async function middleware(request: NextRequest) {
     },
   });
 
+  const needsAuthCheck =
+    path === "/signup" || path.startsWith("/admin") || path.startsWith("/dashboard");
+
+  // Avoid a network call on public routes to keep local dev responsive.
+  if (!needsAuthCheck) {
+    return supabaseResponse;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const path = request.nextUrl.pathname;
 
   if (path === "/signup") {
     if (user) {
@@ -67,12 +74,6 @@ export async function middleware(request: NextRequest) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("next", path);
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  if (user && path === "/login") {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/dashboard";
     return NextResponse.redirect(redirectUrl);
   }
 
