@@ -73,6 +73,7 @@ export async function POST(request: Request) {
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
     .select("id, job_opening_id, status, interview_at, onboarding_at")
+    .eq("is_active", true)
     .in("id", uniqueIds);
 
   if (loadError) {

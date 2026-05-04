@@ -76,6 +76,33 @@ function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
   return out;
 }
 
+async function sha256ToHex(data: BufferSource): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function cvContentSha256Hex(plain: string): Promise<string> {
+  const normalized = plain
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return sha256ToHex(new TextEncoder().encode(normalized));
+}
+
+/** Raw file bytes; returns null if hashing fails so parse can still complete. */
+async function cvFileSha256Hex(bytes: Uint8Array): Promise<string | null> {
+  try {
+    return await sha256ToHex(bytes);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[process-cv] cv_file_sha256 failed:", msg);
+    return null;
+  }
+}
+
 async function extractPlainText(
   bytes: Uint8Array,
   mime: string | null,
@@ -307,6 +334,8 @@ Deno.serve(async (req) => {
 
     const ab = await fileBlob.arrayBuffer();
     const bytes = new Uint8Array(ab);
+    const cvFileSha256 = await cvFileSha256Hex(bytes);
+
     const plain = await extractPlainText(
       bytes,
       row.mime_type,
@@ -316,6 +345,8 @@ Deno.serve(async (req) => {
     if (!plain || plain.length < 20) {
       throw new Error("Could not extract enough text from the document");
     }
+
+    const cvContentSha256 = await cvContentSha256Hex(plain);
 
     const parsed = await grokParseResume(plain);
     if (!parsed) {
@@ -337,6 +368,8 @@ Deno.serve(async (req) => {
         skills: parsed.skills.length ? parsed.skills : [],
         degree: parsed.degree,
         school: parsed.school,
+        cv_content_sha256: cvContentSha256,
+        cv_file_sha256: cvFileSha256,
       })
       .eq("id", candidateId);
 

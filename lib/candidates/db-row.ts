@@ -48,6 +48,10 @@ export type CandidateDbRow = {
   interview_at?: string | null;
   onboarding_at?: string | null;
   cv_uploaded_at?: string | null;
+  /** SHA-256 hex of raw file bytes; set by process-cv after download. */
+  cv_file_sha256?: string | null;
+  /** SHA-256 hex of normalized plain text; set by process-cv after extract. */
+  cv_content_sha256?: string | null;
   created_at: string;
   updated_at: string;
 };

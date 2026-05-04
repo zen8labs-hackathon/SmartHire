@@ -45,6 +45,7 @@ export async function GET(request: Request) {
   let query = auth.supabase
     .from("candidates")
     .select(ADMIN_CANDIDATES_SELECT)
+    .eq("is_active", true)
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 

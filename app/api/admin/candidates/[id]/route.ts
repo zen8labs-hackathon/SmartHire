@@ -64,7 +64,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
-    .select("id, status, interview_at, onboarding_at")
+    .select("id, status, interview_at, onboarding_at, is_active")
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -73,6 +73,9 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
   if (!existing) {
     return Response.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!existing.is_active) {
+    return Response.json({ error: "Archived candidate cannot be updated." }, { status: 409 });
   }
 
   const prev = {
@@ -135,7 +138,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
   const { data: row, error: fetchErr } = await auth.supabase
     .from("candidates")
-    .select("cv_storage_path")
+    .select("cv_storage_path, is_active")
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -144,6 +147,9 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   }
   if (!row) {
     return Response.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!row.is_active) {
+    return Response.json({ error: "Archived candidate cannot be deleted." }, { status: 409 });
   }
 
   const path = (row.cv_storage_path as string | null | undefined)?.trim();
