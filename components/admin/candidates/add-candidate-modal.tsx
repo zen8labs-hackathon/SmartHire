@@ -17,12 +17,17 @@ import {
 } from "@heroui/react";
 
 import type { ParsingStatus } from "@/lib/candidates/db-row";
+import type {
+  DuplicateCandidateHit,
+  DuplicateNewUploadPreview,
+} from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
 import {
   CV_BUCKET,
   MAX_CV_BYTES,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
+import { DuplicateCandidateModal } from "@/components/admin/candidates/duplicate-candidate-modal";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -52,12 +57,10 @@ type QueueRow = {
   parsing_error?: string | null;
 };
 
-type DuplicateCandidateHit = {
-  id: string;
-  name: string;
-  status: string;
-  cvUploadedAt: string | null;
-  matchedOn: "email" | "phone" | "email_or_phone" | "cv_content" | "cv_file";
+type DuplicateFlowState = {
+  newCandidateId: string;
+  hit: DuplicateCandidateHit;
+  newUpload: DuplicateNewUploadPreview;
 };
 
 function formatBytes(n: number) {
@@ -152,6 +155,10 @@ export function AddCandidateModal({
   const supabase = useMemo(() => createClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queueIdsRef = useRef<Set<string>>(new Set());
+  const duplicateResolveRef = useRef<
+    ((outcome: "skip" | "replaced") => void) | null
+  >(null);
+  const duplicatePayloadRef = useRef<DuplicateFlowState | null>(null);
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
   const [jobKey, setJobKey] = useState<string>("__none__");
@@ -159,6 +166,10 @@ export function AddCandidateModal({
   const [sourceOther, setSourceOther] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [duplicateFlow, setDuplicateFlow] = useState<DuplicateFlowState | null>(
+    null,
+  );
+  const [duplicateSubmitting, setDuplicateSubmitting] = useState(false);
 
   const isJdPipeline = jdPipelineCampaign != null;
   const isCampaignLocked =
@@ -181,6 +192,43 @@ export function AddCandidateModal({
     () => getSessionAuthorizationHeaders(supabase),
     [supabase],
   );
+
+  const finishDuplicate = useCallback((outcome: "skip" | "replaced") => {
+    if (!duplicateResolveRef.current) return;
+    const resolve = duplicateResolveRef.current;
+    duplicateResolveRef.current = null;
+    duplicatePayloadRef.current = null;
+    setDuplicateFlow(null);
+    resolve(outcome);
+  }, []);
+
+  const runDuplicateReplace = useCallback(async () => {
+    const payload = duplicatePayloadRef.current;
+    if (!payload) return;
+    setDuplicateSubmitting(true);
+    try {
+      const procAuth = await sessionAuthHeaders();
+      const repRes = await fetch(
+        `/api/admin/candidates/${payload.newCandidateId}/replace`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...procAuth },
+          body: JSON.stringify({
+            previousCandidateId: payload.hit.id,
+            matchedOn: payload.hit.matchedOn,
+          }),
+        },
+      );
+      const repJson = (await repRes.json()) as { error?: string };
+      if (!repRes.ok) {
+        throw new Error(repJson.error ?? "Failed to replace duplicated CV");
+      }
+      finishDuplicate("replaced");
+    } finally {
+      setDuplicateSubmitting(false);
+    }
+  }, [sessionAuthHeaders, finishDuplicate]);
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();
@@ -346,6 +394,7 @@ export function AddCandidateModal({
       const procJson = (await procRes.json()) as {
         error?: string;
         duplicateCandidates?: DuplicateCandidateHit[];
+        duplicateNewUpload?: DuplicateNewUploadPreview | null;
       };
       if (!procRes.ok) {
         throw new Error(procJson.error ?? "Failed to start processing");
@@ -353,41 +402,23 @@ export function AddCandidateModal({
 
       const duplicates = procJson.duplicateCandidates ?? [];
       if (duplicates.length > 0) {
-        const first = duplicates[0];
-        const matchedLabel =
-          first.matchedOn === "email_or_phone"
-            ? "email/phone"
-            : first.matchedOn === "cv_content"
-              ? "same CV text (hash)"
-              : first.matchedOn === "cv_file"
-                ? "File đã tồn tại (cùng nội dung file)"
-                : first.matchedOn;
-        const shouldReplace =
-          first.matchedOn === "cv_file"
-            ? window.confirm(
-                `File đã tồn tại trong hệ thống (trùng hash file với ứng viên: ${first.name}, trạng thái: ${first.status}).\n\nNhấn OK để thay CV cũ và đặt trạng thái về Mới.\nNhấn Cancel để giữ CV vừa tải như một ứng viên mới.`,
-              )
-            : window.confirm(
-                `Found duplicated candidate by ${matchedLabel}: ${first.name} (${first.status}).\n\nPress OK to replace old CV and reset status to New.\nPress Cancel to keep uploaded CV as a new candidate.`,
-              );
-        if (shouldReplace) {
-          const repRes = await fetch(
-            `/api/admin/candidates/${candidateId}/replace`,
-            {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json", ...procAuth },
-              body: JSON.stringify({
-                previousCandidateId: first.id,
-                matchedOn: first.matchedOn,
-              }),
-            },
-          );
-          const repJson = (await repRes.json()) as { error?: string };
-          if (!repRes.ok) {
-            throw new Error(repJson.error ?? "Failed to replace duplicated CV");
-          }
-        }
+        const newUpload: DuplicateNewUploadPreview =
+          procJson.duplicateNewUpload ?? {
+            email: null,
+            phone: null,
+            parsedRole: null,
+            cvUploadedAt: null,
+          };
+        const flow: DuplicateFlowState = {
+          newCandidateId: candidateId,
+          hit: duplicates[0],
+          newUpload,
+        };
+        duplicatePayloadRef.current = flow;
+        await new Promise<"skip" | "replaced">((resolve) => {
+          duplicateResolveRef.current = resolve;
+          setDuplicateFlow(flow);
+        });
       }
 
       setQueue((q) =>
@@ -423,6 +454,7 @@ export function AddCandidateModal({
   };
 
   return (
+    <>
     <Modal state={modalState}>
       <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
         <Modal.Container className="w-full">
@@ -725,5 +757,20 @@ export function AddCandidateModal({
         </Modal.Container>
       </Modal.Backdrop>
     </Modal>
+    {duplicateFlow ? (
+      <DuplicateCandidateModal
+        key={`${duplicateFlow.newCandidateId}-${duplicateFlow.hit.id}`}
+        open
+        onOpenChange={(next) => {
+          if (!next) finishDuplicate("skip");
+        }}
+        hit={duplicateFlow.hit}
+        newUpload={duplicateFlow.newUpload}
+        isSubmitting={duplicateSubmitting}
+        onUpdateExisting={runDuplicateReplace}
+        onCreateNew={() => finishDuplicate("skip")}
+      />
+    ) : null}
+    </>
   );
 }
