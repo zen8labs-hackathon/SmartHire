@@ -52,6 +52,14 @@ type QueueRow = {
   parsing_error?: string | null;
 };
 
+type DuplicateCandidateHit = {
+  id: string;
+  name: string;
+  status: string;
+  cvUploadedAt: string | null;
+  matchedOn: "email" | "phone" | "email_or_phone" | "cv_content" | "cv_file";
+};
+
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -335,9 +343,51 @@ export function AddCandidateModal({
           headers: { ...procAuth },
         },
       );
-      const procJson = (await procRes.json()) as { error?: string };
+      const procJson = (await procRes.json()) as {
+        error?: string;
+        duplicateCandidates?: DuplicateCandidateHit[];
+      };
       if (!procRes.ok) {
         throw new Error(procJson.error ?? "Failed to start processing");
+      }
+
+      const duplicates = procJson.duplicateCandidates ?? [];
+      if (duplicates.length > 0) {
+        const first = duplicates[0];
+        const matchedLabel =
+          first.matchedOn === "email_or_phone"
+            ? "email/phone"
+            : first.matchedOn === "cv_content"
+              ? "same CV text (hash)"
+              : first.matchedOn === "cv_file"
+                ? "File đã tồn tại (cùng nội dung file)"
+                : first.matchedOn;
+        const shouldReplace =
+          first.matchedOn === "cv_file"
+            ? window.confirm(
+                `File đã tồn tại trong hệ thống (trùng hash file với ứng viên: ${first.name}, trạng thái: ${first.status}).\n\nNhấn OK để thay CV cũ và đặt trạng thái về Mới.\nNhấn Cancel để giữ CV vừa tải như một ứng viên mới.`,
+              )
+            : window.confirm(
+                `Found duplicated candidate by ${matchedLabel}: ${first.name} (${first.status}).\n\nPress OK to replace old CV and reset status to New.\nPress Cancel to keep uploaded CV as a new candidate.`,
+              );
+        if (shouldReplace) {
+          const repRes = await fetch(
+            `/api/admin/candidates/${candidateId}/replace`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json", ...procAuth },
+              body: JSON.stringify({
+                previousCandidateId: first.id,
+                matchedOn: first.matchedOn,
+              }),
+            },
+          );
+          const repJson = (await repRes.json()) as { error?: string };
+          if (!repRes.ok) {
+            throw new Error(repJson.error ?? "Failed to replace duplicated CV");
+          }
+        }
       }
 
       setQueue((q) =>

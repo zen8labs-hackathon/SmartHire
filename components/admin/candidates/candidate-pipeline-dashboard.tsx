@@ -58,6 +58,18 @@ type JobOpeningApiRow = {
   displayTitle?: string | null;
 };
 
+type CandidateCvHistoryRow = {
+  id: number;
+  previousCandidateId: string;
+  previousStatus: string;
+  newStatus: string;
+  matchedOn: string;
+  previousFilename: string | null;
+  previousCvUploadedAt: string | null;
+  replacedByEmail: string | null;
+  replacedAt: string | null;
+};
+
 const ROWS_PER_PAGE = 4;
 
 const STATUS_ORDER: CandidateStatus[] = [
@@ -175,6 +187,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
+  const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
+  const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
+  const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
   const [jobOpeningOptions, setJobOpeningOptions] = useState<JobOpeningFilterOption[]>([]);
   const [jobOpeningsLoadState, setJobOpeningsLoadState] =
@@ -278,6 +293,49 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
       setCalendarFocusedDate(uploadDateRangeFilter.start);
     }
   }, [uploadDateRangeFilter]);
+
+  useEffect(() => {
+    if (!activeRow) {
+      setCvHistoryRows([]);
+      setCvHistoryError(null);
+      setCvHistoryLoading(false);
+      return;
+    }
+    let disposed = false;
+    setCvHistoryLoading(true);
+    setCvHistoryError(null);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${activeRow.id}/cv-history`, {
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          error?: string;
+          history?: CandidateCvHistoryRow[];
+        };
+        if (!res.ok) {
+          throw new Error(json.error ?? "Could not load CV history.");
+        }
+        if (!disposed) {
+          setCvHistoryRows(json.history ?? []);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setCvHistoryRows([]);
+          setCvHistoryError(
+            error instanceof Error ? error.message : "Could not load CV history.",
+          );
+        }
+      } finally {
+        if (!disposed) {
+          setCvHistoryLoading(false);
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, [activeRow]);
 
   const allowedJobOpeningIds = useMemo(
     () => new Set(jobOpeningOptions.map((opt) => opt.id)),
@@ -1120,6 +1178,50 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                     <p className="mt-1 text-sm text-muted">
                       {activeRow.sourceLabel}
                     </p>
+                  </section>
+                  <Separator />
+                  <section>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      CV history / status updates
+                    </h3>
+                    {cvHistoryLoading ? (
+                      <p className="mt-2 text-sm text-muted">Loading history…</p>
+                    ) : cvHistoryError ? (
+                      <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
+                        {cvHistoryError}
+                      </p>
+                    ) : cvHistoryRows.length === 0 ? (
+                      <p className="mt-2 text-sm text-muted">
+                        No CV replacements yet.
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-3">
+                        {cvHistoryRows.map((item) => (
+                          <div key={item.id} className="rounded-lg border border-divider p-3">
+                            <p className="text-sm font-medium text-foreground">
+                              Status reset: {item.previousStatus} -&gt; {item.newStatus}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted">
+                              Match: {item.matchedOn} •{" "}
+                              {formatUploadedAtDisplay(item.replacedAt)}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted">
+                              By: {item.replacedByEmail ?? "System"}
+                            </p>
+                            <div className="mt-1.5">
+                              <a
+                                href={`/api/admin/candidates/${item.previousCandidateId}/cv-download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                              >
+                                View old CV{item.previousFilename ? ` (${item.previousFilename})` : ""}
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </section>
                   <Separator />
                   <section>
