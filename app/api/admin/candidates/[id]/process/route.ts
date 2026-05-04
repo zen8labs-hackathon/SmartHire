@@ -7,10 +7,12 @@ import {
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import {
+  duplicateNewUploadPreviewFromRow,
   findDuplicateCandidateHits,
   shouldFetchCandidatesForDedupe,
   type CandidateDedupeRow,
   type DuplicateCandidateHit,
+  type DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
@@ -180,6 +182,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   let duplicateCandidates: DuplicateCandidateHit[] = [];
+  let duplicateNewUpload: DuplicateNewUploadPreview | null = null;
   const { data: currentRow, error: currentErr } = await auth.supabase
     .from("candidates")
     .select(
@@ -206,6 +209,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         );
       }
     }
+    if (duplicateCandidates.length > 0) {
+      duplicateNewUpload = duplicateNewUploadPreviewFromRow(currentDedupe);
+    }
   }
 
   const base =
@@ -215,6 +221,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   return Response.json({
     ...base,
     duplicateCandidates,
+    duplicateNewUpload,
     jdMatch: jdMatch.ok
       ? jdMatch.skipped
         ? { skipped: true, reason: jdMatch.reason }
