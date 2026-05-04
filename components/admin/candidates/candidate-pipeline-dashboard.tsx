@@ -12,14 +12,12 @@ import {
   Chip,
   DateField,
   DateRangePicker,
-  Drawer,
   Label,
   ListBox,
   Pagination,
   RangeCalendar,
   SearchField,
   Select,
-  Separator,
   Spinner,
   Table,
   Tooltip,
@@ -28,11 +26,13 @@ import type { RangeValue } from "react-aria-components";
 import { Dialog } from "react-aria-components";
 
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
+import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
 import {
   candidateDisplayInitials,
   candidateStatusChipColor,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
+import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -55,18 +55,6 @@ type JobOpeningApiRow = {
   id: string;
   title: string;
   displayTitle?: string | null;
-};
-
-type CandidateCvHistoryRow = {
-  id: number;
-  previousCandidateId: string;
-  previousStatus: string;
-  newStatus: string;
-  matchedOn: string;
-  previousFilename: string | null;
-  previousCvUploadedAt: string | null;
-  replacedByEmail: string | null;
-  replacedAt: string | null;
 };
 
 const ROWS_PER_PAGE = 4;
@@ -446,6 +434,11 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     const start = (safePage - 1) * ROWS_PER_PAGE;
     return filteredRows.slice(start, start + ROWS_PER_PAGE);
   }, [filteredRows, safePage]);
+
+  const activeDbRow = useMemo(() => {
+    if (!activeRow) return null;
+    return dbRows.find((r) => r.id === activeRow.id) ?? null;
+  }, [activeRow, dbRows]);
 
   const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
@@ -1043,229 +1036,25 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         </Card.Content>
       </Card>
 
-      <Drawer.Backdrop isOpen={drawerOpen} onOpenChange={setDrawerOpen}>
-        <Drawer.Content placement="right">
-          <Drawer.Dialog className="w-full max-w-md sm:max-w-lg">
-            <Drawer.CloseTrigger />
-            {activeRow ? (
-              <>
-                <Drawer.Header>
-                  <div className="flex items-center gap-3">
-                    <Avatar className="size-12" size="lg">
-                      {activeRow.avatarUrl ? (
-                        <Avatar.Image alt="" src={activeRow.avatarUrl} />
-                      ) : null}
-                      <Avatar.Fallback>
-                        {candidateDisplayInitials(activeRow.name)}
-                      </Avatar.Fallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <Drawer.Heading className="truncate">
-                        {activeRow.name}
-                      </Drawer.Heading>
-                      <p className="text-sm text-muted">{activeRow.role}</p>
-                    </div>
-                  </div>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={candidateStatusChipColor(activeRow.status)}
-                    className="mt-2 w-fit uppercase"
-                  >
-                    {activeRow.status}
-                  </Chip>
-                </Drawer.Header>
-                <Drawer.Body className="flex flex-col gap-6">
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Status
-                    </h3>
-                    <div className="mt-2 max-w-xs">
-                      <Select
-                        value={activeRow.status}
-                        isDisabled={
-                          statusUpdateBusy || dbLoadState === "error"
-                        }
-                        onChange={(key) => {
-                          if (key == null || typeof key !== "string") return;
-                          void patchCandidateStatus(key as CandidateStatus);
-                        }}
-                      >
-                        <Label className="sr-only">Pipeline status</Label>
-                        <Select.Trigger className="w-full">
-                          <Select.Value />
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {drawerStatusOptions.map((s) => (
-                              <ListBox.Item
-                                key={s}
-                                id={s}
-                                textValue={s}
-                              >
-                                {s}
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                      {statusUpdateBusy ? (
-                        <p className="mt-1.5 text-xs text-muted">Updating…</p>
-                      ) : null}
-                      {statusUpdateError ? (
-                        <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">
-                          {statusUpdateError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Experience
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.experienceYears} years
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Key skills
-                    </h3>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {activeRow.skills.map((s) => (
-                        <Chip key={s} size="sm" variant="soft" color="accent">
-                          {s}
-                        </Chip>
-                      ))}
-                      {activeRow.moreSkills ? (
-                        <Chip size="sm" variant="soft" color="accent">
-                          +{activeRow.moreSkills} more
-                        </Chip>
-                      ) : null}
-                    </div>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Education
-                    </h3>
-                    <p className="mt-1 text-sm text-foreground">
-                      {activeRow.degree}
-                    </p>
-                    <p className="text-xs font-bold uppercase text-muted">
-                      {activeRow.school}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Applied JD
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.jdCampaignLabel}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Sourced from
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.sourceLabel}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      CV history / status updates
-                    </h3>
-                    {cvHistoryLoading ? (
-                      <p className="mt-2 text-sm text-muted">Loading history…</p>
-                    ) : cvHistoryError ? (
-                      <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
-                        {cvHistoryError}
-                      </p>
-                    ) : cvHistoryRows.length === 0 ? (
-                      <p className="mt-2 text-sm text-muted">
-                        No CV replacements yet.
-                      </p>
-                    ) : (
-                      <div className="mt-2 space-y-3">
-                        {cvHistoryRows.map((item) => (
-                          <div key={item.id} className="rounded-lg border border-divider p-3">
-                            <p className="text-sm font-medium text-foreground">
-                              Status reset: {item.previousStatus} -&gt; {item.newStatus}
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted">
-                              Match: {item.matchedOn} •{" "}
-                              {formatUploadedAtDisplay(item.replacedAt)}
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted">
-                              By: {item.replacedByEmail ?? "System"}
-                            </p>
-                            <div className="mt-1.5">
-                              <a
-                                href={`/api/admin/candidates/${item.previousCandidateId}/cv-download`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
-                              >
-                                View old CV{item.previousFilename ? ` (${item.previousFilename})` : ""}
-                              </a>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      JD match (AI)
-                    </h3>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={jdMatchChipColor(activeRow)}
-                        className="text-sm font-bold tabular-nums"
-                      >
-                        {activeRow.jdMatchLabel}
-                      </Chip>
-                      {activeRow.jdMatchScore != null ? (
-                        <span className="text-xs text-muted">/ 100</span>
-                      ) : null}
-                    </div>
-                    {activeRow.jdMatchError ? (
-                      <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
-                        {activeRow.jdMatchError}
-                      </p>
-                    ) : activeRow.jdMatchRationale ? (
-                      <p className="mt-2 text-sm leading-relaxed text-muted">
-                        {activeRow.jdMatchRationale}
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted">
-                        No rationale yet. Match runs after the CV is parsed and a
-                        job description is available for the campaign.
-                      </p>
-                    )}
-                  </section>
-                </Drawer.Body>
-                <Drawer.Footer className="flex flex-wrap gap-2">
-                  <Button slot="close" variant="secondary">
-                    Close
-                  </Button>
-                </Drawer.Footer>
-              </>
-            ) : null}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
+      {activeRow ? (
+        <CvVersionComparisonDrawer
+          key={activeRow.id}
+          isOpen={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          tableRow={activeRow}
+          dbRow={activeDbRow}
+          cvHistoryRows={cvHistoryRows}
+          cvHistoryLoading={cvHistoryLoading}
+          cvHistoryError={cvHistoryError}
+          drawerStatusOptions={drawerStatusOptions}
+          statusUpdateBusy={statusUpdateBusy}
+          statusUpdateError={statusUpdateError}
+          dbLoadState={dbLoadState}
+          onStatusChange={(next) => {
+            void patchCandidateStatus(next);
+          }}
+        />
+      ) : null}
 
       <AlertDialog.Backdrop
         isOpen={deleteDialogOpen}
