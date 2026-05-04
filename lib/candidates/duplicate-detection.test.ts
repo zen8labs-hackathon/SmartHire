@@ -106,12 +106,17 @@ describe("findDuplicateCandidateHits", () => {
         job_opening_id: "jo",
         cv_uploaded_at: null,
         created_at: "2025-12-01",
-        parsed_payload: { email: "same@example.com" },
+        parsed_payload: {
+          email: "same@example.com",
+          role: "  UX Designer ",
+        },
       },
     ]);
     expect(hits).toHaveLength(1);
     expect(hits[0]?.matchedOn).toBe("email");
     expect(hits[0]?.id).toBe("old-1");
+    expect(hits[0]?.email).toBe("same@example.com");
+    expect(hits[0]?.parsedRole).toBe("UX Designer");
   });
 
   it("matches cv_content when hashes equal", () => {

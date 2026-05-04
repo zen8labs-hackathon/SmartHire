@@ -36,7 +36,42 @@ export type DuplicateCandidateHit = {
   jobOpeningId: string | null;
   cvUploadedAt: string | null;
   matchedOn: DuplicateMatchedOn;
+  /** Contact / role from the matched (existing) candidate’s parsed CV payload. */
+  email: string | null;
+  phone: string | null;
+  parsedRole: string | null;
 };
+
+/** Snapshot of the newly uploaded row after parse, for duplicate modal comparison. */
+export type DuplicateNewUploadPreview = {
+  email: string | null;
+  phone: string | null;
+  parsedRole: string | null;
+  cvUploadedAt: string | null;
+};
+
+export function roleFromPayload(payload: unknown): string | null {
+  const p =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  const raw = p.role;
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+}
+
+export function duplicateNewUploadPreviewFromRow(
+  row: CandidateDedupeRow,
+): DuplicateNewUploadPreview {
+  const contact = parsedContactFromPayload(row.parsed_payload);
+  return {
+    email: contact.email,
+    phone: contact.phone,
+    parsedRole: roleFromPayload(row.parsed_payload),
+    cvUploadedAt: row.cv_uploaded_at ?? row.created_at ?? null,
+  };
+}
 
 export function normalizeEmailFromPayload(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -166,6 +201,9 @@ export function findDuplicateCandidateHits(
           (row.created_at as string | null) ??
           null,
         matchedOn,
+        email: c.email,
+        phone: c.phone,
+        parsedRole: roleFromPayload(row.parsed_payload),
       } satisfies DuplicateCandidateHit;
     })
     .filter((row): row is DuplicateCandidateHit => row != null);
