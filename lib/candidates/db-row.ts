@@ -48,6 +48,10 @@ export type CandidateDbRow = {
   interview_at?: string | null;
   onboarding_at?: string | null;
   cv_uploaded_at?: string | null;
+  /** SHA-256 hex of raw file bytes; set by process-cv after download. */
+  cv_file_sha256?: string | null;
+  /** SHA-256 hex of normalized plain text; set by process-cv after extract. */
+  cv_content_sha256?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -73,11 +77,14 @@ function jdCampaignLabelFromRow(r: CandidateDbRow): string {
 }
 
 function asCandidateStatus(s: string): CandidateStatus {
-  if (s === "Shortlisted" || s === "Interviewing") return s;
-  if (s === "Offer") return "Offer";
-  if (s === "Failed") return "Failed";
-  if (s === "Matched") return "Matched";
-  if (s === "Rejected") return "Rejected";
+  const normalized = s.trim().toLowerCase();
+  if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "interviewing") return "Interviewing";
+  if (normalized === "offer") return "Offer";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "matched") return "Matched";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "new") return "New";
   return "New";
 }
 

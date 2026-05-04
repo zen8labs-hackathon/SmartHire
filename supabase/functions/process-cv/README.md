@@ -1,6 +1,6 @@
 # `process-cv` Edge Function
 
-Parses uploaded CVs (PDF/DOCX) and fills `public.candidates` using an LLM.
+Parses uploaded CVs (PDF/DOCX) and fills `public.candidates` using an LLM. After download it writes `cv_file_sha256` (SHA-256 of raw file bytes); after text extraction it writes `cv_content_sha256` (SHA-256 of normalized plain text). Both are used for duplicate detection in the Next.js `/process` route.
 
 ## LLM routing (pick one)
 

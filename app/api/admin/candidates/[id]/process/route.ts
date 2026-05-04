@@ -6,10 +6,32 @@ import {
 } from "@supabase/supabase-js";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import {
+  duplicateNewUploadPreviewFromRow,
+  findDuplicateCandidateHits,
+  shouldFetchCandidatesForDedupe,
+  type CandidateDedupeRow,
+  type DuplicateCandidateHit,
+  type DuplicateNewUploadPreview,
+} from "@/lib/candidates/duplicate-detection";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+function candidateRowToDedupe(row: Record<string, unknown>): CandidateDedupeRow {
+  return {
+    id: String(row.id),
+    name: (row.name as string | null) ?? null,
+    status: (row.status as string | null) ?? null,
+    job_opening_id: (row.job_opening_id as string | null) ?? null,
+    cv_uploaded_at: (row.cv_uploaded_at as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    parsed_payload: row.parsed_payload,
+    cv_file_sha256: (row.cv_file_sha256 as string | null) ?? null,
+    cv_content_sha256: (row.cv_content_sha256 as string | null) ?? null,
+  };
+}
 
 async function messageFromInvokeError(error: unknown): Promise<{
   message: string;
@@ -159,12 +181,47 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.warn("[jd-match]", candidateId, jdMatch);
   }
 
+  let duplicateCandidates: DuplicateCandidateHit[] = [];
+  let duplicateNewUpload: DuplicateNewUploadPreview | null = null;
+  const { data: currentRow, error: currentErr } = await auth.supabase
+    .from("candidates")
+    .select(
+      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256",
+    )
+    .eq("id", candidateId)
+    .maybeSingle();
+  if (!currentErr && currentRow) {
+    const currentDedupe = candidateRowToDedupe(
+      currentRow as Record<string, unknown>,
+    );
+    if (shouldFetchCandidatesForDedupe(currentDedupe)) {
+      const { data: others, error: othersErr } = await auth.supabase
+        .from("candidates")
+        .select(
+          "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256",
+        )
+        .eq("is_active", true)
+        .neq("id", candidateId);
+      if (!othersErr && others) {
+        duplicateCandidates = findDuplicateCandidateHits(
+          currentDedupe,
+          (others as Record<string, unknown>[]).map(candidateRowToDedupe),
+        );
+      }
+    }
+    if (duplicateCandidates.length > 0) {
+      duplicateNewUpload = duplicateNewUploadPreviewFromRow(currentDedupe);
+    }
+  }
+
   const base =
     data && typeof data === "object" && !Array.isArray(data)
       ? (data as Record<string, unknown>)
       : { ok: true };
   return Response.json({
     ...base,
+    duplicateCandidates,
+    duplicateNewUpload,
     jdMatch: jdMatch.ok
       ? jdMatch.skipped
         ? { skipped: true, reason: jdMatch.reason }

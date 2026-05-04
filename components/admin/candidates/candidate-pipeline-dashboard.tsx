@@ -1,5 +1,6 @@
 "use client";
 
+import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import type { Key } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -9,25 +10,29 @@ import {
   Button,
   Card,
   Chip,
-  Drawer,
-  Input,
+  DateField,
+  DateRangePicker,
   Label,
   ListBox,
   Pagination,
+  RangeCalendar,
   SearchField,
   Select,
-  Separator,
   Spinner,
   Table,
   Tooltip,
 } from "@heroui/react";
+import type { RangeValue } from "react-aria-components";
+import { Dialog } from "react-aria-components";
 
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
+import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
 import {
   candidateDisplayInitials,
   candidateStatusChipColor,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
+import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -41,18 +46,45 @@ type Props = {
   initialRows?: CandidateDbRow[];
 };
 
+type JobOpeningFilterOption = {
+  id: string;
+  label: string;
+};
+
+type JobOpeningApiRow = {
+  id: string;
+  title: string;
+  displayTitle?: string | null;
+};
+
 const ROWS_PER_PAGE = 4;
 
-const STATUS_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: "all", label: "Status: All" },
-  { id: "New", label: "New" },
-  { id: "Shortlisted", label: "Shortlisted" },
-  { id: "Interviewing", label: "Interviewing" },
-  { id: "Offer", label: "Offer" },
-  { id: "Failed", label: "Failed" },
-  { id: "Matched", label: "Matched" },
-  { id: "Rejected", label: "Rejected" },
+const STATUS_ORDER: CandidateStatus[] = [
+  "New",
+  "Shortlisted",
+  "Interviewing",
+  "Offer",
+  "Failed",
+  "Matched",
+  "Rejected",
 ];
+
+const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 1, label: "Jan" },
+  { value: 2, label: "Feb" },
+  { value: 3, label: "Mar" },
+  { value: 4, label: "Apr" },
+  { value: 5, label: "May" },
+  { value: 6, label: "Jun" },
+  { value: 7, label: "Jul" },
+  { value: 8, label: "Aug" },
+  { value: 9, label: "Sep" },
+  { value: 10, label: "Oct" },
+  { value: 11, label: "Nov" },
+  { value: 12, label: "Dec" },
+];
+
+const YEAR_OPTIONS = Array.from({ length: 2030 - 1990 + 1 }, (_, i) => 1990 + i);
 
 function pageWindow(current: number, total: number, width: number) {
   let start = Math.max(1, current - Math.floor(width / 2));
@@ -126,8 +158,11 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const [query, setQuery] = useState("");
   const [statusKey, setStatusKey] = useState<Key | null>("all");
   const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
-  /** `YYYY-MM-DD` from `<input type="date" />`, or "" when not filtering */
-  const [uploadDateFilter, setUploadDateFilter] = useState("");
+  const [uploadDateRangeFilter, setUploadDateRangeFilter] =
+    useState<RangeValue<CalendarDate> | null>(null);
+  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
+    today(getLocalTimeZone()),
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -139,7 +174,13 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
+  const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
+  const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
+  const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
+  const [jobOpeningOptions, setJobOpeningOptions] = useState<JobOpeningFilterOption[]>([]);
+  const [jobOpeningsLoadState, setJobOpeningsLoadState] =
+    useState<"loading" | "error" | "ok">("loading");
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     initialRows ? "ok" : "loading",
   );
@@ -161,11 +202,47 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     }
   }, []);
 
+  const fetchJobOpenings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/job-openings", { credentials: "include" });
+      if (!res.ok) {
+        setJobOpeningsLoadState("error");
+        return;
+      }
+      const json = (await res.json()) as { jobOpenings?: JobOpeningApiRow[] };
+      const rows = json.jobOpenings ?? [];
+      const baseItems = rows.map((row) => ({
+        id: row.id,
+        label: (row.displayTitle ?? row.title ?? "—").trim() || "—",
+      }));
+      const labelCounts = new Map<string, number>();
+      for (const item of baseItems) {
+        const key = item.label.toLocaleLowerCase();
+        labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+      }
+      const mapped = baseItems
+        .map((item) => {
+          const key = item.label.toLocaleLowerCase();
+          const duplicated = (labelCounts.get(key) ?? 0) > 1;
+          return {
+            id: item.id,
+            label: duplicated ? `${item.label} (${item.id.slice(0, 6)})` : item.label,
+          };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+      setJobOpeningOptions(mapped);
+      setJobOpeningsLoadState("ok");
+    } catch {
+      setJobOpeningsLoadState("error");
+    }
+  }, []);
+
   useEffect(() => {
     // Skip initial fetch if the page already provided server-side data.
     if (!initialRows) {
       void fetchCandidates();
     }
+    void fetchJobOpenings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -196,9 +273,69 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [uploadDateFilter]);
+  }, [uploadDateRangeFilter]);
+
+  useEffect(() => {
+    if (uploadDateRangeFilter?.start) {
+      setCalendarFocusedDate(uploadDateRangeFilter.start);
+    }
+  }, [uploadDateRangeFilter]);
+
+  useEffect(() => {
+    if (!activeRow) {
+      setCvHistoryRows([]);
+      setCvHistoryError(null);
+      setCvHistoryLoading(false);
+      return;
+    }
+    let disposed = false;
+    setCvHistoryLoading(true);
+    setCvHistoryError(null);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${activeRow.id}/cv-history`, {
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          error?: string;
+          history?: CandidateCvHistoryRow[];
+        };
+        if (!res.ok) {
+          throw new Error(json.error ?? "Could not load CV history.");
+        }
+        if (!disposed) {
+          setCvHistoryRows(json.history ?? []);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setCvHistoryRows([]);
+          setCvHistoryError(
+            error instanceof Error ? error.message : "Could not load CV history.",
+          );
+        }
+      } finally {
+        if (!disposed) {
+          setCvHistoryLoading(false);
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, [activeRow]);
+
+  const allowedJobOpeningIds = useMemo(
+    () => new Set(jobOpeningOptions.map((opt) => opt.id)),
+    [jobOpeningOptions],
+  );
 
   const tableSourceRows = useMemo(() => {
+    const isAllowedJob = (jobOpeningId: string | null) => {
+      if (!jobOpeningId) return false;
+      if (jobOpeningsLoadState !== "ok") return true;
+      return allowedJobOpeningIds.has(jobOpeningId);
+    };
+
     if (dbLoadState === "error") {
       const rows = [...CANDIDATE_ROWS];
       rows.sort((a, b) => {
@@ -207,7 +344,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         if (bs !== as) return bs - as;
         return a.name.localeCompare(b.name);
       });
-      return rows;
+      return rows.filter((row) => isAllowedJob(row.jobOpeningId));
     }
     if (dbLoadState !== "ok") {
       return [];
@@ -217,44 +354,63 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
       const tb = new Date(b.cv_uploaded_at ?? b.created_at).getTime();
       return tb - ta;
     });
-    return sortedDb.map(candidateDbRowToTableRow);
-  }, [dbLoadState, dbRows]);
+    return sortedDb
+      .map(candidateDbRowToTableRow)
+      .filter((row) => isAllowedJob(row.jobOpeningId));
+  }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState]);
 
-  const jdFilterOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of tableSourceRows) {
-      if (r.jobOpeningId) {
-        map.set(r.jobOpeningId, r.jdCampaignLabel);
-      }
+  const statusFilterOptions = useMemo(() => {
+    const available = new Set<CandidateStatus>();
+    for (const row of tableSourceRows) {
+      available.add(row.status);
     }
-    const sorted = [...map.entries()].sort((a, b) =>
-      a[1].localeCompare(b[1], undefined, { sensitivity: "base" }),
-    );
     return [
-      { id: "all", label: "JD: All" },
-      { id: "unassigned", label: "Unassigned" },
-      ...sorted.map(([id, label]) => ({ id, label })),
+      { id: "all", label: "Status: All" },
+      ...STATUS_ORDER.filter((status) => available.has(status)).map((status) => ({
+        id: status,
+        label: status,
+      })),
     ];
   }, [tableSourceRows]);
 
+  const jdFilterOptions = useMemo(
+    () => [{ id: "all", label: "JD: All" }, ...jobOpeningOptions],
+    [jobOpeningOptions],
+  );
+
+  useEffect(() => {
+    if (statusKey == null || statusKey === "all") return;
+    const isValid = statusFilterOptions.some((opt) => opt.id === statusKey);
+    if (!isValid) setStatusKey("all");
+  }, [statusFilterOptions, statusKey]);
+
+  useEffect(() => {
+    if (jdFilterKey == null || jdFilterKey === "all") return;
+    const isValid = jdFilterOptions.some((opt) => opt.id === jdFilterKey);
+    if (!isValid) setJdFilterKey("all");
+  }, [jdFilterKey, jdFilterOptions]);
+
   const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const keywords = query
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
     return tableSourceRows.filter((row) => {
       if (statusKey != null && statusKey !== "all" && row.status !== statusKey) {
         return false;
       }
-      if (jdFilterKey != null && jdFilterKey !== "all") {
-        if (jdFilterKey === "unassigned") {
-          if (row.jobOpeningId != null) return false;
-        } else if (row.jobOpeningId !== String(jdFilterKey)) {
-          return false;
-        }
+      if (jdFilterKey != null && jdFilterKey !== "all" && row.jobOpeningId !== String(jdFilterKey)) {
+        return false;
       }
-      if (uploadDateFilter) {
+      if (uploadDateRangeFilter) {
         const key = uploadDateKeyLocal(row.cvUploadedAtIso);
-        if (key !== uploadDateFilter) return false;
+        if (!key) return false;
+        const from = uploadDateRangeFilter.start.toString();
+        const to = uploadDateRangeFilter.end.toString();
+        if (key < from || key > to) return false;
       }
-      if (!q) return true;
+      if (keywords.length === 0) return true;
       const hay = [
         row.name,
         row.role,
@@ -267,9 +423,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
       ]
         .join(" ")
         .toLowerCase();
-      return hay.includes(q);
+      return keywords.every((kw) => hay.includes(kw));
     });
-  }, [jdFilterKey, query, statusKey, tableSourceRows, uploadDateFilter]);
+  }, [jdFilterKey, query, statusKey, tableSourceRows, uploadDateRangeFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -279,11 +435,16 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     return filteredRows.slice(start, start + ROWS_PER_PAGE);
   }, [filteredRows, safePage]);
 
+  const activeDbRow = useMemo(() => {
+    if (!activeRow) return null;
+    return dbRows.find((r) => r.id === activeRow.id) ?? null;
+  }, [activeRow, dbRows]);
+
   const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
 
   const noResultsForUploadDate =
-    uploadDateFilter.length > 0 &&
+    uploadDateRangeFilter != null &&
     dbLoadState === "ok" &&
     filteredRows.length === 0 &&
     tableSourceRows.length > 0;
@@ -440,7 +601,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                 </Select.Trigger>
                 <Select.Popover>
                   <ListBox>
-                    {STATUS_OPTIONS.map((opt) => (
+                    {statusFilterOptions.map((opt) => (
                       <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
                         {opt.label}
                         <ListBox.ItemIndicator />
@@ -476,27 +637,119 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             </div>
 
             <div className="ml-auto flex shrink-0 flex-col gap-1 self-end">
-              <Label
-                htmlFor="cv-upload-date-filter"
-                className="block text-left text-xs font-medium text-muted"
-              >
-                Filter by date
+              <Label className="block text-left text-xs font-medium text-muted">
+                Filter by date range
               </Label>
               <div className="flex items-center gap-2">
-                <Input
-                  id="cv-upload-date-filter"
-                  type="date"
-                  value={uploadDateFilter}
-                  onChange={(e) => setUploadDateFilter(e.target.value)}
-                  className="w-[11rem] min-w-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-moz-calendar-picker-indicator]:opacity-0"
-                />
-                {uploadDateFilter ? (
+                <DateRangePicker
+                  value={uploadDateRangeFilter}
+                  onChange={setUploadDateRangeFilter}
+                  className="w-full min-w-[16rem]"
+                >
+                  <DateField.Group
+                    fullWidth
+                    variant="primary"
+                    className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                  >
+                    <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                      <DateField.Input slot="start">
+                        {(segment) => <DateField.Segment segment={segment} />}
+                      </DateField.Input>
+                      <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-neutral-500 dark:text-neutral-400" />
+                      <DateField.Input slot="end">
+                        {(segment) => <DateField.Segment segment={segment} />}
+                      </DateField.Input>
+                    </DateField.InputContainer>
+                    <DateField.Suffix>
+                      <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                        <DateRangePicker.TriggerIndicator />
+                      </DateRangePicker.Trigger>
+                    </DateField.Suffix>
+                  </DateField.Group>
+                  <DateRangePicker.Popover>
+                    <Dialog className="outline-none">
+                      <RangeCalendar
+                        focusedValue={calendarFocusedDate}
+                        onFocusChange={setCalendarFocusedDate}
+                      >
+                        <RangeCalendar.Header className="flex items-center gap-2">
+                          <RangeCalendar.NavButton slot="previous" />
+                          <div className="flex flex-1 items-center gap-2">
+                            <Label className="sr-only" htmlFor="candidate-calendar-month">
+                              Month
+                            </Label>
+                            <select
+                              id="candidate-calendar-month"
+                              aria-label="Month"
+                              value={calendarFocusedDate.month}
+                              onChange={(e) => {
+                                const month = Number(e.target.value);
+                                setCalendarFocusedDate((prev) =>
+                                  prev.set({ month, day: 1 }),
+                                );
+                              }}
+                              className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
+                            >
+                              {MONTH_OPTIONS.map((month) => (
+                                <option key={month.value} value={month.value}>
+                                  {month.label}
+                                </option>
+                              ))}
+                            </select>
+                            <Label className="sr-only" htmlFor="candidate-calendar-year">
+                              Year
+                            </Label>
+                            <select
+                              id="candidate-calendar-year"
+                              aria-label="Year"
+                              value={calendarFocusedDate.year}
+                              onChange={(e) => {
+                                const year = Number(e.target.value);
+                                setCalendarFocusedDate((prev) =>
+                                  prev.set({ year, day: 1 }),
+                                );
+                              }}
+                              className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
+                            >
+                              {YEAR_OPTIONS.map((year) => (
+                                <option key={year} value={year}>
+                                  {year}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <RangeCalendar.NavButton slot="next" />
+                        </RangeCalendar.Header>
+                        <RangeCalendar.Grid weekdayStyle="short">
+                          <RangeCalendar.GridHeader>
+                            {(day) => (
+                              <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
+                            )}
+                          </RangeCalendar.GridHeader>
+                          <RangeCalendar.GridBody>
+                            {(date) => (
+                              <RangeCalendar.Cell date={date}>
+                                {({ formattedDate }) => (
+                                  <>
+                                    <RangeCalendar.CellIndicator />
+                                    <span className="relative z-[1]">{formattedDate}</span>
+                                  </>
+                                )}
+                              </RangeCalendar.Cell>
+                            )}
+                          </RangeCalendar.GridBody>
+                        </RangeCalendar.Grid>
+                      </RangeCalendar>
+                    </Dialog>
+                  </DateRangePicker.Popover>
+                </DateRangePicker>
+                {uploadDateRangeFilter ? (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="min-w-0 px-2 font-semibold text-muted"
                     aria-label="Clear date filter"
-                    onPress={() => setUploadDateFilter("")}
+                    onPress={() => setUploadDateRangeFilter(null)}
                   >
                     Clear
                   </Button>
@@ -783,185 +1036,25 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         </Card.Content>
       </Card>
 
-      <Drawer.Backdrop isOpen={drawerOpen} onOpenChange={setDrawerOpen}>
-        <Drawer.Content placement="right">
-          <Drawer.Dialog className="w-full max-w-md sm:max-w-lg">
-            <Drawer.CloseTrigger />
-            {activeRow ? (
-              <>
-                <Drawer.Header>
-                  <div className="flex items-center gap-3">
-                    <Avatar className="size-12" size="lg">
-                      {activeRow.avatarUrl ? (
-                        <Avatar.Image alt="" src={activeRow.avatarUrl} />
-                      ) : null}
-                      <Avatar.Fallback>
-                        {candidateDisplayInitials(activeRow.name)}
-                      </Avatar.Fallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <Drawer.Heading className="truncate">
-                        {activeRow.name}
-                      </Drawer.Heading>
-                      <p className="text-sm text-muted">{activeRow.role}</p>
-                    </div>
-                  </div>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={candidateStatusChipColor(activeRow.status)}
-                    className="mt-2 w-fit uppercase"
-                  >
-                    {activeRow.status}
-                  </Chip>
-                </Drawer.Header>
-                <Drawer.Body className="flex flex-col gap-6">
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Status
-                    </h3>
-                    <div className="mt-2 max-w-xs">
-                      <Select
-                        value={activeRow.status}
-                        isDisabled={
-                          statusUpdateBusy || dbLoadState === "error"
-                        }
-                        onChange={(key) => {
-                          if (key == null || typeof key !== "string") return;
-                          void patchCandidateStatus(key as CandidateStatus);
-                        }}
-                      >
-                        <Label className="sr-only">Pipeline status</Label>
-                        <Select.Trigger className="w-full">
-                          <Select.Value />
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {drawerStatusOptions.map((s) => (
-                              <ListBox.Item
-                                key={s}
-                                id={s}
-                                textValue={s}
-                              >
-                                {s}
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                      {statusUpdateBusy ? (
-                        <p className="mt-1.5 text-xs text-muted">Updating…</p>
-                      ) : null}
-                      {statusUpdateError ? (
-                        <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">
-                          {statusUpdateError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Experience
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.experienceYears} years
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Key skills
-                    </h3>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {activeRow.skills.map((s) => (
-                        <Chip key={s} size="sm" variant="soft" color="accent">
-                          {s}
-                        </Chip>
-                      ))}
-                      {activeRow.moreSkills ? (
-                        <Chip size="sm" variant="soft" color="accent">
-                          +{activeRow.moreSkills} more
-                        </Chip>
-                      ) : null}
-                    </div>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Education
-                    </h3>
-                    <p className="mt-1 text-sm text-foreground">
-                      {activeRow.degree}
-                    </p>
-                    <p className="text-xs font-bold uppercase text-muted">
-                      {activeRow.school}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Applied JD
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.jdCampaignLabel}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Sourced from
-                    </h3>
-                    <p className="mt-1 text-sm text-muted">
-                      {activeRow.sourceLabel}
-                    </p>
-                  </section>
-                  <Separator />
-                  <section>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      JD match (AI)
-                    </h3>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={jdMatchChipColor(activeRow)}
-                        className="text-sm font-bold tabular-nums"
-                      >
-                        {activeRow.jdMatchLabel}
-                      </Chip>
-                      {activeRow.jdMatchScore != null ? (
-                        <span className="text-xs text-muted">/ 100</span>
-                      ) : null}
-                    </div>
-                    {activeRow.jdMatchError ? (
-                      <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">
-                        {activeRow.jdMatchError}
-                      </p>
-                    ) : activeRow.jdMatchRationale ? (
-                      <p className="mt-2 text-sm leading-relaxed text-muted">
-                        {activeRow.jdMatchRationale}
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted">
-                        No rationale yet. Match runs after the CV is parsed and a
-                        job description is available for the campaign.
-                      </p>
-                    )}
-                  </section>
-                </Drawer.Body>
-                <Drawer.Footer className="flex flex-wrap gap-2">
-                  <Button slot="close" variant="secondary">
-                    Close
-                  </Button>
-                </Drawer.Footer>
-              </>
-            ) : null}
-          </Drawer.Dialog>
-        </Drawer.Content>
-      </Drawer.Backdrop>
+      {activeRow ? (
+        <CvVersionComparisonDrawer
+          key={activeRow.id}
+          isOpen={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          tableRow={activeRow}
+          dbRow={activeDbRow}
+          cvHistoryRows={cvHistoryRows}
+          cvHistoryLoading={cvHistoryLoading}
+          cvHistoryError={cvHistoryError}
+          drawerStatusOptions={drawerStatusOptions}
+          statusUpdateBusy={statusUpdateBusy}
+          statusUpdateError={statusUpdateError}
+          dbLoadState={dbLoadState}
+          onStatusChange={(next) => {
+            void patchCandidateStatus(next);
+          }}
+        />
+      ) : null}
 
       <AlertDialog.Backdrop
         isOpen={deleteDialogOpen}
