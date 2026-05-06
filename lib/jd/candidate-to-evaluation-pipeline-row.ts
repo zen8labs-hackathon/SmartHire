@@ -10,15 +10,21 @@ import type {
 
 function candidateStatusToPipelineStatus(s: CandidateStatus): JobPipelineStatus {
   switch (s) {
-    case "Interviewing":
+    case "Interview":
+    case "InterviewPassed":
+    case "InterviewCanceled":
+    case "InterviewFailed":
       return "INTERVIEWING";
-    case "Shortlisted":
+    case "CvPassed":
+    case "Consider":
+    case "CvFailed":
       return "CV SCREENING";
+    case "New":
+      return "NEW";
     case "Offer":
       return "OFFER";
     case "Matched":
       return "MATCHED";
-    case "Failed":
     case "Rejected":
       return "REJECTED";
     default:

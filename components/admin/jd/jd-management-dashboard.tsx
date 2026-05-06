@@ -61,6 +61,7 @@ import {
   isAllowedJdFilename,
 } from "@/lib/jd/upload-constants";
 import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
+import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -2150,7 +2151,7 @@ export function JdManagementDashboard({
                             key={st}
                             className="flex items-baseline justify-between gap-2 text-sm"
                           >
-                            <dt className="text-muted">{st}</dt>
+                            <dt className="text-muted">{candidateStatusUiLabel(st)}</dt>
                             <dd className="tabular-nums font-semibold text-foreground">
                               {drawerStatusCounts[st] ?? 0}
                             </dd>

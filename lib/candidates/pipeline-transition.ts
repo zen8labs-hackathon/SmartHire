@@ -1,3 +1,10 @@
+import { canonicalCandidateStatusFromDb } from "@/lib/candidates/db-row";
+import type { CandidateStatus } from "@/lib/candidates/types";
+import {
+  CV_SCAN_STATUSES,
+  INTERVIEW_STATUSES,
+} from "@/lib/candidates/pipeline-phase";
+
 type PrevRow = {
   status: string;
   interview_at: string | null;
@@ -5,14 +12,7 @@ type PrevRow = {
 };
 
 type UpdateInput = {
-  status:
-    | "New"
-    | "Shortlisted"
-    | "Interviewing"
-    | "Offer"
-    | "Failed"
-    | "Matched"
-    | "Rejected";
+  status: CandidateStatus;
   interview_at?: string | null;
   onboarding_at?: string | null;
 };
@@ -21,27 +21,28 @@ export function buildCandidatePipelinePatch(
   prev: PrevRow,
   u: UpdateInput,
 ): Record<string, unknown> {
+  const prevStatus = canonicalCandidateStatusFromDb(prev.status);
+  if (prevStatus == null) {
+    throw new Error(`Unknown candidate status in DB: ${prev.status}`);
+  }
+
   const next = u.status;
-  if (next === "Failed" || next === "Matched" || next === "Rejected") {
-    return { status: next, interview_at: null, onboarding_at: null };
-  }
-  if (next === "New" || next === "Shortlisted") {
-    return { status: next, interview_at: null, onboarding_at: null };
-  }
-  if (next === "Interviewing") {
-    const interview_at =
-      u.interview_at !== undefined
-        ? u.interview_at
-        : prev.status === "Interviewing"
-          ? prev.interview_at
-          : null;
+
+  if (INTERVIEW_STATUSES.has(next)) {
+    let interview_at: string | null = null;
+    if (u.interview_at !== undefined) {
+      interview_at = u.interview_at;
+    } else if (INTERVIEW_STATUSES.has(prevStatus)) {
+      interview_at = prev.interview_at;
+    }
     return { status: next, interview_at, onboarding_at: null };
   }
+
   if (next === "Offer") {
     const onboarding_at =
       u.onboarding_at !== undefined
         ? u.onboarding_at
-        : prev.status === "Offer"
+        : prevStatus === "Offer"
           ? prev.onboarding_at
           : null;
     return {
@@ -50,5 +51,14 @@ export function buildCandidatePipelinePatch(
       onboarding_at,
     };
   }
+
+  if (next === "Matched" || next === "Rejected") {
+    return { status: next, interview_at: null, onboarding_at: null };
+  }
+
+  if (CV_SCAN_STATUSES.has(next)) {
+    return { status: next, interview_at: null, onboarding_at: null };
+  }
+
   return { status: next };
 }
