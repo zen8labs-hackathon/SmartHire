@@ -117,24 +117,6 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
-function GripIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      className={className}
-      aria-hidden
-    >
-      <circle cx="9" cy="8" r="1.25" />
-      <circle cx="15" cy="8" r="1.25" />
-      <circle cx="9" cy="12" r="1.25" />
-      <circle cx="15" cy="12" r="1.25" />
-      <circle cx="9" cy="16" r="1.25" />
-      <circle cx="15" cy="16" r="1.25" />
-    </svg>
-  );
-}
-
 function KanbanColumn({
   status,
   columnTitle,
@@ -227,15 +209,8 @@ function CandidateKanbanCard({
             className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-[#0c2844] via-[#143a58] to-[#1b3b5a]"
             aria-hidden
           />
-          <div className="flex min-h-[7.5rem] pl-[3px]">
-            <div
-              className="flex w-6 shrink-0 flex-col items-center justify-center border-r border-divider/40 bg-muted/15 text-muted select-none"
-              aria-hidden
-            >
-              <GripIcon className="size-3 opacity-55 group-hover:opacity-90" />
-            </div>
-
-            <div className="relative min-w-0 flex-1 px-2.5 pb-2.5 pt-2">
+          <div className="min-h-[7.5rem] pl-[3px]">
+            <div className="relative min-w-0 px-2.5 pb-2.5 pt-2">
               <div
                 className="absolute right-1 top-1 z-10 flex gap-0 rounded-lg bg-background/90 p-0.5 shadow-sm ring-1 ring-divider/40 backdrop-blur-sm dark:bg-background/80"
                 onPointerDown={(e) => e.stopPropagation()}
