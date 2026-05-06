@@ -102,7 +102,7 @@ describe("findDuplicateCandidateHits", () => {
       {
         id: "old-1",
         name: "Old",
-        status: "Shortlisted",
+        status: "CvPassed",
         job_opening_id: "jo",
         cv_uploaded_at: null,
         created_at: "2025-12-01",

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import type { CandidateStatus } from "@/lib/candidates/types";
+import { INTERVIEW_SCHEDULE_STATUSES } from "@/lib/candidates/pipeline-phase";
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
@@ -85,9 +87,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   const patch: Record<string, unknown> = {};
 
   if (interview_at !== undefined) {
-    if (status !== "Interviewing") {
+    if (!INTERVIEW_SCHEDULE_STATUSES.has(status as CandidateStatus)) {
       return Response.json(
-        { error: "Interview time can only be set when status is Interviewing." },
+        {
+          error:
+            "Interview time can only be set when status is Interview or Interview Passed.",
+        },
         { status: 400 },
       );
     }

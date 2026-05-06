@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
 import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
+import { zCandidatePipelineStatus } from "@/lib/candidates/pipeline-zod";
+import type { CandidateStatus } from "@/lib/candidates/types";
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
@@ -11,15 +13,7 @@ const isoDateTime = z.string().refine(
 
 const updateSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum([
-    "New",
-    "Shortlisted",
-    "Interviewing",
-    "Offer",
-    "Failed",
-    "Matched",
-    "Rejected",
-  ]),
+  status: zCandidatePipelineStatus,
   interview_at: z.union([isoDateTime, z.null()]).optional(),
   onboarding_at: z.union([isoDateTime, z.null()]).optional(),
 });
@@ -28,6 +22,15 @@ const bodySchema = z.object({
   jobDescriptionId: z.coerce.number().int().positive(),
   updates: z.array(updateSchema).min(1).max(100),
 });
+
+function formatCandidateStatusConstraintError(message: string): string {
+  if (!message.includes("candidates_status_check")) return message;
+  return (
+    "Database status constraint is outdated. Run migration " +
+    "`supabase/migrations/20260506180000_candidate_status_three_phases.sql` " +
+    "to allow current pipeline statuses."
+  );
+}
 
 export async function POST(request: Request) {
   const auth = await requireAdminForRequest(request);
@@ -131,7 +134,10 @@ export async function POST(request: Request) {
         interview_at: prev.interview_at,
         onboarding_at: prev.onboarding_at,
       },
-      u,
+      {
+        ...u,
+        status: u.status as CandidateStatus,
+      },
     );
 
     const { error: upErr } = await auth.supabase
@@ -140,7 +146,10 @@ export async function POST(request: Request) {
       .eq("id", u.id);
 
     if (upErr) {
-      return Response.json({ error: upErr.message }, { status: 500 });
+      return Response.json(
+        { error: formatCandidateStatusConstraintError(upErr.message) },
+        { status: 500 },
+      );
     }
 
     const nextInterview = patch.interview_at as string | null | undefined;
