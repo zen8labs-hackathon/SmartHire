@@ -24,7 +24,10 @@ import {
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
 import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import {
+  type CandidateDbRow,
+  candidateDbRowToTableRow,
+} from "@/lib/candidates/db-row";
 
 type Props = {
   initialRows?: CandidateDbRow[];
@@ -104,6 +107,8 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     drawerOpen,
     setDrawerOpen,
     activeRow,
+    setActiveRow,
+    setDbRows,
     addModalOpen,
     setAddModalOpen,
     deleteDialogOpen,
@@ -492,12 +497,6 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
           onStatusChange={(next) => {
             if (!activeRow) return;
             void patchCandidateStatus(activeRow.id, next);
-          }}
-          onProfileSaved={(c) => {
-            setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
-            setActiveRow((prev) =>
-              prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
-            );
           }}
           onProfileSaved={(c) => {
             setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));

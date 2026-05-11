@@ -437,6 +437,7 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     setDrawerOpen,
     activeRow,
     setActiveRow,
+    setDbRows,
     addModalOpen,
     setAddModalOpen,
     deleteDialogOpen,
