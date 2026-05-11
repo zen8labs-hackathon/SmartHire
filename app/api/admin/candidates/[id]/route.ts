@@ -3,8 +3,10 @@ import { z } from "zod";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { CandidateStatus } from "@/lib/candidates/types";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
+import { zCandidatePipelineStatus } from "@/lib/candidates/pipeline-zod";
 import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
 import { CV_BUCKET } from "@/lib/candidates/upload-constants";
 
@@ -17,20 +19,21 @@ const isoDateTime = z.string().refine(
 );
 
 const patchBodySchema = z.object({
-  status: z.enum([
-    "New",
-    "Shortlisted",
-    "Interviewing",
-    "Offer",
-    "Failed",
-    "Matched",
-    "Rejected",
-  ]),
+  status: zCandidatePipelineStatus,
   interview_at: z.union([isoDateTime, z.null()]).optional(),
   onboarding_at: z.union([isoDateTime, z.null()]).optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function formatCandidateStatusConstraintError(message: string): string {
+  if (!message.includes("candidates_status_check")) return message;
+  return (
+    "Database status constraint is outdated. Run migration " +
+    "`supabase/migrations/20260506180000_candidate_status_three_phases.sql` " +
+    "to allow current pipeline statuses."
+  );
+}
 
 /**
  * Updates pipeline status (and optional interview/onboarding times) with the same
@@ -93,7 +96,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const patch = buildCandidatePipelinePatch(prev, u);
+  const patch = buildCandidatePipelinePatch(prev, {
+    ...u,
+    status: u.status as CandidateStatus,
+  });
 
   const { error: upErr } = await auth.supabase
     .from("candidates")
@@ -101,7 +107,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     .eq("id", candidateId);
 
   if (upErr) {
-    return Response.json({ error: upErr.message }, { status: 500 });
+    return Response.json(
+      { error: formatCandidateStatusConstraintError(upErr.message) },
+      { status: 500 },
+    );
   }
 
   const { data: row, error: selErr } = await auth.supabase

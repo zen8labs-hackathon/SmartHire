@@ -1,8 +1,6 @@
 "use client";
 
-import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
-import type { Key } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import {
   AlertDialog,
@@ -10,81 +8,29 @@ import {
   Button,
   Card,
   Chip,
-  DateField,
-  DateRangePicker,
-  Label,
-  ListBox,
   Pagination,
-  RangeCalendar,
-  SearchField,
-  Select,
   Spinner,
   Table,
   Tooltip,
 } from "@heroui/react";
-import type { RangeValue } from "react-aria-components";
-import { Dialog } from "react-aria-components";
 
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
+import { CandidatePipelineFiltersCard } from "@/components/admin/candidates/candidate-pipeline-filters-card";
 import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
+import { useCandidatePipelineState } from "@/components/admin/candidates/use-candidate-pipeline-state";
 import {
   candidateDisplayInitials,
   candidateStatusChipColor,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
-import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
-import {
-  type CandidateDbRow,
-  candidateDbRowToTableRow,
-} from "@/lib/candidates/db-row";
-import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
-import { allowedTargetsFromStatus } from "@/lib/candidates/pipeline-allowed-transitions";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
-import { createClient } from "@/lib/supabase/client";
+import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
+import type { CandidateDbRow } from "@/lib/candidates/db-row";
 
 type Props = {
   initialRows?: CandidateDbRow[];
 };
 
-type JobOpeningFilterOption = {
-  id: string;
-  label: string;
-};
-
-type JobOpeningApiRow = {
-  id: string;
-  title: string;
-  displayTitle?: string | null;
-};
-
 const ROWS_PER_PAGE = 4;
-
-const STATUS_ORDER: CandidateStatus[] = [
-  "New",
-  "Shortlisted",
-  "Interviewing",
-  "Offer",
-  "Failed",
-  "Matched",
-  "Rejected",
-];
-
-const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 1, label: "Jan" },
-  { value: 2, label: "Feb" },
-  { value: 3, label: "Mar" },
-  { value: 4, label: "Apr" },
-  { value: 5, label: "May" },
-  { value: 6, label: "Jun" },
-  { value: 7, label: "Jul" },
-  { value: 8, label: "Aug" },
-  { value: 9, label: "Sep" },
-  { value: 10, label: "Oct" },
-  { value: 11, label: "Nov" },
-  { value: 12, label: "Dec" },
-];
-
-const YEAR_OPTIONS = Array.from({ length: 2030 - 1990 + 1 }, (_, i) => 1990 + i);
 
 function pageWindow(current: number, total: number, width: number) {
   let start = Math.max(1, current - Math.floor(width / 2));
@@ -131,17 +77,6 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
-/** Local calendar day YYYY-MM-DD for upload timestamp (for date filter). */
-function uploadDateKeyLocal(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function formatUploadedAtDisplay(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -153,279 +88,49 @@ function formatUploadedAtDisplay(iso: string | null): string {
 }
 
 export function CandidatePipelineDashboard({ initialRows }: Props) {
-  const supabase = useMemo(() => createClient(), []);
-  const [page, setPage] = useState(1);
-  const [query, setQuery] = useState("");
-  const [statusKey, setStatusKey] = useState<Key | null>("all");
-  const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
-  const [uploadDateRangeFilter, setUploadDateRangeFilter] =
-    useState<RangeValue<CalendarDate> | null>(null);
-  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
-    today(getLocalTimeZone()),
-  );
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [rowPendingDelete, setRowPendingDelete] = useState<CandidateRow | null>(
-    null,
-  );
-  const [deleteInProgress, setDeleteInProgress] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
-  const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
-  const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
-  const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
-  const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
-  const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
-  const [jobOpeningOptions, setJobOpeningOptions] = useState<JobOpeningFilterOption[]>([]);
-  const [jobOpeningsLoadState, setJobOpeningsLoadState] =
-    useState<"loading" | "error" | "ok">("loading");
-  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
-    initialRows ? "ok" : "loading",
-  );
-
-  // Fetch via server API route — bypasses browser Supabase session entirely,
-  // uses cookie-based server auth which is always reliable.
-  const fetchCandidates = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/candidates", { credentials: "include" });
-      if (!res.ok) {
-        setDbLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
-      setDbRows(json.candidates ?? []);
-      setDbLoadState("ok");
-    } catch {
-      setDbLoadState("error");
-    }
-  }, []);
-
-  const fetchJobOpenings = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/job-openings", { credentials: "include" });
-      if (!res.ok) {
-        setJobOpeningsLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as { jobOpenings?: JobOpeningApiRow[] };
-      const rows = json.jobOpenings ?? [];
-      const baseItems = rows.map((row) => ({
-        id: row.id,
-        label: (row.displayTitle ?? row.title ?? "—").trim() || "—",
-      }));
-      const labelCounts = new Map<string, number>();
-      for (const item of baseItems) {
-        const key = item.label.toLocaleLowerCase();
-        labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
-      }
-      const mapped = baseItems
-        .map((item) => {
-          const key = item.label.toLocaleLowerCase();
-          const duplicated = (labelCounts.get(key) ?? 0) > 1;
-          return {
-            id: item.id,
-            label: duplicated ? `${item.label} (${item.id.slice(0, 6)})` : item.label,
-          };
-        })
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-      setJobOpeningOptions(mapped);
-      setJobOpeningsLoadState("ok");
-    } catch {
-      setJobOpeningsLoadState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    // Skip initial fetch if the page already provided server-side data.
-    if (!initialRows) {
-      void fetchCandidates();
-    }
-    void fetchJobOpenings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel("candidates-admin-table")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "candidates" },
-        () => {
-          void fetchCandidates();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [supabase, fetchCandidates]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [jdFilterKey]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [uploadDateRangeFilter]);
-
-  useEffect(() => {
-    if (uploadDateRangeFilter?.start) {
-      setCalendarFocusedDate(uploadDateRangeFilter.start);
-    }
-  }, [uploadDateRangeFilter]);
-
-  useEffect(() => {
-    if (!activeRow) {
-      setCvHistoryRows([]);
-      setCvHistoryError(null);
-      setCvHistoryLoading(false);
-      return;
-    }
-    let disposed = false;
-    setCvHistoryLoading(true);
-    setCvHistoryError(null);
-    void (async () => {
-      try {
-        const res = await fetch(`/api/admin/candidates/${activeRow.id}/cv-history`, {
-          credentials: "include",
-        });
-        const json = (await res.json()) as {
-          error?: string;
-          history?: CandidateCvHistoryRow[];
-        };
-        if (!res.ok) {
-          throw new Error(json.error ?? "Could not load CV history.");
-        }
-        if (!disposed) {
-          setCvHistoryRows(json.history ?? []);
-        }
-      } catch (error) {
-        if (!disposed) {
-          setCvHistoryRows([]);
-          setCvHistoryError(
-            error instanceof Error ? error.message : "Could not load CV history.",
-          );
-        }
-      } finally {
-        if (!disposed) {
-          setCvHistoryLoading(false);
-        }
-      }
-    })();
-    return () => {
-      disposed = true;
-    };
-  }, [activeRow]);
-
-  const allowedJobOpeningIds = useMemo(
-    () => new Set(jobOpeningOptions.map((opt) => opt.id)),
-    [jobOpeningOptions],
-  );
-
-  const tableSourceRows = useMemo(() => {
-    const isAllowedJob = (jobOpeningId: string | null) => {
-      if (!jobOpeningId) return false;
-      if (jobOpeningsLoadState !== "ok") return true;
-      return allowedJobOpeningIds.has(jobOpeningId);
-    };
-
-    if (dbLoadState === "error") {
-      const rows = [...CANDIDATE_ROWS];
-      rows.sort((a, b) => {
-        const as = a.jdMatchScore ?? -1;
-        const bs = b.jdMatchScore ?? -1;
-        if (bs !== as) return bs - as;
-        return a.name.localeCompare(b.name);
-      });
-      return rows.filter((row) => isAllowedJob(row.jobOpeningId));
-    }
-    if (dbLoadState !== "ok") {
-      return [];
-    }
-    const sortedDb = [...dbRows].sort((a, b) => {
-      const ta = new Date(a.cv_uploaded_at ?? a.created_at).getTime();
-      const tb = new Date(b.cv_uploaded_at ?? b.created_at).getTime();
-      return tb - ta;
-    });
-    return sortedDb
-      .map(candidateDbRowToTableRow)
-      .filter((row) => isAllowedJob(row.jobOpeningId));
-  }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState]);
-
-  const statusFilterOptions = useMemo(() => {
-    const available = new Set<CandidateStatus>();
-    for (const row of tableSourceRows) {
-      available.add(row.status);
-    }
-    return [
-      { id: "all", label: "Status: All" },
-      ...STATUS_ORDER.filter((status) => available.has(status)).map((status) => ({
-        id: status,
-        label: status,
-      })),
-    ];
-  }, [tableSourceRows]);
-
-  const jdFilterOptions = useMemo(
-    () => [{ id: "all", label: "JD: All" }, ...jobOpeningOptions],
-    [jobOpeningOptions],
-  );
-
-  useEffect(() => {
-    if (statusKey == null || statusKey === "all") return;
-    const isValid = statusFilterOptions.some((opt) => opt.id === statusKey);
-    if (!isValid) setStatusKey("all");
-  }, [statusFilterOptions, statusKey]);
-
-  useEffect(() => {
-    if (jdFilterKey == null || jdFilterKey === "all") return;
-    const isValid = jdFilterOptions.some((opt) => opt.id === jdFilterKey);
-    if (!isValid) setJdFilterKey("all");
-  }, [jdFilterKey, jdFilterOptions]);
-
-  const filteredRows = useMemo(() => {
-    const keywords = query
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-    return tableSourceRows.filter((row) => {
-      if (statusKey != null && statusKey !== "all" && row.status !== statusKey) {
-        return false;
-      }
-      if (jdFilterKey != null && jdFilterKey !== "all" && row.jobOpeningId !== String(jdFilterKey)) {
-        return false;
-      }
-      if (uploadDateRangeFilter) {
-        const key = uploadDateKeyLocal(row.cvUploadedAtIso);
-        if (!key) return false;
-        const from = uploadDateRangeFilter.start.toString();
-        const to = uploadDateRangeFilter.end.toString();
-        if (key < from || key > to) return false;
-      }
-      if (keywords.length === 0) return true;
-      const hay = [
-        row.name,
-        row.role,
-        ...row.skills,
-        row.degree,
-        row.school,
-        row.sourceLabel,
-        row.jdMatchLabel,
-        row.jdCampaignLabel,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return keywords.every((kw) => hay.includes(kw));
-    });
-  }, [jdFilterKey, query, statusKey, tableSourceRows, uploadDateRangeFilter]);
+  const {
+    page,
+    setPage,
+    query,
+    setQuery,
+    statusKey,
+    setStatusKey,
+    jdFilterKey,
+    setJdFilterKey,
+    uploadDateRangeFilter,
+    setUploadDateRangeFilter,
+    calendarFocusedDate,
+    setCalendarFocusedDate,
+    drawerOpen,
+    setDrawerOpen,
+    activeRow,
+    addModalOpen,
+    setAddModalOpen,
+    deleteDialogOpen,
+    setDeleteDialogOpen,
+    rowPendingDelete,
+    setRowPendingDelete,
+    deleteInProgress,
+    deleteError,
+    setDeleteError,
+    statusUpdateBusy,
+    statusUpdateError,
+    cvHistoryRows,
+    cvHistoryLoading,
+    cvHistoryError,
+    dbLoadState,
+    fetchCandidates,
+    statusFilterOptions,
+    jdFilterOptions,
+    filteredRows,
+    tableSourceRows,
+    activeDbRow,
+    noResultsForUploadDate,
+    openRow,
+    drawerStatusOptions,
+    patchCandidateStatus,
+    confirmDeleteCandidate,
+  } = useCandidatePipelineState(initialRows);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -435,98 +140,8 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     return filteredRows.slice(start, start + ROWS_PER_PAGE);
   }, [filteredRows, safePage]);
 
-  const activeDbRow = useMemo(() => {
-    if (!activeRow) return null;
-    return dbRows.find((r) => r.id === activeRow.id) ?? null;
-  }, [activeRow, dbRows]);
-
   const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
-
-  const noResultsForUploadDate =
-    uploadDateRangeFilter != null &&
-    dbLoadState === "ok" &&
-    filteredRows.length === 0 &&
-    tableSourceRows.length > 0;
-
-  function openRow(row: CandidateRow) {
-    setStatusUpdateError(null);
-    setActiveRow(row);
-    setDrawerOpen(true);
-  }
-
-  const drawerStatusOptions = useMemo(() => {
-    if (!activeRow) return [];
-    return allowedTargetsFromStatus(activeRow.status);
-  }, [activeRow]);
-
-  const patchCandidateStatus = useCallback(
-    async (next: CandidateStatus) => {
-      if (!activeRow || next === activeRow.status) return;
-      setStatusUpdateError(null);
-      setStatusUpdateBusy(true);
-      try {
-        const res = await fetch(`/api/admin/candidates/${activeRow.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: next }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          setStatusUpdateError(body.error ?? "Could not update status.");
-          return;
-        }
-        const json = (await res.json()) as { candidate?: CandidateDbRow };
-        const c = json.candidate;
-        if (!c) {
-          await fetchCandidates();
-          return;
-        }
-        setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
-        setActiveRow((prev) =>
-          prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
-        );
-      } catch {
-        setStatusUpdateError("Could not update status.");
-      } finally {
-        setStatusUpdateBusy(false);
-      }
-    },
-    [activeRow, fetchCandidates],
-  );
-
-  const confirmDeleteCandidate = useCallback(async () => {
-    if (!rowPendingDelete) return;
-    setDeleteError(null);
-    setDeleteInProgress(true);
-    try {
-      const res = await fetch(
-        `/api/admin/candidates/${rowPendingDelete.id}`,
-        { method: "DELETE", credentials: "include" },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        setDeleteError(body.error ?? "Could not delete candidate.");
-        return;
-      }
-      if (activeRow?.id === rowPendingDelete.id) {
-        setDrawerOpen(false);
-        setActiveRow(null);
-      }
-      setDeleteDialogOpen(false);
-      setRowPendingDelete(null);
-      await fetchCandidates();
-    } catch {
-      setDeleteError("Could not delete candidate.");
-    } finally {
-      setDeleteInProgress(false);
-    }
-  }, [activeRow?.id, fetchCandidates, rowPendingDelete]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -568,197 +183,21 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         onCandidatesChanged={fetchCandidates}
       />
 
-      <Card variant="secondary" className="overflow-hidden">
-        <Card.Content className="gap-4 p-4">
-          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-              <SearchField
-                value={query}
-                onChange={setQuery}
-                className="min-w-[280px] flex-1"
-              >
-                <SearchField.Group className="w-full">
-                  <SearchField.SearchIcon />
-                  <SearchField.Input
-                    placeholder="Search by name, role, skill, source, JD, or match…"
-                    className="w-full min-w-0"
-                  />
-                  <SearchField.ClearButton />
-                </SearchField.Group>
-              </SearchField>
-
-              <Select
-                value={statusKey}
-                onChange={(key) => {
-                  setStatusKey(key);
-                  setPage(1);
-                }}
-              >
-                <Label className="sr-only">Status</Label>
-                <Select.Trigger className="min-w-[160px]">
-                  <Select.Value />
-                  <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                  <ListBox>
-                    {statusFilterOptions.map((opt) => (
-                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                        {opt.label}
-                        <ListBox.ItemIndicator />
-                      </ListBox.Item>
-                    ))}
-                  </ListBox>
-                </Select.Popover>
-              </Select>
-
-              <Select
-                value={jdFilterKey}
-                onChange={(key) => {
-                  setJdFilterKey(key);
-                  setPage(1);
-                }}
-              >
-                <Label className="sr-only">Job description</Label>
-                <Select.Trigger className="min-w-[200px]">
-                  <Select.Value />
-                  <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                  <ListBox>
-                    {jdFilterOptions.map((opt) => (
-                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                        {opt.label}
-                        <ListBox.ItemIndicator />
-                      </ListBox.Item>
-                    ))}
-                  </ListBox>
-                </Select.Popover>
-              </Select>
-            </div>
-
-            <div className="ml-auto flex shrink-0 flex-col gap-1 self-end">
-              <Label className="block text-left text-xs font-medium text-muted">
-                Filter by date range
-              </Label>
-              <div className="flex items-center gap-2">
-                <DateRangePicker
-                  value={uploadDateRangeFilter}
-                  onChange={setUploadDateRangeFilter}
-                  className="w-full min-w-[16rem]"
-                >
-                  <DateField.Group
-                    fullWidth
-                    variant="primary"
-                    className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
-                  >
-                    <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-                      <DateField.Input slot="start">
-                        {(segment) => <DateField.Segment segment={segment} />}
-                      </DateField.Input>
-                      <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-neutral-500 dark:text-neutral-400" />
-                      <DateField.Input slot="end">
-                        {(segment) => <DateField.Segment segment={segment} />}
-                      </DateField.Input>
-                    </DateField.InputContainer>
-                    <DateField.Suffix>
-                      <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
-                        <DateRangePicker.TriggerIndicator />
-                      </DateRangePicker.Trigger>
-                    </DateField.Suffix>
-                  </DateField.Group>
-                  <DateRangePicker.Popover>
-                    <Dialog className="outline-none">
-                      <RangeCalendar
-                        focusedValue={calendarFocusedDate}
-                        onFocusChange={setCalendarFocusedDate}
-                      >
-                        <RangeCalendar.Header className="flex items-center gap-2">
-                          <RangeCalendar.NavButton slot="previous" />
-                          <div className="flex flex-1 items-center gap-2">
-                            <Label className="sr-only" htmlFor="candidate-calendar-month">
-                              Month
-                            </Label>
-                            <select
-                              id="candidate-calendar-month"
-                              aria-label="Month"
-                              value={calendarFocusedDate.month}
-                              onChange={(e) => {
-                                const month = Number(e.target.value);
-                                setCalendarFocusedDate((prev) =>
-                                  prev.set({ month, day: 1 }),
-                                );
-                              }}
-                              className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
-                            >
-                              {MONTH_OPTIONS.map((month) => (
-                                <option key={month.value} value={month.value}>
-                                  {month.label}
-                                </option>
-                              ))}
-                            </select>
-                            <Label className="sr-only" htmlFor="candidate-calendar-year">
-                              Year
-                            </Label>
-                            <select
-                              id="candidate-calendar-year"
-                              aria-label="Year"
-                              value={calendarFocusedDate.year}
-                              onChange={(e) => {
-                                const year = Number(e.target.value);
-                                setCalendarFocusedDate((prev) =>
-                                  prev.set({ year, day: 1 }),
-                                );
-                              }}
-                              className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
-                            >
-                              {YEAR_OPTIONS.map((year) => (
-                                <option key={year} value={year}>
-                                  {year}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <RangeCalendar.NavButton slot="next" />
-                        </RangeCalendar.Header>
-                        <RangeCalendar.Grid weekdayStyle="short">
-                          <RangeCalendar.GridHeader>
-                            {(day) => (
-                              <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
-                            )}
-                          </RangeCalendar.GridHeader>
-                          <RangeCalendar.GridBody>
-                            {(date) => (
-                              <RangeCalendar.Cell date={date}>
-                                {({ formattedDate }) => (
-                                  <>
-                                    <RangeCalendar.CellIndicator />
-                                    <span className="relative z-[1]">{formattedDate}</span>
-                                  </>
-                                )}
-                              </RangeCalendar.Cell>
-                            )}
-                          </RangeCalendar.GridBody>
-                        </RangeCalendar.Grid>
-                      </RangeCalendar>
-                    </Dialog>
-                  </DateRangePicker.Popover>
-                </DateRangePicker>
-                {uploadDateRangeFilter ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="min-w-0 px-2 font-semibold text-muted"
-                    aria-label="Clear date filter"
-                    onPress={() => setUploadDateRangeFilter(null)}
-                  >
-                    Clear
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </Card.Content>
-      </Card>
+      <CandidatePipelineFiltersCard
+        query={query}
+        setQuery={setQuery}
+        statusKey={statusKey}
+        setStatusKey={setStatusKey}
+        statusFilterOptions={statusFilterOptions}
+        jdFilterKey={jdFilterKey}
+        setJdFilterKey={setJdFilterKey}
+        jdFilterOptions={jdFilterOptions}
+        uploadDateRangeFilter={uploadDateRangeFilter}
+        setUploadDateRangeFilter={setUploadDateRangeFilter}
+        calendarFocusedDate={calendarFocusedDate}
+        setCalendarFocusedDate={setCalendarFocusedDate}
+        onFiltersAdjusted={() => setPage(1)}
+      />
 
       <Card>
         <Card.Content className="gap-0 p-0">
@@ -943,7 +382,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
                           color={candidateStatusChipColor(row.status)}
                           className="text-[10px] font-bold uppercase"
                         >
-                          {row.status}
+                          {candidateStatusUiLabel(row.status)}
                         </Chip>
                       </Table.Cell>
                       <Table.Cell className="whitespace-nowrap text-sm text-foreground">
@@ -1051,7 +490,14 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
           statusUpdateError={statusUpdateError}
           dbLoadState={dbLoadState}
           onStatusChange={(next) => {
-            void patchCandidateStatus(next);
+            if (!activeRow) return;
+            void patchCandidateStatus(activeRow.id, next);
+          }}
+          onProfileSaved={(c) => {
+            setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+            setActiveRow((prev) =>
+              prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+            );
           }}
           onProfileSaved={(c) => {
             setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));

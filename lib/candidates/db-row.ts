@@ -1,4 +1,5 @@
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 
 export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
@@ -78,16 +79,32 @@ function jdCampaignLabelFromRow(r: CandidateDbRow): string {
   return jo.title?.trim() || "—";
 }
 
+const LEGACY_STATUS_MAP: Record<string, CandidateStatus> = {
+  Shortlisted: "CvPassed",
+  Interviewing: "Interview",
+  Failed: "CvFailed",
+};
+
+const ALLOWED_PIPELINE_STATUSES = new Set<string>(CANDIDATE_PIPELINE_STATUSES);
+
+/**
+ * Maps DB `candidates.status` to the current pipeline enum (incl. legacy strings).
+ * Returns null if the value is not recognized — use for API transition checks.
+ */
+export function canonicalCandidateStatusFromDb(raw: string): CandidateStatus | null {
+  const s = raw.trim();
+  const mapped = LEGACY_STATUS_MAP[s];
+  if (mapped) return mapped;
+  if (ALLOWED_PIPELINE_STATUSES.has(s)) return s as CandidateStatus;
+  const lowered = s.toLowerCase();
+  if (lowered === "shortlisted") return "CvPassed";
+  if (lowered === "interviewing") return "Interview";
+  if (lowered === "failed") return "CvFailed";
+  return null;
+}
+
 function asCandidateStatus(s: string): CandidateStatus {
-  const normalized = s.trim().toLowerCase();
-  if (normalized === "shortlisted") return "Shortlisted";
-  if (normalized === "interviewing") return "Interviewing";
-  if (normalized === "offer") return "Offer";
-  if (normalized === "failed") return "Failed";
-  if (normalized === "matched") return "Matched";
-  if (normalized === "rejected") return "Rejected";
-  if (normalized === "new") return "New";
-  return "New";
+  return canonicalCandidateStatusFromDb(s) ?? "New";
 }
 
 function jdMatchLabelFromRow(r: CandidateDbRow): {

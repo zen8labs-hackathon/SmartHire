@@ -20,7 +20,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     moreSkills: 2,
     degree: "MSc Computer Science",
     school: "Stanford University",
-    status: "Interviewing",
+    status: "Interview",
     uploadedByEmail: "hr@example.com",
     jobOpeningId: "11111111-1111-4111-8111-111111111111",
     jdCampaignLabel: MOCK_JD_LABELS[0],
@@ -42,7 +42,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     skills: ["Figma", "Systems"],
     degree: "BFA Visual Design",
     school: "RISD",
-    status: "Shortlisted",
+    status: "CvPassed",
     uploadedByEmail: "recruiter@example.com",
     jobOpeningId: "22222222-2222-4222-8222-222222222222",
     jdCampaignLabel: MOCK_JD_LABELS[3],
@@ -86,7 +86,7 @@ const BASE: Omit<CandidateRow, "id">[] = [
     skills: ["SEO", "Ads"],
     degree: "MBA Strategy",
     school: "Wharton School",
-    status: "Interviewing",
+    status: "Interview",
     uploadedByEmail: "hr@example.com",
     jobOpeningId: null,
     jdCampaignLabel: "Unassigned",
@@ -135,7 +135,7 @@ const ROLES = [
   "Sales Engineer",
 ];
 
-const STATUSES: CandidateStatus[] = ["New", "Shortlisted", "Interviewing"];
+const STATUSES: CandidateStatus[] = ["New", "CvPassed", "Interview"];
 
 const MOCK_SOURCES = [
   "LinkedIn",

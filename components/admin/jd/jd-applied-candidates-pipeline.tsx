@@ -31,19 +31,22 @@ import {
   allowedTargetsFromStatus,
   isPipelineTransitionAllowed,
 } from "@/lib/candidates/pipeline-allowed-transitions";
+import {
+  PIPELINE_STATUS_DISPLAY_ORDER,
+  candidateStatusMajorPhase,
+  candidateStatusUiLabel,
+  isEligibleForBulkMoveToInterview,
+} from "@/lib/candidates/pipeline-phase";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All statuses" },
-  { id: "New", label: "New" },
-  { id: "Shortlisted", label: "Shortlisted" },
-  { id: "Interviewing", label: "Interviewing" },
-  { id: "Offer", label: "Offer" },
-  { id: "Failed", label: "Failed" },
-  { id: "Matched", label: "Matched" },
-  { id: "Rejected", label: "Rejected" },
+  ...PIPELINE_STATUS_DISPLAY_ORDER.map((sid) => ({
+    id: sid,
+    label: candidateStatusUiLabel(sid),
+  })),
 ];
 
 type Props = {
@@ -56,8 +59,8 @@ type Props = {
   canEditPipeline?: boolean;
 };
 
-function isNewPoolStatus(status: string) {
-  return status === "New" || status === "Shortlisted";
+function tableStatusRow(r: CandidateDbRow): CandidateRow {
+  return candidateDbRowToTableRow(r);
 }
 
 function formatSchedule(iso: string | null | undefined): string | null {
@@ -169,10 +172,14 @@ export function JdAppliedCandidatesPipeline({
     let offer = 0;
     let matched = 0;
     for (const r of dbRows) {
-      if (isNewPoolStatus(r.status)) newPool += 1;
-      else if (r.status === "Interviewing") interviewing += 1;
-      else if (r.status === "Offer") offer += 1;
-      else if (r.status === "Matched") matched += 1;
+      const st = tableStatusRow(r).status;
+      const phase = candidateStatusMajorPhase(st);
+      if (phase === "cv_scan") newPool += 1;
+      else if (phase === "interview") interviewing += 1;
+      else if (phase === "offer") {
+        if (st === "Offer") offer += 1;
+        else if (st === "Matched") matched += 1;
+      }
     }
     return { newPool, interviewing, offer, matched };
   }, [dbRows]);
@@ -227,27 +234,35 @@ export function JdAppliedCandidatesPipeline({
   const bulkInterviewEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every((r) => isNewPoolStatus(r.status)),
+      selectedRows.every((r) => isEligibleForBulkMoveToInterview(r.status)),
     [selectedRows],
   );
 
   const bulkOfferEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every((r) => r.status === "Interviewing"),
+      selectedRows.every((r) => r.status === "InterviewPassed"),
     [selectedRows],
   );
 
   const bulkFailEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every((r) => isPipelineTransitionAllowed(r.status, "Failed")),
+      (selectedRows.every((r) =>
+        isPipelineTransitionAllowed(tableStatusRow(r).status, "CvFailed"),
+      ) ||
+        selectedRows.every((r) =>
+          isPipelineTransitionAllowed(
+            tableStatusRow(r).status,
+            "InterviewFailed",
+          ),
+        )),
     [selectedRows],
   );
 
   const openOfferModal = useCallback(() => {
     const ids = selectedRows
-      .filter((r) => r.status === "Interviewing")
+      .filter((r) => r.status === "InterviewPassed")
       .map((r) => r.id);
     if (ids.length === 0) return;
     const drafts: Record<string, string> = {};
@@ -295,7 +310,7 @@ export function JdAppliedCandidatesPipeline({
     setPipelineError(null);
     try {
       await postPipeline(
-        selectedRows.map((r) => ({ id: r.id, status: "Interviewing" as const })),
+        selectedRows.map((r) => ({ id: r.id, status: "Interview" as const })),
       );
       onRefetch();
     } catch (e) {
@@ -307,11 +322,19 @@ export function JdAppliedCandidatesPipeline({
 
   const markSelectedFailed = useCallback(async () => {
     if (!bulkFailEligible) return;
+    const allCvFail =
+      selectedRows.length > 0 &&
+      selectedRows.every((r) =>
+        isPipelineTransitionAllowed(tableStatusRow(r).status, "CvFailed"),
+      );
     setPipelineBusy(true);
     setPipelineError(null);
     try {
       await postPipeline(
-        selectedRows.map((r) => ({ id: r.id, status: "Failed" as const })),
+        selectedRows.map((r) => ({
+          id: r.id,
+          status: allCvFail ? ("CvFailed" as const) : ("InterviewFailed" as const),
+        })),
       );
       onRefetch();
     } catch (e) {
@@ -393,7 +416,10 @@ export function JdAppliedCandidatesPipeline({
       const next = { ...prev };
       let changed = false;
       for (const r of dbRows) {
-        if (r.status === "Interviewing" && next[r.id] === undefined) {
+        if (
+          (r.status === "Interview" || r.status === "InterviewPassed") &&
+          next[r.id] === undefined
+        ) {
           next[r.id] = isoToDatetimeLocalValue(r.interview_at);
           changed = true;
         }
@@ -438,7 +464,7 @@ export function JdAppliedCandidatesPipeline({
             <Card.Title className="text-2xl font-semibold tabular-nums">
               {statusCounts.newPool}
             </Card.Title>
-            <Card.Description>New / Shortlisted</Card.Description>
+            <Card.Description>CV Scan</Card.Description>
           </Card.Header>
         </Card>
         <Card variant="secondary">
@@ -679,8 +705,12 @@ export function JdAppliedCandidatesPipeline({
                         <Select.Popover>
                           <ListBox>
                             {allowedTargetsFromStatus(r.status).map((s) => (
-                              <ListBox.Item key={s} id={s} textValue={s}>
-                                {s}
+                              <ListBox.Item
+                                key={s}
+                                id={s}
+                                textValue={candidateStatusUiLabel(s)}
+                              >
+                                {candidateStatusUiLabel(s)}
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
@@ -692,7 +722,7 @@ export function JdAppliedCandidatesPipeline({
                       {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
                     </Table.Cell>
                     <Table.Cell className="max-w-[220px] align-top">
-                      {r.status === "Interviewing" ? (
+                      {r.status === "Interview" || r.status === "InterviewPassed" ? (
                         <div className="flex flex-col gap-1">
                           <Input
                             type="datetime-local"

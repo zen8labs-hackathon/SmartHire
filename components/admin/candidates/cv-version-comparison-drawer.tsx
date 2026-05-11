@@ -23,6 +23,7 @@ import {
   candidateStatusChipColor,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
+import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
@@ -803,7 +804,7 @@ export function CvVersionComparisonDrawer({
                               color={candidateStatusChipColor(tableRow.status)}
                               className="w-fit uppercase"
                             >
-                              {tableRow.status}
+                              {candidateStatusUiLabel(tableRow.status)}
                             </Chip>
                           </div>
                         </section>
@@ -828,8 +829,12 @@ export function CvVersionComparisonDrawer({
                               <Select.Popover>
                                 <ListBox>
                                   {drawerStatusOptions.map((s) => (
-                                    <ListBox.Item key={s} id={s} textValue={s}>
-                                      {s}
+                                    <ListBox.Item
+                                      key={s}
+                                      id={s}
+                                      textValue={candidateStatusUiLabel(s)}
+                                    >
+                                      {candidateStatusUiLabel(s)}
                                       <ListBox.ItemIndicator />
                                     </ListBox.Item>
                                   ))}

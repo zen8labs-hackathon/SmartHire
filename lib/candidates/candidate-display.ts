@@ -20,17 +20,22 @@ export function candidateStatusChipColor(
   status: CandidateStatus,
 ): "success" | "accent" | "danger" | "warning" | "default" {
   switch (status) {
-    case "Interviewing":
+    case "CvPassed":
+    case "InterviewPassed":
+    case "Matched":
       return "success";
-    case "Shortlisted":
+    case "Consider":
+    case "Interview":
       return "accent";
     case "Offer":
       return "warning";
-    case "Failed":
+    case "CvFailed":
+    case "InterviewFailed":
     case "Rejected":
       return "danger";
-    case "Matched":
-      return "success";
+    case "InterviewCanceled":
+      return "default";
+    case "New":
     default:
       return "default";
   }

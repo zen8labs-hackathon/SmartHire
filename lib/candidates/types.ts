@@ -1,11 +1,18 @@
-export type CandidateStatus =
-  | "New"
-  | "Shortlisted"
-  | "Interviewing"
-  | "Offer"
-  | "Failed"
-  | "Matched"
-  | "Rejected";
+export const CANDIDATE_PIPELINE_STATUSES = [
+  "New",
+  "CvPassed",
+  "CvFailed",
+  "Consider",
+  "Interview",
+  "InterviewCanceled",
+  "InterviewPassed",
+  "InterviewFailed",
+  "Offer",
+  "Matched",
+  "Rejected",
+] as const;
+
+export type CandidateStatus = (typeof CANDIDATE_PIPELINE_STATUSES)[number];
 
 export type CandidateRow = {
   id: string;
