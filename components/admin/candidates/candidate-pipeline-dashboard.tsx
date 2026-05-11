@@ -493,6 +493,12 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             if (!activeRow) return;
             void patchCandidateStatus(activeRow.id, next);
           }}
+          onProfileSaved={(c) => {
+            setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+            setActiveRow((prev) =>
+              prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+            );
+          }}
         />
       ) : null}
 
