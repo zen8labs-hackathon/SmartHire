@@ -23,6 +23,8 @@ export type JobOpeningEmbed = {
 
 export type CandidateDbRow = {
   id: string;
+  /** False when this row was superseded by a newer CV upload (same person). */
+  is_active?: boolean;
   job_opening_id: string | null;
   job_openings?: JobOpeningEmbed | JobOpeningEmbed[] | null;
   cv_storage_path: string;

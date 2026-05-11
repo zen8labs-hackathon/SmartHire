@@ -13,9 +13,11 @@ import {
   Select,
   Separator,
   Spinner,
+  Tooltip,
 } from "@heroui/react";
 import { useCallback, useMemo, useState } from "react";
 
+import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import {
   candidateDisplayInitials,
   candidateStatusChipColor,
@@ -25,6 +27,8 @@ import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
+import { buildCvVersionHoverSummaryLines } from "@/lib/candidates/cv-version-hover-summary";
+import { groupSkillsForDisplay } from "@/lib/candidates/group-skills-for-display";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 
 function formatMonthYear(iso: string | null | undefined): string {
@@ -140,6 +144,24 @@ function DownloadIcon({ className }: { className?: string }) {
   );
 }
 
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 type CvCardModel = {
   name: string;
   role: string;
@@ -150,6 +172,10 @@ type CvCardModel = {
 
 function CvPreviewCard({ model }: { model: CvCardModel }) {
   const { parsed } = model;
+  const skillSections = useMemo(
+    () => groupSkillsForDisplay(model.skills),
+    [model.skills],
+  );
   const credParts: string[] = [];
   if (parsed.degree?.trim()) credParts.push(parsed.degree.trim());
   if (parsed.school?.trim()) credParts.push(parsed.school.trim());
@@ -184,22 +210,29 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
       <Card.Content className="gap-0 px-5 pb-6 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 lg:gap-6">
           <div className="flex min-w-0 flex-col gap-5 lg:col-span-6">
-            {model.skills.length > 0 ? (
-              <div>
+            {skillSections.length > 0 ? (
+              <div className="space-y-3">
                 <p className={sectionLabel}>Core stack</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {model.skills.map((s) => (
-                    <Chip
-                      key={s}
-                      size="sm"
-                      variant="soft"
-                      color="default"
-                      className="border border-slate-200/90 bg-slate-100/95 text-xs font-semibold text-slate-900 shadow-none dark:border-border dark:bg-muted/55 dark:text-foreground"
-                    >
-                      {s}
-                    </Chip>
-                  ))}
-                </div>
+                {skillSections.map((sec) => (
+                  <div key={sec.id}>
+                    <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                      {sec.label}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {sec.skills.map((s) => (
+                        <Chip
+                          key={`${sec.id}-${s}`}
+                          size="sm"
+                          variant="soft"
+                          color="default"
+                          className="border border-slate-200/90 bg-slate-100/95 text-xs font-semibold text-slate-900 shadow-none dark:border-border dark:bg-muted/55 dark:text-foreground"
+                        >
+                          {s}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : null}
 
@@ -282,6 +315,9 @@ export type CvVersionComparisonDrawerProps = {
   statusUpdateError: string | null;
   dbLoadState: "loading" | "error" | "ok";
   onStatusChange: (next: CandidateStatus) => void;
+  /** When false, profile correction form is hidden (e.g. chapter view-only). */
+  canEditProfile?: boolean;
+  onProfileSaved?: (candidate: CandidateDbRow) => void;
 };
 
 export function CvVersionComparisonDrawer({
@@ -297,6 +333,8 @@ export function CvVersionComparisonDrawer({
   statusUpdateError,
   dbLoadState,
   onStatusChange,
+  canEditProfile = true,
+  onProfileSaved = () => {},
 }: CvVersionComparisonDrawerProps) {
   const [previewPreviousId, setPreviewPreviousId] = useState<string | null>(
     null,
@@ -457,22 +495,29 @@ export function CvVersionComparisonDrawer({
           </Drawer.Header>
 
           <Drawer.Body className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto bg-slate-50/90 px-5 py-4 sm:px-6 dark:bg-muted/20">
-            <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-start lg:gap-6">
+            <div className="mx-auto flex w-full max-w-[960px] flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] lg:items-start lg:gap-8">
               <div className="min-w-0 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={isPreview ? "warning" : "default"}
-                    className={
-                      isPreview
-                        ? "h-7 px-2.5 font-bold uppercase tracking-wide"
-                        : "h-7 border-0 bg-gradient-to-br from-[#002542] to-[#1b3b5a] px-2.5 font-bold uppercase tracking-wide !text-white shadow-sm dark:from-[#0a2540] dark:to-[#143a5a]"
-                    }
-                  >
-                    {isPreview ? "Preview" : "Active version"}
-                  </Chip>
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <Chip
+                      size="sm"
+                      variant="soft"
+                      color={isPreview ? "warning" : "success"}
+                      className={
+                        isPreview
+                          ? "h-7 w-fit border border-amber-300/80 px-2.5 font-bold uppercase tracking-wide dark:border-amber-700/60"
+                          : "h-7 w-fit border border-emerald-300/90 px-2.5 font-bold uppercase tracking-wide shadow-sm dark:border-emerald-700/50"
+                      }
+                    >
+                      {isPreview ? "Preview" : "Active version"}
+                    </Chip>
+                    <p className="max-w-md text-xs text-muted">
+                      {isPreview
+                        ? "Viewing a previous upload in this drawer."
+                        : "Showing the saved active CV and parsed fields."}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <span className="text-xs text-muted">
                       Last modified: {displayCard.cvUploadedAtLabel}
                     </span>
@@ -490,7 +535,7 @@ export function CvVersionComparisonDrawer({
                 <CvPreviewCard model={displayCard} />
               </div>
 
-              <aside className="flex min-w-0 flex-col gap-4">
+              <aside className="flex min-w-0 flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <ClockIcon className="size-4 shrink-0 text-[#0c1e33] dark:text-muted" />
                   <h3 className="text-sm font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
@@ -507,78 +552,195 @@ export function CvVersionComparisonDrawer({
                   <p className="text-sm text-danger" role="alert">
                     {cvHistoryError}
                   </p>
-                ) : cvHistoryRows.length === 0 ? (
-                  <p className="text-sm text-muted">
-                    No earlier CV versions. This upload is the only version on
-                    file.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {cvHistoryRows.map((item, i) => {
-                      const versionNum = totalVersions - 1 - i;
-                      const roleAt = item.previousSnapshot?.role?.trim() || "—";
-                      const when = formatMonthYear(
-                        item.previousCvUploadedAt ??
-                          item.previousSnapshot?.cvUploadedAt ??
-                          item.replacedAt,
-                      );
-                      const isCardPreview =
-                        previewPreviousId === item.previousCandidateId;
-                      return (
-                        <Card
-                          key={item.id}
-                          className={`overflow-hidden rounded-xl border border-divider bg-background shadow-sm ${
-                            isCardPreview
-                              ? "ring-2 ring-accent ring-offset-2"
-                              : ""
-                          }`}
+                ) : null}
+
+                {!cvHistoryLoading && !cvHistoryError && dbRow ? (
+                  <div
+                    className={`overflow-hidden rounded-xl border border-divider bg-background ${isPreview ? "opacity-90" : ""}`}
+                  >
+                    <div className="flex items-start gap-2 px-2.5 py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                          Version {totalVersions}
+                        </p>
+                        <p className="text-xs font-bold leading-tight text-[#0c1e33] dark:text-foreground">
+                          {formatMonthYear(
+                            dbRow.cv_uploaded_at?.trim() ||
+                              dbRow.updated_at ||
+                              dbRow.created_at,
+                          )}
+                        </p>
+                        <p className="line-clamp-2 text-[11px] italic leading-snug text-accent">
+                          {activeCardModel.role}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1.5">
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color="success"
+                          className="h-6 px-1.5 text-[10px] font-bold uppercase tracking-wide"
                         >
-                          <Card.Content className="gap-0 p-0">
-                            <div className="flex items-start justify-between gap-2 px-3 pb-2 pt-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted">
-                                Version {versionNum}
-                              </p>
-                              <a
-                                href={`/api/admin/candidates/${item.previousCandidateId}/cv-download`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted outline-none ring-offset-background transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent"
-                                aria-label="Download this CV file"
-                              >
-                                <DownloadIcon className="size-4" />
-                              </a>
-                            </div>
-                            <div className="px-3 pb-3">
-                              <p className="text-sm font-bold text-[#0c1e33] dark:text-foreground">
-                                {when}
-                              </p>
-                              <p className="mt-0.5 text-xs italic text-accent">
-                                {roleAt}
-                              </p>
-                            </div>
-                            <Separator />
-                            <div className="p-2.5">
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                className="w-full font-semibold"
-                                onPress={() =>
-                                  setPreviewPreviousId(item.previousCandidateId)
-                                }
-                                isDisabled={isCardPreview}
-                              >
-                                {isCardPreview ? "Previewing" : "View"}
-                              </Button>
-                            </div>
-                          </Card.Content>
-                        </Card>
-                      );
-                    })}
+                          Active
+                        </Chip>
+                        <Tooltip delay={0}>
+                          <a
+                            href={`/api/admin/candidates/${tableRow.id}/cv-download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex size-8 items-center justify-center rounded-md text-muted outline-none ring-offset-background transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent"
+                            aria-label="Download current CV file"
+                          >
+                            <DownloadIcon className="size-4" />
+                          </a>
+                          <Tooltip.Content placement="top" showArrow>
+                            <Tooltip.Arrow />
+                            <p>Download CV file</p>
+                          </Tooltip.Content>
+                        </Tooltip>
+                      </div>
+                    </div>
+                    {isPreview ? (
+                      <p className="border-t border-divider px-2.5 py-1.5 text-[11px] leading-snug text-muted">
+                        Previewing an older version — the card on the left
+                        reflects that upload.
+                      </p>
+                    ) : null}
                   </div>
-                )}
+                ) : null}
+
+                {!cvHistoryLoading && !cvHistoryError ? (
+                  cvHistoryRows.length === 0 ? (
+                    <p className="text-sm text-muted">
+                      No earlier CV versions. This upload is the only version on
+                      file.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-divider overflow-hidden rounded-xl border border-divider bg-background">
+                      {cvHistoryRows.map((item, i) => {
+                        const versionNum = totalVersions - 1 - i;
+                        const roleAt =
+                          item.previousSnapshot?.role?.trim() || "—";
+                        const when = formatMonthYear(
+                          item.previousCvUploadedAt ??
+                            item.previousSnapshot?.cvUploadedAt ??
+                            item.replacedAt,
+                        );
+                        const isCardPreview =
+                          previewPreviousId === item.previousCandidateId;
+                        return (
+                          <div
+                            key={item.id}
+                            className={`flex items-center gap-2 px-2.5 py-2 ${
+                              isCardPreview
+                                ? "bg-accent/10 ring-1 ring-inset ring-accent"
+                                : ""
+                            }`}
+                          >
+                            {dbRow ? (
+                              <Tooltip delay={350}>
+                                <div className="min-w-0 flex-1 cursor-default outline-none">
+                                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                                    Version {versionNum}
+                                  </p>
+                                  <p className="text-xs font-semibold leading-tight text-[#0c1e33] dark:text-foreground">
+                                    {when}
+                                  </p>
+                                  <p className="line-clamp-1 text-[11px] italic text-accent">
+                                    {roleAt}
+                                  </p>
+                                </div>
+                                <Tooltip.Content
+                                  placement="left"
+                                  className="max-w-[min(100vw-1rem,260px)]"
+                                >
+                                  <Tooltip.Arrow />
+                                  <div className="space-y-1.5 py-0.5">
+                                    {buildCvVersionHoverSummaryLines(
+                                      item.previousSnapshot,
+                                      dbRow,
+                                      activeParsed,
+                                    ).map((line, idx) => (
+                                      <p
+                                        key={idx}
+                                        className="text-xs leading-snug text-foreground"
+                                      >
+                                        {line}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </Tooltip.Content>
+                              </Tooltip>
+                            ) : (
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                                  Version {versionNum}
+                                </p>
+                                <p className="text-xs font-semibold leading-tight text-[#0c1e33] dark:text-foreground">
+                                  {when}
+                                </p>
+                                <p className="line-clamp-1 text-[11px] italic text-accent">
+                                  {roleAt}
+                                </p>
+                              </div>
+                            )}
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              <Tooltip delay={0}>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="gap-1 px-2 font-semibold"
+                                  onPress={() =>
+                                    setPreviewPreviousId(
+                                      item.previousCandidateId,
+                                    )
+                                  }
+                                  isDisabled={isCardPreview}
+                                  aria-label={
+                                    isCardPreview
+                                      ? "Showing this version in preview"
+                                      : "Preview parsed summary in drawer"
+                                  }
+                                >
+                                  <EyeIcon className="size-3.5 shrink-0" />
+                                  <span className="hidden min-[360px]:inline">
+                                    {isCardPreview ? "Shown" : "Preview"}
+                                  </span>
+                                </Button>
+                                <Tooltip.Content placement="top" showArrow>
+                                  <Tooltip.Arrow />
+                                  <p>
+                                    {isCardPreview
+                                      ? "This version is shown on the left"
+                                      : "View parsed summary in drawer"}
+                                  </p>
+                                </Tooltip.Content>
+                              </Tooltip>
+                              <Tooltip delay={0}>
+                                <a
+                                  href={`/api/admin/candidates/${item.previousCandidateId}/cv-download`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted outline-none ring-offset-background transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent"
+                                  aria-label="Download this CV file"
+                                >
+                                  <DownloadIcon className="size-4" />
+                                </a>
+                                <Tooltip.Content placement="top" showArrow>
+                                  <Tooltip.Arrow />
+                                  <p>Download CV file</p>
+                                </Tooltip.Content>
+                              </Tooltip>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : null}
 
                 <Card className="overflow-hidden rounded-xl border-0 border-t-4 border-t-emerald-500 bg-emerald-50/95 shadow-sm dark:border-t-emerald-600 dark:bg-emerald-950/40">
-                  <Card.Content className="gap-1.5 p-3">
+                  <Card.Content className="gap-1 p-2.5 sm:p-3">
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-800 dark:text-emerald-200">
                       Editor insight
                     </p>
@@ -590,8 +752,21 @@ export function CvVersionComparisonDrawer({
               </aside>
             </div>
 
+            {canEditProfile ? (
+              <div className="mx-auto w-full max-w-[960px]">
+                <CandidateProfileEditSection
+                  candidateId={tableRow.id}
+                  dbRow={dbRow}
+                  canEdit={canEditProfile}
+                  isPreview={isPreview}
+                  dbLoadState={dbLoadState}
+                  onSaved={onProfileSaved}
+                />
+              </div>
+            ) : null}
+
             <Card className="mx-auto w-full max-w-[960px] overflow-hidden p-0">
-              <Disclosure defaultExpanded={false}>
+              <Disclosure defaultExpanded>
                 <Disclosure.Heading className="px-4 pt-4 sm:px-6 sm:pt-5">
                   <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
                     <span className="min-w-0 flex-1 space-y-1">
@@ -788,14 +963,6 @@ export function CvVersionComparisonDrawer({
               </Disclosure>
             </Card>
           </Drawer.Body>
-
-          <Drawer.Footer className="shrink-0 border-t border-divider bg-background px-4 py-3 sm:px-6">
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button slot="close" variant="secondary">
-                Close
-              </Button>
-            </div>
-          </Drawer.Footer>
         </Drawer.Dialog>
       </Drawer.Content>
     </Drawer.Backdrop>
