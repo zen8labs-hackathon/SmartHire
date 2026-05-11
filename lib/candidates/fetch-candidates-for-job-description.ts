@@ -36,6 +36,7 @@ export async function fetchCandidatesForJobDescription(
   const { data, error } = await supabase
     .from("candidates")
     .select(ADMIN_CANDIDATES_SELECT)
+    .eq("is_active", true)
     .in("job_opening_id", openingIds)
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });

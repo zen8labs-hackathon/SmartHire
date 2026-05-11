@@ -23,6 +23,7 @@ export default async function AdminCandidatesPage() {
     const { data } = await supabase
       .from("candidates")
       .select(ADMIN_CANDIDATES_SELECT)
+      .eq("is_active", true)
       .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
     const raw = (data ?? []) as unknown as CandidateDbRow[];

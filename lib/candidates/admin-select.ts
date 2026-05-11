@@ -1,6 +1,7 @@
 /** Columns returned by admin candidate list + pipeline APIs. */
 export const ADMIN_CANDIDATES_SELECT = [
   "id",
+  "is_active",
   "job_opening_id",
   "cv_storage_path",
   "original_filename",
