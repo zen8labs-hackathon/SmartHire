@@ -53,6 +53,7 @@ export default async function PipelineCandidateEvaluationPage({ params }: PagePr
     .from("candidates")
     .select(ADMIN_CANDIDATES_SELECT)
     .eq("id", candidateId)
+    .eq("is_active", true)
     .maybeSingle();
 
   if (candError || !cand) notFound();
