@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   AlertDialog,
@@ -24,7 +24,10 @@ import {
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
 import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import {
+  type CandidateDbRow,
+  candidateDbRowToTableRow,
+} from "@/lib/candidates/db-row";
 
 type Props = {
   initialRows?: CandidateDbRow[];
@@ -104,6 +107,8 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     drawerOpen,
     setDrawerOpen,
     activeRow,
+    setActiveRow,
+    setDbRows,
     addModalOpen,
     setAddModalOpen,
     deleteDialogOpen,
@@ -116,8 +121,10 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     statusUpdateBusy,
     statusUpdateError,
     cvHistoryRows,
+    cvVersions,
     cvHistoryLoading,
     cvHistoryError,
+    refreshCvHistoryForCandidate,
     dbLoadState,
     fetchCandidates,
     statusFilterOptions,
@@ -131,6 +138,41 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     patchCandidateStatus,
     confirmDeleteCandidate,
   } = useCandidatePipelineState(initialRows);
+
+  const refreshCvDetailAfterMutation = useCallback(async () => {
+    await fetchCandidates();
+    if (activeRow) {
+      await refreshCvHistoryForCandidate(activeRow.id);
+    }
+  }, [activeRow, fetchCandidates, refreshCvHistoryForCandidate]);
+
+  const handleDuplicateMergedToExisting = useCallback(
+    async (
+      existingId: string,
+      updated?: CandidateDbRow,
+      stagedNewId?: string,
+    ) => {
+      setAddModalOpen(false);
+      if (updated) {
+        setDbRows((prev) => {
+          const withoutStaging = stagedNewId
+            ? prev.filter((r) => r.id !== stagedNewId)
+            : prev;
+          const i = withoutStaging.findIndex((r) => r.id === updated.id);
+          if (i >= 0) {
+            const copy = [...withoutStaging];
+            copy[i] = updated;
+            return copy;
+          }
+          return [updated, ...withoutStaging];
+        });
+        openRow(candidateDbRowToTableRow(updated));
+        void refreshCvHistoryForCandidate(existingId);
+      }
+      await fetchCandidates();
+    },
+    [fetchCandidates, openRow, refreshCvHistoryForCandidate, setDbRows],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -181,6 +223,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
         onCandidatesChanged={fetchCandidates}
+        onDuplicateMergedToExisting={handleDuplicateMergedToExisting}
       />
 
       <CandidatePipelineFiltersCard
@@ -483,6 +526,7 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
           tableRow={activeRow}
           dbRow={activeDbRow}
           cvHistoryRows={cvHistoryRows}
+          cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
           drawerStatusOptions={drawerStatusOptions}
@@ -498,13 +542,9 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
             setActiveRow((prev) =>
               prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
             );
+            void refreshCvHistoryForCandidate(c.id);
           }}
-          onProfileSaved={(c) => {
-            setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
-            setActiveRow((prev) =>
-              prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
-            );
-          }}
+          onAfterCvDetailMutation={refreshCvDetailAfterMutation}
         />
       ) : null}
 

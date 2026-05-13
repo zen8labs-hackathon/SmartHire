@@ -39,6 +39,41 @@ function fail(msg) {
   process.exit(1);
 }
 
+/**
+ * Fail fast with a clear message before `pg` throws `TypeError: Invalid URL`.
+ * Common causes: doc placeholders (`<ref>`, `...`), unencoded password characters.
+ */
+function assertValidPostgresConnectionUrl(urlString) {
+  const trimmed = urlString.trim();
+  if (!/^postgres(ql)?:\/\//i.test(trimmed)) {
+    fail(
+      "SUPABASE_DATABASE_URL must start with postgresql:// or postgres:// (copy URI from Supabase → Settings → Database).",
+    );
+  }
+  const probe = trimmed.replace(/^postgres(ql)?:/i, "http:");
+  try {
+    // eslint-disable-next-line no-new -- probe only
+    new URL(probe);
+  } catch {
+    const hints = [];
+    if (
+      /<ref>|\.\.\.|\[your|\[YOUR|yourpassword|YOUR_PASSWORD|example\.com/i.test(
+        trimmed,
+      )
+    ) {
+      hints.push(
+        "Remove documentation placeholders: use the real project host (db.<project-ref>.supabase.co) and the real database password.",
+      );
+    }
+    hints.push(
+      "If the password contains @ # % : / ? or spaces, URL-encode it (e.g. @ → %40, # → %23).",
+    );
+    fail(
+      `Invalid connection URL (cannot parse as URI).\n${hints.map((h) => `  - ${h}`).join("\n")}`,
+    );
+  }
+}
+
 function migrationVersion(filename) {
   const m = /^(\d{14})_[^/]+\.sql$/i.exec(filename);
   return m ? m[1] : null;
@@ -149,6 +184,8 @@ async function main() {
     skip("No .sql files in supabase/migrations.");
     return;
   }
+
+  assertValidPostgresConnectionUrl(url);
 
   const client = new pg.Client(await pgClientConfigFromUrl(url));
 

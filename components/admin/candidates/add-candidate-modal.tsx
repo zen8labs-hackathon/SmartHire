@@ -16,7 +16,7 @@ import {
   TextField,
 } from "@heroui/react";
 
-import type { ParsingStatus } from "@/lib/candidates/db-row";
+import type { CandidateDbRow, ParsingStatus } from "@/lib/candidates/db-row";
 import type {
   DuplicateCandidateHit,
   DuplicateNewUploadPreview,
@@ -142,6 +142,13 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCandidatesChanged?: () => void;
+  /** After merging duplicate upload into an existing row (PUT update-with-history). */
+  onDuplicateMergedToExisting?: (
+    existingCandidateId: string,
+    updatedCandidate?: CandidateDbRow,
+    /** Staging row id merged away (removed from active list). */
+    stagedNewCandidateId?: string,
+  ) => void | Promise<void>;
   /** When set, target campaign is fixed (or uploads blocked until a campaign is linked). */
   jdPipelineCampaign?: JdPipelineCampaignOption;
 };
@@ -150,6 +157,7 @@ export function AddCandidateModal({
   open,
   onOpenChange,
   onCandidatesChanged,
+  onDuplicateMergedToExisting,
   jdPipelineCampaign,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
@@ -202,33 +210,52 @@ export function AddCandidateModal({
     resolve(outcome);
   }, []);
 
-  const runDuplicateReplace = useCallback(async () => {
+  const runDuplicateUpdateWithHistory = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
     setDuplicateSubmitting(true);
     try {
       const procAuth = await sessionAuthHeaders();
       const repRes = await fetch(
-        `/api/admin/candidates/${payload.newCandidateId}/replace`,
+        `/api/admin/candidates/${payload.hit.id}/update-with-history`,
         {
-          method: "POST",
+          method: "PUT",
           credentials: "include",
           headers: { "Content-Type": "application/json", ...procAuth },
           body: JSON.stringify({
-            previousCandidateId: payload.hit.id,
+            newCandidateId: payload.newCandidateId,
             matchedOn: payload.hit.matchedOn,
           }),
         },
       );
-      const repJson = (await repRes.json()) as { error?: string };
+      const repJson = (await repRes.json()) as {
+        error?: string;
+        candidate?: CandidateDbRow;
+      };
       if (!repRes.ok) {
-        throw new Error(repJson.error ?? "Failed to replace duplicated CV");
+        throw new Error(
+          repJson.error ?? "Failed to merge duplicate into existing profile",
+        );
       }
       finishDuplicate("replaced");
+      if (onDuplicateMergedToExisting) {
+        await onDuplicateMergedToExisting(
+          payload.hit.id,
+          repJson.candidate,
+          payload.newCandidateId,
+        );
+      } else {
+        onCandidatesChanged?.();
+      }
     } finally {
       setDuplicateSubmitting(false);
     }
-  }, [sessionAuthHeaders, finishDuplicate]);
+  }, [
+    sessionAuthHeaders,
+    finishDuplicate,
+    onCandidatesChanged,
+    onDuplicateMergedToExisting,
+  ]);
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();
@@ -767,7 +794,7 @@ export function AddCandidateModal({
         hit={duplicateFlow.hit}
         newUpload={duplicateFlow.newUpload}
         isSubmitting={duplicateSubmitting}
-        onUpdateExisting={runDuplicateReplace}
+        onUpdateProfile={runDuplicateUpdateWithHistory}
         onCreateNew={() => finishDuplicate("skip")}
       />
     ) : null}

@@ -8,6 +8,7 @@ export const PROFILE_DEGREE_SCHOOL_MAX = 200;
 export const PROFILE_SOURCE_OTHER_MAX = 500;
 export const PROFILE_EMAIL_MAX = 320;
 export const PROFILE_PHONE_MAX = 40;
+export const PROFILE_CHANGE_SUMMARY_MAX = 500;
 export const MAX_SKILLS = 40;
 export const MAX_SKILL_LEN = 80;
 export const EXPERIENCE_YEARS_MAX = 80;
@@ -60,10 +61,21 @@ export const candidateProfilePatchSchema = z
     source_other: optionalTrimmedNullable(PROFILE_SOURCE_OTHER_MAX),
     email: optionalTrimmedNullable(PROFILE_EMAIL_MAX),
     phone: optionalTrimmedNullable(PROFILE_PHONE_MAX),
+    change_summary: z
+      .string()
+      .max(PROFILE_CHANGE_SUMMARY_MAX)
+      .optional()
+      .transform((s) => {
+        if (s === undefined) return undefined;
+        const t = s.trim();
+        return t.length === 0 ? undefined : t;
+      }),
   })
   .strict()
   .superRefine((val, ctx) => {
-    const count = Object.values(val).filter((v) => v !== undefined).length;
+    const count = Object.entries(val).filter(
+      ([key, v]) => key !== "change_summary" && v !== undefined,
+    ).length;
     if (count === 0) {
       ctx.addIssue({
         code: "custom",

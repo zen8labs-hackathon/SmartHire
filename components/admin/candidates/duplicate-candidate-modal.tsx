@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useOverlayTriggerState } from "react-stately";
 
 import { Button, Card, Modal } from "@heroui/react";
@@ -13,6 +13,39 @@ import type {
 function dash(v: string | null | undefined): string {
   if (v == null || String(v).trim() === "") return "—";
   return String(v);
+}
+
+function norm(s: string | null | undefined): string {
+  return String(s ?? "").trim().toLowerCase();
+}
+
+function roleDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+  return norm(hit.parsedRole) !== norm(newUpload.parsedRole);
+}
+
+function emailDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+  return norm(hit.email) !== norm(newUpload.email);
+}
+
+function phoneDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+  return norm(hit.phone) !== norm(newUpload.phone);
+}
+
+function DiffNew({
+  changed,
+  children,
+}: {
+  changed: boolean;
+  children: ReactNode;
+}) {
+  if (!changed) {
+    return <>{children}</>;
+  }
+  return (
+    <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-200">
+      {children}
+    </span>
+  );
 }
 
 function formatExistingApplied(iso: string | null): string {
@@ -100,7 +133,7 @@ export type DuplicateCandidateModalProps = {
   hit: DuplicateCandidateHit;
   newUpload: DuplicateNewUploadPreview;
   isSubmitting: boolean;
-  onUpdateExisting: () => Promise<void>;
+  onUpdateProfile: () => Promise<void>;
   onCreateNew: () => void;
 };
 
@@ -110,7 +143,7 @@ export function DuplicateCandidateModal({
   hit,
   newUpload,
   isSubmitting,
-  onUpdateExisting,
+  onUpdateProfile,
   onCreateNew,
 }: DuplicateCandidateModalProps) {
   const modalState = useOverlayTriggerState({
@@ -124,10 +157,14 @@ export function DuplicateCandidateModal({
   const displayEmail = dash(newUpload.email ?? hit.email);
   const displayPhone = dash(newUpload.phone ?? hit.phone);
 
+  const dRole = roleDiff(hit, newUpload);
+  const dEmail = emailDiff(hit, newUpload);
+  const dPhone = phoneDiff(hit, newUpload);
+
   const handleUpdate = async () => {
     setReplaceError(null);
     try {
-      await onUpdateExisting();
+      await onUpdateProfile();
     } catch (e) {
       setReplaceError(e instanceof Error ? e.message : "Update failed");
     }
@@ -145,69 +182,71 @@ export function DuplicateCandidateModal({
               className="top-4 end-4"
               isDisabled={isSubmitting}
             />
-            <Modal.Header className="border-b border-[#fae8e6] bg-[#fff5f5] px-6 py-5">
+            <Modal.Header className="border-b border-divider bg-muted/20 px-6 py-5">
               <div className="flex gap-4 pe-8">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
                   <WarningIcon className="h-6 w-6" />
                 </div>
                 <div className="min-w-0">
-                  <Modal.Heading className="text-lg font-bold text-[#0f2942]">
-                    Candidate Already Exists
+                  <Modal.Heading className="text-lg font-bold text-foreground">
+                    Duplicate Candidate Found
                   </Modal.Heading>
-                  <p className="mt-1 text-sm text-[#6b7280]">
-                    Our intelligent curator identified a potential duplicate entry
-                    in your pipeline.
+                  <p className="mt-1 text-sm text-muted">
+                    This candidate is already in your database. Choose how to
+                    proceed.
                   </p>
                 </div>
               </div>
             </Modal.Header>
 
             <Modal.Body className="space-y-5 px-6 py-5">
-              <div className="rounded-xl bg-[#f3f4f6] px-4 py-4">
+              <div className="rounded-xl bg-muted/25 px-4 py-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                       Full name
                     </p>
-                    <p className="mt-1 text-sm font-semibold text-[#0f2942]">
+                    <p className="mt-1 text-sm font-semibold text-foreground">
                       {displayName}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                       Email address
                     </p>
-                    <p className="mt-1 break-all text-sm font-medium text-[#0f2942]">
-                      {displayEmail}
+                    <p className="mt-1 break-all text-sm font-medium text-foreground">
+                      <DiffNew changed={dEmail}>{displayEmail}</DiffNew>
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                       Phone number
                     </p>
-                    <p className="mt-1 text-sm font-medium text-[#0f2942]">
-                      {displayPhone}
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      <DiffNew changed={dPhone}>{displayPhone}</DiffNew>
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center">
-                <Card className="min-w-0 flex-1 border border-default-200 shadow-none">
+                <Card className="min-w-0 flex-1 border border-divider shadow-none">
                   <Card.Content className="gap-3 p-4">
                     <div className="flex items-center gap-2">
-                      <UploadDocIcon className="h-5 w-5 shrink-0 text-blue-600" />
-                      <span className="font-bold text-[#0f2942]">New Upload</span>
+                      <UploadDocIcon className="h-5 w-5 shrink-0 text-accent" />
+                      <span className="font-bold text-foreground">New Upload</span>
                     </div>
                     <div>
-                      <p className="text-xs text-[#6b7280]">Role intent</p>
-                      <p className="mt-0.5 text-sm font-semibold text-[#0f2942]">
-                        {dash(newUpload.parsedRole)}
+                      <p className="text-xs text-muted">Role intent</p>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">
+                        <DiffNew changed={dRole}>
+                          {dash(newUpload.parsedRole)}
+                        </DiffNew>
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-[#6b7280]">Applied</p>
-                      <p className="mt-0.5 text-sm font-semibold text-[#0f2942]">
+                      <p className="text-xs text-muted">Applied</p>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">
                         {formatNewApplied(newUpload.cvUploadedAt)}
                       </p>
                     </div>
@@ -218,24 +257,26 @@ export function DuplicateCandidateModal({
                   className="flex justify-center md:flex-col md:items-center md:py-0"
                   aria-hidden
                 >
-                  <SwapArrowIcon className="h-6 w-6 rotate-90 text-[#9ca3af] md:rotate-0" />
+                  <SwapArrowIcon className="h-6 w-6 rotate-90 text-muted md:rotate-0" />
                 </div>
 
-                <Card className="min-w-0 flex-1 border border-default-200 shadow-none">
+                <Card className="min-w-0 flex-1 border border-divider shadow-none">
                   <Card.Content className="gap-3 p-4">
                     <div className="flex items-center gap-2">
-                      <DatabaseIcon className="h-5 w-5 shrink-0 text-emerald-600" />
-                      <span className="font-bold text-[#0f2942]">Existing Record</span>
+                      <DatabaseIcon className="h-5 w-5 shrink-0 text-success" />
+                      <span className="font-bold text-foreground">
+                        Existing Record
+                      </span>
                     </div>
                     <div>
-                      <p className="text-xs text-[#6b7280]">Current role</p>
-                      <p className="mt-0.5 text-sm font-semibold text-[#0f2942]">
+                      <p className="text-xs text-muted">Current role</p>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">
                         {dash(hit.parsedRole)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-[#6b7280]">Last applied</p>
-                      <p className="mt-0.5 text-sm font-semibold text-[#0f2942]">
+                      <p className="text-xs text-muted">Last applied</p>
+                      <p className="mt-0.5 text-sm font-semibold text-foreground">
                         {formatExistingApplied(hit.cvUploadedAt)}
                       </p>
                     </div>
@@ -250,11 +291,11 @@ export function DuplicateCandidateModal({
               ) : null}
             </Modal.Body>
 
-            <Modal.Footer className="border-t border-[#f3f4f6] bg-[#f3f4f6] px-6 py-4">
+            <Modal.Footer className="border-t border-divider bg-muted/20 px-6 py-4">
               <div className="flex w-full flex-col-reverse items-stretch justify-end gap-3 sm:flex-row sm:items-center">
                 <Button
                   variant="tertiary"
-                  className="font-semibold text-[#0f2942]"
+                  className="font-semibold text-foreground"
                   onPress={onCreateNew}
                   isDisabled={isSubmitting}
                 >
@@ -266,9 +307,9 @@ export function DuplicateCandidateModal({
                   onPress={() => void handleUpdate()}
                   isPending={isSubmitting}
                 >
-                  <span>Update Existing Record</span>
+                  <span>Update Profile</span>
                   <span className="text-xs font-normal opacity-95">
-                    Save new CV to history
+                    Create a new history version
                   </span>
                 </Button>
               </div>

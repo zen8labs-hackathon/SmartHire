@@ -57,6 +57,8 @@ export type CandidateDbRow = {
   cv_content_sha256?: string | null;
   created_at: string;
   updated_at: string;
+  /** Monotonic counter for profile edits / restores on this row. */
+  cv_detail_version?: number;
 };
 
 function positionFromJdEmbed(
