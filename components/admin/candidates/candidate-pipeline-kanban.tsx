@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   AlertDialog,
@@ -45,7 +45,10 @@ import {
   candidateStatusMajorPhase,
   candidateStatusShortLabel,
 } from "@/lib/candidates/pipeline-phase";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import {
+  type CandidateDbRow,
+  candidateDbRowToTableRow,
+} from "@/lib/candidates/db-row";
 import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 
@@ -402,6 +405,8 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
     drawerOpen,
     setDrawerOpen,
     activeRow,
+    setActiveRow,
+    setDbRows,
     addModalOpen,
     setAddModalOpen,
     deleteDialogOpen,
@@ -414,8 +419,10 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
     statusUpdateBusy,
     statusUpdateError,
     cvHistoryRows,
+    cvVersions,
     cvHistoryLoading,
     cvHistoryError,
+    refreshCvHistoryForCandidate,
     dbLoadState,
     fetchCandidates,
     statusFilterOptions,
@@ -429,6 +436,41 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
     patchCandidateStatus,
     confirmDeleteCandidate,
   } = useCandidatePipelineState(initialRows);
+
+  const refreshCvDetailAfterMutation = useCallback(async () => {
+    await fetchCandidates();
+    if (activeRow) {
+      await refreshCvHistoryForCandidate(activeRow.id);
+    }
+  }, [activeRow, fetchCandidates, refreshCvHistoryForCandidate]);
+
+  const handleDuplicateMergedToExisting = useCallback(
+    async (
+      existingId: string,
+      updated?: CandidateDbRow,
+      stagedNewId?: string,
+    ) => {
+      setAddModalOpen(false);
+      if (updated) {
+        setDbRows((prev) => {
+          const withoutStaging = stagedNewId
+            ? prev.filter((r) => r.id !== stagedNewId)
+            : prev;
+          const i = withoutStaging.findIndex((r) => r.id === updated.id);
+          if (i >= 0) {
+            const copy = [...withoutStaging];
+            copy[i] = updated;
+            return copy;
+          }
+          return [updated, ...withoutStaging];
+        });
+        openRow(candidateDbRowToTableRow(updated));
+        void refreshCvHistoryForCandidate(existingId);
+      }
+      await fetchCandidates();
+    },
+    [fetchCandidates, openRow, refreshCvHistoryForCandidate, setDbRows],
+  );
 
   const rowsByStatus = useMemo(() => {
     const map = new Map<CandidateStatus, CandidateRow[]>();
@@ -543,6 +585,7 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
         onCandidatesChanged={fetchCandidates}
+        onDuplicateMergedToExisting={handleDuplicateMergedToExisting}
       />
 
       <CandidatePipelineFiltersCard
@@ -667,6 +710,7 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
           tableRow={activeRow}
           dbRow={activeDbRow}
           cvHistoryRows={cvHistoryRows}
+          cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
           drawerStatusOptions={drawerStatusOptions}
@@ -677,6 +721,14 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
             if (!activeRow) return;
             void patchCandidateStatus(activeRow.id, next);
           }}
+          onProfileSaved={(c) => {
+            setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+            setActiveRow((prev) =>
+              prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+            );
+            void refreshCvHistoryForCandidate(c.id);
+          }}
+          onAfterCvDetailMutation={refreshCvDetailAfterMutation}
         />
       ) : null}
 

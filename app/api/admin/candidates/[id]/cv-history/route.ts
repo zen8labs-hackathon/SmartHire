@@ -1,9 +1,23 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { fetchCvReplacementChainNewestFirst } from "@/lib/candidates/candidate-cv-replacement-chain";
+import { buildCvManagementVersionList } from "@/lib/candidates/cv-management-version-list";
+import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
+import type { CvDetailRollbackSnapshot } from "@/lib/candidates/cv-detail-version-snapshot";
+import { isMissingCvVersionEventsTable } from "@/lib/candidates/cv-versioning-schema-guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type VersionEventRow = {
+  id: number;
+  version: number;
+  event_type: string;
+  change_summary: string | null;
+  created_at: string;
+  snapshot: unknown;
+};
 
 export async function GET(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
@@ -14,33 +28,29 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid candidate id." }, { status: 400 });
   }
 
-  const { data, error } = await auth.supabase
-    .from("candidate_cv_replacements")
-    .select(
-      "id, previous_candidate_id, replacement_candidate_id, previous_status, new_status, matched_on, previous_filename, previous_cv_uploaded_at, replaced_by_email, replaced_at",
-    )
-    .eq("replacement_candidate_id", candidateId)
-    .order("replaced_at", { ascending: false });
+  const { data: activeRow, error: activeErr } = await auth.supabase
+    .from("candidates")
+    .select("id, cv_uploaded_at, updated_at, created_at, is_active")
+    .eq("id", candidateId)
+    .maybeSingle();
 
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+  if (activeErr) {
+    return Response.json({ error: activeErr.message }, { status: 500 });
+  }
+  if (!activeRow) {
+    return Response.json({ error: "Candidate not found." }, { status: 404 });
   }
 
-  const baseHistory = (data ?? []).map((row) => ({
-    id: Number(row.id),
-    previousCandidateId: String(row.previous_candidate_id),
-    replacementCandidateId: String(row.replacement_candidate_id),
-    previousStatus: String(row.previous_status ?? "New"),
-    newStatus: String(row.new_status ?? "New"),
-    matchedOn: String(row.matched_on ?? "email_or_phone"),
-    previousFilename: (row.previous_filename as string | null) ?? null,
-    previousCvUploadedAt: (row.previous_cv_uploaded_at as string | null) ?? null,
-    replacedByEmail: (row.replaced_by_email as string | null) ?? null,
-    replacedAt: (row.replaced_at as string | null) ?? null,
-  }));
+  const { chain, error: chainErr } = await fetchCvReplacementChainNewestFirst(
+    auth.supabase,
+    candidateId,
+  );
+  if (chainErr) {
+    return Response.json({ error: chainErr.message }, { status: 500 });
+  }
 
   const previousIds = [
-    ...new Set(baseHistory.map((h) => h.previousCandidateId)),
+    ...new Set(chain.map((h) => String(h.previous_candidate_id))),
   ].filter((id) => UUID_RE.test(id));
 
   const snapshotById = new Map<
@@ -82,10 +92,62 @@ export async function GET(request: Request, { params }: RouteContext) {
     }
   }
 
-  const history = baseHistory.map((row) => ({
-    ...row,
-    previousSnapshot: snapshotById.get(row.previousCandidateId) ?? null,
+  const baseHistory: CandidateCvHistoryRow[] = chain.map((row) => ({
+    id: Number(row.id),
+    previousCandidateId: String(row.previous_candidate_id),
+    replacementCandidateId: String(row.replacement_candidate_id),
+    previousStatus: String(row.previous_status ?? "New"),
+    newStatus: String(row.new_status ?? "New"),
+    matchedOn: String(row.matched_on ?? "email_or_phone"),
+    previousFilename: (row.previous_filename as string | null) ?? null,
+    previousCvUploadedAt: (row.previous_cv_uploaded_at as string | null) ?? null,
+    replacedByEmail: (row.replaced_by_email as string | null) ?? null,
+    replacedAt: (row.replaced_at as string | null) ?? null,
+    previousSnapshot:
+      snapshotById.get(String(row.previous_candidate_id)) ?? null,
   }));
 
-  return Response.json({ history });
+  const { data: eventRows, error: evErr } = await auth.supabase
+    .from("candidate_cv_detail_version_events")
+    .select("id, version, event_type, change_summary, created_at, snapshot")
+    .eq("active_candidate_id", candidateId)
+    .order("created_at", { ascending: false });
+
+  if (evErr && !isMissingCvVersionEventsTable(evErr)) {
+    return Response.json({ error: evErr.message }, { status: 500 });
+  }
+
+  const eventsNewestFirst = (eventRows ?? []).map((r) => {
+    const row = r as unknown as VersionEventRow;
+    const et = row.event_type;
+    const eventType: "profile_edit" | "pre_restore" | "full_restore" =
+      et === "profile_edit" || et === "pre_restore" || et === "full_restore"
+        ? et
+        : "profile_edit";
+    return {
+      id: row.id,
+      version: row.version,
+      eventType,
+      changeSummary: row.change_summary,
+      createdAt: row.created_at,
+      snapshot: row.snapshot as CvDetailRollbackSnapshot,
+    };
+  });
+
+  const ar = activeRow as Record<string, unknown>;
+  const activeSortAt = String(
+    (ar.updated_at as string | null)?.trim() ||
+      (ar.cv_uploaded_at as string | null)?.trim() ||
+      (ar.created_at as string | null) ||
+      "",
+  );
+
+  const versions = buildCvManagementVersionList({
+    activeCandidateId: candidateId,
+    activeSortAt: activeSortAt || new Date().toISOString(),
+    historyRowsNewestFirst: baseHistory,
+    eventsNewestFirst,
+  });
+
+  return Response.json({ history: baseHistory, versions });
 }

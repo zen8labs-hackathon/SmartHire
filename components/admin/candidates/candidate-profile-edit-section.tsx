@@ -23,6 +23,7 @@ import {
   CANDIDATE_SOURCE_VALUES,
   isCandidateSource,
 } from "@/lib/candidates/source-constants";
+import { PROFILE_CHANGE_SUMMARY_MAX } from "@/lib/candidates/candidate-profile-patch";
 
 export type CandidateProfileEditSectionProps = {
   candidateId: string;
@@ -150,6 +151,7 @@ export function CandidateProfileEditSection({
     phone: "",
   }));
   const [skillInput, setSkillInput] = useState("");
+  const [changeSummary, setChangeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,7 +167,10 @@ export function CandidateProfileEditSection({
   }, [candidateId]);
 
   useEffect(() => {
-    if (!editing) setSkillInput("");
+    if (!editing) {
+      setSkillInput("");
+      setChangeSummary("");
+    }
   }, [editing]);
 
   useEffect(() => {
@@ -209,6 +214,7 @@ export function CandidateProfileEditSection({
     setBaseline(b);
     setDraft(draftFromSnapshot(b));
     setSkillInput("");
+    setChangeSummary("");
     setEditing(true);
     setError(null);
   }, [dbRow, snapFromDb]);
@@ -236,11 +242,16 @@ export function CandidateProfileEditSection({
     setBusy(true);
     setError(null);
     try {
+      const summaryTrim = changeSummary.trim();
+      const patchBody: Record<string, unknown> = { ...rawPatch };
+      if (summaryTrim.length > 0) {
+        patchBody.change_summary = summaryTrim.slice(0, PROFILE_CHANGE_SUMMARY_MAX);
+      }
       const res = await fetch(`/api/admin/candidates/${candidateId}/profile`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rawPatch),
+        body: JSON.stringify(patchBody),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
@@ -270,12 +281,13 @@ export function CandidateProfileEditSection({
       setEditing(false);
       setBaseline(null);
       setSkillInput("");
+      setChangeSummary("");
     } catch {
       setError("Could not save profile.");
     } finally {
       setBusy(false);
     }
-  }, [baseline, candidateId, dbRow, draft, onSaved]);
+  }, [baseline, candidateId, changeSummary, dbRow, draft, onSaved]);
 
   if (!canEdit) return null;
 
@@ -534,6 +546,22 @@ export function CandidateProfileEditSection({
                     </TextField>
                   ) : null}
                 </div>
+                <TextField className="min-w-0 md:col-span-2">
+                  <Label className={FIELD_LABEL}>
+                    Change summary{" "}
+                    <span className="font-normal normal-case text-muted">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Input
+                    value={changeSummary}
+                    onChange={(e) => setChangeSummary(e.target.value)}
+                    placeholder="Why are you editing these details?"
+                    maxLength={PROFILE_CHANGE_SUMMARY_MAX}
+                    className="mt-1 text-sm"
+                    autoComplete="off"
+                  />
+                </TextField>
               </div>
             </div>
             <div className="sticky bottom-0 z-10 border-t border-divider bg-background/95 px-4 py-3 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 sm:px-6">

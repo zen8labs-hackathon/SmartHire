@@ -5,6 +5,15 @@ import {
   mergeProfileIntoParsedPayload,
   patchInputToMergeFields,
 } from "@/lib/candidates/candidate-profile-patch";
+import {
+  CV_DETAIL_SNAPSHOT_SELECT,
+  snapshotFromCandidateRow,
+} from "@/lib/candidates/cv-detail-version-snapshot";
+import {
+  isMissingCvDetailVersionColumn,
+  isMissingCvVersionEventsTable,
+  versioningMigrationRequiredResponse,
+} from "@/lib/candidates/cv-versioning-schema-guard";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
@@ -16,6 +25,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 type CandidateProfileExistingRow = {
   id: string;
   is_active: boolean;
+  cv_detail_version: number | null;
   parsed_payload: unknown;
   source?: string | null;
   source_other?: string | null;
@@ -46,28 +56,26 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const patch = parsed.data;
+  const changeSummary =
+    patch.change_summary !== undefined ? patch.change_summary : null;
+
+  const loadSelect = [
+    "id",
+    "is_active",
+    "cv_detail_version",
+    CV_DETAIL_SNAPSHOT_SELECT,
+  ].join(", ");
 
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
-    .select(
-      [
-        "id",
-        "is_active",
-        "parsed_payload",
-        "name",
-        "role",
-        "experience_years",
-        "skills",
-        "degree",
-        "school",
-        "source",
-        "source_other",
-      ].join(", "),
-    )
+    .select(loadSelect)
     .eq("id", candidateId)
     .maybeSingle();
 
   if (loadError) {
+    if (isMissingCvDetailVersionColumn(loadError)) {
+      return versioningMigrationRequiredResponse();
+    }
     return Response.json({ error: loadError.message }, { status: 500 });
   }
   if (!existing) {
@@ -132,12 +140,47 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: "No updates to apply." }, { status: 400 });
   }
 
+  const currentVersionRaw = (ex as { cv_detail_version?: unknown })
+    .cv_detail_version;
+  const currentVersion =
+    typeof currentVersionRaw === "number" &&
+    Number.isFinite(currentVersionRaw) &&
+    currentVersionRaw >= 1
+      ? currentVersionRaw
+      : 1;
+
+  const preImageSnap = snapshotFromCandidateRow(
+    existing as unknown as Record<string, unknown>,
+  );
+
+  const { error: evErr } = await auth.supabase
+    .from("candidate_cv_detail_version_events")
+    .insert({
+      active_candidate_id: candidateId,
+      version: currentVersion,
+      event_type: "profile_edit",
+      change_summary: changeSummary,
+      snapshot: preImageSnap,
+    });
+
+  if (evErr) {
+    if (isMissingCvVersionEventsTable(evErr)) {
+      return versioningMigrationRequiredResponse();
+    }
+    return Response.json({ error: evErr.message }, { status: 500 });
+  }
+
+  rowUpdate.cv_detail_version = currentVersion + 1;
+
   const { error: upErr } = await auth.supabase
     .from("candidates")
     .update(rowUpdate)
     .eq("id", candidateId);
 
   if (upErr) {
+    if (isMissingCvDetailVersionColumn(upErr)) {
+      return versioningMigrationRequiredResponse();
+    }
     return Response.json({ error: upErr.message }, { status: 500 });
   }
 
@@ -147,9 +190,18 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     .eq("id", candidateId)
     .maybeSingle();
 
-  if (selErr || !row) {
+  if (selErr) {
+    if (isMissingCvDetailVersionColumn(selErr)) {
+      return versioningMigrationRequiredResponse();
+    }
     return Response.json(
-      { error: selErr?.message ?? "Could not load updated candidate." },
+      { error: selErr.message ?? "Could not load updated candidate." },
+      { status: 500 },
+    );
+  }
+  if (!row) {
+    return Response.json(
+      { error: "Could not load updated candidate." },
       { status: 500 },
     );
   }

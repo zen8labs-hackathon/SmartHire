@@ -35,6 +35,8 @@ Use separate environments (`production`, `preview`) and avoid sharing production
 | `SUPABASE_DATABASE_URL` | **only if you run migrations in CI job** | staging DB only (or unset) |
 | `SKIP_DB_MIGRATIONS` | usually unset | can be `1` when not running migration step |
 
+CV versioning DDL (`cv_detail_version`, `candidate_cv_detail_version_events`): see [cv-detail-version-schema.md](./cv-detail-version-schema.md).
+
 ## 3) Phase 0 baseline (implemented in repo)
 
 This repository now separates migration from build:

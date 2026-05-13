@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RangeValue } from "react-aria-components";
 
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
+import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -69,6 +70,7 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
   const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
   const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
+  const [cvVersions, setCvVersions] = useState<CvManagementVersionListItem[]>([]);
   const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
   const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
@@ -172,48 +174,76 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     }
   }, [uploadDateRangeFilter]);
 
-  useEffect(() => {
-    if (!activeRow) {
-      setCvHistoryRows([]);
-      setCvHistoryError(null);
-      setCvHistoryLoading(false);
-      return;
-    }
-    let disposed = false;
-    setCvHistoryLoading(true);
-    setCvHistoryError(null);
-    void (async () => {
+  const fetchCvHistoryForCandidate = useCallback(
+    async (
+      candidateId: string,
+      opts?: { showLoading?: boolean; signal?: AbortSignal },
+    ) => {
+      const showLoading = opts?.showLoading !== false;
+      if (showLoading) {
+        setCvHistoryLoading(true);
+        setCvHistoryError(null);
+      }
       try {
-        const res = await fetch(`/api/admin/candidates/${activeRow.id}/cv-history`, {
+        const res = await fetch(`/api/admin/candidates/${candidateId}/cv-history`, {
           credentials: "include",
+          signal: opts?.signal,
         });
         const json = (await res.json()) as {
           error?: string;
           history?: CandidateCvHistoryRow[];
+          versions?: CvManagementVersionListItem[];
         };
         if (!res.ok) {
           throw new Error(json.error ?? "Could not load CV history.");
         }
-        if (!disposed) {
-          setCvHistoryRows(json.history ?? []);
-        }
+        if (opts?.signal?.aborted) return;
+        setCvHistoryRows(json.history ?? []);
+        setCvVersions(json.versions ?? []);
+        setCvHistoryError(null);
       } catch (error) {
-        if (!disposed) {
-          setCvHistoryRows([]);
-          setCvHistoryError(
-            error instanceof Error ? error.message : "Could not load CV history.",
-          );
+        if (opts?.signal?.aborted) return;
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
         }
+        setCvHistoryRows([]);
+        setCvVersions([]);
+        setCvHistoryError(
+          error instanceof Error ? error.message : "Could not load CV history.",
+        );
       } finally {
-        if (!disposed) {
+        if (showLoading) {
           setCvHistoryLoading(false);
         }
       }
-    })();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!activeRow) {
+      setCvHistoryRows([]);
+      setCvVersions([]);
+      setCvHistoryError(null);
+      setCvHistoryLoading(false);
+      return;
+    }
+    const ac = new AbortController();
+    void fetchCvHistoryForCandidate(activeRow.id, {
+      showLoading: true,
+      signal: ac.signal,
+    });
     return () => {
-      disposed = true;
+      ac.abort();
     };
-  }, [activeRow]);
+  }, [activeRow, fetchCvHistoryForCandidate]);
+
+  const refreshCvHistoryForCandidate = useCallback(
+    async (candidateId: string) => {
+      await fetchCvHistoryForCandidate(candidateId, { showLoading: false });
+    },
+    [fetchCvHistoryForCandidate],
+  );
 
   const allowedJobOpeningIds = useMemo(
     () => new Set(jobOpeningOptions.map((opt) => opt.id)),
@@ -450,8 +480,10 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     statusUpdateBusy,
     statusUpdateError,
     cvHistoryRows,
+    cvVersions,
     cvHistoryLoading,
     cvHistoryError,
+    refreshCvHistoryForCandidate,
     dbRows,
     jobOpeningOptions,
     jobOpeningsLoadState,
