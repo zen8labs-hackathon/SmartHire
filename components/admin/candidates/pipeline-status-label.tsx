@@ -2,6 +2,7 @@
 
 import { cn } from "@heroui/react";
 
+import { asCandidateStatus } from "@/lib/candidates/db-row";
 import {
   pipelineStatusLabelParts,
   pipelineStatusSurfaceClass,
@@ -10,7 +11,7 @@ import {
 import type { CandidateStatus } from "@/lib/candidates/types";
 
 type Props = {
-  status: CandidateStatus;
+  status: CandidateStatus | string;
   /** Badge = pill with background; inline = text only inside selects */
   variant?: "badge" | "inline";
   className?: string;
@@ -18,11 +19,13 @@ type Props = {
 };
 
 export function PipelineStatusLabel({
-  status,
+  status: rawStatus,
   variant = "badge",
   className,
   uppercase = true,
 }: Props) {
+  const status =
+    typeof rawStatus === "string" ? asCandidateStatus(rawStatus) : rawStatus;
   const label = pipelineStatusLabelParts(status);
 
   const rootClass = cn(

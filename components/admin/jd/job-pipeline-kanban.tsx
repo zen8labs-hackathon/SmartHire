@@ -30,6 +30,7 @@ import {
 } from "@/lib/candidates/candidate-display";
 import {
   type CandidateDbRow,
+  asCandidateStatus,
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
@@ -251,7 +252,7 @@ function CandidateKanbanCard({
             >
               {tableRow.jdMatchLabel}
             </Chip>
-            <PipelineStatusLabel status={row.status} className="text-[11px]" />
+            <PipelineStatusLabel status={tableRow.status} className="text-[11px]" />
           </div>
         </Card.Content>
       </Card>
@@ -325,7 +326,7 @@ export function JobPipelineKanban({
       map.set(s, []);
     }
     for (const row of filteredRows) {
-      const bucket = map.get(row.status);
+      const bucket = map.get(asCandidateStatus(row.status));
       if (bucket) bucket.push(row);
     }
     return map;
@@ -413,11 +414,12 @@ export function JobPipelineKanban({
     if (!row) return;
 
     const targetStatus = parseColumnDroppableId(String(over.id));
-    if (!targetStatus || targetStatus === row.status) return;
+    if (!targetStatus || targetStatus === asCandidateStatus(row.status)) return;
 
-    if (!isPipelineTransitionAllowed(row.status, targetStatus)) {
+    const fromStatus = asCandidateStatus(row.status);
+    if (!isPipelineTransitionAllowed(fromStatus, targetStatus)) {
       setPipelineError(
-        `Cannot move from ${candidateStatusUiLabel(row.status)} to ${candidateStatusUiLabel(targetStatus)}.`,
+        `Cannot move from ${candidateStatusUiLabel(fromStatus)} to ${candidateStatusUiLabel(targetStatus)}.`,
       );
       return;
     }

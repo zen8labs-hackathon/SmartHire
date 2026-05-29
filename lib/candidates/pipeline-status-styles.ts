@@ -3,6 +3,7 @@ import {
   candidateStatusUiLabel,
   type PipelineMajorPhaseId,
 } from "@/lib/candidates/pipeline-phase";
+import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 import type { CandidateStatus } from "@/lib/candidates/types";
 
 /** Shared background per major phase (CV Scan / Interview / Offer). */
@@ -85,5 +86,5 @@ export function pipelineStatusLabelParts(status: CandidateStatus): {
 }
 
 export function isPipelineStatusKey(value: string): value is CandidateStatus {
-  return value !== "all";
+  return (CANDIDATE_PIPELINE_STATUSES as readonly string[]).includes(value);
 }
