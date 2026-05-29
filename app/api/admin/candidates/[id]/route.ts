@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import type { CandidateStatus } from "@/lib/candidates/types";
@@ -25,6 +26,36 @@ const patchBodySchema = z.object({
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+/** Full candidate row (incl. `parsed_payload`) for drawer / detail hydration. */
+export async function GET(request: Request, { params }: RouteContext) {
+  const auth = await requireStaffForRequest(request);
+  if (!auth.ok) return auth.response;
+
+  const { id: candidateId } = await params;
+  if (!candidateId || !UUID_RE.test(candidateId)) {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const { data: row, error } = await auth.supabase
+    .from("candidates")
+    .select(ADMIN_CANDIDATES_SELECT)
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+  if (!row) {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const [enriched] = await enrichCandidatesWithJobOpenings(auth.supabase, [
+    row as unknown as CandidateDbRow,
+  ]);
+
+  return Response.json({ candidate: enriched });
+}
 
 function formatCandidateStatusConstraintError(message: string): string {
   if (!message.includes("candidates_status_check")) return message;
