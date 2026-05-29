@@ -11,6 +11,7 @@ import type {
 function candidateStatusToPipelineStatus(s: CandidateStatus): JobPipelineStatus {
   switch (s) {
     case "Interview":
+    case "InterviewConsider":
     case "InterviewPassed":
     case "InterviewCanceled":
     case "InterviewFailed":

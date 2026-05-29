@@ -4,6 +4,7 @@ export const CANDIDATE_PIPELINE_STATUSES = [
   "CvFailed",
   "Consider",
   "Interview",
+  "InterviewConsider",
   "InterviewCanceled",
   "InterviewPassed",
   "InterviewFailed",

@@ -53,6 +53,7 @@ export function pipelineStatusTextClass(status: CandidateStatus): string {
     case "CvFailed":
       return "text-red-700 dark:text-red-300";
     case "Consider":
+    case "InterviewConsider":
       return "text-zinc-600 dark:text-zinc-300";
     case "Interview":
       return "text-violet-700 dark:text-violet-300";
