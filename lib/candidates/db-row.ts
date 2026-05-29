@@ -105,7 +105,8 @@ export function canonicalCandidateStatusFromDb(raw: string): CandidateStatus | n
   return null;
 }
 
-function asCandidateStatus(s: string): CandidateStatus {
+/** Coerce DB `candidates.status` string to the pipeline enum (defaults to New). */
+export function asCandidateStatus(s: string): CandidateStatus {
   return canonicalCandidateStatusFromDb(s) ?? "New";
 }
 
