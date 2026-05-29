@@ -18,10 +18,12 @@ import {
   useOverlayState,
 } from "@heroui/react";
 
+import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 import {
   candidateDisplayInitials,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
+import { isPipelineStatusKey } from "@/lib/candidates/pipeline-status-styles";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -517,19 +519,31 @@ export function JdAppliedCandidatesPipeline({
             className="min-w-[180px]"
           >
             <Label className="sr-only">Status</Label>
-            <Select.Trigger>
-              <Select.Value />
+            <Select.Trigger className="min-h-10">
+              {isPipelineStatusKey(statusFilter) ? (
+                <PipelineStatusLabel
+                  status={statusFilter}
+                  variant="inline"
+                  uppercase={false}
+                />
+              ) : (
+                <Select.Value />
+              )}
               <Select.Indicator />
             </Select.Trigger>
             <Select.Popover>
               <ListBox>
                 {FILTER_STATUS_OPTIONS.map((opt) => (
-                  <ListBox.Item
-                    key={opt.id}
-                    id={opt.id}
-                    textValue={opt.label}
-                  >
-                    {opt.label}
+                  <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                    {opt.id === "all" ? (
+                      opt.label
+                    ) : (
+                      <PipelineStatusLabel
+                        status={opt.id as CandidateStatus}
+                        variant="inline"
+                        uppercase={false}
+                      />
+                    )}
                     <ListBox.ItemIndicator />
                   </ListBox.Item>
                 ))}
@@ -698,8 +712,12 @@ export function JdAppliedCandidatesPipeline({
                             void onStatusChange(r.id, key as CandidateStatus);
                         }}
                       >
-                        <Select.Trigger className="h-9 min-h-9 min-w-[9.5rem]">
-                          <Select.Value />
+                        <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2">
+                          <PipelineStatusLabel
+                            status={row.status}
+                            variant="inline"
+                            uppercase={false}
+                          />
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
@@ -710,7 +728,11 @@ export function JdAppliedCandidatesPipeline({
                                 id={s}
                                 textValue={candidateStatusUiLabel(s)}
                               >
-                                {candidateStatusUiLabel(s)}
+                                <PipelineStatusLabel
+                                  status={s}
+                                  variant="inline"
+                                  uppercase={false}
+                                />
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
