@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
+import { VirtualKanbanColumnBody } from "@/components/admin/kanban/virtual-kanban-column-body";
 import {
   AddCandidateModal,
   type JdPipelineCampaignOption,
@@ -144,14 +145,18 @@ function UserPlusIcon({ className }: { className?: string }) {
   );
 }
 
-function KanbanColumn({
+function KanbanColumn<T>({
   status,
   count,
-  children,
+  items,
+  getItemKey,
+  renderCard,
 }: {
   status: CandidateStatus;
   count: number;
-  children: React.ReactNode;
+  items: readonly T[];
+  getItemKey: (item: T) => string;
+  renderCard: (item: T) => React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: columnDroppableId(status),
@@ -170,7 +175,11 @@ function KanbanColumn({
         <PipelineStatusLabel status={status} />
         <span className="text-xs font-semibold tabular-nums text-muted">{count}</span>
       </div>
-      <div className="flex min-h-[260px] flex-col gap-2 overflow-y-auto p-2">{children}</div>
+      <VirtualKanbanColumnBody
+        items={items}
+        getItemKey={(item, index) => getItemKey(item)}
+        renderItem={(item) => renderCard(item)}
+      />
     </div>
   );
 }
@@ -553,16 +562,20 @@ export function JobPipelineKanban({
               {visibleStatuses.map((status) => {
                 const columnRows = rowsByStatus.get(status) ?? [];
                 return (
-                  <KanbanColumn key={status} status={status} count={columnRows.length}>
-                    {columnRows.map((row) => (
+                  <KanbanColumn
+                    key={status}
+                    status={status}
+                    count={columnRows.length}
+                    items={columnRows}
+                    getItemKey={(row) => row.id}
+                    renderCard={(row) => (
                       <CandidateKanbanCard
-                        key={row.id}
                         row={row}
                         canEditPipeline={canEditPipeline}
                         jobId={jobId}
                       />
-                    ))}
-                  </KanbanColumn>
+                    )}
+                  />
                 );
               })}
             </div>
