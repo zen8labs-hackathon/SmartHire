@@ -2,16 +2,24 @@
 
 import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
 import type { Key } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RangeValue } from "react-aria-components";
 
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
+import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
+import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+import {
+  applyCandidatesRealtimeBatch,
+  CANDIDATES_REALTIME_DEBOUNCE_MS,
+  collectJobOpeningHydrateIds,
+  type CandidatesRealtimeChange,
+} from "@/lib/candidates/realtime-list-patch";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
 import {
   PIPELINE_STATUS_DISPLAY_ORDER,
@@ -81,6 +89,9 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     initialRows ? "ok" : "loading",
   );
 
+  const pendingRealtimeRef = useRef<CandidatesRealtimeChange[]>([]);
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchCandidates = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/candidates", { credentials: "include" });
@@ -131,6 +142,64 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     }
   }, []);
 
+  const flushRealtimeUpdates = useCallback(async () => {
+    const batch = pendingRealtimeRef.current.splice(0);
+    if (batch.length === 0) return;
+
+    if (batch.length > 20) {
+      await fetchCandidates();
+      return;
+    }
+
+    let nextRows: CandidateDbRow[] = [];
+    setDbRows((prev) => {
+      nextRows = applyCandidatesRealtimeBatch(prev, batch);
+      setDbLoadState("ok");
+      return nextRows;
+    });
+
+    const hydrateIds = collectJobOpeningHydrateIds(nextRows);
+    if (hydrateIds.length === 0) return;
+
+    const { data, error } = await supabase
+      .from("candidates")
+      .select(ADMIN_CANDIDATES_LIST_SELECT)
+      .in("id", hydrateIds);
+
+    if (error || !data?.length) return;
+
+    const enriched = await enrichCandidatesWithJobOpenings(
+      supabase,
+      data as unknown as CandidateDbRow[],
+    );
+    const byId = new Map(enriched.map((r) => [r.id, r]));
+
+    setDbRows((current) =>
+      current.map((r) => {
+        const fresh = byId.get(r.id);
+        if (!fresh) return r;
+        return {
+          ...fresh,
+          parsed_payload: r.parsed_payload ?? fresh.parsed_payload,
+        };
+      }),
+    );
+  }, [fetchCandidates, supabase]);
+
+  const scheduleRealtimeUpdate = useCallback(
+    (change: CandidatesRealtimeChange) => {
+      pendingRealtimeRef.current.push(change);
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
+      }
+      realtimeTimerRef.current = setTimeout(() => {
+        realtimeTimerRef.current = null;
+        void flushRealtimeUpdates();
+      }, CANDIDATES_REALTIME_DEBOUNCE_MS);
+    },
+    [flushRealtimeUpdates],
+  );
+
   useEffect(() => {
     if (!initialRows) {
       void fetchCandidates();
@@ -145,16 +214,25 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "candidates" },
-        () => {
-          void fetchCandidates();
+        (payload) => {
+          scheduleRealtimeUpdate({
+            eventType: payload.eventType as CandidatesRealtimeChange["eventType"],
+            new: (payload.new as Record<string, unknown> | null) ?? null,
+            old: (payload.old as Record<string, unknown> | null) ?? null,
+          });
         },
       )
       .subscribe();
 
     return () => {
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
+        realtimeTimerRef.current = null;
+      }
+      pendingRealtimeRef.current = [];
       void supabase.removeChannel(channel);
     };
-  }, [supabase, fetchCandidates]);
+  }, [supabase, scheduleRealtimeUpdate]);
 
   useEffect(() => {
     setPage(1);
