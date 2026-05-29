@@ -1,0 +1,59 @@
+import { notFound, redirect } from "next/navigation";
+
+import { JobPipelineKanbanLoader } from "../job-pipeline-kanban-loader";
+import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
+import { createClient } from "@/lib/supabase/server";
+
+type PageProps = {
+  params: Promise<{ jobId: string }>;
+};
+
+export default async function JobPipelineKanbanPage({ params }: PageProps) {
+  const { jobId } = await params;
+  const numId = Number(jobId);
+  if (!Number.isInteger(numId) || numId <= 0) notFound();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login?next=/admin/jd");
+
+  const access = await getStaffProfileAccess(supabase, user.id);
+  if (!access?.isStaff) redirect("/dashboard");
+
+  const { data: jd } = await supabase
+    .from("job_descriptions")
+    .select("id, position")
+    .eq("id", numId)
+    .maybeSingle();
+
+  if (!jd) notFound();
+
+  const { data: linkedOpening } = await supabase
+    .from("job_openings")
+    .select("id, title")
+    .eq("job_description_id", numId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { rows: initialPipelineCandidates, error: pipelineFetchError } =
+    await fetchCandidatesForJobDescription(supabase, numId);
+
+  return (
+    <JobPipelineKanbanLoader
+      key={`${jd.id}-v2`}
+      jobDescriptionId={numId}
+      jobId={String(jd.id)}
+      jobTitle={jd.position}
+      linkedJobOpeningId={linkedOpening?.id ?? null}
+      linkedJobOpeningTitle={linkedOpening?.title ?? null}
+      initialPipelineCandidates={initialPipelineCandidates}
+      initialPipelineFetchFailed={pipelineFetchError != null}
+      canEditPipeline={access.isHr}
+      canAddCandidates={access.isHr}
+    />
+  );
+}

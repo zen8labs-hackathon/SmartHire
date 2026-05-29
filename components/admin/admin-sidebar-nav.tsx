@@ -10,7 +10,6 @@ const mainItems = [
   { href: "/admin", label: "Users" },
   { href: "/admin/jd", label: "Jobs list" },
   { href: "/admin/candidates", label: "CV management" },
-  { href: "/admin/candidates/v2", label: "CV management v2" },
 ] as const;
 
 const setupItems = [
@@ -22,6 +21,9 @@ function linkActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
   if (href === "/admin/candidates") {
     return pathname === "/admin/candidates" || pathname === "/admin/candidates/";
+  }
+  if (href === "/admin/jd") {
+    return pathname === "/admin/jd" || pathname.startsWith("/admin/jd/");
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
