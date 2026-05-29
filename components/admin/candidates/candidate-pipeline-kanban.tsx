@@ -30,6 +30,7 @@ import {
   cn,
 } from "@heroui/react";
 
+import { VirtualKanbanColumnBody } from "@/components/admin/kanban/virtual-kanban-column-body";
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import { CandidatePipelineFiltersCard } from "@/components/admin/candidates/candidate-pipeline-filters-card";
 import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
@@ -120,16 +121,20 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
-function KanbanColumn({
+function KanbanColumn<T>({
   status,
   columnTitle,
-  children,
   count,
+  items,
+  getItemKey,
+  renderCard,
 }: {
   status: CandidateStatus;
   columnTitle: string;
-  children: React.ReactNode;
   count: number;
+  items: readonly T[];
+  getItemKey: (item: T) => string;
+  renderCard: (item: T) => React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: columnDroppableId(status),
@@ -155,7 +160,11 @@ function KanbanColumn({
         </Chip>
         <span className="text-xs font-semibold tabular-nums text-muted">{count}</span>
       </div>
-      <div className="flex min-h-[240px] flex-col gap-2 overflow-y-auto p-2">{children}</div>
+      <VirtualKanbanColumnBody
+        items={items}
+        getItemKey={(item, index) => getItemKey(item)}
+        renderItem={(item) => renderCard(item)}
+      />
     </div>
   );
 }
@@ -668,10 +677,10 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
                           status={status}
                           columnTitle={candidateStatusShortLabel(status)}
                           count={columnRows.length}
-                        >
-                          {columnRows.map((row) => (
+                          items={columnRows}
+                          getItemKey={(row) => row.id}
+                          renderCard={(row) => (
                             <CandidateKanbanCard
-                              key={row.id}
                               row={row}
                               onOpen={() => openRow(row)}
                               onDelete={() => {
@@ -680,8 +689,8 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
                                 setDeleteDialogOpen(true);
                               }}
                             />
-                          ))}
-                        </KanbanColumn>
+                          )}
+                        />
                       );
                     })}
                   </div>
