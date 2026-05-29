@@ -15,6 +15,11 @@ import {
 } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import {
+  CANDIDATES_LIST_DEFAULT_LIMIT,
+  buildCandidatesListSearchParams,
+  type CandidatesListQuery,
+} from "@/lib/candidates/candidates-list-query";
+import {
   applyCandidatesRealtimeBatch,
   CANDIDATES_REALTIME_DEBOUNCE_MS,
   collectJobOpeningHydrateIds,
@@ -23,7 +28,6 @@ import {
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
 import {
   PIPELINE_STATUS_DISPLAY_ORDER,
-  candidateStatusSearchHaystack,
   candidateStatusUiLabel,
 } from "@/lib/candidates/pipeline-phase";
 import {
@@ -55,7 +59,20 @@ export function uploadDateKeyLocal(iso: string | null): string | null {
   return `${y}-${m}-${day}`;
 }
 
-export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
+export type CandidatePipelineListMode = "page" | "all";
+
+type UseCandidatePipelineStateOptions = {
+  /** `page` = server pagination + filters; `all` = full list (kanban). */
+  listMode?: CandidatePipelineListMode;
+  initialListTotal?: number;
+};
+
+export function useCandidatePipelineState(
+  initialRows?: CandidateDbRow[],
+  options: UseCandidatePipelineStateOptions = {},
+) {
+  const listMode = options.listMode ?? "page";
+  const initialListTotal = options.initialListTotal;
   const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
@@ -88,24 +105,74 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     initialRows ? "ok" : "loading",
   );
+  const [listTotal, setListTotal] = useState(
+    initialListTotal ?? initialRows?.length ?? 0,
+  );
 
   const pendingRealtimeRef = useRef<CandidatesRealtimeChange[]>([]);
   const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
+
+  const buildListQuery = useCallback((): CandidatesListQuery => {
+    const uploadFrom = uploadDateRangeFilter?.start.toString();
+    const uploadTo = uploadDateRangeFilter?.end.toString();
+    const status =
+      statusKey != null && statusKey !== "all" ? String(statusKey) : undefined;
+    const jobOpeningId =
+      jdFilterKey != null && jdFilterKey !== "all" ? String(jdFilterKey) : undefined;
+    const q = query.trim() || undefined;
+
+    if (listMode === "all") {
+      return {
+        all: true,
+        status,
+        jobOpeningId,
+        uploadFrom,
+        uploadTo,
+        q,
+      };
+    }
+
+    return {
+      limit: CANDIDATES_LIST_DEFAULT_LIMIT,
+      offset: (page - 1) * CANDIDATES_LIST_DEFAULT_LIMIT,
+      status,
+      jobOpeningId,
+      uploadFrom,
+      uploadTo,
+      q,
+    };
+  }, [
+    jdFilterKey,
+    listMode,
+    page,
+    query,
+    statusKey,
+    uploadDateRangeFilter,
+  ]);
 
   const fetchCandidates = useCallback(async () => {
+    setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
-      const res = await fetch("/api/admin/candidates", { credentials: "include" });
+      const params = buildCandidatesListSearchParams(buildListQuery());
+      const res = await fetch(`/api/admin/candidates?${params}`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         setDbLoadState("error");
         return;
       }
-      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
+      const json = (await res.json()) as {
+        candidates?: CandidateDbRow[];
+        pagination?: { total: number };
+      };
       setDbRows(json.candidates ?? []);
+      setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
       setDbLoadState("ok");
     } catch {
       setDbLoadState("error");
     }
-  }, []);
+  }, [buildListQuery]);
 
   const fetchJobOpenings = useCallback(async () => {
     try {
@@ -201,12 +268,33 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
   );
 
   useEffect(() => {
-    if (!initialRows) {
-      void fetchCandidates();
-    }
     void fetchJobOpenings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchJobOpenings]);
+
+  const listFilterKey = useMemo(
+    () =>
+      JSON.stringify({
+        listMode,
+        query,
+        statusKey,
+        jdFilterKey,
+        uploadFrom: uploadDateRangeFilter?.start.toString() ?? null,
+        uploadTo: uploadDateRangeFilter?.end.toString() ?? null,
+      }),
+    [jdFilterKey, listMode, query, statusKey, uploadDateRangeFilter],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [listFilterKey]);
+
+  useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
+    void fetchCandidates();
+  }, [fetchCandidates, listFilterKey, page]);
 
   useEffect(() => {
     const channel = supabase
@@ -233,18 +321,6 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
       void supabase.removeChannel(channel);
     };
   }, [supabase, scheduleRealtimeUpdate]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [jdFilterKey]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [uploadDateRangeFilter]);
 
   useEffect(() => {
     if (uploadDateRangeFilter?.start) {
@@ -384,6 +460,15 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
   }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState]);
 
   const statusFilterOptions = useMemo(() => {
+    if (listMode === "page") {
+      return [
+        { id: "all", label: "Status: All" },
+        ...PIPELINE_STATUS_DISPLAY_ORDER.map((status) => ({
+          id: status,
+          label: candidateStatusUiLabel(status),
+        })),
+      ];
+    }
     const available = new Set<CandidateStatus>();
     for (const row of tableSourceRows) {
       available.add(row.status);
@@ -395,7 +480,7 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
         label: candidateStatusUiLabel(status),
       })),
     ];
-  }, [tableSourceRows]);
+  }, [listMode, tableSourceRows]);
 
   const jdFilterOptions = useMemo(
     () => [{ id: "all", label: "JD: All" }, ...jobOpeningOptions],
@@ -414,43 +499,7 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     if (!isValid) setJdFilterKey("all");
   }, [jdFilterKey, jdFilterOptions]);
 
-  const filteredRows = useMemo(() => {
-    const keywords = query
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-    return tableSourceRows.filter((row) => {
-      if (statusKey != null && statusKey !== "all" && row.status !== statusKey) {
-        return false;
-      }
-      if (jdFilterKey != null && jdFilterKey !== "all" && row.jobOpeningId !== String(jdFilterKey)) {
-        return false;
-      }
-      if (uploadDateRangeFilter) {
-        const key = uploadDateKeyLocal(row.cvUploadedAtIso);
-        if (!key) return false;
-        const from = uploadDateRangeFilter.start.toString();
-        const to = uploadDateRangeFilter.end.toString();
-        if (key < from || key > to) return false;
-      }
-      if (keywords.length === 0) return true;
-      const hay = [
-        row.name,
-        row.role,
-        ...row.skills,
-        row.degree,
-        row.school,
-        row.sourceLabel,
-        row.jdMatchLabel,
-        row.jdCampaignLabel,
-        candidateStatusSearchHaystack(row.status),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return keywords.every((kw) => hay.includes(kw));
-    });
-  }, [jdFilterKey, query, statusKey, tableSourceRows, uploadDateRangeFilter]);
+  const filteredRows = useMemo(() => tableSourceRows, [tableSourceRows]);
 
   const activeDbRow = useMemo(() => {
     if (!activeRow) return null;
@@ -460,8 +509,7 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
   const noResultsForUploadDate =
     uploadDateRangeFilter != null &&
     dbLoadState === "ok" &&
-    filteredRows.length === 0 &&
-    tableSourceRows.length > 0;
+    filteredRows.length === 0;
 
   function openRow(row: CandidateRow) {
     setStatusUpdateError(null);
@@ -592,6 +640,9 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     jobOpeningsLoadState,
     dbLoadState,
     fetchCandidates,
+    listTotal,
+    listPageSize: CANDIDATES_LIST_DEFAULT_LIMIT,
+    listMode,
     tableSourceRows,
     statusFilterOptions,
     jdFilterOptions,

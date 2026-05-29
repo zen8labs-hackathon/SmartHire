@@ -21,8 +21,15 @@ const CandidatePipelineDashboard = dynamic(
 
 export function CandidatePipelineDashboardLoader({
   initialRows,
+  initialListTotal,
 }: {
   initialRows?: CandidateDbRow[];
+  initialListTotal?: number;
 }) {
-  return <CandidatePipelineDashboard initialRows={initialRows} />;
+  return (
+    <CandidatePipelineDashboard
+      initialRows={initialRows}
+      initialListTotal={initialListTotal}
+    />
+  );
 }

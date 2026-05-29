@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
+import { queryCandidatesList } from "@/lib/candidates/candidates-list-query";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
 export type FetchCandidatesForJdResult = {
   rows: CandidateDbRow[];
@@ -10,43 +9,17 @@ export type FetchCandidatesForJdResult = {
 };
 
 /**
- * Loads candidates tied to this job description via job_openings.job_description_id.
- * Mirrors GET /api/admin/candidates?jobDescriptionId=… ordering.
+ * Loads all active candidates tied to this job description via job_openings.
+ * Mirrors `GET /api/admin/candidates?jobDescriptionId=…&all=true`.
  */
 export async function fetchCandidatesForJobDescription(
   supabase: SupabaseClient,
   jobDescriptionId: number,
 ): Promise<FetchCandidatesForJdResult> {
-  const { data: openings, error: openingsError } = await supabase
-    .from("job_openings")
-    .select("id")
-    .eq("job_description_id", jobDescriptionId);
+  const { candidates, error } = await queryCandidatesList(supabase, {
+    jobDescriptionId,
+    all: true,
+  });
 
-  if (openingsError) {
-    return { rows: [], error: openingsError.message };
-  }
-
-  const openingIds = (openings ?? [])
-    .map((o) => o.id as string)
-    .filter(Boolean);
-  if (openingIds.length === 0) {
-    return { rows: [], error: null };
-  }
-
-  const { data, error } = await supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_LIST_SELECT)
-    .eq("is_active", true)
-    .in("job_opening_id", openingIds)
-    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return { rows: [], error: error.message };
-  }
-
-  const raw = (data ?? []) as unknown as CandidateDbRow[];
-  const rows = await enrichCandidatesWithJobOpenings(supabase, raw);
-
-  return { rows, error: null };
+  return { rows: candidates, error };
 }

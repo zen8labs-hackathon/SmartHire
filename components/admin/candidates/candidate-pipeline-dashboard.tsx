@@ -17,6 +17,7 @@ import {
 import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import { CandidatePipelineFiltersCard } from "@/components/admin/candidates/candidate-pipeline-filters-card";
 import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
+import { CANDIDATES_LIST_DEFAULT_LIMIT } from "@/lib/candidates/candidates-list-query";
 import { useCandidatePipelineState } from "@/components/admin/candidates/use-candidate-pipeline-state";
 import {
   candidateDisplayInitials,
@@ -31,9 +32,8 @@ import {
 
 type Props = {
   initialRows?: CandidateDbRow[];
+  initialListTotal?: number;
 };
-
-const ROWS_PER_PAGE = 4;
 
 function pageWindow(current: number, total: number, width: number) {
   let start = Math.max(1, current - Math.floor(width / 2));
@@ -90,7 +90,7 @@ function formatUploadedAtDisplay(iso: string | null): string {
   });
 }
 
-export function CandidatePipelineDashboard({ initialRows }: Props) {
+export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Props) {
   const {
     page,
     setPage,
@@ -130,6 +130,8 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     statusFilterOptions,
     jdFilterOptions,
     filteredRows,
+    listTotal,
+    listPageSize,
     tableSourceRows,
     activeDbRow,
     noResultsForUploadDate,
@@ -137,7 +139,10 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     drawerStatusOptions,
     patchCandidateStatus,
     confirmDeleteCandidate,
-  } = useCandidatePipelineState(initialRows);
+  } = useCandidatePipelineState(initialRows, {
+    listMode: "page",
+    initialListTotal,
+  });
 
   const refreshCvDetailAfterMutation = useCallback(async () => {
     await fetchCandidates();
@@ -174,16 +179,15 @@ export function CandidatePipelineDashboard({ initialRows }: Props) {
     [fetchCandidates, openRow, refreshCvHistoryForCandidate, setDbRows],
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(listTotal / (listPageSize || CANDIDATES_LIST_DEFAULT_LIMIT)),
+  );
   const safePage = Math.min(page, totalPages);
-
-  const paginatedRows = useMemo(() => {
-    const start = (safePage - 1) * ROWS_PER_PAGE;
-    return filteredRows.slice(start, start + ROWS_PER_PAGE);
-  }, [filteredRows, safePage]);
-
-  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
-  const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
+  const pageSize = listPageSize || CANDIDATES_LIST_DEFAULT_LIMIT;
+  const paginatedRows = filteredRows;
+  const startIdx = listTotal === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const endIdx = Math.min(safePage * pageSize, listTotal);
 
   return (
     <div className="flex flex-col gap-8">
