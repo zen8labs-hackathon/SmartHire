@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
@@ -35,7 +35,7 @@ export async function fetchCandidatesForJobDescription(
 
   const { data, error } = await supabase
     .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
+    .select(ADMIN_CANDIDATES_LIST_SELECT)
     .eq("is_active", true)
     .in("job_opening_id", openingIds)
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
-import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
@@ -22,7 +22,7 @@ export default async function AdminCandidatesPage() {
 
     const { data } = await supabase
       .from("candidates")
-      .select(ADMIN_CANDIDATES_SELECT)
+      .select(ADMIN_CANDIDATES_LIST_SELECT)
       .eq("is_active", true)
       .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });

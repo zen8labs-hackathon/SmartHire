@@ -1,5 +1,8 @@
-/** Columns returned by admin candidate list + pipeline APIs. */
-export const ADMIN_CANDIDATES_SELECT = [
+const JOB_OPENINGS_EMBED =
+  "job_openings!job_opening_id ( id, title, job_descriptions ( position ) )";
+
+/** Shared columns for admin candidate queries (excludes heavy `parsed_payload`). */
+const ADMIN_CANDIDATES_CORE_COLUMNS = [
   "id",
   "is_active",
   "job_opening_id",
@@ -8,7 +11,6 @@ export const ADMIN_CANDIDATES_SELECT = [
   "mime_type",
   "parsing_status",
   "parsing_error",
-  "parsed_payload",
   "name",
   "role",
   "avatar_url",
@@ -29,5 +31,21 @@ export const ADMIN_CANDIDATES_SELECT = [
   "cv_uploaded_at",
   "created_at",
   "updated_at",
-  "job_openings!job_opening_id ( id, title, job_descriptions ( position ) )",
+] as const;
+
+/**
+ * List / pipeline / kanban — omits `parsed_payload` to cut payload size.
+ * Use {@link ADMIN_CANDIDATES_SELECT} for detail, profile, and PATCH responses.
+ */
+export const ADMIN_CANDIDATES_LIST_SELECT = [
+  ...ADMIN_CANDIDATES_CORE_COLUMNS,
+  JOB_OPENINGS_EMBED,
+].join(", ");
+
+/** Full row including `parsed_payload` (drawer, profile, single-candidate APIs). */
+export const ADMIN_CANDIDATES_SELECT = [
+  ...ADMIN_CANDIDATES_CORE_COLUMNS.slice(0, 8),
+  "parsed_payload",
+  ...ADMIN_CANDIDATES_CORE_COLUMNS.slice(8),
+  JOB_OPENINGS_EMBED,
 ].join(", ");

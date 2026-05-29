@@ -238,6 +238,31 @@ export function useCandidatePipelineState(initialRows?: CandidateDbRow[]) {
     };
   }, [activeRow, fetchCvHistoryForCandidate]);
 
+  /** List queries omit `parsed_payload`; load full row when the drawer opens. */
+  useEffect(() => {
+    if (!activeRow || !drawerOpen) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${activeRow.id}`, {
+          credentials: "include",
+          signal: ac.signal,
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { candidate?: CandidateDbRow };
+        const c = json.candidate;
+        if (!c || ac.signal.aborted) return;
+        setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+        setActiveRow((prev) =>
+          prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+        );
+      } catch {
+        // ignore abort / network
+      }
+    })();
+    return () => ac.abort();
+  }, [activeRow?.id, drawerOpen]);
+
   const refreshCvHistoryForCandidate = useCallback(
     async (candidateId: string) => {
       await fetchCvHistoryForCandidate(candidateId, { showLoading: false });
