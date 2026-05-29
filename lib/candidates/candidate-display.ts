@@ -25,6 +25,7 @@ export function candidateStatusChipColor(
     case "Matched":
       return "success";
     case "Consider":
+    case "InterviewConsider":
     case "Interview":
       return "accent";
     case "Offer":

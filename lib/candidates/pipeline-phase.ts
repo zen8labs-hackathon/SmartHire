@@ -13,6 +13,7 @@ export const PIPELINE_PHASES = [
     title: "Interview",
     statuses: [
       "Interview",
+      "InterviewConsider",
       "InterviewCanceled",
       "InterviewPassed",
       "InterviewFailed",
@@ -58,6 +59,7 @@ export function candidateStatusShortLabel(status: CandidateStatus): string {
     case "InterviewFailed":
       return "Failed";
     case "Consider":
+    case "InterviewConsider":
       return "Consider";
     case "Interview":
       return "Interview";
