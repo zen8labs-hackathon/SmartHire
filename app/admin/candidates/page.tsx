@@ -1,14 +1,17 @@
 import { redirect } from "next/navigation";
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
-import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
+import {
+  CANDIDATES_LIST_DEFAULT_LIMIT,
+  queryCandidatesList,
+} from "@/lib/candidates/candidates-list-query";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function AdminCandidatesPage() {
   let initialRows: CandidateDbRow[] | undefined;
+  let initialListTotal: number | undefined;
 
   try {
     const supabase = await createClient();
@@ -20,17 +23,20 @@ export default async function AdminCandidatesPage() {
     const access = await getStaffProfileAccess(supabase, user.id);
     if (!access?.isHr) redirect("/admin/jd");
 
-    const { data } = await supabase
-      .from("candidates")
-      .select(ADMIN_CANDIDATES_LIST_SELECT)
-      .eq("is_active", true)
-      .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false });
-    const raw = (data ?? []) as unknown as CandidateDbRow[];
-    initialRows = await enrichCandidatesWithJobOpenings(supabase, raw);
+    const result = await queryCandidatesList(supabase, {
+      limit: CANDIDATES_LIST_DEFAULT_LIMIT,
+      offset: 0,
+    });
+    initialRows = result.candidates;
+    initialListTotal = result.pagination?.total;
   } catch {
     // Fall through — dashboard will fetch client-side via API route
   }
 
-  return <CandidatePipelineDashboardLoader initialRows={initialRows} />;
+  return (
+    <CandidatePipelineDashboardLoader
+      initialRows={initialRows}
+      initialListTotal={initialListTotal}
+    />
+  );
 }

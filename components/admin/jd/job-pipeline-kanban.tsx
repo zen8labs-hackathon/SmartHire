@@ -336,10 +336,13 @@ export function JobPipelineKanban({
     setPipelineLoadState("loading");
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch(`/api/admin/candidates?jobDescriptionId=${jobDescriptionId}`, {
-        credentials: "include",
-        headers: { ...h },
-      });
+      const res = await fetch(
+        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true`,
+        {
+          credentials: "include",
+          headers: { ...h },
+        },
+      );
       if (!res.ok) {
         setPipelineLoadState("error");
         return;

@@ -435,7 +435,7 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
     drawerStatusOptions,
     patchCandidateStatus,
     confirmDeleteCandidate,
-  } = useCandidatePipelineState(initialRows);
+  } = useCandidatePipelineState(initialRows, { listMode: "all" });
 
   const refreshCvDetailAfterMutation = useCallback(async () => {
     await fetchCandidates();

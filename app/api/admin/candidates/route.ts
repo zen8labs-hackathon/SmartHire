@@ -1,66 +1,35 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+import {
+  parseCandidatesListQuery,
+  queryCandidatesList,
+} from "@/lib/candidates/candidates-list-query";
 
 export async function GET(request: Request) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
+  const { query, error: parseError } = parseCandidatesListQuery(url.searchParams);
+  if (parseError) {
+    return Response.json({ error: parseError }, { status: 400 });
+  }
+
   const jdParam = url.searchParams.get("jobDescriptionId");
-
-  let openingIds: string[] | null = null;
-  if (jdParam == null || jdParam === "") {
-    if (!auth.access.isHr) {
-      return Response.json(
-        { error: "jobDescriptionId is required for this account." },
-        { status: 400 },
-      );
-    }
-  } else if (jdParam !== "") {
-    const jdId = Number(jdParam);
-    if (!Number.isInteger(jdId) || jdId <= 0) {
-      return Response.json(
-        { error: "Invalid jobDescriptionId" },
-        { status: 400 },
-      );
-    }
-    const { data: openings, error: openingsError } = await auth.supabase
-      .from("job_openings")
-      .select("id")
-      .eq("job_description_id", jdId);
-
-    if (openingsError) {
-      return Response.json({ error: openingsError.message }, { status: 500 });
-    }
-    openingIds = (openings ?? [])
-      .map((o) => o.id as string)
-      .filter(Boolean);
-    if (openingIds.length === 0) {
-      return Response.json({ candidates: [] });
-    }
+  if ((jdParam == null || jdParam === "") && !auth.access.isHr) {
+    return Response.json(
+      { error: "jobDescriptionId is required for this account." },
+      { status: 400 },
+    );
   }
 
-  let query = auth.supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_LIST_SELECT)
-    .eq("is_active", true)
-    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  const result = await queryCandidatesList(auth.supabase, query);
 
-  if (openingIds) {
-    query = query.in("job_opening_id", openingIds);
+  if (result.error) {
+    return Response.json({ error: result.error }, { status: 500 });
   }
 
-  const { data, error } = await query;
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  const rows = (data ?? []) as unknown as CandidateDbRow[];
-  const enriched = await enrichCandidatesWithJobOpenings(auth.supabase, rows);
-
-  return Response.json({ candidates: enriched });
+  return Response.json({
+    candidates: result.candidates,
+    pagination: result.pagination,
+  });
 }
