@@ -15,6 +15,7 @@ import {
   requiredLine,
   utcDateStringToday,
 } from "@/lib/jd/normalize-text";
+import { fetchApplicantCountsByJobDescriptionId } from "@/lib/jd/applicant-counts";
 import {
   isJdStatus,
   type JdStatus,
@@ -107,46 +108,33 @@ export async function GET(request: Request) {
     return Response.json({ jobDescriptions: [] });
   }
 
-  const { data: openings, error: openingsError } = await auth.supabase
-    .from("job_openings")
-    .select("id, job_description_id, jd_storage_path, created_at")
-    .not("job_description_id", "is", null);
+  const [openingsResult, countsResult] = await Promise.all([
+    auth.supabase
+      .from("job_openings")
+      .select("id, job_description_id, jd_storage_path, created_at")
+      .not("job_description_id", "is", null),
+    fetchApplicantCountsByJobDescriptionId(auth.supabase),
+  ]);
 
+  const { data: openings, error: openingsError } = openingsResult;
   if (openingsError) {
     return Response.json({ error: openingsError.message }, { status: 500 });
   }
-
-  const { data: candRows, error: candError } = await auth.supabase
-    .from("candidates")
-    .select("job_opening_id")
-    .not("job_opening_id", "is", null);
-
-  if (candError) {
-    return Response.json({ error: candError.message }, { status: 500 });
+  if (countsResult.error) {
+    return Response.json({ error: countsResult.error }, { status: 500 });
   }
 
-  const jdIdByOpening = new Map<string, number>();
+  const applicantCountByJd = countsResult.counts;
   const openingsByJd = new Map<number, { jd_storage_path: string | null; created_at: string }[]>();
   for (const o of openings ?? []) {
     const jdId = o.job_description_id as number | null;
-    const oid = o.id as string;
     if (jdId == null) continue;
-    jdIdByOpening.set(oid, jdId);
     const list = openingsByJd.get(jdId) ?? [];
     list.push({
       jd_storage_path: (o.jd_storage_path as string | null) ?? null,
       created_at: String(o.created_at),
     });
     openingsByJd.set(jdId, list);
-  }
-
-  const applicantCountByJd = new Map<number, number>();
-  for (const c of candRows ?? []) {
-    const joId = c.job_opening_id as string | null;
-    if (!joId) continue;
-    const jdId = jdIdByOpening.get(joId);
-    if (jdId == null) continue;
-    applicantCountByJd.set(jdId, (applicantCountByJd.get(jdId) ?? 0) + 1);
   }
 
   const enriched = jds.map((row: Record<string, unknown>) => {
