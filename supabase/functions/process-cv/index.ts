@@ -10,7 +10,7 @@ const BUCKET = "candidate-cvs";
  * Override model with Supabase secret `AI_GATEWAY_MODEL` or optional `LLM_MODEL`
  * (same name as the Next.js app global model env for consistency).
  */
-const DEFAULT_AI_GATEWAY_MODEL = "xai/grok-4-fast-reasoning";
+const DEFAULT_AI_GATEWAY_MODEL = "xai/grok-4.1-fast-reasoning";
 
 type ParsedResume = {
   name: string | null;
