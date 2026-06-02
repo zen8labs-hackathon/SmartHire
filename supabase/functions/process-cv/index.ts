@@ -6,11 +6,8 @@ import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 
 const BUCKET = "candidate-cvs";
 
-/**
- * Override model with Supabase secret `AI_GATEWAY_MODEL` or optional `LLM_MODEL`
- * (same name as the Next.js app global model env for consistency).
- */
-const DEFAULT_AI_GATEWAY_MODEL = "xai/grok-4-fast-reasoning";
+/** Vercel AI Gateway model for CV parsing (fixed; see `lib/llm/config.ts` for the Next.js app). */
+const AI_GATEWAY_MODEL = "openai/gpt-4o-mini";
 
 type ParsedResume = {
   name: string | null;
@@ -180,14 +177,10 @@ type LlmRoute = {
 function resolveLlmRoute(): LlmRoute {
   const gatewayKey = Deno.env.get("AI_GATEWAY_API_KEY")?.trim();
   if (gatewayKey) {
-    const model =
-      Deno.env.get("LLM_MODEL")?.trim() ||
-      Deno.env.get("AI_GATEWAY_MODEL")?.trim() ||
-      DEFAULT_AI_GATEWAY_MODEL;
     return {
       url: "https://ai-gateway.vercel.sh/v1/chat/completions",
       apiKey: gatewayKey,
-      model,
+      model: AI_GATEWAY_MODEL,
       errorLabel: "AI Gateway",
     };
   }
