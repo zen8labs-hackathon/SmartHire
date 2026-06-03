@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
+import { ADMIN_CANDIDATES_LIST_SELECT, ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
@@ -20,6 +20,8 @@ export type CandidatesListQuery = {
   offset?: number;
   /** When true, return up to {@link CANDIDATES_LIST_MAX_ALL} rows (no offset). */
   all?: boolean;
+  /** When true, include the full parsed_payload object. */
+  includeParsedPayload?: boolean;
 };
 
 export type CandidatesListPagination = {
@@ -63,15 +65,18 @@ function escapeIlikePattern(q: string): string {
   return q.replace(/[%_\\]/g, "\\$&");
 }
 
-export function parseCandidatesListQuery(
-  searchParams: URLSearchParams,
-): { query: CandidatesListQuery; error: string | null } {
+export function parseCandidatesListQuery(searchParams: URLSearchParams): {
+  query: CandidatesListQuery;
+  error: string | null;
+} {
   const jobDescriptionId = parseJobDescriptionId(
     searchParams.get("jobDescriptionId"),
   );
   const jobOpeningIdRaw = searchParams.get("jobOpeningId")?.trim() ?? "";
   const jobOpeningId =
-    jobOpeningIdRaw && UUID_RE.test(jobOpeningIdRaw) ? jobOpeningIdRaw : undefined;
+    jobOpeningIdRaw && UUID_RE.test(jobOpeningIdRaw)
+      ? jobOpeningIdRaw
+      : undefined;
 
   const all =
     searchParams.get("all") === "true" || searchParams.get("all") === "1";
@@ -87,8 +92,11 @@ export function parseCandidatesListQuery(
   }
 
   const statusRaw = searchParams.get("status")?.trim();
-  const status =
-    statusRaw && statusRaw !== "all" ? statusRaw : undefined;
+  const status = statusRaw && statusRaw !== "all" ? statusRaw : undefined;
+
+  const includeParsedPayload =
+    searchParams.get("includeParsedPayload") === "true" ||
+    searchParams.get("includeParsedPayload") === "1";
 
   return {
     query: {
@@ -101,6 +109,7 @@ export function parseCandidatesListQuery(
       limit,
       offset,
       all: all || limit == null,
+      includeParsedPayload,
     },
     error: null,
   };
@@ -118,6 +127,9 @@ export function buildCandidatesListSearchParams(
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
+  if (query.includeParsedPayload) {
+    params.set("includeParsedPayload", "true");
+  }
   if (query.all) {
     params.set("all", "true");
   } else {
@@ -209,7 +221,10 @@ export async function queryCandidatesList(
 
   let query = supabase
     .from("candidates")
-    .select(ADMIN_CANDIDATES_LIST_SELECT, paginate ? { count: "exact" } : undefined)
+    .select(
+      input.includeParsedPayload ? ADMIN_CANDIDATES_SELECT : ADMIN_CANDIDATES_LIST_SELECT,
+      paginate ? { count: "exact" } : undefined,
+    )
     .eq("is_active", true)
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });

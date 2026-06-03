@@ -39,6 +39,10 @@ import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-t
 import {
   PIPELINE_STATUS_DISPLAY_ORDER,
   candidateStatusUiLabel,
+  PIPELINE_PHASES,
+  CV_SCAN_STATUSES,
+  INTERVIEW_STATUSES,
+  candidateStatusMajorPhase,
 } from "@/lib/candidates/pipeline-phase";
 import {
   isPipelineStatusKey,
@@ -87,7 +91,9 @@ function columnDroppableId(status: CandidateStatus): string {
   return `${COL_PREFIX}${status}`;
 }
 
-function parseColumnDroppableId(id: string | number | undefined): CandidateStatus | null {
+function parseColumnDroppableId(
+  id: string | number | undefined,
+): CandidateStatus | null {
   if (id == null) return null;
   const s = String(id);
   if (!s.startsWith(COL_PREFIX)) return null;
@@ -100,7 +106,10 @@ function kanbanColumnCollisionDetection(prefix: string): CollisionDetection {
     const columnContainers = args.droppableContainers.filter((c) =>
       String(c.id).startsWith(prefix),
     );
-    const pointerHits = pointerWithin({ ...args, droppableContainers: columnContainers });
+    const pointerHits = pointerWithin({
+      ...args,
+      droppableContainers: columnContainers,
+    });
     if (pointerHits.length > 0) return pointerHits;
     return rectIntersection({ ...args, droppableContainers: columnContainers });
   };
@@ -166,14 +175,16 @@ function KanbanColumn<T>({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex w-[320px] shrink-0 flex-col rounded-xl border",
+        "flex w-full min-w-[240px] flex-col rounded-xl border overflow-hidden",
         pipelineStatusSurfaceClass(status, "column"),
         isOver && "ring-2 ring-accent ring-offset-2 ring-offset-background",
       )}
     >
       <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
         <PipelineStatusLabel status={status} />
-        <span className="text-xs font-semibold tabular-nums text-muted">{count}</span>
+        <span className="text-xs font-semibold tabular-nums text-muted">
+          {count}
+        </span>
       </div>
       <VirtualKanbanColumnBody
         items={items}
@@ -195,12 +206,13 @@ function CandidateKanbanCard({
 }) {
   const tableRow = candidateDbRowToTableRow(row);
   const contact = displayFromParsedPayload(row.parsed_payload);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: row.id,
-    disabled: !canEditPipeline,
-    data: { status: row.status },
-    attributes: { role: "group", tabIndex: canEditPipeline ? 0 : undefined },
-  });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: row.id,
+      disabled: !canEditPipeline,
+      data: { status: row.status },
+      attributes: { role: "group", tabIndex: canEditPipeline ? 0 : undefined },
+    });
 
   const style = transform
     ? {
@@ -229,39 +241,55 @@ function CandidateKanbanCard({
           isDragging && "border-accent/40 shadow-lg ring-2 ring-accent/25",
         )}
       >
-        <Card.Content className="gap-2 p-3">
-          <div className="flex items-start gap-2">
-            <Avatar className="size-9 shrink-0" size="sm">
-              {tableRow.avatarUrl ? <Avatar.Image alt="" src={tableRow.avatarUrl} /> : null}
-              <Avatar.Fallback className="text-[10px]">
+        <Card.Content className="gap-1.5 p-2.5">
+          <div className="flex items-center gap-2">
+            <Avatar
+              className="size-8 shrink-0 ring-1 ring-divider/20"
+              size="sm"
+            >
+              {tableRow.avatarUrl ? (
+                <Avatar.Image alt="" src={tableRow.avatarUrl} />
+              ) : null}
+              <Avatar.Fallback className="text-[9px] bg-default-100 font-medium">
                 {candidateDisplayInitials(tableRow.name)}
               </Avatar.Fallback>
             </Avatar>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <Link
                 href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(row.id)}/evaluation`}
-                className="line-clamp-2 text-sm font-semibold text-accent hover:underline"
+                className="line-clamp-1 text-xs font-semibold text-accent hover:underline decoration-accent/40"
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 {tableRow.name}
               </Link>
-              <p className="mt-0.5 truncate text-xs text-muted">{tableRow.role}</p>
+              <p className="truncate text-[10px] text-muted-foreground">
+                {tableRow.role}
+              </p>
             </div>
           </div>
-          <div className="space-y-0.5 text-xs text-muted">
-            <p className="truncate">{contact.email || "—"}</p>
-            <p className="tabular-nums">{contact.phone || "—"}</p>
+          <div className="space-y-0 text-[10px] text-muted-foreground/80 pl-10">
+            <p className="truncate">Email: {contact.email || "—"}</p>
+            <p className="tabular-nums">Phone: {contact.phone || "—"}</p>
+            {tableRow.ttf || tableRow.tth ? (
+              <p className="mt-1 flex gap-2 font-medium text-accent">
+                {tableRow.ttf ? <span>TTF: {tableRow.ttf}</span> : null}
+                {tableRow.tth ? <span>TTH: {tableRow.tth}</span> : null}
+              </p>
+            ) : null}
           </div>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-divider/20">
             <Chip
               size="sm"
               variant="soft"
               color={jdMatchChipColor(tableRow)}
-              className="min-w-[3rem] justify-center text-[11px] font-bold tabular-nums"
+              className="min-w-[2.5rem] justify-center text-[9px] font-bold tabular-nums h-[18px]"
             >
               {tableRow.jdMatchLabel}
             </Chip>
-            <PipelineStatusLabel status={tableRow.status} className="text-[11px]" />
+            <PipelineStatusLabel
+              status={tableRow.status}
+              className="text-[10px]"
+            />
           </div>
         </Card.Content>
       </Card>
@@ -269,7 +297,13 @@ function CandidateKanbanCard({
   );
 }
 
-function CandidateKanbanCardOverlay({ row, jobId }: { row: CandidateDbRow; jobId: string }) {
+function CandidateKanbanCardOverlay({
+  row,
+  jobId,
+}: {
+  row: CandidateDbRow;
+  jobId: string;
+}) {
   return (
     <div className="w-[304px] rotate-[1.5deg] scale-[1.02] shadow-xl">
       <CandidateKanbanCard row={row} canEditPipeline={false} jobId={jobId} />
@@ -301,14 +335,20 @@ export function JobPipelineKanban({
   const [draggingRow, setDraggingRow] = useState<CandidateDbRow | null>(null);
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
 
-  const jdPipelineCampaign: JdPipelineCampaignOption | undefined = useMemo(() => {
-    if (linkedJobOpeningId && linkedJobOpeningTitle) {
-      return { jobOpeningId: linkedJobOpeningId, title: linkedJobOpeningTitle };
-    }
-    return "no_opening_linked";
-  }, [linkedJobOpeningId, linkedJobOpeningTitle]);
+  const jdPipelineCampaign: JdPipelineCampaignOption | undefined =
+    useMemo(() => {
+      if (linkedJobOpeningId && linkedJobOpeningTitle) {
+        return {
+          jobOpeningId: linkedJobOpeningId,
+          title: linkedJobOpeningTitle,
+        };
+      }
+      return "no_opening_linked";
+    }, [linkedJobOpeningId, linkedJobOpeningTitle]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -346,7 +386,7 @@ export function JobPipelineKanban({
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch(
-        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true`,
+        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&includeParsedPayload=true`,
         {
           credentials: "include",
           headers: { ...h },
@@ -389,7 +429,8 @@ export function JobPipelineKanban({
   }, [refetchPipeline, router]);
 
   function handleDragStart(event: DragStartEvent) {
-    const row = filteredRows.find((r) => r.id === String(event.active.id)) ?? null;
+    const row =
+      filteredRows.find((r) => r.id === String(event.active.id)) ?? null;
     setDraggingRow(row);
   }
 
@@ -397,13 +438,71 @@ export function JobPipelineKanban({
     const prevRow = pipelineRows.find((r) => r.id === id);
     if (!prevRow) return;
     if (prevRow.status === next) return;
+    const currTime =
+      next === "Interview" || next === "Offer"
+        ? new Date().toISOString()
+        : null;
+
+    const phaseF = candidateStatusMajorPhase(prevRow.status as CandidateStatus);
+    const phaseT = candidateStatusMajorPhase(next);
+
+    const PHASE_LEVELS: Record<"cv_scan" | "interview" | "offer", number> = {
+      cv_scan: 1,
+      interview: 2,
+      offer: 3,
+    };
+
+    const levelF = PHASE_LEVELS[phaseF];
+    const levelT = PHASE_LEVELS[phaseT];
+
+    let newInterviewAt = prevRow.interview_at;
+    let newOnboardingAt = prevRow.onboarding_at;
+
+    if (levelT < levelF) {
+      // Moving to a lower phase -> reset scheduling dates that belong to the abandoned higher phases
+      if (levelT === 2) {
+        // Moved from offer to interview -> clear onboarding date
+        newOnboardingAt = null;
+      } else if (levelT === 1) {
+        // Moved to cv_scan -> clear both
+        newInterviewAt = null;
+        newOnboardingAt = null;
+      }
+    } else {
+      // Moving to a higher phase or within the same phase -> keep existing dates,
+      // but auto-initialize dates if they are entering the stage for the first time
+      if (next === "Interview" && !newInterviewAt) {
+        newInterviewAt = currTime;
+      }
+      if (next === "Offer" && !newOnboardingAt) {
+        newOnboardingAt = currTime;
+      }
+    }
 
     // Optimistic update: move card immediately, then sync with API.
-    setPipelineRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: next } : r)));
+    setPipelineRows((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              status: next,
+              interview_at: newInterviewAt,
+              onboarding_at: newOnboardingAt,
+            }
+          : r,
+      ),
+    );
     setRowUpdating(id);
     setPipelineError(null);
     try {
-      await postPipeline([{ id, status: next }]);
+      await postPipeline([
+        {
+          id,
+          status: next,
+          interview_at: newInterviewAt,
+          onboarding_at: newOnboardingAt,
+        },
+      ]);
     } catch (e) {
       // Rollback if server rejects transition/update.
       setPipelineRows((prev) =>
@@ -447,7 +546,9 @@ export function JobPipelineKanban({
             <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
             <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
           </Breadcrumbs>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{jobTitle} pipeline</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {jobTitle} pipeline
+          </h1>
           <div className="inline-flex rounded-xl border border-divider bg-surface-secondary/50 p-1 text-sm">
             <Link
               href={`/admin/jd/${jobId}/pipeline`}
@@ -462,7 +563,11 @@ export function JobPipelineKanban({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {pipelineLoadState === "error" ? (
-            <Button variant="secondary" size="sm" onPress={() => void refetchPipeline()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onPress={() => void refetchPipeline()}
+            >
               Retry load
             </Button>
           ) : null}
@@ -484,12 +589,18 @@ export function JobPipelineKanban({
         </div>
       </header>
 
-      {pipelineError ? <p className="text-sm text-danger">{pipelineError}</p> : null}
+      {pipelineError ? (
+        <p className="text-sm text-danger">{pipelineError}</p>
+      ) : null}
 
       <Card variant="secondary">
         <Card.Content className="flex flex-col gap-4 p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
-            <SearchField value={query} onChange={setQuery} className="min-w-[220px] flex-1">
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              className="min-w-[220px] flex-1"
+            >
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
@@ -522,7 +633,11 @@ export function JobPipelineKanban({
               <Select.Popover>
                 <ListBox>
                   {FILTER_STATUS_OPTIONS.map((opt) => (
-                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                    <ListBox.Item
+                      key={opt.id}
+                      id={opt.id}
+                      textValue={opt.label}
+                    >
                       {opt.id === "all" ? (
                         opt.label
                       ) : (
@@ -553,36 +668,62 @@ export function JobPipelineKanban({
             <div className="flex min-h-[40vh] w-full items-center justify-center rounded-xl border border-dashed border-divider bg-surface-secondary/30">
               <span className="text-sm text-muted">Loading candidates…</span>
             </div>
-          ) : filteredRows.length === 0 ? (
-            <div className="flex min-h-[40vh] w-full items-center justify-center rounded-xl border border-dashed border-divider bg-surface-secondary/30">
-              <span className="text-sm text-muted">No candidates match your filters.</span>
-            </div>
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {visibleStatuses.map((status) => {
-                const columnRows = rowsByStatus.get(status) ?? [];
+            <div className="space-y-6">
+              {PIPELINE_PHASES.map((phase) => {
+                const phaseStatuses = phase.statuses.filter((s) =>
+                  visibleStatuses.includes(s),
+                );
+                if (phaseStatuses.length === 0) return null;
+
                 return (
-                  <KanbanColumn
-                    key={status}
-                    status={status}
-                    count={columnRows.length}
-                    items={columnRows}
-                    getItemKey={(row) => row.id}
-                    renderCard={(row) => (
-                      <CandidateKanbanCard
-                        row={row}
-                        canEditPipeline={canEditPipeline}
-                        jobId={jobId}
-                      />
-                    )}
-                  />
+                  <div
+                    key={phase.id}
+                    className="space-y-2.5 pb-4 border-b border-divider/30 last:border-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex size-5 items-center justify-center rounded-full bg-accent/10 text-[10px] font-bold text-accent">
+                        {phase.id === "cv_scan"
+                          ? "1"
+                          : phase.id === "interview"
+                            ? "2"
+                            : "3"}
+                      </span>
+                      <h2 className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
+                        {phase.title}
+                      </h2>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                      {phaseStatuses.map((status) => {
+                        const columnRows = rowsByStatus.get(status) ?? [];
+                        return (
+                          <KanbanColumn
+                            key={status}
+                            status={status}
+                            count={columnRows.length}
+                            items={columnRows}
+                            getItemKey={(row) => row.id}
+                            renderCard={(row) => (
+                              <CandidateKanbanCard
+                                row={row}
+                                canEditPipeline={canEditPipeline}
+                                jobId={jobId}
+                              />
+                            )}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
         <DragOverlay dropAnimation={null}>
-          {draggingRow ? <CandidateKanbanCardOverlay row={draggingRow} jobId={jobId} /> : null}
+          {draggingRow ? (
+            <CandidateKanbanCardOverlay row={draggingRow} jobId={jobId} />
+          ) : null}
         </DragOverlay>
       </DndContext>
 

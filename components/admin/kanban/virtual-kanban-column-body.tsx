@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
 
 /** Kanban card + gap-2; tune if card layout changes. */
-export const KANBAN_VIRTUAL_CARD_ESTIMATE_PX = 132;
+export const KANBAN_VIRTUAL_CARD_ESTIMATE_PX = 100;
 export const KANBAN_VIRTUAL_CARD_GAP_PX = 8;
 /** Below this count, a plain map is cheaper than virtualizer setup. */
 export const KANBAN_VIRTUALIZE_MIN_ITEMS = 12;
@@ -16,6 +16,8 @@ type Props<T> = {
   estimateSize?: number;
   gap?: number;
   virtualizeMinItems?: number;
+  minHeightClass?: string;
+  maxHeightClass?: string;
 };
 
 export function VirtualKanbanColumnBody<T>({
@@ -25,6 +27,8 @@ export function VirtualKanbanColumnBody<T>({
   estimateSize = KANBAN_VIRTUAL_CARD_ESTIMATE_PX,
   gap = KANBAN_VIRTUAL_CARD_GAP_PX,
   virtualizeMinItems = KANBAN_VIRTUALIZE_MIN_ITEMS,
+  minHeightClass = "min-h-[260px]",
+  maxHeightClass = "max-h-[calc(100vh-270px)]",
 }: Props<T>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowSize = estimateSize + gap;
@@ -40,7 +44,9 @@ export function VirtualKanbanColumnBody<T>({
 
   if (!useVirtual) {
     return (
-      <div className="flex min-h-[260px] flex-col gap-2 overflow-y-auto p-2">
+      <div
+        className={`flex flex-col gap-2 overflow-y-auto p-2 ${minHeightClass} ${maxHeightClass}`}
+      >
         {items.map((item, index) => (
           <div key={getItemKey(item, index)}>{renderItem(item, index)}</div>
         ))}
@@ -53,7 +59,7 @@ export function VirtualKanbanColumnBody<T>({
   return (
     <div
       ref={scrollRef}
-      className="min-h-[260px] max-h-[min(70vh,720px)] overflow-y-auto overflow-x-hidden p-2"
+      className={`overflow-y-auto overflow-x-hidden p-2 ${minHeightClass} ${maxHeightClass}`}
     >
       <div
         className="relative w-full"

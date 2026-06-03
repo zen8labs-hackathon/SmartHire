@@ -53,7 +53,11 @@ export function buildCandidatePipelinePatch(
   }
 
   if (next === "Matched" || next === "Rejected") {
-    return { status: next, interview_at: null, onboarding_at: null };
+    return {
+      status: next,
+      interview_at: prev.interview_at,
+      onboarding_at: prev.onboarding_at,
+    };
   }
 
   if (CV_SCAN_STATUSES.has(next)) {

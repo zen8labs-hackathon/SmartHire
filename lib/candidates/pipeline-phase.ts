@@ -6,7 +6,7 @@ export const PIPELINE_PHASES = [
   {
     id: "cv_scan",
     title: "CV Scan",
-    statuses: ["New", "CvPassed", "CvFailed", "Consider"],
+    statuses: ["New", "Consider", "CvPassed", "CvFailed"],
   },
   {
     id: "interview",
@@ -124,7 +124,5 @@ export const INTERVIEW_SCHEDULE_STATUSES = new Set<CandidateStatus>([
 
 /** CV Scan candidates eligible for “Move to interview” (excludes scan failures). */
 export function isEligibleForBulkMoveToInterview(status: string): boolean {
-  return (
-    status === "New" || status === "CvPassed" || status === "Consider"
-  );
+  return status === "New" || status === "CvPassed" || status === "Consider";
 }

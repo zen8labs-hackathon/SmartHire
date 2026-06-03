@@ -38,8 +38,7 @@ function jsonResponse(body: unknown, status = 200) {
 async function requireAdmin(
   authHeader: string | null,
 ): Promise<
-  | { ok: true; userId: string }
-  | { ok: false; status: number; message: string }
+  { ok: true; userId: string } | { ok: false; status: number; message: string }
 > {
   if (!authHeader?.startsWith("Bearer ")) {
     return { ok: false, status: 401, message: "Missing authorization" };
@@ -116,7 +115,9 @@ async function extractPlainText(
     m === "application/msword";
 
   if (isDocx) {
-    const result = await mammoth.extractRawText({ arrayBuffer: toArrayBuffer(bytes) });
+    const result = await mammoth.extractRawText({
+      arrayBuffer: toArrayBuffer(bytes),
+    });
     return (result.value ?? "").trim();
   }
 
@@ -155,14 +156,14 @@ function safeParseParsedResume(raw: string): ParsedResume | null {
       skills,
       degree: typeof o.degree === "string" ? o.degree : null,
       school: typeof o.school === "string" ? o.school : null,
-      experienceSummary: typeof o.experienceSummary === "string"
-        ? o.experienceSummary
-        : null,
-      englishLevel: typeof o.englishLevel === "string" && o.englishLevel.trim()
-        ? o.englishLevel.trim()
-        : typeof o.english === "string" && o.english.trim()
-        ? o.english.trim()
-        : null,
+      experienceSummary:
+        typeof o.experienceSummary === "string" ? o.experienceSummary : null,
+      englishLevel:
+        typeof o.englishLevel === "string" && o.englishLevel.trim()
+          ? o.englishLevel.trim()
+          : typeof o.english === "string" && o.english.trim()
+            ? o.english.trim()
+            : null,
       gpa,
     };
   } catch {
@@ -192,26 +193,27 @@ function resolveLlmRoute(): LlmRoute {
     };
   }
 
-  const xaiKey = Deno.env.get("XAI_API_KEY")?.trim();
-  if (xaiKey) {
-    const model = Deno.env.get("XAI_MODEL")?.trim() || "grok-2-1212";
-    return {
-      url: "https://api.x.ai/v1/chat/completions",
-      apiKey: xaiKey,
-      model,
-      errorLabel: "xAI",
-    };
-  }
+  // const xaiKey = Deno.env.get("XAI_API_KEY")?.trim();
+  // if (xaiKey) {
+  //   const model = Deno.env.get("XAI_MODEL")?.trim() || "grok-2-1212";
+  //   return {
+  //     url: "https://api.x.ai/v1/chat/completions",
+  //     apiKey: xaiKey,
+  //     model,
+  //     errorLabel: "xAI",
+  //   };
+  // }
 
   throw new Error(
     "No LLM credentials: set AI_GATEWAY_API_KEY (Vercel AI Gateway) or XAI_API_KEY (direct xAI API).",
   );
 }
 
-async function grokParseResume(plainText: string): Promise<ParsedResume | null> {
+async function grokParseResume(
+  plainText: string,
+): Promise<ParsedResume | null> {
   const route = resolveLlmRoute();
-  const system =
-    `You extract structured candidate data from resume text. Respond with a single JSON object only, no markdown, with keys:
+  const system = `You extract structured candidate data from resume text. Respond with a single JSON object only, no markdown, with keys:
 name (string|null), email (string|null), phone (string|null), role (string|null), experienceYears (number|null), skills (string array), degree (string|null), school (string|null), experienceSummary (string|null), englishLevel (string|null), gpa (string|null).
 Use null when unknown. skills should be concise skill tokens. experienceYears is total years of professional experience if inferable. englishLevel should summarize language proficiency if stated (e.g. IELTS 7.5, Fluent English). gpa should be numeric grade or scale if clearly stated (e.g. 3.7/4.0).`;
 
@@ -294,9 +296,7 @@ Deno.serve(async (req) => {
 
   const { data: row, error: fetchErr } = await admin
     .from("candidates")
-    .select(
-      "id, parsing_status, cv_storage_path, mime_type, original_filename",
-    )
+    .select("id, parsing_status, cv_storage_path, mime_type, original_filename")
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -305,10 +305,18 @@ Deno.serve(async (req) => {
   }
 
   if (row.parsing_status === "completed") {
-    return jsonResponse({ ok: true, skipped: true, reason: "already_completed" });
+    return jsonResponse({
+      ok: true,
+      skipped: true,
+      reason: "already_completed",
+    });
   }
   if (row.parsing_status === "processing") {
-    return jsonResponse({ ok: true, skipped: true, reason: "already_processing" });
+    return jsonResponse({
+      ok: true,
+      skipped: true,
+      reason: "already_processing",
+    });
   }
 
   const { data: locked, error: lockErr } = await admin

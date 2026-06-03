@@ -2,6 +2,8 @@ import { canonicalCandidateStatusFromDb } from "@/lib/candidates/db-row";
 import type { CandidateStatus } from "@/lib/candidates/types";
 import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 
+import { candidateStatusMajorPhase } from "@/lib/candidates/pipeline-phase";
+
 /** All values allowed by DB check constraint (`candidates_status_check`). */
 export const ALL_PIPELINE_STATUSES: CandidateStatus[] = [
   ...CANDIDATE_PIPELINE_STATUSES,
@@ -17,7 +19,36 @@ export function isPipelineTransitionAllowed(from: string, to: string): boolean {
   const t = canonicalCandidateStatusFromDb(to);
   if (f == null || t == null) return false;
   if (f === t) return true;
-  return ALL_PIPELINE_STATUSES.includes(f) && ALL_PIPELINE_STATUSES.includes(t);
+
+  const phaseF = candidateStatusMajorPhase(f);
+  const phaseT = candidateStatusMajorPhase(t);
+
+  // Allow free movement within the same pipeline phase
+  if (phaseF === phaseT) return true;
+
+  // Control transitions between different pipeline phases to prevent stage skipping (nhảy cóc)
+  if (phaseF === "cv_scan" && phaseT === "interview") {
+    return f === "CvPassed" && (t === "Interview" || t === "InterviewConsider");
+  }
+
+  if (phaseF === "interview" && phaseT === "offer") {
+    return f === "InterviewPassed" && (t === "Offer" || t === "Rejected");
+  }
+
+  // Allow rollbacks/undos to the immediate previous phase
+  if (phaseF === "interview" && phaseT === "cv_scan") {
+    return (
+      f === "Interview" ||
+      f === "InterviewConsider" ||
+      f === "InterviewCanceled"
+    );
+  }
+
+  if (phaseF === "offer" && phaseT === "interview") {
+    return f === "Offer" || f === "Rejected";
+  }
+
+  return false;
 }
 
 export function allowedTargetsFromStatus(current: string): CandidateStatus[] {

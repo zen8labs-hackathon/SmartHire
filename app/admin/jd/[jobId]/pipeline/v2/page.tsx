@@ -33,14 +33,16 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
 
   const { data: linkedOpening } = await supabase
     .from("job_openings")
-    .select("id, title")
+    .select("id, title, created_at")
     .eq("job_description_id", numId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   const { rows: initialPipelineCandidates, error: pipelineFetchError } =
-    await fetchCandidatesForJobDescription(supabase, numId);
+    await fetchCandidatesForJobDescription(supabase, numId, {
+      includeParsedPayload: true,
+    });
 
   return (
     <JobPipelineKanbanLoader
@@ -50,6 +52,7 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
       jobTitle={jd.position}
       linkedJobOpeningId={linkedOpening?.id ?? null}
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
+      linkedJobOpeningTime={linkedOpening?.created_at ?? null}
       initialPipelineCandidates={initialPipelineCandidates}
       initialPipelineFetchFailed={pipelineFetchError != null}
       canEditPipeline={access.isHr}
