@@ -20,6 +20,8 @@ export type JobPipelineCandidateRow = {
   english: string;
   relatedSkills: string;
   status: JobPipelineStatus;
+  ttf?: string | null;
+  tth?: string | null;
 };
 
 export type JobPipelineViewModel = {

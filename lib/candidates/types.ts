@@ -21,6 +21,8 @@ export type CandidateRow = {
   hasCvFile: boolean;
   name: string;
   role: string;
+  email: string | null;
+  phone: string | null;
   avatarUrl: string | null;
   experienceYears: number;
   skills: string[];
@@ -28,6 +30,8 @@ export type CandidateRow = {
   moreSkills?: number;
   degree: string;
   school: string;
+  gpa: string;
+  englishLevel: string;
   status: CandidateStatus;
   /** HR user email recorded at CV upload (when available). */
   uploadedByEmail: string | null;
@@ -46,4 +50,6 @@ export type CandidateRow = {
   jdMatchError: string | null;
   /** ISO timestamp for CV upload time (`cv_uploaded_at`), else `created_at` — used for filters and display */
   cvUploadedAtIso: string | null;
+  ttf: string | null;
+  tth: string | null;
 };

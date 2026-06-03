@@ -1,6 +1,7 @@
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
+import { displayFromParsedPayload } from "./parsed-contact";
 
 export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -15,10 +16,8 @@ export type JdMatchStatus =
 export type JobOpeningEmbed = {
   id: string;
   title: string;
-  job_descriptions:
-    | { position: string }
-    | { position: string }[]
-    | null;
+  created_at?: string | null;
+  job_descriptions: { position: string } | { position: string }[] | null;
 };
 
 export type CandidateDbRow = {
@@ -93,7 +92,9 @@ const ALLOWED_PIPELINE_STATUSES = new Set<string>(CANDIDATE_PIPELINE_STATUSES);
  * Maps DB `candidates.status` to the current pipeline enum (incl. legacy strings).
  * Returns null if the value is not recognized — use for API transition checks.
  */
-export function canonicalCandidateStatusFromDb(raw: string): CandidateStatus | null {
+export function canonicalCandidateStatusFromDb(
+  raw: string,
+): CandidateStatus | null {
   const s = raw.trim();
   const mapped = LEGACY_STATUS_MAP[s];
   if (mapped) return mapped;
@@ -115,8 +116,7 @@ function jdMatchLabelFromRow(r: CandidateDbRow): {
   label: string;
 } {
   const st = (r.jd_match_status ?? "pending") as JdMatchStatus;
-  const sc =
-    r.jd_match_score == null ? null : Number(r.jd_match_score);
+  const sc = r.jd_match_score == null ? null : Number(r.jd_match_score);
   if (st === "completed" && sc != null && Number.isFinite(sc)) {
     return { score: sc, label: String(Math.round(sc)) };
   }
@@ -124,6 +124,20 @@ function jdMatchLabelFromRow(r: CandidateDbRow): {
   if (st === "failed") return { score: null, label: "Error" };
   if (st === "skipped") return { score: null, label: "N/A" };
   return { score: null, label: "Pending" };
+}
+
+function calculateDaysDifference(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+): string | null {
+  if (!startIso || !endIso) return null;
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  const diffTime = end - start;
+  if (diffTime < 0) return "0d";
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return `${diffDays}d`;
 }
 
 export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
@@ -157,20 +171,36 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     r.source_other,
   );
 
+  const parsedData = displayFromParsedPayload(r.parsed_payload);
+
   const { score: jdMatchScore, label: jdMatchLabel } = jdMatchLabelFromRow(r);
 
-  const uploaded =
-    r.cv_uploaded_at?.trim() || r.created_at || null;
+  const uploaded = r.cv_uploaded_at?.trim() || r.created_at || null;
+
+  const rawOpening = r.job_openings;
+  const jo = rawOpening
+    ? Array.isArray(rawOpening)
+      ? rawOpening[0]
+      : rawOpening
+    : null;
+  const openingCreatedAt = jo?.created_at;
+
+  const ttf = calculateDaysDifference(openingCreatedAt, r.onboarding_at);
+  const tth = calculateDaysDifference(uploaded, r.onboarding_at);
 
   return {
     id: r.id,
     hasCvFile: Boolean(r.cv_storage_path?.trim()),
     name,
     role,
+    email: (r.parsed_payload as any)?.email,
+    phone: (r.parsed_payload as any)?.phone,
     avatarUrl: r.avatar_url,
     experienceYears: Number.isFinite(exp) ? exp : 0,
     skills: visible,
     moreSkills: more,
+    gpa: parsedData.gpa,
+    englishLevel: parsedData.englishLevel,
     degree: r.degree?.trim() || "—",
     school: r.school?.trim() || "—",
     status: asCandidateStatus(r.status),
@@ -183,5 +213,7 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     jdMatchRationale: r.jd_match_rationale?.trim() || null,
     jdMatchError: r.jd_match_error?.trim() || null,
     cvUploadedAtIso: uploaded,
+    ttf,
+    tth,
   };
 }

@@ -13,7 +13,9 @@ type PageProps = {
   params: Promise<{ jobId: string; candidateId: string }>;
 };
 
-export default async function PipelineCandidateEvaluationPage({ params }: PageProps) {
+export default async function PipelineCandidateEvaluationPage({
+  params,
+}: PageProps) {
   const { jobId, candidateId } = await params;
   const numId = Number(jobId);
   if (!Number.isInteger(numId) || numId <= 0) notFound();

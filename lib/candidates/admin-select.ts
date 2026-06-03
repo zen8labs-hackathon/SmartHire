@@ -1,5 +1,5 @@
 const JOB_OPENINGS_EMBED =
-  "job_openings!job_opening_id ( id, title, job_descriptions ( position ) )";
+  "job_openings!job_opening_id ( id, title, created_at, job_descriptions ( position ) )";
 
 /** Shared columns for admin candidate queries (excludes heavy `parsed_payload`). */
 const ADMIN_CANDIDATES_CORE_COLUMNS = [
