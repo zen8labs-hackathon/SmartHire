@@ -1,6 +1,3 @@
-import "@/lib/ai/pdf-node-polyfill";
-import { PDFParse } from "pdf-parse";
-import mammoth from "mammoth";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
@@ -12,45 +9,19 @@ import {
   sliceExperienceNiceBlock,
   sliceWhatWeOfferBlock,
 } from "@/lib/jd/parse-jd-headers";
+import {
+  pickHeaderField,
+  pickLongFormField,
+} from "@/lib/ai/jd-extract-merge";
 import { SYSTEM_PROMPT } from "@/lib/ai/extract-jd-system-prompt";
+import { looksLikePdfBinary } from "@/lib/jd/extract-document-text";
 import {
   getConfiguredLanguageModel,
+  getJdExtractModelId,
   isLlmInferenceConfigured,
 } from "@/lib/llm";
 
-// ---------------------------------------------------------------------------
-// Text extraction from file buffer
-// ---------------------------------------------------------------------------
-
-export async function extractTextFromBuffer(
-  buffer: Buffer,
-  mimeType: string,
-): Promise<string> {
-  if (mimeType === "application/pdf") {
-    try {
-      const parser = new PDFParse({ data: buffer });
-      try {
-        const result = await parser.getText();
-        return result.text.trim();
-      } finally {
-        await parser.destroy();
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  if (
-    mimeType ===
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ) {
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value.trim();
-  }
-
-  // Plain text or unknown
-  return buffer.toString("utf-8").trim();
-}
+export { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
 
 // ---------------------------------------------------------------------------
 // Zod schema for structured JD extraction
@@ -60,8 +31,9 @@ const jdExtractionSchema = z.object({
   position: z
     .string()
     .max(50)
+    .nullable()
     .describe(
-      "Job title from the document (e.g. line 'Position:' or job title heading). Max 50 characters.",
+      "Exact job title from the document (e.g. line 'Position:' or heading). Null if not clearly stated. Max 50 characters.",
     ),
   department: z
     .string()
@@ -184,7 +156,9 @@ function isExtractedWhollyEmpty(e: ExtractedJd): boolean {
  */
 function applyRawDocumentFallback(rawText: string, merged: ExtractedJd): ExtractedJd {
   const cleaned = rawText.replace(/\r\n/g, "\n").replace(/\u0000/g, "").trim();
-  if (!cleaned || !isExtractedWhollyEmpty(merged)) return merged;
+  if (!cleaned || looksLikePdfBinary(cleaned) || !isExtractedWhollyEmpty(merged)) {
+    return merged;
+  }
 
   const lines = cleaned
     .split(/\n/)
@@ -203,44 +177,46 @@ function applyRawDocumentFallback(rawText: string, merged: ExtractedJd): Extract
   };
 }
 
-function pickFilled(ai: string, heuristic: string, maxLen?: number): string {
-  const a = normalizeFormText(ai);
-  const h = normalizeFormText(heuristic);
-  const v = a || h;
-  return maxLen != null ? v.slice(0, maxLen) : v;
-}
-
 /**
- * Merge regex/header heuristics with AI output. Heuristics fix PDF “one-line header”
- * blobs where the model often returns empty optional fields.
+ * Merge regex/header heuristics with AI output. Label-based header parsing wins
+ * over AI; long sections prefer grounded heuristic slices when AI hallucinates.
  */
 export function mergeHeuristicAndAi(rawText: string, ai: ExtractedJd): ExtractedJd {
   const header = parseJdHeaderFields(rawText);
+  const dutiesH = sliceDutiesBlock(rawText);
+  const mustH = sliceExperienceMustBlock(rawText);
+  const niceH = sliceExperienceNiceBlock(rawText);
+  const offerH = sliceWhatWeOfferBlock(rawText);
+
   return {
-    position: pickFilled(ai.position, header.position, 50),
-    department: pickFilled(ai.department, header.department, 50),
-    employment_status: pickFilled(
-      ai.employment_status,
+    position: pickHeaderField(header.position, ai.position, rawText, 50),
+    department: pickHeaderField(header.department, ai.department, rawText, 50),
+    employment_status: pickHeaderField(
       header.employment_status,
+      ai.employment_status,
+      rawText,
       50,
     ),
-    update_note: pickFilled(ai.update_note, header.update_note, 50),
-    work_location: pickFilled(ai.work_location, header.work_location),
-    reporting: pickFilled(ai.reporting, header.reporting),
-    role_overview: pickFilled(ai.role_overview, "", 255),
-    duties_and_responsibilities: pickFilled(
+    update_note: pickHeaderField(header.update_note, ai.update_note, rawText, 50),
+    work_location: pickHeaderField(header.work_location, ai.work_location, rawText),
+    reporting: pickHeaderField(header.reporting, ai.reporting, rawText),
+    role_overview: pickHeaderField("", ai.role_overview, rawText, 255),
+    duties_and_responsibilities: pickLongFormField(
+      dutiesH,
       ai.duties_and_responsibilities,
-      sliceDutiesBlock(rawText),
+      rawText,
     ),
-    experience_requirements_must_have: pickFilled(
+    experience_requirements_must_have: pickLongFormField(
+      mustH,
       ai.experience_requirements_must_have,
-      sliceExperienceMustBlock(rawText),
+      rawText,
     ),
-    experience_requirements_nice_to_have: pickFilled(
+    experience_requirements_nice_to_have: pickLongFormField(
+      niceH,
       ai.experience_requirements_nice_to_have,
-      sliceExperienceNiceBlock(rawText),
+      rawText,
     ),
-    what_we_offer: pickFilled(ai.what_we_offer, sliceWhatWeOfferBlock(rawText)),
+    what_we_offer: pickLongFormField(offerH, ai.what_we_offer, rawText),
   };
 }
 
@@ -265,7 +241,7 @@ export async function extractJdFromDocument(text: string): Promise<ExtractedJd> 
 }
 
 export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
-  const model = getConfiguredLanguageModel();
+  const model = getConfiguredLanguageModel(getJdExtractModelId());
 
   // Truncate to ~12 000 chars to stay within token budget
   const truncated =
