@@ -38,6 +38,27 @@ function sliceAfterLabel(
   return chunk.trim();
 }
 
+function sliceBetweenHeadingLines(
+  raw: string,
+  startPattern: RegExp,
+  endPattern: RegExp,
+): string {
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((l) => startPattern.test(l.trim()));
+  if (start < 0) return "";
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (endPattern.test(lines[i].trim())) {
+      end = i;
+      break;
+    }
+  }
+  return lines
+    .slice(start + 1, end)
+    .join("\n")
+    .trim();
+}
+
 function trimWorkLocation(s: string): string {
   let t = s.trim();
   const company = t.search(/\s+Our\s+Company\b/i);
@@ -193,7 +214,12 @@ export function sliceDutiesBlock(raw: string): string {
     const v = sliceAfterLabel(text, start, ends, true);
     if (normalizeFormText(v)) return normalizeFormText(v);
   }
-  return "";
+  const multiline = sliceBetweenHeadingLines(
+    raw,
+    /^(key responsibilities|main duties|duties and responsibilities|responsibilities|duties|mô tả công việc|nhiệm vụ chính|trách nhiệm công việc)/i,
+    /^(requirements|experience|must have|yêu cầu|quyền lợi|what we offer|benefits|nice to have)/i,
+  );
+  return normalizeFormText(multiline);
 }
 
 export function sliceExperienceMustBlock(raw: string): string {
@@ -224,7 +250,12 @@ export function sliceExperienceMustBlock(raw: string): string {
     const v = sliceAfterLabel(text, start, ends, true);
     if (normalizeFormText(v)) return normalizeFormText(v);
   }
-  return "";
+  const multiline = sliceBetweenHeadingLines(
+    raw,
+    /^(must have|required|experience requirements|yêu cầu|kinh nghiệm yêu cầu)/i,
+    /^(nice to have|preferred|what we offer|benefits|quyền lợi|how to apply)/i,
+  );
+  return normalizeFormText(multiline);
 }
 
 export function sliceExperienceNiceBlock(raw: string): string {
@@ -251,7 +282,12 @@ export function sliceExperienceNiceBlock(raw: string): string {
     const v = sliceAfterLabel(text, start, ends, true);
     if (normalizeFormText(v)) return normalizeFormText(v);
   }
-  return "";
+  const multiline = sliceBetweenHeadingLines(
+    raw,
+    /^(nice to have|preferred|ưu tiên|kỹ năng ưu tiên)/i,
+    /^(what we offer|benefits|how to apply|quyền lợi|phúc lợi)/i,
+  );
+  return normalizeFormText(multiline);
 }
 
 export function sliceWhatWeOfferBlock(raw: string): string {
@@ -271,5 +307,10 @@ export function sliceWhatWeOfferBlock(raw: string): string {
     const v = sliceAfterLabel(text, start, ends, true);
     if (normalizeFormText(v)) return normalizeFormText(v);
   }
-  return "";
+  const multiline = sliceBetweenHeadingLines(
+    raw,
+    /^(what we offer|benefits|we offer|why join us|quyền lợi|phúc lợi|chế độ đãi ngộ)/i,
+    /^(how to apply|apply now|contact|ứng tuyển)/i,
+  );
+  return normalizeFormText(multiline);
 }

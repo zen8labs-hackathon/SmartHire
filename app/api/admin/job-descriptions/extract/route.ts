@@ -1,5 +1,9 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import { extractTextFromBuffer, extractJdFromDocument } from "@/lib/ai/extract-jd";
+import { extractJdFromDocument } from "@/lib/ai/extract-jd";
+import {
+  extractTextFromBuffer,
+  looksLikePdfBinary,
+} from "@/lib/jd/extract-document-text";
 import { downloadJdFromStorage } from "@/lib/jd/download-jd-from-storage";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -86,9 +90,12 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!text || text.length < 20) {
+  if (!text || text.length < 20 || looksLikePdfBinary(text)) {
     return Response.json(
-      { error: "Could not extract meaningful text from the document." },
+      {
+        error:
+          "Could not extract readable text from the document. Try DOCX or TXT, or ensure the PDF has a text layer (not a scanned image).",
+      },
       { status: 422 },
     );
   }
