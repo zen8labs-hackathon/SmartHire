@@ -72,6 +72,9 @@ function sanitize(body: Partial<JobDescriptionFormData>) {
 function sanitizeEdit(body: Partial<JdEditFormData>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
+  if (body.position !== undefined) {
+    result.position = requiredLine(body.position, 50);
+  }
   if (body.level !== undefined)
     result.level = optionalToDb(body.level, 100);
   if (body.headcount !== undefined) {
@@ -208,6 +211,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
     if (body._editMode) {
       const { _editMode: _, ...editBody } = body;
       payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
+      if (
+        editBody.position !== undefined &&
+        !payload.position
+      ) {
+        return Response.json(
+          { error: "position is required." },
+          { status: 400 },
+        );
+      }
     } else {
       const stdPayload = sanitize(body as Partial<JobDescriptionFormData>);
       if (stdPayload.position === null || stdPayload.position === undefined) {
