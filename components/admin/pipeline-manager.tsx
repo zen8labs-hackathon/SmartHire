@@ -22,15 +22,22 @@ export function PipelineManager() {
 
   // State
   const [stages, setStages] = useState<PipelineStageRow[]>([]);
-  const [selectedStage, setSelectedStage] = useState<PipelineStageRow | null>(null);
+  const [selectedStage, setSelectedStage] = useState<PipelineStageRow | null>(
+    null,
+  );
   const [subStages, setSubStages] = useState<PipelineSubStageRow[]>([]);
 
   // Mode states
   const [stageMode, setStageMode] = useState<"list" | "add" | "edit">("list");
-  const [editingStage, setEditingStage] = useState<PipelineStageRow | null>(null);
+  const [editingStage, setEditingStage] = useState<PipelineStageRow | null>(
+    null,
+  );
 
-  const [subStageMode, setSubStageMode] = useState<"list" | "add" | "edit">("list");
-  const [editingSubStage, setEditingSubStage] = useState<PipelineSubStageRow | null>(null);
+  const [subStageMode, setSubStageMode] = useState<"list" | "add" | "edit">(
+    "list",
+  );
+  const [editingSubStage, setEditingSubStage] =
+    useState<PipelineSubStageRow | null>(null);
 
   // Status states
   const [busy, setBusy] = useState(false);
@@ -68,18 +75,24 @@ export function PipelineManager() {
     async (stageId: string) => {
       try {
         const h = await authHeaders();
-        const res = await fetch(`/api/admin/pipelines/sub-stages?stageId=${stageId}`, {
-          credentials: "include",
-          headers: h,
-        });
+        const res = await fetch(
+          `/api/admin/pipelines/sub-stages?stageId=${stageId}`,
+          {
+            credentials: "include",
+            headers: h,
+          },
+        );
         const json = (await res.json()) as {
           subStages?: PipelineSubStageRow[];
           error?: string;
         };
-        if (!res.ok) throw new Error(json.error ?? "Failed to fetch sub-stages.");
+        if (!res.ok)
+          throw new Error(json.error ?? "Failed to fetch sub-stages.");
         setSubStages(json.subStages ?? []);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to load sub-stages.");
+        toast.error(
+          e instanceof Error ? e.message : "Failed to load sub-stages.",
+        );
       }
     },
     [authHeaders, toast],
@@ -116,7 +129,9 @@ export function PipelineManager() {
     setBusy(true);
     try {
       const isEdit = stageMode === "edit" && editingStage;
-      const url = isEdit ? `/api/admin/pipelines/${editingStage.id}` : "/api/admin/pipelines";
+      const url = isEdit
+        ? `/api/admin/pipelines/${editingStage.id}`
+        : "/api/admin/pipelines";
       const method = isEdit ? "PATCH" : "POST";
 
       const h = await authHeaders();
@@ -132,7 +147,8 @@ export function PipelineManager() {
         error?: string;
       };
 
-      if (!res.ok) throw new Error(json.error ?? "Failed to save pipeline stage.");
+      if (!res.ok)
+        throw new Error(json.error ?? "Failed to save pipeline stage.");
 
       if (json.stage) {
         if (isEdit) {
@@ -184,7 +200,9 @@ export function PipelineManager() {
       }
       toast.success(`Stage '${label}' deleted successfully.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete stage.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete stage.",
+      );
     } finally {
       setBusy(false);
     }
@@ -235,9 +253,13 @@ export function PipelineManager() {
 
       if (json.subStage) {
         if (isEdit) {
-          toast.success(`Sub-stage '${json.subStage.label}' updated successfully.`);
+          toast.success(
+            `Sub-stage '${json.subStage.label}' updated successfully.`,
+          );
         } else {
-          toast.success(`Sub-stage '${json.subStage.label}' created successfully.`);
+          toast.success(
+            `Sub-stage '${json.subStage.label}' created successfully.`,
+          );
         }
         await loadSubStages(selectedStage.id);
         setSubStageMode("list");
@@ -271,13 +293,17 @@ export function PipelineManager() {
       await loadSubStages(selectedStage.id);
       toast.success(`Sub-stage '${label}' deleted successfully.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete sub-stage.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete sub-stage.",
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const handleReorderSubStages = async (updatedSubStages: PipelineSubStageRow[]) => {
+  const handleReorderSubStages = async (
+    updatedSubStages: PipelineSubStageRow[],
+  ) => {
     // Optimistic UI update
     setSubStages(updatedSubStages);
     setBusy(true);
@@ -303,7 +329,9 @@ export function PipelineManager() {
 
       toast.success("Sub-stages reordered successfully.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to reorder sub-stages.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reorder sub-stages.",
+      );
       // Rollback to database state on failure
       if (selectedStage) {
         void loadSubStages(selectedStage.id);
@@ -333,20 +361,24 @@ export function PipelineManager() {
         {/* Left Column - Stages */}
         <Card className="min-h-[500px]">
           <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
-            <div>
-              <Card.Title>Pipeline Stages</Card.Title>
-              <Card.Description>Workflow configuration stages</Card.Description>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <Card.Title className="text-lg">Pipeline Stages</Card.Title>
+                <Card.Description>
+                  Workflow configuration stages
+                </Card.Description>
+              </div>
+              {stageMode === "list" && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onPress={() => setStageMode("add")}
+                  isDisabled={busy}
+                >
+                  Add Stage
+                </Button>
+              )}
             </div>
-            {stageMode === "list" && (
-              <Button
-                size="sm"
-                variant="primary"
-                onPress={() => setStageMode("add")}
-                isDisabled={busy}
-              >
-                Add Stage
-              </Button>
-            )}
           </Card.Header>
 
           <Card.Content className="p-6">
@@ -374,34 +406,41 @@ export function PipelineManager() {
         {/* Right Column - Sub-stages */}
         <Card className="min-h-[500px]">
           <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
-            <div>
-              <Card.Title>
-                {selectedStage ? `Sub-stages of ${selectedStage.label}` : "Sub-stages"}
-              </Card.Title>
-              <Card.Description>
-                {selectedStage
-                  ? "Manage workflow substates"
-                  : "Select a stage to view its sub-stages"}
-              </Card.Description>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <Card.Title className="text-lg">
+                  {selectedStage
+                    ? `Sub-stages of ${selectedStage.label}`
+                    : "Sub-stages"}
+                </Card.Title>
+                <Card.Description>
+                  {selectedStage
+                    ? "Manage workflow substates"
+                    : "Select a stage to view its sub-stages"}
+                </Card.Description>
+              </div>
+              {selectedStage && subStageMode === "list" && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onPress={() => setSubStageMode("add")}
+                  isDisabled={busy}
+                >
+                  Add Sub-stage
+                </Button>
+              )}
             </div>
-            {selectedStage && subStageMode === "list" && (
-              <Button
-                size="sm"
-                variant="primary"
-                onPress={() => setSubStageMode("add")}
-                isDisabled={busy}
-              >
-                Add Sub-stage
-              </Button>
-            )}
           </Card.Header>
 
           <Card.Content className="p-6">
             {!selectedStage ? (
               <div className="flex h-[350px] flex-col items-center justify-center rounded-xl border border-dashed border-divider text-center p-6">
-                <p className="text-sm font-medium text-foreground">No Stage Selected</p>
+                <p className="text-sm font-medium text-foreground">
+                  No Stage Selected
+                </p>
                 <p className="mt-1 text-xs text-muted">
-                  Select a pipeline stage on the left to view and manage its sub-stages.
+                  Select a pipeline stage on the left to view and manage its
+                  sub-stages.
                 </p>
               </div>
             ) : subStageMode === "list" ? (
