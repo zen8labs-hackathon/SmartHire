@@ -68,6 +68,10 @@ export function extractedPatchToEditFormPatch(
   partial: Partial<JobDescriptionFormData>,
 ): Partial<JdEditFormData> {
   const out: Partial<JdEditFormData> = {};
+  if (partial.position !== undefined) {
+    const v = normalizeFormText(partial.position).slice(0, 50);
+    if (v !== "") out.position = v;
+  }
   if (partial.reporting !== undefined) {
     const v = normalizeFormText(partial.reporting);
     if (v !== "") out.reporting = v;

@@ -104,6 +104,7 @@ function formatHireTypeDisplay(raw: string | null | undefined): string {
 }
 
 const DEFAULT_EDIT_FORM: JdEditFormData = {
+  position: "",
   level: "",
   headcount: "",
   hire_type: "",
@@ -1021,6 +1022,7 @@ export function JdManagementDashboard({
     resetEditUploadState();
     setEditIntakeRow(row);
     setEditForm({
+      position: normalizeFormText(row.position).slice(0, 50),
       level: normalizeFormText(row.level),
       headcount: row.headcount != null ? String(row.headcount) : "",
       hire_type: normalizeHireTypeForForm(normalizeFormText(row.hire_type)),
@@ -1043,6 +1045,10 @@ export function JdManagementDashboard({
 
   const handleEditSave = useCallback(async () => {
     if (!editIntakeRow) return;
+    if (!editForm.position.trim()) {
+      setEditError("Job title is required.");
+      return;
+    }
     setEditSubmitting(true);
     setEditError(null);
     try {
@@ -1411,14 +1417,7 @@ export function JdManagementDashboard({
           <Modal.Dialog className="w-full max-w-[860px] overflow-hidden p-0">
             <Modal.CloseTrigger />
             <Modal.Header className="items-start border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-xl">
-                Hiring details
-                {editIntakeRow ? (
-                  <span className="ml-2 text-base font-normal text-muted">
-                    — {editIntakeRow.position}
-                  </span>
-                ) : null}
-              </Modal.Heading>
+              <Modal.Heading className="text-xl">Hiring details</Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="max-h-[76vh] space-y-6 overflow-y-auto px-6 py-6">
@@ -1518,6 +1517,14 @@ export function JdManagementDashboard({
               {/* 1 – Role & organisation */}
               <div className="space-y-4">
                 <SectionLabel>Role &amp; organisation</SectionLabel>
+                <TextField
+                  value={editForm.position}
+                  onChange={(v) => setEditField("position", v)}
+                  isRequired
+                >
+                  <Label>Job title</Label>
+                  <Input placeholder="e.g. AI Engineer (Mid-level)" />
+                </TextField>
                 <div className="grid gap-4 md:grid-cols-3">
                   <TextField
                     value={editForm.level}
