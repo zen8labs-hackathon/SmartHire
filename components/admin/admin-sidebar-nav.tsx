@@ -15,6 +15,7 @@ const mainItems = [
 const setupItems = [
   { href: "/admin/chapters", label: "Chapters" },
   { href: "/admin/evaluation-template", label: "Evaluation template" },
+  { href: "/admin/pipelines", label: "Pipelines" },
 ] as const;
 
 function linkActive(pathname: string, href: string): boolean {
