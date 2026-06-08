@@ -88,6 +88,8 @@ export type JobDescriptionFormData = {
  * Uses strings for all text fields; headcount is a numeric string.
  */
 export type JdEditFormData = {
+  /** Job title / position (max 50 chars) */
+  position: string;
   /** Level (e.g. Junior, Mid, Senior, Lead) */
   level: string;
   /** Number of hires needed — stored as integer, used as numeric string in form */

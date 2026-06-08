@@ -1,6 +1,7 @@
 export type { LlmProviderId } from "@/lib/llm/types";
 export {
   getGlobalLlmModelId,
+  getJdExtractModelId,
   getVercelAiGatewayBaseUrl,
   isLlmInferenceConfigured,
   llmInferenceDisabledReason,

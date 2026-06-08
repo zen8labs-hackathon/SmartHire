@@ -1,3 +1,4 @@
+import { resolveMimeType } from "@/lib/jd/detect-buffer-mime";
 import { JD_BUCKET } from "@/lib/jd/upload-constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -15,11 +16,12 @@ export async function downloadJdFromStorage(
   admin: SupabaseClient,
   storagePath: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | { error: string }> {
-  const mimeType = mimeTypeFromStoragePath(storagePath);
+  const mimeTypeHint = mimeTypeFromStoragePath(storagePath);
   const { data, error } = await admin.storage.from(JD_BUCKET).download(storagePath);
   if (error || !data) {
     return { error: error?.message ?? "Failed to download JD file." };
   }
   const buffer = Buffer.from(await data.arrayBuffer());
+  const mimeType = resolveMimeType(buffer, mimeTypeHint);
   return { buffer, mimeType };
 }
