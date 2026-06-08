@@ -7,36 +7,36 @@ insert into public.pipeline_stages (code, label, "desc") values
   ('offer', 'Offer', 'Offer and contract phase')
 on conflict do nothing;
 
--- 2. Seed standard sub-stages
+-- 2. Seed standard sub-stages with is_default and is_passed markers
 -- CV Scan
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'new', 'New', 1 from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'passed', 'Passed', 2 from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'failed', 'Failed', 3 from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'consider', 'Consider', 4 from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'new', 'New', 1, true, false from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'passed', 'Passed', 2, false, true from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'failed', 'Failed', 3, false, false from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'consider', 'Consider', 4, false, false from public.pipeline_stages where code = 'cv_scan' on conflict do nothing;
 
 -- Interview
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'interview', 'Interview', 1 from public.pipeline_stages where code = 'interview' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'consider', 'Consider', 2 from public.pipeline_stages where code = 'interview' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'canceled', 'Canceled', 3 from public.pipeline_stages where code = 'interview' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'passed', 'Passed', 4 from public.pipeline_stages where code = 'interview' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'failed', 'Failed', 5 from public.pipeline_stages where code = 'interview' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'interview', 'Interview', 1, true, false from public.pipeline_stages where code = 'interview' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'consider', 'Consider', 2, false, false from public.pipeline_stages where code = 'interview' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'canceled', 'Canceled', 3, false, false from public.pipeline_stages where code = 'interview' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'passed', 'Passed', 4, false, true from public.pipeline_stages where code = 'interview' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'failed', 'Failed', 5, false, false from public.pipeline_stages where code = 'interview' on conflict do nothing;
 
 -- Offer
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'offer', 'Offer', 1 from public.pipeline_stages where code = 'offer' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'matched', 'Matched', 2 from public.pipeline_stages where code = 'offer' on conflict do nothing;
-insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number)
-select id, 'rejected', 'Rejected', 3 from public.pipeline_stages where code = 'offer' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'offer', 'Offer', 1, true, false from public.pipeline_stages where code = 'offer' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'matched', 'Matched', 2, false, true from public.pipeline_stages where code = 'offer' on conflict do nothing;
+insert into public.pipeline_sub_stages (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
+select id, 'rejected', 'Rejected', 3, false, false from public.pipeline_stages where code = 'offer' on conflict do nothing;
 
 -- 3. Create mappings for all existing jobs
 insert into public.job_stage_mappings (job_opening_id, pipeline_stage_id, sequence_number)
