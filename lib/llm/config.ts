@@ -21,6 +21,13 @@ export function parseLlmProviderId(): LlmProviderId {
  * 2. `AI_GATEWAY_JD_MATCH_MODEL` (legacy name, kept for backward compatibility)
  * 3. Provider default (`openai/gpt-4o-mini` for Vercel gateway, `gemini-2.0-flash` for Gemini)
  */
+/** Model for JD document extraction (defaults to {@link getGlobalLlmModelId}). */
+export function getJdExtractModelId(): string {
+  const explicit = process.env.LLM_JD_EXTRACT_MODEL?.trim();
+  if (explicit) return explicit;
+  return getGlobalLlmModelId();
+}
+
 export function getGlobalLlmModelId(): string {
   const explicit = process.env.LLM_MODEL?.trim();
   if (explicit) return explicit;
