@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "db:migrate": "node scripts/apply-vercel-migrations.mjs",
+    "db:migrate": "node --env-file=.env scripts/apply-vercel-migrations.mjs",
     "deploy:build": "npm run build",
     "deploy:prepare": "npm run db:migrate && npm run build",
     "start": "next start",
