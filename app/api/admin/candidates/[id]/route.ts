@@ -6,10 +6,17 @@ import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import type { CandidateStatus } from "@/lib/candidates/types";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
 import { zCandidatePipelineStatus } from "@/lib/candidates/pipeline-zod";
 import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
 import { CV_BUCKET } from "@/lib/candidates/upload-constants";
+import {
+  fetchJobPipelineConfig,
+  resolveCandidatePipelineIds,
+  isCustomTransitionAllowed,
+  buildNewPipelineCandidatePatch,
+} from "@/lib/pipelines/transition-validator";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,7 +27,10 @@ const isoDateTime = z.string().refine(
 );
 
 const patchBodySchema = z.object({
-  status: zCandidatePipelineStatus,
+  /* TODO: LEGACY CODE - To be removed when migrating old features */
+  status: zCandidatePipelineStatus.optional(),
+  current_job_stage_mapping_id: z.string().uuid().optional(),
+  current_sub_state_id: z.string().uuid().optional(),
   interview_at: z.union([isoDateTime, z.null()]).optional(),
   onboarding_at: z.union([isoDateTime, z.null()]).optional(),
 });
@@ -98,7 +108,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
-    .select("id, status, interview_at, onboarding_at, is_active")
+    .select("id, job_opening_id, status, interview_at, onboarding_at, offered_at, current_job_stage_mapping_id, current_sub_state_id, pipeline_status, is_active")
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -112,25 +122,109 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Archived candidate cannot be updated." }, { status: 409 });
   }
 
-  const prev = {
-    status: String(existing.status),
-    interview_at: (existing.interview_at as string | null) ?? null,
-    onboarding_at: (existing.onboarding_at as string | null) ?? null,
-  };
+  const isNewPipelineUpdate = !!(u.current_job_stage_mapping_id && u.current_sub_state_id);
+  let patch: Record<string, any>;
 
-  if (!isPipelineTransitionAllowed(prev.status, u.status)) {
-    return Response.json(
-      {
-        error: `Invalid status transition: ${prev.status} → ${u.status}.`,
-      },
-      { status: 400 },
+  if (isNewPipelineUpdate) {
+    const jo = existing.job_opening_id as string | null;
+    if (!jo) {
+      return Response.json(
+        { error: "Candidate is not linked to any job opening." },
+        { status: 400 }
+      );
+    }
+
+    const { stageMappings, subStages, error: configError } = await fetchJobPipelineConfig(
+      auth.supabase,
+      jo
     );
-  }
+    if (configError || stageMappings.length === 0) {
+      return Response.json(
+        { error: `Could not load pipeline configuration: ${configError ?? "No stages"}` },
+        { status: 400 }
+      );
+    }
 
-  const patch = buildCandidatePipelinePatch(prev, {
-    ...u,
-    status: u.status as CandidateStatus,
-  });
+    const prevRow = {
+      status: String(existing.status),
+      interview_at: (existing.interview_at as string | null) ?? null,
+      onboarding_at: (existing.onboarding_at as string | null) ?? null,
+      offered_at: (existing.offered_at as string | null) ?? null,
+      current_job_stage_mapping_id: (existing.current_job_stage_mapping_id as string | null) ?? null,
+      current_sub_state_id: (existing.current_sub_state_id as string | null) ?? null,
+      pipeline_status: (existing.pipeline_status as string | null) ?? null,
+    };
+
+    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
+      prevRow,
+      stageMappings,
+      subStages
+    );
+
+    if (!fromStageMappingId || !fromSubStateId) {
+      return Response.json(
+        { error: "Could not resolve candidate's current stage." },
+        { status: 400 }
+      );
+    }
+
+    const allowed = isCustomTransitionAllowed(
+      stageMappings,
+      subStages,
+      fromStageMappingId,
+      fromSubStateId,
+      u.current_job_stage_mapping_id!,
+      u.current_sub_state_id!
+    );
+
+    if (!allowed) {
+      return Response.json(
+        { error: "Invalid status transition for this job's custom pipeline." },
+        { status: 400 }
+      );
+    }
+
+    try {
+      patch = buildNewPipelineCandidatePatch(
+        prevRow,
+        {
+          toStageMappingId: u.current_job_stage_mapping_id!,
+          toSubStateId: u.current_sub_state_id!,
+          interview_at: u.interview_at,
+          onboarding_at: u.onboarding_at,
+        },
+        stageMappings,
+        subStages
+      );
+    } catch (e) {
+      return Response.json(
+        { error: e instanceof Error ? e.message : "Error building patch." },
+        { status: 400 }
+      );
+    }
+  } else {
+    /* TODO: LEGACY CODE - To be removed when migrating old features */
+    // Legacy status transition check
+    const prev = {
+      status: String(existing.status),
+      interview_at: (existing.interview_at as string | null) ?? null,
+      onboarding_at: (existing.onboarding_at as string | null) ?? null,
+    };
+    const targetStatus = u.status ?? prev.status;
+    if (!isPipelineTransitionAllowed(prev.status, targetStatus)) {
+      return Response.json(
+        {
+          error: `Invalid status transition: ${prev.status} → ${targetStatus}.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    patch = buildCandidatePipelinePatch(prev, {
+      ...u,
+      status: targetStatus as CandidateStatus,
+    });
+  }
 
   const { error: upErr } = await auth.supabase
     .from("candidates")

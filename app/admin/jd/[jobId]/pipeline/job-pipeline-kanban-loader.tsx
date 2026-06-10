@@ -30,6 +30,8 @@ type Props = {
   linkedJobOpeningTime: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
+  stageMappings: any[];
+  subStages: any[];
 };
 
 export function JobPipelineKanbanLoader(props: Props) {

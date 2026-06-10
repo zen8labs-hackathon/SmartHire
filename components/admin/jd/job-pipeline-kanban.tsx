@@ -35,7 +35,9 @@ import {
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
-import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
+/* TODO: LEGACY CODE - To be removed when migrating old features */
+// import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 import {
   PIPELINE_STATUS_DISPLAY_ORDER,
   candidateStatusUiLabel,
@@ -47,10 +49,16 @@ import {
 import {
   isPipelineStatusKey,
   pipelineStatusSurfaceClass,
+  pipelineStatusTextClass,
 } from "@/lib/candidates/pipeline-status-styles";
 import type { CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
+import {
+  resolveCandidatePipelineIds,
+  isCustomTransitionAllowed,
+  buildNewPipelineCandidatePatch,
+} from "@/lib/pipelines/transition-validator";
 
 import {
   Avatar,
@@ -75,7 +83,32 @@ type Props = {
   linkedJobOpeningTitle: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
+  stageMappings: any[];
+  subStages: any[];
 };
+
+/* TODO: LEGACY CODE - To be removed when migrating old features.
+   This mapping is used temporarily to translate stage codes to legacy statuses for UI/CSS class reuse. */
+const STAGE_SUB_STAGE_TO_LEGACY_STATUS: Record<string, string> = {
+  "cv_scan:new": "New",
+  "cv_scan:passed": "CvPassed",
+  "cv_scan:failed": "CvFailed",
+  "cv_scan:consider": "Consider",
+  "interview:interview": "Interview",
+  "interview:consider": "InterviewConsider",
+  "interview:canceled": "InterviewCanceled",
+  "interview:passed": "InterviewPassed",
+  "interview:failed": "InterviewFailed",
+  "offer:offer": "Offer",
+  "offer:matched": "Matched",
+  "offer:rejected": "Rejected",
+};
+
+/* TODO: LEGACY CODE - To be removed when migrating old features */
+function getLegacyStatusForSubStage(stageCode: string, subStageCode: string): string {
+  const key = `${stageCode}:${subStageCode}`;
+  return STAGE_SUB_STAGE_TO_LEGACY_STATUS[key] ?? "New";
+}
 
 const COL_PREFIX = "col:";
 
@@ -155,33 +188,43 @@ function UserPlusIcon({ className }: { className?: string }) {
 }
 
 function KanbanColumn<T>({
-  status,
+  columnId,
+  label,
+  stageCode,
+  subStageCode,
   count,
   items,
   getItemKey,
   renderCard,
 }: {
-  status: CandidateStatus;
+  columnId: string;
+  label: string;
+  stageCode: string;
+  subStageCode: string;
   count: number;
   items: readonly T[];
   getItemKey: (item: T) => string;
   renderCard: (item: T) => React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: columnDroppableId(status),
-    data: { status },
+    id: columnId,
+    data: { columnId },
   });
+  const mappedStatus = getLegacyStatusForSubStage(stageCode, subStageCode) as CandidateStatus;
+
   return (
     <div
       ref={setNodeRef}
       className={cn(
         "flex w-full min-w-[240px] flex-col rounded-xl border overflow-hidden",
-        pipelineStatusSurfaceClass(status, "column"),
+        pipelineStatusSurfaceClass(mappedStatus, "column"),
         isOver && "ring-2 ring-accent ring-offset-2 ring-offset-background",
       )}
     >
       <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
-        <PipelineStatusLabel status={status} />
+        <span className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
+          <span className="text-[10px] text-foreground">{label}</span>
+        </span>
         <span className="text-xs font-semibold tabular-nums text-muted">
           {count}
         </span>
@@ -199,21 +242,36 @@ function CandidateKanbanCard({
   row,
   canEditPipeline,
   jobId,
+  stageMappings,
+  subStages,
 }: {
   row: CandidateDbRow;
   canEditPipeline: boolean;
   jobId: string;
+  stageMappings: any[];
+  subStages: any[];
 }) {
   const tableRow = candidateDbRowToTableRow(row);
   const contact = displayFromParsedPayload(row.parsed_payload);
+  
+  const { stageMappingId, subStateId } = resolveCandidatePipelineIds(row, stageMappings, subStages);
+  const currentMapping = stageMappings.find((sm) => sm.id === stageMappingId);
+  const currentSubStage = subStages.find((ss) => ss.id === subStateId);
+  const stageLabel = currentMapping?.pipeline_stages?.label ?? "";
+  const subStageLabel = currentSubStage?.label ?? "";
+  const mappedStatus = getLegacyStatusForSubStage(
+    currentMapping?.pipeline_stages?.code ?? "",
+    currentSubStage?.code ?? ""
+  ) as CandidateStatus;
+
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: row.id,
       disabled: !canEditPipeline,
-      data: { status: row.status },
+      data: { stageMappingId, subStateId },
       attributes: { role: "group", tabIndex: canEditPipeline ? 0 : undefined },
     });
-
+ 
   const style = transform
     ? {
         transform: CSS.Transform.toString(transform),
@@ -286,10 +344,11 @@ function CandidateKanbanCard({
             >
               {tableRow.jdMatchLabel}
             </Chip>
-            <PipelineStatusLabel
-              status={tableRow.status}
-              className="text-[10px]"
-            />
+            <span className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase text-[9px]", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
+              <span className="text-foreground">{stageLabel}</span>
+              <span className="mx-1 text-muted">·</span>
+              <span className={cn(pipelineStatusTextClass(mappedStatus))}>{subStageLabel}</span>
+            </span>
           </div>
         </Card.Content>
       </Card>
@@ -300,13 +359,23 @@ function CandidateKanbanCard({
 function CandidateKanbanCardOverlay({
   row,
   jobId,
+  stageMappings,
+  subStages,
 }: {
   row: CandidateDbRow;
   jobId: string;
+  stageMappings: any[];
+  subStages: any[];
 }) {
   return (
     <div className="w-[304px] rotate-[1.5deg] scale-[1.02] shadow-xl">
-      <CandidateKanbanCard row={row} canEditPipeline={false} jobId={jobId} />
+      <CandidateKanbanCard
+        row={row}
+        canEditPipeline={false}
+        jobId={jobId}
+        stageMappings={stageMappings}
+        subStages={subStages}
+      />
     </div>
   );
 }
@@ -321,6 +390,8 @@ export function JobPipelineKanban({
   linkedJobOpeningTitle,
   canEditPipeline,
   canAddCandidates,
+  stageMappings,
+  subStages,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -350,10 +421,59 @@ export function JobPipelineKanban({
       return "no_opening_linked";
     }, [linkedJobOpeningId, linkedJobOpeningTitle]);
 
+  const columnsList = useMemo(() => {
+    const list: Array<{
+      stageMappingId: string;
+      stageCode: string;
+      stageLabel: string;
+      subStageId: string;
+      subStageCode: string;
+      subStageLabel: string;
+      isDefault: boolean;
+      isPassed: boolean;
+    }> = [];
+    for (const sm of stageMappings) {
+      const stageCode = sm.pipeline_stages?.code ?? "";
+      const stageLabel = sm.pipeline_stages?.label ?? "";
+      const stageSubStages = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+      for (const ss of stageSubStages) {
+        list.push({
+          stageMappingId: sm.id,
+          stageCode,
+          stageLabel,
+          subStageId: ss.id,
+          subStageCode: ss.code,
+          subStageLabel: ss.label,
+          isDefault: ss.is_default,
+          isPassed: ss.is_passed,
+        });
+      }
+    }
+    return list;
+  }, [stageMappings, subStages]);
+
+  const filterOptions = useMemo(() => {
+    const opts = [{ id: "all", label: "All stages" }];
+    for (const col of columnsList) {
+      opts.push({
+        id: `${col.stageMappingId}:${col.subStageId}`,
+        label: `${col.stageLabel} - ${col.subStageLabel}`,
+      });
+    }
+    return opts;
+  }, [columnsList]);
+
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return pipelineRows.filter((r) => {
-      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (statusFilter !== "all") {
+        const { stageMappingId, subStateId } = resolveCandidatePipelineIds(
+          r,
+          stageMappings,
+          subStages,
+        );
+        if (`${stageMappingId}:${subStateId}` !== statusFilter) return false;
+      }
       if (!q) return true;
       const c = displayFromParsedPayload(r.parsed_payload);
       const hay = [r.name, r.original_filename, c.email, c.phone]
@@ -362,24 +482,33 @@ export function JobPipelineKanban({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [pipelineRows, query, statusFilter]);
+  }, [pipelineRows, query, statusFilter, stageMappings, subStages]);
 
-  const visibleStatuses = useMemo(() => {
-    if (statusFilter === "all") return PIPELINE_STATUS_DISPLAY_ORDER;
-    return PIPELINE_STATUS_DISPLAY_ORDER.filter((s) => s === statusFilter);
-  }, [statusFilter]);
-
-  const rowsByStatus = useMemo(() => {
-    const map = new Map<CandidateStatus, CandidateDbRow[]>();
-    for (const s of PIPELINE_STATUS_DISPLAY_ORDER) {
-      map.set(s, []);
+  const rowsByColumn = useMemo(() => {
+    const map = new Map<string, CandidateDbRow[]>();
+    for (const col of columnsList) {
+      map.set(`${col.stageMappingId}:${col.subStageId}`, []);
     }
     for (const row of filteredRows) {
-      const bucket = map.get(asCandidateStatus(row.status));
-      if (bucket) bucket.push(row);
+      const { stageMappingId, subStateId } = resolveCandidatePipelineIds(
+        row,
+        stageMappings,
+        subStages,
+      );
+      const colKey = `${stageMappingId}:${subStateId}`;
+      const bucket = map.get(colKey);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        if (columnsList.length > 0) {
+          const firstCol = columnsList[0];
+          const firstKey = `${firstCol.stageMappingId}:${firstCol.subStageId}`;
+          map.get(firstKey)?.push(row);
+        }
+      }
     }
     return map;
-  }, [filteredRows]);
+  }, [filteredRows, columnsList, stageMappings, subStages]);
 
   const refetchPipeline = useCallback(async () => {
     setPipelineLoadState("loading");
@@ -434,60 +563,37 @@ export function JobPipelineKanban({
     setDraggingRow(row);
   }
 
-  async function handleStatusChange(id: string, next: CandidateStatus) {
+  async function handleStatusChange(id: string, nextStageMappingId: string, nextSubStateId: string) {
     const prevRow = pipelineRows.find((r) => r.id === id);
     if (!prevRow) return;
-    if (prevRow.status === next) return;
-    const currTime =
-      next === "Interview" || next === "Offer"
-        ? new Date().toISOString()
-        : null;
 
-    const phaseF = candidateStatusMajorPhase(prevRow.status as CandidateStatus);
-    const phaseT = candidateStatusMajorPhase(next);
+    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
+      prevRow,
+      stageMappings,
+      subStages
+    );
+    if (fromStageMappingId === nextStageMappingId && fromSubStateId === nextSubStateId) return;
 
-    const PHASE_LEVELS: Record<"cv_scan" | "interview" | "offer", number> = {
-      cv_scan: 1,
-      interview: 2,
-      offer: 3,
-    };
-
-    const levelF = PHASE_LEVELS[phaseF];
-    const levelT = PHASE_LEVELS[phaseT];
-
-    let newInterviewAt = prevRow.interview_at;
-    let newOnboardingAt = prevRow.onboarding_at;
-
-    if (levelT < levelF) {
-      // Moving to a lower phase -> reset scheduling dates that belong to the abandoned higher phases
-      if (levelT === 2) {
-        // Moved from offer to interview -> clear onboarding date
-        newOnboardingAt = null;
-      } else if (levelT === 1) {
-        // Moved to cv_scan -> clear both
-        newInterviewAt = null;
-        newOnboardingAt = null;
-      }
-    } else {
-      // Moving to a higher phase or within the same phase -> keep existing dates,
-      // but auto-initialize dates if they are entering the stage for the first time
-      if (next === "Interview" && !newInterviewAt) {
-        newInterviewAt = currTime;
-      }
-      if (next === "Offer" && !newOnboardingAt) {
-        newOnboardingAt = currTime;
-      }
+    let patch;
+    try {
+      patch = buildNewPipelineCandidatePatch(
+        prevRow,
+        { toStageMappingId: nextStageMappingId, toSubStateId: nextSubStateId },
+        stageMappings,
+        subStages
+      );
+    } catch (e) {
+      console.error(e);
+      return;
     }
 
-    // Optimistic update: move card immediately, then sync with API.
+    // Optimistic update
     setPipelineRows((prev) =>
       prev.map((r) =>
         r.id === id
           ? {
               ...r,
-              status: next,
-              interview_at: newInterviewAt,
-              onboarding_at: newOnboardingAt,
+              ...patch,
             }
           : r,
       ),
@@ -498,15 +604,27 @@ export function JobPipelineKanban({
       await postPipeline([
         {
           id,
-          status: next,
-          interview_at: newInterviewAt,
-          onboarding_at: newOnboardingAt,
+          current_job_stage_mapping_id: nextStageMappingId,
+          current_sub_state_id: nextSubStateId,
+          interview_at: patch.interview_at,
+          onboarding_at: patch.onboarding_at,
         },
       ]);
     } catch (e) {
-      // Rollback if server rejects transition/update.
+      // Rollback
       setPipelineRows((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status: prevRow.status } : r)),
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                current_job_stage_mapping_id: fromStageMappingId,
+                current_sub_state_id: fromSubStateId,
+                interview_at: prevRow.interview_at,
+                onboarding_at: prevRow.onboarding_at,
+                pipeline_status: prevRow.pipeline_status,
+              }
+            : r,
+        ),
       );
       setPipelineError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -524,18 +642,40 @@ export function JobPipelineKanban({
     const row = filteredRows.find((r) => r.id === candidateId);
     if (!row) return;
 
-    const targetStatus = parseColumnDroppableId(String(over.id));
-    if (!targetStatus || targetStatus === asCandidateStatus(row.status)) return;
+    const targetKey = String(over.id);
+    const actualKey = targetKey.startsWith(COL_PREFIX) ? targetKey.slice(COL_PREFIX.length) : targetKey;
+    const targetCol = columnsList.find((c) => `${c.stageMappingId}:${c.subStageId}` === actualKey);
+    if (!targetCol) return;
 
-    const fromStatus = asCandidateStatus(row.status);
-    if (!isPipelineTransitionAllowed(fromStatus, targetStatus)) {
+    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
+      row,
+      stageMappings,
+      subStages
+    );
+
+    if (!fromStageMappingId || !fromSubStateId) return;
+
+    if (fromStageMappingId === targetCol.stageMappingId && fromSubStateId === targetCol.subStageId) return;
+
+    if (
+      !isCustomTransitionAllowed(
+        stageMappings,
+        subStages,
+        fromStageMappingId,
+        fromSubStateId,
+        targetCol.stageMappingId,
+        targetCol.subStageId
+      )
+    ) {
+      const fromMapping = stageMappings.find((sm) => sm.id === fromStageMappingId);
+      const fromSub = subStages.find((ss) => ss.id === fromSubStateId);
       setPipelineError(
-        `Cannot move from ${candidateStatusUiLabel(fromStatus)} to ${candidateStatusUiLabel(targetStatus)}.`,
+        `Cannot move from ${fromMapping?.pipeline_stages?.label || "Unknown"} - ${fromSub?.label || "Unknown"} to ${targetCol.stageLabel} - ${targetCol.subStageLabel}.`,
       );
       return;
     }
     if (rowUpdating) return;
-    void handleStatusChange(candidateId, targetStatus);
+    void handleStatusChange(candidateId, targetCol.stageMappingId, targetCol.subStageId);
   }
 
   return (
@@ -619,12 +759,19 @@ export function JobPipelineKanban({
             >
               <Label className="sr-only">Status</Label>
               <Select.Trigger className="min-h-10">
-                {isPipelineStatusKey(statusFilter) ? (
-                  <PipelineStatusLabel
-                    status={statusFilter}
-                    variant="inline"
-                    uppercase={false}
-                  />
+                {statusFilter !== "all" ? (
+                  (() => {
+                    const col = columnsList.find(c => `${c.stageMappingId}:${c.subStageId}` === statusFilter);
+                    if (!col) return <Select.Value />;
+                    const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
+                    return (
+                      <span className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
+                        <span className="text-foreground">{col.stageLabel}</span>
+                        <span className="mx-1 text-muted">·</span>
+                        <span className={cn(pipelineStatusTextClass(mappedStatus))}>{col.subStageLabel}</span>
+                      </span>
+                    );
+                  })()
                 ) : (
                   <Select.Value />
                 )}
@@ -632,7 +779,7 @@ export function JobPipelineKanban({
               </Select.Trigger>
               <Select.Popover>
                 <ListBox>
-                  {FILTER_STATUS_OPTIONS.map((opt) => (
+                  {filterOptions.map((opt) => (
                     <ListBox.Item
                       key={opt.id}
                       id={opt.id}
@@ -641,11 +788,18 @@ export function JobPipelineKanban({
                       {opt.id === "all" ? (
                         opt.label
                       ) : (
-                        <PipelineStatusLabel
-                          status={opt.id as CandidateStatus}
-                          variant="inline"
-                          uppercase={false}
-                        />
+                        (() => {
+                          const col = columnsList.find(c => `${c.stageMappingId}:${c.subStageId}` === opt.id);
+                          if (!col) return opt.label;
+                          const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
+                          return (
+                            <span className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
+                              <span className="text-foreground">{col.stageLabel}</span>
+                              <span className="mx-1 text-muted">·</span>
+                              <span className={cn(pipelineStatusTextClass(mappedStatus))}>{col.subStageLabel}</span>
+                            </span>
+                          );
+                        })()
                       )}
                       <ListBox.ItemIndicator />
                     </ListBox.Item>
@@ -670,36 +824,39 @@ export function JobPipelineKanban({
             </div>
           ) : (
             <div className="space-y-6">
-              {PIPELINE_PHASES.map((phase) => {
-                const phaseStatuses = phase.statuses.filter((s) =>
-                  visibleStatuses.includes(s),
-                );
-                if (phaseStatuses.length === 0) return null;
+              {stageMappings.map((sm, index) => {
+                const stageSubStages = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+                const visibleSubStages = stageSubStages.filter((ss) => {
+                  if (statusFilter === "all") return true;
+                  return `${sm.id}:${ss.id}` === statusFilter;
+                });
+
+                if (visibleSubStages.length === 0) return null;
 
                 return (
                   <div
-                    key={phase.id}
+                    key={sm.id}
                     className="space-y-2.5 pb-4 border-b border-divider/30 last:border-0 last:pb-0"
                   >
                     <div className="flex items-center gap-2">
                       <span className="flex size-5 items-center justify-center rounded-full bg-accent/10 text-[10px] font-bold text-accent">
-                        {phase.id === "cv_scan"
-                          ? "1"
-                          : phase.id === "interview"
-                            ? "2"
-                            : "3"}
+                        {index + 1}
                       </span>
                       <h2 className="text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground">
-                        {phase.title}
+                        {sm.pipeline_stages?.label ?? "Stage"}
                       </h2>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                      {phaseStatuses.map((status) => {
-                        const columnRows = rowsByStatus.get(status) ?? [];
+                      {visibleSubStages.map((ss) => {
+                        const colKey = `${sm.id}:${ss.id}`;
+                        const columnRows = rowsByColumn.get(colKey) ?? [];
                         return (
                           <KanbanColumn
-                            key={status}
-                            status={status}
+                            key={colKey}
+                            columnId={`${COL_PREFIX}${colKey}`}
+                            label={ss.label}
+                            stageCode={sm.pipeline_stages?.code ?? ""}
+                            subStageCode={ss.code}
                             count={columnRows.length}
                             items={columnRows}
                             getItemKey={(row) => row.id}
@@ -708,6 +865,8 @@ export function JobPipelineKanban({
                                 row={row}
                                 canEditPipeline={canEditPipeline}
                                 jobId={jobId}
+                                stageMappings={stageMappings}
+                                subStages={subStages}
                               />
                             )}
                           />
@@ -722,7 +881,12 @@ export function JobPipelineKanban({
         </div>
         <DragOverlay dropAnimation={null}>
           {draggingRow ? (
-            <CandidateKanbanCardOverlay row={draggingRow} jobId={jobId} />
+            <CandidateKanbanCardOverlay
+              row={draggingRow}
+              jobId={jobId}
+              stageMappings={stageMappings}
+              subStages={subStages}
+            />
           ) : null}
         </DragOverlay>
       </DndContext>

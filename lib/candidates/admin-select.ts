@@ -18,7 +18,12 @@ const ADMIN_CANDIDATES_CORE_COLUMNS = [
   "skills",
   "degree",
   "school",
+  /* TODO: LEGACY CODE - To be removed when migrating old features */
   "status",
+  "current_job_stage_mapping_id",
+  "current_sub_state_id",
+  "pipeline_status",
+  "offered_at",
   "uploaded_by_email",
   "source",
   "source_other",

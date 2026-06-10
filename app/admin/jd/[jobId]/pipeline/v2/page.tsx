@@ -44,6 +44,64 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
       includeParsedPayload: true,
     });
 
+  let stageMappings: any[] = [];
+  let subStages: any[] = [];
+
+  if (linkedOpening) {
+    const { data: mappings } = await supabase
+      .from("job_stage_mappings")
+      .select(`
+        id,
+        sequence_number,
+        pipeline_stage_id,
+        pipeline_stages!inner (
+          id,
+          code,
+          label,
+          desc
+        )
+      `)
+      .eq("job_opening_id", linkedOpening.id)
+      .is("deleted_at", null)
+      .order("sequence_number", { ascending: true });
+
+    if (mappings && mappings.length > 0) {
+      stageMappings = mappings;
+    }
+  }
+
+  // Fallback to active pipeline stages if no mappings found
+  if (stageMappings.length === 0) {
+    const { data: defaultStages } = await supabase
+      .from("pipeline_stages")
+      .select("id, code, label, desc")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+
+    if (defaultStages) {
+      stageMappings = defaultStages.map((stage, idx) => ({
+        id: stage.id, // Pseudo mapping ID
+        sequence_number: idx + 1,
+        pipeline_stage_id: stage.id,
+        pipeline_stages: stage,
+      }));
+    }
+  }
+
+  const stageIds = stageMappings.map((sm) => sm.pipeline_stage_id);
+  if (stageIds.length > 0) {
+    const { data: sub } = await supabase
+      .from("pipeline_sub_stages")
+      .select("id, pipeline_stage_id, code, label, sequence_number, is_default, is_passed")
+      .in("pipeline_stage_id", stageIds)
+      .is("deleted_at", null)
+      .order("sequence_number", { ascending: true });
+
+    if (sub) {
+      subStages = sub;
+    }
+  }
+
   return (
     <JobPipelineKanbanLoader
       key={`${jd.id}-v2`}
@@ -57,6 +115,8 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
       initialPipelineFetchFailed={pipelineFetchError != null}
       canEditPipeline={access.isHr}
       canAddCandidates={access.isHr}
+      stageMappings={stageMappings}
+      subStages={subStages}
     />
   );
 }

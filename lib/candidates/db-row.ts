@@ -39,6 +39,7 @@ export type CandidateDbRow = {
   skills: string[] | null;
   degree: string | null;
   school: string | null;
+  /* TODO: LEGACY CODE - To be removed when migrating old features */
   status: string;
   uploaded_by_email?: string | null;
   source: string;
@@ -49,7 +50,11 @@ export type CandidateDbRow = {
   jd_match_rationale?: string | null;
   interview_at?: string | null;
   onboarding_at?: string | null;
+  offered_at?: string | null;
   cv_uploaded_at?: string | null;
+  current_job_stage_mapping_id?: string | null;
+  current_sub_state_id?: string | null;
+  pipeline_status?: string | null;
   /** SHA-256 hex of raw file bytes; set by process-cv after download. */
   cv_file_sha256?: string | null;
   /** SHA-256 hex of normalized plain text; set by process-cv after extract. */
@@ -80,18 +85,21 @@ function jdCampaignLabelFromRow(r: CandidateDbRow): string {
   return jo.title?.trim() || "—";
 }
 
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 const LEGACY_STATUS_MAP: Record<string, CandidateStatus> = {
   Shortlisted: "CvPassed",
   Interviewing: "Interview",
   Failed: "CvFailed",
 };
 
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 const ALLOWED_PIPELINE_STATUSES = new Set<string>(CANDIDATE_PIPELINE_STATUSES);
 
 /**
  * Maps DB `candidates.status` to the current pipeline enum (incl. legacy strings).
  * Returns null if the value is not recognized — use for API transition checks.
  */
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 export function canonicalCandidateStatusFromDb(
   raw: string,
 ): CandidateStatus | null {
@@ -107,6 +115,7 @@ export function canonicalCandidateStatusFromDb(
 }
 
 /** Coerce DB `candidates.status` string to the pipeline enum (defaults to New). */
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 export function asCandidateStatus(s: string): CandidateStatus {
   return canonicalCandidateStatusFromDb(s) ?? "New";
 }
@@ -185,8 +194,8 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     : null;
   const openingCreatedAt = jo?.created_at;
 
-  const ttf = calculateDaysDifference(openingCreatedAt, r.onboarding_at);
-  const tth = calculateDaysDifference(uploaded, r.onboarding_at);
+  const ttf = calculateDaysDifference(openingCreatedAt, r.offered_at);
+  const tth = calculateDaysDifference(uploaded, r.offered_at);
 
   return {
     id: r.id,
