@@ -17,6 +17,7 @@ const mockStageMappings: StageMapping[] = [
       code: "cv_scan",
       label: "CV Scan",
       desc: "CV Scan desc",
+      color: "sky",
     },
   },
   {
@@ -28,6 +29,7 @@ const mockStageMappings: StageMapping[] = [
       code: "interview",
       label: "Interview",
       desc: "Interview desc",
+      color: "violet",
     },
   },
   {
@@ -39,6 +41,7 @@ const mockStageMappings: StageMapping[] = [
       code: "offer",
       label: "Offer",
       desc: "Offer desc",
+      color: "teal",
     },
   },
 ];

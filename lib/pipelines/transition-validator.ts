@@ -10,6 +10,7 @@ export interface StageMapping {
     code: string;
     label: string;
     desc: string | null;
+    color: string | null;
   } | null;
 }
 
@@ -41,7 +42,8 @@ export async function fetchJobPipelineConfig(
         id,
         code,
         label,
-        desc
+        desc,
+        color
       )
     `)
     .eq("job_opening_id", jobOpeningId)
@@ -57,7 +59,7 @@ export async function fetchJobPipelineConfig(
   if (stageMappings.length === 0) {
     const { data: defaultStages, error: defError } = await supabase
       .from("pipeline_stages")
-      .select("id, code, label, desc")
+      .select("id, code, label, desc, color")
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
 

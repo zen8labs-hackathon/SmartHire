@@ -58,7 +58,8 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
           id,
           code,
           label,
-          desc
+          desc,
+          color
         )
       `)
       .eq("job_opening_id", linkedOpening.id)
@@ -74,7 +75,7 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
   if (stageMappings.length === 0) {
     const { data: defaultStages } = await supabase
       .from("pipeline_stages")
-      .select("id, code, label, desc")
+      .select("id, code, label, desc, color")
       .is("deleted_at", null)
       .order("created_at", { ascending: true });
 

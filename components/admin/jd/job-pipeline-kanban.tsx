@@ -50,6 +50,10 @@ import {
   isPipelineStatusKey,
   pipelineStatusSurfaceClass,
   pipelineStatusTextClass,
+  getStageColorClasses,
+  getStageColorStyles,
+  getSubStageTextColorClass,
+  getSubStageTextColorStyle,
 } from "@/lib/candidates/pipeline-status-styles";
 import type { CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
@@ -192,6 +196,7 @@ function KanbanColumn<T>({
   label,
   stageCode,
   subStageCode,
+  color,
   count,
   items,
   getItemKey,
@@ -201,6 +206,7 @@ function KanbanColumn<T>({
   label: string;
   stageCode: string;
   subStageCode: string;
+  color?: string | null;
   count: number;
   items: readonly T[];
   getItemKey: (item: T) => string;
@@ -217,12 +223,16 @@ function KanbanColumn<T>({
       ref={setNodeRef}
       className={cn(
         "flex w-full min-w-[240px] flex-col rounded-xl border overflow-hidden",
-        pipelineStatusSurfaceClass(mappedStatus, "column"),
+        getStageColorClasses(color, "column"),
         isOver && "ring-2 ring-accent ring-offset-2 ring-offset-background",
       )}
+      style={getStageColorStyles(color, "column")}
     >
       <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
-        <span className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
+        <span
+          className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase", getStageColorClasses(color, "badge"))}
+          style={getStageColorStyles(color, "badge")}
+        >
           <span className="text-[10px] text-foreground">{label}</span>
         </span>
         <span className="text-xs font-semibold tabular-nums text-muted">
@@ -259,6 +269,7 @@ function CandidateKanbanCard({
   const currentSubStage = subStages.find((ss) => ss.id === subStateId);
   const stageLabel = currentMapping?.pipeline_stages?.label ?? "";
   const subStageLabel = currentSubStage?.label ?? "";
+  const stageColor = currentMapping?.pipeline_stages?.color ?? "zinc";
   const mappedStatus = getLegacyStatusForSubStage(
     currentMapping?.pipeline_stages?.code ?? "",
     currentSubStage?.code ?? ""
@@ -344,10 +355,18 @@ function CandidateKanbanCard({
             >
               {tableRow.jdMatchLabel}
             </Chip>
-            <span className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase text-[9px]", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
-              <span className="text-foreground">{stageLabel}</span>
+            <span
+              className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase text-[9px]", getStageColorClasses(stageColor, "badge"))}
+              style={getStageColorStyles(stageColor, "badge")}
+            >
+              <span className="text-foreground" style={stageColor.startsWith("#") ? { color: stageColor } : undefined}>{stageLabel}</span>
               <span className="mx-1 text-muted">·</span>
-              <span className={cn(pipelineStatusTextClass(mappedStatus))}>{subStageLabel}</span>
+              <span
+                className={cn(getSubStageTextColorClass(currentSubStage?.code, currentSubStage?.is_passed, currentSubStage?.is_default, stageColor))}
+                style={getSubStageTextColorStyle(currentSubStage?.code, currentSubStage?.is_passed, currentSubStage?.is_default, stageColor)}
+              >
+                {subStageLabel}
+              </span>
             </span>
           </div>
         </Card.Content>
@@ -426,6 +445,7 @@ export function JobPipelineKanban({
       stageMappingId: string;
       stageCode: string;
       stageLabel: string;
+      stageColor: string | null;
       subStageId: string;
       subStageCode: string;
       subStageLabel: string;
@@ -435,12 +455,14 @@ export function JobPipelineKanban({
     for (const sm of stageMappings) {
       const stageCode = sm.pipeline_stages?.code ?? "";
       const stageLabel = sm.pipeline_stages?.label ?? "";
+      const stageColor = sm.pipeline_stages?.color ?? "zinc";
       const stageSubStages = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
       for (const ss of stageSubStages) {
         list.push({
           stageMappingId: sm.id,
           stageCode,
           stageLabel,
+          stageColor,
           subStageId: ss.id,
           subStageCode: ss.code,
           subStageLabel: ss.label,
@@ -765,10 +787,18 @@ export function JobPipelineKanban({
                     if (!col) return <Select.Value />;
                     const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
                     return (
-                      <span className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
-                        <span className="text-foreground">{col.stageLabel}</span>
+                      <span
+                        className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", getStageColorClasses(col.stageColor, "badge"))}
+                        style={getStageColorStyles(col.stageColor, "badge")}
+                      >
+                        <span className="text-foreground" style={col.stageColor?.startsWith("#") ? { color: col.stageColor } : undefined}>{col.stageLabel}</span>
                         <span className="mx-1 text-muted">·</span>
-                        <span className={cn(pipelineStatusTextClass(mappedStatus))}>{col.subStageLabel}</span>
+                        <span
+                          className={cn(getSubStageTextColorClass(col.subStageCode, col.isPassed, col.isDefault, col.stageColor))}
+                          style={getSubStageTextColorStyle(col.subStageCode, col.isPassed, col.isDefault, col.stageColor)}
+                        >
+                          {col.subStageLabel}
+                        </span>
                       </span>
                     );
                   })()
@@ -793,10 +823,18 @@ export function JobPipelineKanban({
                           if (!col) return opt.label;
                           const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
                           return (
-                            <span className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", pipelineStatusSurfaceClass(mappedStatus, "badge"))}>
-                              <span className="text-foreground">{col.stageLabel}</span>
+                            <span
+                              className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", getStageColorClasses(col.stageColor, "badge"))}
+                              style={getStageColorStyles(col.stageColor, "badge")}
+                            >
+                              <span className="text-foreground" style={col.stageColor?.startsWith("#") ? { color: col.stageColor } : undefined}>{col.stageLabel}</span>
                               <span className="mx-1 text-muted">·</span>
-                              <span className={cn(pipelineStatusTextClass(mappedStatus))}>{col.subStageLabel}</span>
+                              <span
+                                className={cn(getSubStageTextColorClass(col.subStageCode, col.isPassed, col.isDefault, col.stageColor))}
+                                style={getSubStageTextColorStyle(col.subStageCode, col.isPassed, col.isDefault, col.stageColor)}
+                              >
+                                {col.subStageLabel}
+                              </span>
                             </span>
                           );
                         })()
@@ -857,6 +895,7 @@ export function JobPipelineKanban({
                             label={ss.label}
                             stageCode={sm.pipeline_stages?.code ?? ""}
                             subStageCode={ss.code}
+                            color={sm.pipeline_stages?.color ?? "zinc"}
                             count={columnRows.length}
                             items={columnRows}
                             getItemKey={(row) => row.id}
