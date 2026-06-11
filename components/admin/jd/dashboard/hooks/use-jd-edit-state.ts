@@ -7,6 +7,7 @@ import type { JobDescription, JdEditFormData } from "@/lib/jd/types";
 import { normalizeFormText } from "@/lib/jd/normalize-text";
 import { normalizeHireTypeForForm } from "../helpers";
 import { JD_BUCKET, MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
+import { useToast } from "@/components/admin/toast-provider";
 
 const DEFAULT_EDIT_FORM: JdEditFormData = {
   position: "",
@@ -32,6 +33,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const supabase = useMemo(() => createClient(), []);
   const editJdFileInputRef = useRef<HTMLInputElement>(null);
   const editDraftJobOpeningIdRef = useRef<string | null>(null);
+  const toast = useToast();
 
   const [editIntakeRow, setEditIntakeRow] = useState<JobDescription | null>(null);
   const [editForm, setEditForm] = useState<JdEditFormData>(DEFAULT_EDIT_FORM);
@@ -42,6 +44,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const [editDraftJobOpeningId, setEditDraftJobOpeningId] = useState<string | null>(null);
   const [editSelectedFileName, setEditSelectedFileName] = useState<string | null>(null);
   const [editDragOver, setEditDragOver] = useState(false);
+  const [editSelectedStageIds, setEditSelectedStageIds] = useState<string[]>([]);
+  const [editStagesLoading, setEditStagesLoading] = useState(false);
 
   const authHeaders = useCallback(async () => {
     const h = await getSessionAuthorizationHeaders(supabase);
@@ -78,6 +82,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         setEditIntakeRow(null);
         setEditForm(DEFAULT_EDIT_FORM);
         setEditError(null);
+        setEditSelectedStageIds([]);
       }
     },
   });
@@ -89,7 +94,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     setEditForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  function openEdit(row: JobDescription) {
+  const openEdit = useCallback(async (row: JobDescription) => {
     resetEditUploadState();
     setEditIntakeRow(row);
     setEditForm({
@@ -111,19 +116,44 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       interview_process: normalizeFormText(row.interview_process),
       hiring_deadline: row.hiring_deadline ? row.hiring_deadline.slice(0, 10) : "",
     });
+    setEditSelectedStageIds([]);
+    setEditStagesLoading(true);
     editIntakeModal.open();
-  }
+    try {
+      const res = await fetch(`/api/admin/job-descriptions/${row.id}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { pipelineStages?: string[] };
+        if (json.pipelineStages) {
+          setEditSelectedStageIds(json.pipelineStages);
+        }
+      } else {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Failed to load pipeline stages.");
+      }
+    } catch (e) {
+      console.error("Failed to load pipeline stages for editing:", e);
+      toast.error(e instanceof Error ? e.message : "Failed to load pipeline stages for editing.");
+    } finally {
+      setEditStagesLoading(false);
+    }
+  }, [editIntakeModal, resetEditUploadState]);
 
   const ingestJdFileForEdit = useCallback(
     async (file: File) => {
       if (!isAllowedJdFilename(file.name)) {
-        setEditUploadError("Only PDF, DOCX, or TXT files are supported.");
+        const msg = "Only PDF, DOCX, or TXT files are supported.";
+        setEditUploadError(msg);
         setEditUploadPhase("error");
+        toast.error(msg);
         return;
       }
       if (file.size > MAX_JD_BYTES) {
-        setEditUploadError("File exceeds 10 MB limit.");
+        const msg = "File exceeds 10 MB limit.";
+        setEditUploadError(msg);
         setEditUploadPhase("error");
+        toast.error(msg);
         return;
       }
       setEditUploadError(null);
@@ -132,8 +162,10 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       try {
         const h = await getSessionAuthorizationHeaders(supabase);
         if (!h.Authorization) {
-          setEditUploadError("Session expired. Sign in again.");
+          const msg = "Session expired. Sign in again.";
+          setEditUploadError(msg);
           setEditUploadPhase("error");
+          toast.error(msg);
           return;
         }
         const signRes = await fetch("/api/admin/job-openings/sign-upload", {
@@ -181,25 +213,26 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
             extracted?: Record<string, unknown>;
           };
           if (!exRes.ok || !exJson.extracted) {
-            setEditUploadError(
-              exJson.error ??
-                "Could not read the JD with AI. You can fill the form manually.",
-            );
+            const msg = exJson.error ?? "Could not read the JD with AI. You can fill the form manually.";
+            setEditUploadError(msg);
+            toast.error(msg);
           } else {
             const patch = extractedApiToFormPatch(exJson.extracted);
             const editPatch = extractedPatchToEditFormPatch(patch);
             setEditForm((prev) => ({ ...prev, ...editPatch }));
           }
         } catch {
-          setEditUploadError(
-            "Could not run AI extraction. Fill the form manually.",
-          );
+          const msg = "Could not run AI extraction. Fill the form manually.";
+          setEditUploadError(msg);
+          toast.error(msg);
         }
 
         setEditUploadPhase("done");
       } catch (e) {
-        setEditUploadError(e instanceof Error ? e.message : "Unknown error.");
+        const msg = e instanceof Error ? e.message : "Unknown error.";
+        setEditUploadError(msg);
         setEditUploadPhase("error");
+        toast.error(`Upload failed: ${msg}`);
         if (newJobId) {
           await deleteJdDraftOnServer(newJobId);
           setEditDraftJobOpeningId(null);
@@ -207,13 +240,15 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         }
       }
     },
-    [deleteJdDraftOnServer, editDraftJobOpeningId, supabase],
+    [deleteJdDraftOnServer, editDraftJobOpeningId, supabase, toast],
   );
 
   const handleEditSave = useCallback(async () => {
     if (!editIntakeRow) return;
     if (!editForm.position.trim()) {
-      setEditError("Job title is required.");
+      const msg = "Job title is required.";
+      setEditError(msg);
+      toast.error(msg);
       return;
     }
     setEditSubmitting(true);
@@ -224,18 +259,25 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         method: "PUT",
         credentials: "include",
         headers,
-        body: JSON.stringify({ ...editForm, _editMode: true }),
+        body: JSON.stringify({
+          ...editForm,
+          _editMode: true,
+          pipelineStages: editSelectedStageIds,
+        }),
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Save failed.");
       editIntakeModal.close();
       await loadDescriptions();
+      toast.success("Job description updated successfully.");
     } catch (e) {
-      setEditError(e instanceof Error ? e.message : "Unknown error.");
+      const msg = e instanceof Error ? e.message : "Unknown error.";
+      setEditError(msg);
+      toast.error(msg);
     } finally {
       setEditSubmitting(false);
     }
-  }, [authHeaders, editForm, editIntakeModal, editIntakeRow, loadDescriptions]);
+  }, [authHeaders, editForm, editIntakeModal, editIntakeRow, loadDescriptions, editSelectedStageIds, toast]);
 
   return {
     editIntakeRow,
@@ -253,5 +295,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     openEdit,
     ingestJdFileForEdit,
     handleEditSave,
+    editSelectedStageIds,
+    setEditSelectedStageIds,
+    editStagesLoading,
   };
 }

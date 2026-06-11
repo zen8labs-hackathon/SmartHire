@@ -6,6 +6,7 @@ import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
 import { JD_BUCKET, MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
+import { useToast } from "@/components/admin/toast-provider";
 
 const DEFAULT_FORM: JobDescriptionFormData = {
   position: "",
@@ -23,21 +24,37 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   start_date: "",
 };
 
-export function useJdCreateState(loadDescriptions: () => Promise<void>) {
+export function useJdCreateState(
+  loadDescriptions: () => Promise<void>,
+  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[]
+) {
   const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createViewerEmailsText, setCreateViewerEmailsText] = useState("");
   const [createViewerChapterIds, setCreateViewerChapterIds] = useState<string[]>([]);
+  const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
 
   const [jdUploadPhase, setJdUploadPhase] = useState<"idle" | "uploading" | "extracting" | "done" | "error">("idle");
   const [jdUploadError, setJdUploadError] = useState<string | null>(null);
   const [jdDraftJobOpeningId, setJdDraftJobOpeningId] = useState<string | null>(null);
   const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(null);
   const [jdDragOver, setJdDragOver] = useState(false);
+
+  const defaultStageIds = useMemo(() => {
+    const ids: string[] = [];
+    const cvScan = allPipelineStages.find((s) => s.code === "cv_scan");
+    if (cvScan) ids.push(cvScan.id);
+    const interview = allPipelineStages.find((s) => s.code === "interview");
+    if (interview) ids.push(interview.id);
+    const offer = allPipelineStages.find((s) => s.code === "offer");
+    if (offer) ids.push(offer.id);
+    return ids;
+  }, [allPipelineStages]);
 
   const authHeaders = useCallback(async () => {
     const h = await getSessionAuthorizationHeaders(supabase);
@@ -72,6 +89,9 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
         setForm(DEFAULT_FORM);
         setCreateViewerEmailsText("");
         setCreateViewerChapterIds([]);
+        setSelectedStageIds([]);
+      } else {
+        setSelectedStageIds(defaultStageIds);
       }
     },
   });
@@ -86,13 +106,17 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
   const ingestJdFile = useCallback(
     async (file: File) => {
       if (!isAllowedJdFilename(file.name)) {
-        setJdUploadError("Only PDF, DOCX, or TXT files are supported.");
+        const msg = "Only PDF, DOCX, or TXT files are supported.";
+        setJdUploadError(msg);
         setJdUploadPhase("error");
+        toast.error(msg);
         return;
       }
       if (file.size > MAX_JD_BYTES) {
-        setJdUploadError("File exceeds 10 MB limit.");
+        const msg = "File exceeds 10 MB limit.";
+        setJdUploadError(msg);
         setJdUploadPhase("error");
+        toast.error(msg);
         return;
       }
       setJdUploadError(null);
@@ -101,8 +125,10 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
       try {
         const h = await getSessionAuthorizationHeaders(supabase);
         if (!h.Authorization) {
-          setJdUploadError("Session expired. Sign in again.");
+          const msg = "Session expired. Sign in again.";
+          setJdUploadError(msg);
           setJdUploadPhase("error");
+          toast.error(msg);
           return;
         }
         const signRes = await fetch("/api/admin/job-openings/sign-upload", {
@@ -149,31 +175,32 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
             extracted?: Record<string, unknown>;
           };
           if (!exRes.ok || !exJson.extracted) {
-            setJdUploadError(
-              exJson.error ??
-                "Could not read the JD with AI. You can fill the form manually.",
-            );
+            const msg = exJson.error ?? "Could not read the JD with AI. You can fill the form manually.";
+            setJdUploadError(msg);
+            toast.error(msg);
           } else {
             const patch = extractedApiToFormPatch(exJson.extracted);
             setForm((prev) => ({ ...prev, ...patch }));
           }
         } catch {
-          setJdUploadError(
-            "Could not run AI extraction. Fill the form manually.",
-          );
+          const msg = "Could not run AI extraction. Fill the form manually.";
+          setJdUploadError(msg);
+          toast.error(msg);
         }
 
         setJdUploadPhase("done");
       } catch (e) {
-        setJdUploadError(e instanceof Error ? e.message : "Unknown error.");
+        const msg = e instanceof Error ? e.message : "Unknown error.";
+        setJdUploadError(msg);
         setJdUploadPhase("error");
+        toast.error(`Upload failed: ${msg}`);
         if (newJobId) {
           await deleteJdDraftOnServer(newJobId);
           setJdDraftJobOpeningId(null);
         }
       }
     },
-    [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase],
+    [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase, toast],
   );
 
   const discardJdDraft = useCallback(async () => {
@@ -186,6 +213,13 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
     async (asDraft: boolean) => {
       setFormSubmitting(true);
       setFormError(null);
+      if (!jdDraftJobOpeningId) {
+        const msg = "Attaching a JD document is required.";
+        setFormError(msg);
+        toast.error(msg);
+        setFormSubmitting(false);
+        return;
+      }
       const positionFromFile =
         jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
         "";
@@ -208,6 +242,7 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
         ...postBodyBase,
         viewerEmails,
         viewerChapterIds: createViewerChapterIds,
+        pipelineStages: selectedStageIds,
       };
       try {
         const headers = await authHeaders();
@@ -221,8 +256,11 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
         if (!res.ok) throw new Error(json.error ?? "Save failed.");
         jdModal.close();
         await loadDescriptions();
+        toast.success(asDraft ? "Draft saved successfully." : "Job description created successfully.");
       } catch (e) {
-        setFormError(e instanceof Error ? e.message : "Unknown error.");
+        const msg = e instanceof Error ? e.message : "Unknown error.";
+        setFormError(msg);
+        toast.error(msg);
       } finally {
         setFormSubmitting(false);
       }
@@ -236,6 +274,7 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
       jdModal,
       jdSelectedFileName,
       loadDescriptions,
+      selectedStageIds,
     ],
   );
 
@@ -248,6 +287,8 @@ export function useJdCreateState(loadDescriptions: () => Promise<void>) {
     setCreateViewerEmailsText,
     createViewerChapterIds,
     setCreateViewerChapterIds,
+    selectedStageIds,
+    setSelectedStageIds,
     jdUploadPhase,
     jdUploadError,
     jdSelectedFileName,
