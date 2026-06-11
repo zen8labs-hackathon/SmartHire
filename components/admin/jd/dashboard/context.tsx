@@ -15,6 +15,7 @@ import { useJdDrawerState } from "./hooks/use-jd-drawer-state";
 export interface JdDashboardContextValue {
   canManageJds: boolean;
   chapters: readonly { id: string; name: string }[];
+  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[];
 
   // Data state
   rows: JobDescription[];
@@ -81,6 +82,8 @@ export interface JdDashboardContextValue {
   ingestJdFile: (file: File) => Promise<void>;
   discardJdDraft: () => Promise<void>;
   handleSave: (asDraft: boolean) => Promise<void>;
+  selectedStageIds: string[];
+  setSelectedStageIds: (ids: string[]) => void;
 
   // Edit Modal / Form
   editIntakeRow: JobDescription | null;
@@ -97,6 +100,9 @@ export interface JdDashboardContextValue {
   ingestJdFileForEdit: (file: File) => Promise<void>;
   openEdit: (row: JobDescription) => void;
   handleEditSave: () => Promise<void>;
+  editSelectedStageIds: string[];
+  setEditSelectedStageIds: (ids: string[]) => void;
+  editStagesLoading: boolean;
 
   // API Helpers
   updateJdStatus: (id: number, next: JdStatus) => Promise<void>;
@@ -117,17 +123,19 @@ export function useJdDashboard() {
 interface JdDashboardProviderProps {
   canManageJds: boolean;
   chapters: readonly { id: string; name: string }[];
+  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[];
   children: ReactNode;
 }
 
 export function JdDashboardProvider({
   canManageJds,
   chapters,
+  allPipelineStages,
   children,
 }: JdDashboardProviderProps) {
   const listState = useJdListState();
   const filtersState = useJdFiltersState(listState.rows);
-  const createState = useJdCreateState(listState.loadDescriptions);
+  const createState = useJdCreateState(listState.loadDescriptions, allPipelineStages);
   const editState = useJdEditState(listState.loadDescriptions);
   const drawerState = useJdDrawerState(canManageJds);
 
@@ -158,6 +166,7 @@ export function JdDashboardProvider({
       value={{
         canManageJds,
         chapters,
+        allPipelineStages,
 
         // From list state
         rows: listState.rows,
@@ -225,6 +234,8 @@ export function JdDashboardProvider({
         ingestJdFile: createState.ingestJdFile,
         discardJdDraft: createState.discardJdDraft,
         handleSave: createState.handleSave,
+        selectedStageIds: createState.selectedStageIds,
+        setSelectedStageIds: createState.setSelectedStageIds,
 
         // Editing state
         editIntakeRow: editState.editIntakeRow,
@@ -241,6 +252,9 @@ export function JdDashboardProvider({
         ingestJdFileForEdit: editState.ingestJdFileForEdit,
         openEdit: editState.openEdit,
         handleEditSave: editState.handleEditSave,
+        editSelectedStageIds: editState.editSelectedStageIds,
+        setEditSelectedStageIds: editState.setEditSelectedStageIds,
+        editStagesLoading: editState.editStagesLoading,
 
         // Actions
         updateJdStatus,

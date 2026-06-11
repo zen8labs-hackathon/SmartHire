@@ -14,10 +14,17 @@ export default async function AdminJdPage() {
     .select("id, name")
     .order("name", { ascending: true });
 
+  const { data: pipelineStages } = await supabase
+    .from("pipeline_stages")
+    .select("id, label, code, color")
+    .is("deleted_at", null)
+    .order("label", { ascending: true });
+
   return (
     <JdManagementDashboard
       canManageJds={access?.isHr === true}
       chapters={chapterRows ?? []}
+      allPipelineStages={pipelineStages ?? []}
     />
   );
 }
