@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
+import { useToast } from "@/components/admin/toast-provider";
 
 import { VirtualKanbanColumnBody } from "@/components/admin/kanban/virtual-kanban-column-body";
 import {
@@ -109,7 +110,10 @@ const STAGE_SUB_STAGE_TO_LEGACY_STATUS: Record<string, string> = {
 };
 
 /* TODO: LEGACY CODE - To be removed when migrating old features */
-function getLegacyStatusForSubStage(stageCode: string, subStageCode: string): string {
+function getLegacyStatusForSubStage(
+  stageCode: string,
+  subStageCode: string,
+): string {
   const key = `${stageCode}:${subStageCode}`;
   return STAGE_SUB_STAGE_TO_LEGACY_STATUS[key] ?? "New";
 }
@@ -216,7 +220,10 @@ function KanbanColumn<T>({
     id: columnId,
     data: { columnId },
   });
-  const mappedStatus = getLegacyStatusForSubStage(stageCode, subStageCode) as CandidateStatus;
+  const mappedStatus = getLegacyStatusForSubStage(
+    stageCode,
+    subStageCode,
+  ) as CandidateStatus;
 
   return (
     <div
@@ -230,7 +237,10 @@ function KanbanColumn<T>({
     >
       <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2.5">
         <span
-          className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase", getStageColorClasses(color, "badge"))}
+          className={cn(
+            "inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase",
+            getStageColorClasses(color, "badge"),
+          )}
           style={getStageColorStyles(color, "badge")}
         >
           <span className="text-[10px] text-foreground">{label}</span>
@@ -263,8 +273,12 @@ function CandidateKanbanCard({
 }) {
   const tableRow = candidateDbRowToTableRow(row);
   const contact = displayFromParsedPayload(row.parsed_payload);
-  
-  const { stageMappingId, subStateId } = resolveCandidatePipelineIds(row, stageMappings, subStages);
+
+  const { stageMappingId, subStateId } = resolveCandidatePipelineIds(
+    row,
+    stageMappings,
+    subStages,
+  );
   const currentMapping = stageMappings.find((sm) => sm.id === stageMappingId);
   const currentSubStage = subStages.find((ss) => ss.id === subStateId);
   const stageLabel = currentMapping?.pipeline_stages?.label ?? "";
@@ -272,7 +286,7 @@ function CandidateKanbanCard({
   const stageColor = currentMapping?.pipeline_stages?.color ?? "zinc";
   const mappedStatus = getLegacyStatusForSubStage(
     currentMapping?.pipeline_stages?.code ?? "",
-    currentSubStage?.code ?? ""
+    currentSubStage?.code ?? "",
   ) as CandidateStatus;
 
   const { attributes, listeners, setNodeRef, transform, isDragging } =
@@ -282,7 +296,7 @@ function CandidateKanbanCard({
       data: { stageMappingId, subStateId },
       attributes: { role: "group", tabIndex: canEditPipeline ? 0 : undefined },
     });
- 
+
   const style = transform
     ? {
         transform: CSS.Transform.toString(transform),
@@ -356,14 +370,36 @@ function CandidateKanbanCard({
               {tableRow.jdMatchLabel}
             </Chip>
             <span
-              className={cn("inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase text-[9px]", getStageColorClasses(stageColor, "badge"))}
+              className={cn(
+                "inline-flex max-w-full items-center font-medium rounded-full border px-2 py-0.5 uppercase text-[9px]",
+                getStageColorClasses(stageColor, "badge"),
+              )}
               style={getStageColorStyles(stageColor, "badge")}
             >
-              <span className="text-foreground" style={stageColor.startsWith("#") ? { color: stageColor } : undefined}>{stageLabel}</span>
+              <span
+                className="text-foreground"
+                style={
+                  stageColor.startsWith("#") ? { color: stageColor } : undefined
+                }
+              >
+                {stageLabel}
+              </span>
               <span className="mx-1 text-muted">·</span>
               <span
-                className={cn(getSubStageTextColorClass(currentSubStage?.code, currentSubStage?.is_passed, currentSubStage?.is_default, stageColor))}
-                style={getSubStageTextColorStyle(currentSubStage?.code, currentSubStage?.is_passed, currentSubStage?.is_default, stageColor)}
+                className={cn(
+                  getSubStageTextColorClass(
+                    currentSubStage?.code,
+                    currentSubStage?.is_passed,
+                    currentSubStage?.is_default,
+                    stageColor,
+                  ),
+                )}
+                style={getSubStageTextColorStyle(
+                  currentSubStage?.code,
+                  currentSubStage?.is_passed,
+                  currentSubStage?.is_default,
+                  stageColor,
+                )}
               >
                 {subStageLabel}
               </span>
@@ -413,6 +449,7 @@ export function JobPipelineKanban({
   subStages,
 }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const supabase = useMemo(() => createClient(), []);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -421,7 +458,6 @@ export function JobPipelineKanban({
     "idle" | "loading" | "error" | "ok"
   >(() => (initialPipelineFetchFailed ? "error" : "ok"));
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [draggingRow, setDraggingRow] = useState<CandidateDbRow | null>(null);
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
@@ -456,7 +492,9 @@ export function JobPipelineKanban({
       const stageCode = sm.pipeline_stages?.code ?? "";
       const stageLabel = sm.pipeline_stages?.label ?? "";
       const stageColor = sm.pipeline_stages?.color ?? "zinc";
-      const stageSubStages = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+      const stageSubStages = subStages.filter(
+        (ss) => ss.pipeline_stage_id === sm.pipeline_stage_id,
+      );
       for (const ss of stageSubStages) {
         list.push({
           stageMappingId: sm.id,
@@ -545,15 +583,19 @@ export function JobPipelineKanban({
       );
       if (!res.ok) {
         setPipelineLoadState("error");
+        toast.error("Failed to load candidate data.");
         return;
       }
       const json = (await res.json()) as { candidates?: CandidateDbRow[] };
       setPipelineRows(json.candidates ?? []);
       setPipelineLoadState("ok");
-    } catch {
+    } catch (e) {
       setPipelineLoadState("error");
+      toast.error(
+        e instanceof Error ? e.message : "Failed to load candidate data.",
+      );
     }
-  }, [jobDescriptionId, supabase]);
+  }, [jobDescriptionId, supabase, toast]);
 
   const postPipeline = useCallback(
     async (updates: unknown[]) => {
@@ -585,16 +627,21 @@ export function JobPipelineKanban({
     setDraggingRow(row);
   }
 
-  async function handleStatusChange(id: string, nextStageMappingId: string, nextSubStateId: string) {
+  async function handleStatusChange(
+    id: string,
+    nextStageMappingId: string,
+    nextSubStateId: string,
+  ) {
     const prevRow = pipelineRows.find((r) => r.id === id);
     if (!prevRow) return;
 
-    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
-      prevRow,
-      stageMappings,
-      subStages
-    );
-    if (fromStageMappingId === nextStageMappingId && fromSubStateId === nextSubStateId) return;
+    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } =
+      resolveCandidatePipelineIds(prevRow, stageMappings, subStages);
+    if (
+      fromStageMappingId === nextStageMappingId &&
+      fromSubStateId === nextSubStateId
+    )
+      return;
 
     let patch;
     try {
@@ -602,7 +649,7 @@ export function JobPipelineKanban({
         prevRow,
         { toStageMappingId: nextStageMappingId, toSubStateId: nextSubStateId },
         stageMappings,
-        subStages
+        subStages,
       );
     } catch (e) {
       console.error(e);
@@ -621,7 +668,6 @@ export function JobPipelineKanban({
       ),
     );
     setRowUpdating(id);
-    setPipelineError(null);
     try {
       await postPipeline([
         {
@@ -648,7 +694,7 @@ export function JobPipelineKanban({
             : r,
         ),
       );
-      setPipelineError(e instanceof Error ? e.message : "Update failed.");
+      toast.error(e instanceof Error ? e.message : "Update failed.");
     } finally {
       setRowUpdating(null);
     }
@@ -665,19 +711,24 @@ export function JobPipelineKanban({
     if (!row) return;
 
     const targetKey = String(over.id);
-    const actualKey = targetKey.startsWith(COL_PREFIX) ? targetKey.slice(COL_PREFIX.length) : targetKey;
-    const targetCol = columnsList.find((c) => `${c.stageMappingId}:${c.subStageId}` === actualKey);
+    const actualKey = targetKey.startsWith(COL_PREFIX)
+      ? targetKey.slice(COL_PREFIX.length)
+      : targetKey;
+    const targetCol = columnsList.find(
+      (c) => `${c.stageMappingId}:${c.subStageId}` === actualKey,
+    );
     if (!targetCol) return;
 
-    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
-      row,
-      stageMappings,
-      subStages
-    );
+    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } =
+      resolveCandidatePipelineIds(row, stageMappings, subStages);
 
     if (!fromStageMappingId || !fromSubStateId) return;
 
-    if (fromStageMappingId === targetCol.stageMappingId && fromSubStateId === targetCol.subStageId) return;
+    if (
+      fromStageMappingId === targetCol.stageMappingId &&
+      fromSubStateId === targetCol.subStageId
+    )
+      return;
 
     if (
       !isCustomTransitionAllowed(
@@ -686,19 +737,27 @@ export function JobPipelineKanban({
         fromStageMappingId,
         fromSubStateId,
         targetCol.stageMappingId,
-        targetCol.subStageId
+        targetCol.subStageId,
       )
     ) {
-      const fromMapping = stageMappings.find((sm) => sm.id === fromStageMappingId);
+      const fromMapping = stageMappings.find(
+        (sm) => sm.id === fromStageMappingId,
+      );
       const fromSub = subStages.find((ss) => ss.id === fromSubStateId);
-      setPipelineError(
+      toast.error(
         `Cannot move from ${fromMapping?.pipeline_stages?.label || "Unknown"} - ${fromSub?.label || "Unknown"} to ${targetCol.stageLabel} - ${targetCol.subStageLabel}.`,
       );
       return;
     }
     if (rowUpdating) return;
-    void handleStatusChange(candidateId, targetCol.stageMappingId, targetCol.subStageId);
+    void handleStatusChange(
+      candidateId,
+      targetCol.stageMappingId,
+      targetCol.subStageId,
+    );
   }
+
+  console.log("row__qh", pipelineRows);
 
   return (
     <div className="relative flex flex-col gap-6 pb-20">
@@ -751,9 +810,7 @@ export function JobPipelineKanban({
         </div>
       </header>
 
-      {pipelineError ? (
-        <p className="text-sm text-danger">{pipelineError}</p>
-      ) : null}
+      {/* No pipelineError display block here, using toast overlays */}
 
       <Card variant="secondary">
         <Card.Content className="flex flex-col gap-4 p-4 sm:p-5">
@@ -783,19 +840,49 @@ export function JobPipelineKanban({
               <Select.Trigger className="min-h-10">
                 {statusFilter !== "all" ? (
                   (() => {
-                    const col = columnsList.find(c => `${c.stageMappingId}:${c.subStageId}` === statusFilter);
+                    const col = columnsList.find(
+                      (c) =>
+                        `${c.stageMappingId}:${c.subStageId}` === statusFilter,
+                    );
                     if (!col) return <Select.Value />;
-                    const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
+                    const mappedStatus = getLegacyStatusForSubStage(
+                      col.stageCode,
+                      col.subStageCode,
+                    ) as CandidateStatus;
                     return (
                       <span
-                        className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", getStageColorClasses(col.stageColor, "badge"))}
+                        className={cn(
+                          "inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs",
+                          getStageColorClasses(col.stageColor, "badge"),
+                        )}
                         style={getStageColorStyles(col.stageColor, "badge")}
                       >
-                        <span className="text-foreground" style={col.stageColor?.startsWith("#") ? { color: col.stageColor } : undefined}>{col.stageLabel}</span>
+                        <span
+                          className="text-foreground"
+                          style={
+                            col.stageColor?.startsWith("#")
+                              ? { color: col.stageColor }
+                              : undefined
+                          }
+                        >
+                          {col.stageLabel}
+                        </span>
                         <span className="mx-1 text-muted">·</span>
                         <span
-                          className={cn(getSubStageTextColorClass(col.subStageCode, col.isPassed, col.isDefault, col.stageColor))}
-                          style={getSubStageTextColorStyle(col.subStageCode, col.isPassed, col.isDefault, col.stageColor)}
+                          className={cn(
+                            getSubStageTextColorClass(
+                              col.subStageCode,
+                              col.isPassed,
+                              col.isDefault,
+                              col.stageColor,
+                            ),
+                          )}
+                          style={getSubStageTextColorStyle(
+                            col.subStageCode,
+                            col.isPassed,
+                            col.isDefault,
+                            col.stageColor,
+                          )}
                         >
                           {col.subStageLabel}
                         </span>
@@ -815,30 +902,62 @@ export function JobPipelineKanban({
                       id={opt.id}
                       textValue={opt.label}
                     >
-                      {opt.id === "all" ? (
-                        opt.label
-                      ) : (
-                        (() => {
-                          const col = columnsList.find(c => `${c.stageMappingId}:${c.subStageId}` === opt.id);
-                          if (!col) return opt.label;
-                          const mappedStatus = getLegacyStatusForSubStage(col.stageCode, col.subStageCode) as CandidateStatus;
-                          return (
-                            <span
-                              className={cn("inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs", getStageColorClasses(col.stageColor, "badge"))}
-                              style={getStageColorStyles(col.stageColor, "badge")}
-                            >
-                              <span className="text-foreground" style={col.stageColor?.startsWith("#") ? { color: col.stageColor } : undefined}>{col.stageLabel}</span>
-                              <span className="mx-1 text-muted">·</span>
+                      {opt.id === "all"
+                        ? opt.label
+                        : (() => {
+                            const col = columnsList.find(
+                              (c) =>
+                                `${c.stageMappingId}:${c.subStageId}` ===
+                                opt.id,
+                            );
+                            if (!col) return opt.label;
+                            const mappedStatus = getLegacyStatusForSubStage(
+                              col.stageCode,
+                              col.subStageCode,
+                            ) as CandidateStatus;
+                            return (
                               <span
-                                className={cn(getSubStageTextColorClass(col.subStageCode, col.isPassed, col.isDefault, col.stageColor))}
-                                style={getSubStageTextColorStyle(col.subStageCode, col.isPassed, col.isDefault, col.stageColor)}
+                                className={cn(
+                                  "inline-flex max-w-full items-center font-medium rounded-md border px-1.5 py-0.5 text-xs",
+                                  getStageColorClasses(col.stageColor, "badge"),
+                                )}
+                                style={getStageColorStyles(
+                                  col.stageColor,
+                                  "badge",
+                                )}
                               >
-                                {col.subStageLabel}
+                                <span
+                                  className="text-foreground"
+                                  style={
+                                    col.stageColor?.startsWith("#")
+                                      ? { color: col.stageColor }
+                                      : undefined
+                                  }
+                                >
+                                  {col.stageLabel}
+                                </span>
+                                <span className="mx-1 text-muted">·</span>
+                                <span
+                                  className={cn(
+                                    getSubStageTextColorClass(
+                                      col.subStageCode,
+                                      col.isPassed,
+                                      col.isDefault,
+                                      col.stageColor,
+                                    ),
+                                  )}
+                                  style={getSubStageTextColorStyle(
+                                    col.subStageCode,
+                                    col.isPassed,
+                                    col.isDefault,
+                                    col.stageColor,
+                                  )}
+                                >
+                                  {col.subStageLabel}
+                                </span>
                               </span>
-                            </span>
-                          );
-                        })()
-                      )}
+                            );
+                          })()}
                       <ListBox.ItemIndicator />
                     </ListBox.Item>
                   ))}
@@ -863,7 +982,9 @@ export function JobPipelineKanban({
           ) : (
             <div className="space-y-6">
               {stageMappings.map((sm, index) => {
-                const stageSubStages = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+                const stageSubStages = subStages.filter(
+                  (ss) => ss.pipeline_stage_id === sm.pipeline_stage_id,
+                );
                 const visibleSubStages = stageSubStages.filter((ss) => {
                   if (statusFilter === "all") return true;
                   return `${sm.id}:${ss.id}` === statusFilter;
