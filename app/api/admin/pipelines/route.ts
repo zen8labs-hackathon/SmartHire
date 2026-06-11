@@ -7,7 +7,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await auth.supabase
     .from("pipeline_stages")
-    .select("id, code, label, desc, created_at, updated_at")
+    .select("id, code, label, desc, color, created_at, updated_at")
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
@@ -37,13 +37,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const { code, label, desc } = parsed.data;
+  const { code, label, desc, color } = parsed.data;
 
   // Insert the stage. We handle unique constraint conflict on code (active ones).
   const { data, error } = await auth.supabase
     .from("pipeline_stages")
-    .insert({ code, label, desc })
-    .select("id, code, label, desc, created_at, updated_at")
+    .insert({ code, label, desc, color })
+    .select("id, code, label, desc, color, created_at, updated_at")
     .maybeSingle();
 
   if (error) {

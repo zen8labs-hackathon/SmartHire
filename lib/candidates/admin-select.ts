@@ -1,5 +1,5 @@
 const JOB_OPENINGS_EMBED =
-  "job_openings!job_opening_id ( id, title, job_descriptions ( position ) )";
+  "job_openings!job_opening_id ( id, title, created_at, job_descriptions ( position ) )";
 
 /** Shared columns for admin candidate queries (excludes heavy `parsed_payload`). */
 const ADMIN_CANDIDATES_CORE_COLUMNS = [
@@ -18,7 +18,12 @@ const ADMIN_CANDIDATES_CORE_COLUMNS = [
   "skills",
   "degree",
   "school",
+  /* TODO: LEGACY CODE - To be removed when migrating old features */
   "status",
+  "current_job_stage_mapping_id",
+  "current_sub_state_id",
+  "pipeline_status",
+  "offered_at",
   "uploaded_by_email",
   "source",
   "source_other",

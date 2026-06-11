@@ -125,6 +125,7 @@ export function PipelineManager() {
     code: string;
     label: string;
     desc: string | null;
+    color: string | null;
   }) => {
     setBusy(true);
     try {

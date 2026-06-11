@@ -143,7 +143,9 @@ export function SubStageList({
   if (subStages.length === 0) {
     return (
       <div className="flex h-[350px] flex-col items-center justify-center rounded-xl border border-dashed border-divider">
-        <p className="text-sm text-muted">No sub-stages configured for this stage.</p>
+        <p className="text-sm text-muted">
+          No sub-stages configured for this stage.
+        </p>
         <Button
           size="sm"
           variant="ghost"

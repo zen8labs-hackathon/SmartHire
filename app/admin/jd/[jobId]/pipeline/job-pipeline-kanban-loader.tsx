@@ -27,8 +27,11 @@ type Props = {
   initialPipelineFetchFailed: boolean;
   linkedJobOpeningId: string | null;
   linkedJobOpeningTitle: string | null;
+  linkedJobOpeningTime: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
+  stageMappings: any[];
+  subStages: any[];
 };
 
 export function JobPipelineKanbanLoader(props: Props) {

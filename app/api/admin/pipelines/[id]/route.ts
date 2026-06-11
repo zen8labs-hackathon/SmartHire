@@ -30,14 +30,14 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const { code, label, desc } = parsed.data;
+  const { code, label, desc, color } = parsed.data;
 
   const { data, error } = await auth.supabase
     .from("pipeline_stages")
-    .update({ code, label, desc })
+    .update({ code, label, desc, color })
     .eq("id", id)
     .is("deleted_at", null)
-    .select("id, code, label, desc, created_at, updated_at")
+    .select("id, code, label, desc, color, created_at, updated_at")
     .maybeSingle();
 
   if (error) {

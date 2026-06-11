@@ -152,9 +152,9 @@ export function CandidatePipelineFiltersCard({
             </Label>
             <div className="flex items-center gap-2">
               <DateRangePicker
-                value={uploadDateRangeFilter}
+                value={uploadDateRangeFilter as any}
                 onChange={(next) => {
-                  setUploadDateRangeFilter(next);
+                  setUploadDateRangeFilter(next as any);
                   onFiltersAdjusted?.();
                 }}
                 className="w-full min-w-[16rem]"
@@ -182,8 +182,8 @@ export function CandidatePipelineFiltersCard({
                 <DateRangePicker.Popover>
                   <Dialog className="outline-none">
                     <RangeCalendar
-                      focusedValue={calendarFocusedDate}
-                      onFocusChange={setCalendarFocusedDate}
+                      focusedValue={calendarFocusedDate as any}
+                      onFocusChange={(next) => setCalendarFocusedDate(next as any)}
                     >
                       <RangeCalendar.Header className="flex items-center gap-2">
                         <RangeCalendar.NavButton slot="previous" />

@@ -8,7 +8,9 @@ import type {
   JobPipelineStatus,
 } from "@/lib/jd/pipeline-types";
 
-function candidateStatusToPipelineStatus(s: CandidateStatus): JobPipelineStatus {
+function candidateStatusToPipelineStatus(
+  s: CandidateStatus,
+): JobPipelineStatus {
   switch (s) {
     case "Interview":
     case "InterviewConsider":
@@ -41,6 +43,7 @@ export function candidateDbRowToEvaluationPipelineRow(
   r: CandidateDbRow,
 ): JobPipelineCandidateRow {
   const t = candidateDbRowToTableRow(r);
+
   const skills = (r.skills ?? []).join(", ") || "—";
   const major =
     t.degree !== "—" || t.school !== "—"
@@ -52,13 +55,15 @@ export function candidateDbRowToEvaluationPipelineRow(
     name: t.name,
     verified: false,
     dateOfBirth: "—",
-    mobile: "—",
-    email: "—",
+    mobile: t.phone ?? "—",
+    email: t.email ?? "—",
     studentYears: "—",
     majorSchool: major,
-    gpa: "—",
-    english: "—",
+    gpa: t.gpa ?? "-",
+    english: t.englishLevel ?? "-",
     relatedSkills: skills,
     status: candidateStatusToPipelineStatus(t.status),
+    ttf: t.ttf,
+    tth: t.tth,
   };
 }
