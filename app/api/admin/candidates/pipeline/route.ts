@@ -1,10 +1,17 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+/* TODO: LEGACY CODE - To be removed when migrating old features */
 import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
 import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
 import { zCandidatePipelineStatus } from "@/lib/candidates/pipeline-zod";
 import type { CandidateStatus } from "@/lib/candidates/types";
+import {
+  fetchJobPipelineConfig,
+  resolveCandidatePipelineIds,
+  isCustomTransitionAllowed,
+  buildNewPipelineCandidatePatch,
+} from "@/lib/pipelines/transition-validator";
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
@@ -13,7 +20,10 @@ const isoDateTime = z.string().refine(
 
 const updateSchema = z.object({
   id: z.string().uuid(),
-  status: zCandidatePipelineStatus,
+  /* TODO: LEGACY CODE - To be removed when migrating old features */
+  status: zCandidatePipelineStatus.optional(),
+  current_job_stage_mapping_id: z.string().uuid().optional(),
+  current_sub_state_id: z.string().uuid().optional(),
   interview_at: z.union([isoDateTime, z.null()]).optional(),
   onboarding_at: z.union([isoDateTime, z.null()]).optional(),
 });
@@ -23,6 +33,7 @@ const bodySchema = z.object({
   updates: z.array(updateSchema).min(1).max(100),
 });
 
+// Helper to format database constraint errors
 function formatCandidateStatusConstraintError(message: string): string {
   if (!message.includes("candidates_status_check")) return message;
   return (
@@ -75,7 +86,7 @@ export async function POST(request: Request) {
   const uniqueIds = [...new Set(updates.map((u) => u.id))];
   const { data: existing, error: loadError } = await auth.supabase
     .from("candidates")
-    .select("id, job_opening_id, status, interview_at, onboarding_at")
+    .select("id, job_opening_id, status, interview_at, onboarding_at, offered_at, current_job_stage_mapping_id, current_sub_state_id, pipeline_status")
     .eq("is_active", true)
     .in("id", uniqueIds);
 
@@ -98,6 +109,10 @@ export async function POST(request: Request) {
         status: String(row.status),
         interview_at: (row.interview_at as string | null) ?? null,
         onboarding_at: (row.onboarding_at as string | null) ?? null,
+        offered_at: (row.offered_at as string | null) ?? null,
+        current_job_stage_mapping_id: (row.current_job_stage_mapping_id as string | null) ?? null,
+        current_sub_state_id: (row.current_sub_state_id as string | null) ?? null,
+        pipeline_status: (row.pipeline_status as string | null) ?? null,
       },
     ]),
   );
@@ -115,30 +130,117 @@ export async function POST(request: Request) {
     }
   }
 
+  const pipelineConfigCache = new Map<string, { stageMappings: any[]; subStages: any[] }>();
+
   for (const u of updates) {
     const prev = byId.get(u.id);
     if (!prev) {
       return Response.json({ error: "Candidate not found." }, { status: 404 });
     }
-    if (!isPipelineTransitionAllowed(prev.status, u.status)) {
-      return Response.json(
+
+    const isNewPipelineUpdate = !!(u.current_job_stage_mapping_id && u.current_sub_state_id);
+    let patch: Record<string, any>;
+
+    if (isNewPipelineUpdate) {
+      const jo = prev.job_opening_id;
+      if (!jo) {
+        return Response.json(
+          { error: "Candidate is not linked to any job opening." },
+          { status: 400 }
+        );
+      }
+
+      let config = pipelineConfigCache.get(jo);
+      if (!config) {
+        const { stageMappings, subStages, error: configError } = await fetchJobPipelineConfig(
+          auth.supabase,
+          jo
+        );
+        if (configError || stageMappings.length === 0) {
+          return Response.json(
+            { error: `Could not load pipeline configuration: ${configError ?? "No stages"}` },
+            { status: 400 }
+          );
+        }
+        config = { stageMappings, subStages };
+        pipelineConfigCache.set(jo, config);
+      }
+
+      // Resolve candidate's from-state IDs (falls back to legacy status if null)
+      const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
+        prev,
+        config.stageMappings,
+        config.subStages
+      );
+
+      if (!fromStageMappingId || !fromSubStateId) {
+        return Response.json(
+          { error: "Could not resolve candidate's current stage." },
+          { status: 400 }
+        );
+      }
+
+      // Validate transition rules
+      const allowed = isCustomTransitionAllowed(
+        config.stageMappings,
+        config.subStages,
+        fromStageMappingId,
+        fromSubStateId,
+        u.current_job_stage_mapping_id!,
+        u.current_sub_state_id!
+      );
+
+      if (!allowed) {
+        return Response.json(
+          { error: "Invalid status transition for this job's custom pipeline." },
+          { status: 400 }
+        );
+      }
+
+      // Construct update patch
+      try {
+        patch = buildNewPipelineCandidatePatch(
+          prev,
+          {
+            toStageMappingId: u.current_job_stage_mapping_id!,
+            toSubStateId: u.current_sub_state_id!,
+            interview_at: u.interview_at,
+            onboarding_at: u.onboarding_at,
+          },
+          config.stageMappings,
+          config.subStages
+        );
+      } catch (e) {
+        return Response.json(
+          { error: e instanceof Error ? e.message : "Error building patch." },
+          { status: 400 }
+        );
+      }
+    } else {
+      /* TODO: LEGACY CODE - To be removed when migrating old features */
+      // Legacy transition updates
+      const targetStatus = u.status ?? prev.status;
+      if (!isPipelineTransitionAllowed(prev.status, targetStatus)) {
+        return Response.json(
+          {
+            error: `Invalid status transition: ${prev.status} → ${targetStatus}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      patch = buildCandidatePipelinePatch(
         {
-          error: `Invalid status transition: ${prev.status} → ${u.status}.`,
+          status: prev.status,
+          interview_at: prev.interview_at,
+          onboarding_at: prev.onboarding_at,
         },
-        { status: 400 },
+        {
+          ...u,
+          status: targetStatus as CandidateStatus,
+        },
       );
     }
-    const patch = buildCandidatePipelinePatch(
-      {
-        status: prev.status,
-        interview_at: prev.interview_at,
-        onboarding_at: prev.onboarding_at,
-      },
-      {
-        ...u,
-        status: u.status as CandidateStatus,
-      },
-    );
 
     const { error: upErr } = await auth.supabase
       .from("candidates")
@@ -152,16 +254,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const nextInterview = patch.interview_at as string | null | undefined;
-    const nextOnboarding = patch.onboarding_at as string | null | undefined;
-    const nextStatus = patch.status as string;
     byId.set(u.id, {
-      job_opening_id: prev.job_opening_id,
-      status: nextStatus,
-      interview_at:
-        nextInterview !== undefined ? nextInterview : prev.interview_at,
-      onboarding_at:
-        nextOnboarding !== undefined ? nextOnboarding : prev.onboarding_at,
+      ...prev,
+      ...patch,
     });
   }
 

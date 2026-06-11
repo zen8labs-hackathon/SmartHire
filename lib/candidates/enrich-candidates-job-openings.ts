@@ -21,7 +21,7 @@ export async function enrichCandidatesWithJobOpenings(
 
   const { data, error } = await supabase
     .from("job_openings")
-    .select("id, title, job_descriptions ( position )")
+    .select("id, title, created_at, job_descriptions ( position )")
     .in("id", ids);
 
   if (error || !data?.length) return rows;
@@ -32,6 +32,7 @@ export async function enrichCandidatesWithJobOpenings(
     map.set(id, {
       id,
       title: o.title as string,
+      created_at: o.created_at as string | null,
       job_descriptions: o.job_descriptions as JobOpeningEmbed["job_descriptions"],
     });
   }

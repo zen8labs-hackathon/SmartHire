@@ -19,6 +19,12 @@ export const pipelineStageSchema = z.object({
     .optional()
     .nullable()
     .transform((val) => (val?.trim() === "" ? null : val)),
+  color: z
+    .string()
+    .max(50, "Color must be at most 50 characters")
+    .optional()
+    .nullable()
+    .transform((val) => (val?.trim() === "" ? null : val)),
 });
 
 export type PipelineStageFormValues = z.infer<typeof pipelineStageSchema>;

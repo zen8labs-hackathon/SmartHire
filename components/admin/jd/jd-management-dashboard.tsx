@@ -1807,8 +1807,8 @@ export function JdManagementDashboard({
                 </Label>
                 <DateRangePicker
                   aria-labelledby="jd-start-range-label"
-                  value={jdStartDateRange}
-                  onChange={setJdStartDateRange}
+                  value={jdStartDateRange as any}
+                  onChange={(val) => setJdStartDateRange(val as any)}
                   className="w-full"
                 >
                   <DateField.Group

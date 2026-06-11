@@ -72,15 +72,17 @@ export function PipelineCandidateEvaluationClient({
     }
   }, []);
 
-  useEffect(() => () => clearPreInterviewSuccessTimer(), [clearPreInterviewSuccessTimer]);
+  useEffect(
+    () => () => clearPreInterviewSuccessTimer(),
+    [clearPreInterviewSuccessTimer],
+  );
 
   const authHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
     [supabase],
   );
 
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "";
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const loadLatest = useCallback(async () => {
     setLoadError(null);
@@ -307,7 +309,10 @@ export function PipelineCandidateEvaluationClient({
           }),
         },
       );
-      const json = (await res.json()) as { error?: string; preInterviewNote?: string };
+      const json = (await res.json()) as {
+        error?: string;
+        preInterviewNote?: string;
+      };
       if (!res.ok) {
         setError(json.error ?? "Could not save pre-interview note.");
         return;
@@ -328,8 +333,7 @@ export function PipelineCandidateEvaluationClient({
     }
   };
 
-  const shareUrl =
-    latest && origin ? `${origin}${latest.previewPath}` : "";
+  const shareUrl = latest && origin ? `${origin}${latest.previewPath}` : "";
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -360,12 +364,14 @@ export function PipelineCandidateEvaluationClient({
             <p className="font-medium text-foreground">{candidate.email}</p>
           </div>
           <div>
-            <span className="text-muted">Mobile</span>
+            <span className="text-muted">Phone</span>
             <p className="font-medium text-foreground">{candidate.mobile}</p>
           </div>
           <div>
             <span className="text-muted">D.O.B.</span>
-            <p className="font-medium text-foreground">{candidate.dateOfBirth}</p>
+            <p className="font-medium text-foreground">
+              {candidate.dateOfBirth}
+            </p>
           </div>
           <div>
             <span className="text-muted">Pipeline status</span>
@@ -382,20 +388,32 @@ export function PipelineCandidateEvaluationClient({
             <span className="text-muted">English</span>
             <p className="font-medium text-foreground">{candidate.english}</p>
           </div>
+          <div>
+            <span className="text-muted">TTF (Time to Fill)</span>
+            <p className="font-medium text-foreground">{candidate.ttf || "—"}</p>
+          </div>
+          <div>
+            <span className="text-muted">TTH (Time to Hire)</span>
+            <p className="font-medium text-foreground">{candidate.tth || "—"}</p>
+          </div>
           <div className="sm:col-span-2">
             <span className="text-muted">Skills</span>
-            <p className="font-medium text-foreground">{candidate.relatedSkills}</p>
+            <p className="font-medium text-foreground">
+              {candidate.relatedSkills}
+            </p>
           </div>
         </Card.Content>
       </Card>
 
       <Card>
         <Card.Header>
-          <Card.Title id="pre-interview-note-heading">Pre-interview note</Card.Title>
+          <Card.Title id="pre-interview-note-heading">
+            Pre-interview note
+          </Card.Title>
           <Card.Description>
-            Write questions or topics to cover with the candidate during the interview.
-            This is saved per candidate for this role and is included when you generate
-            the evaluation PDF.
+            Write questions or topics to cover with the candidate during the
+            interview. This is saved per candidate for this role and is included
+            when you generate the evaluation PDF.
           </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-3">
@@ -485,7 +503,11 @@ export function PipelineCandidateEvaluationClient({
                   variant="secondary"
                   size="sm"
                   onPress={() => {
-                    window.open(latest.previewPath, "_blank", "noopener,noreferrer");
+                    window.open(
+                      latest.previewPath,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
                   }}
                 >
                   Open preview
@@ -494,7 +516,11 @@ export function PipelineCandidateEvaluationClient({
                   variant="primary"
                   size="sm"
                   onPress={() => {
-                    window.open(latest.downloadUrl, "_blank", "noopener,noreferrer");
+                    window.open(
+                      latest.downloadUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
                   }}
                 >
                   Download PDF
@@ -565,11 +591,13 @@ export function PipelineCandidateEvaluationClient({
 
       <Card>
         <Card.Header>
-          <Card.Title id="eval-notes-heading">Add a note after interview</Card.Title>
+          <Card.Title id="eval-notes-heading">
+            Add a note after interview
+          </Card.Title>
           <Card.Description>
-            Write in Vietnamese or English; the evaluation follows your language.
-            Save a note on its own, or type and use “Regenerate” to save that
-            text and create the PDF in one step.
+            Write in Vietnamese or English; the evaluation follows your
+            language. Save a note on its own, or type and use “Regenerate” to
+            save that text and create the PDF in one step.
           </Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4">
@@ -605,7 +633,9 @@ export function PipelineCandidateEvaluationClient({
             </Button>
             <Button
               variant="secondary"
-              onPress={() => router.push(`/admin/jd/${jobDescriptionId}/pipeline`)}
+              onPress={() =>
+                router.push(`/admin/jd/${jobDescriptionId}/pipeline`)
+              }
             >
               Back to pipeline
             </Button>

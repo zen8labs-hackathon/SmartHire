@@ -40,7 +40,9 @@ export default async function JobPipelinePage({ params }: PageProps) {
     .maybeSingle();
 
   const { rows: initialPipelineCandidates, error: pipelineFetchError } =
-    await fetchCandidatesForJobDescription(supabase, numId);
+    await fetchCandidatesForJobDescription(supabase, numId, {
+      includeParsedPayload: true,
+    });
 
   return (
     <JobPipelineSpreadsheetLoader

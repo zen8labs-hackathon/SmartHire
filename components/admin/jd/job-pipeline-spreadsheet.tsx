@@ -97,7 +97,7 @@ export function JobPipelineSpreadsheet({
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch(
-        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true`,
+        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&includeParsedPayload=true`,
         { credentials: "include", headers: { ...h } },
       );
       if (!res.ok) {

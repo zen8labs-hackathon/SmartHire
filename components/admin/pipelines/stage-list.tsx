@@ -1,8 +1,9 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button, cn } from "@heroui/react";
 import { Pencil, Trash2 } from "lucide-react";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
+import { getStageColorClasses } from "@/lib/candidates/pipeline-status-styles";
 
 type StageListProps = {
   stages: PipelineStageRow[];
@@ -48,7 +49,12 @@ export function StageList({
                 <span className="font-semibold text-foreground">
                   {stage.label}
                 </span>
-                <span className="rounded-md bg-surface-tertiary px-1.5 py-0.5 text-xs text-muted font-mono border border-divider/50">
+                <span
+                  className={cn(
+                    "rounded-md px-1.5 py-0.5 text-xs font-mono border border-divider/50",
+                    getStageColorClasses(stage.color, "badge"),
+                  )}
+                >
                   {stage.code}
                 </span>
               </div>

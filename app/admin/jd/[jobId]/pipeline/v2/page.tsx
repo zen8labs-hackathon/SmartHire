@@ -33,14 +33,75 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
 
   const { data: linkedOpening } = await supabase
     .from("job_openings")
-    .select("id, title")
+    .select("id, title, created_at")
     .eq("job_description_id", numId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   const { rows: initialPipelineCandidates, error: pipelineFetchError } =
-    await fetchCandidatesForJobDescription(supabase, numId);
+    await fetchCandidatesForJobDescription(supabase, numId, {
+      includeParsedPayload: true,
+    });
+
+  let stageMappings: any[] = [];
+  let subStages: any[] = [];
+
+  if (linkedOpening) {
+    const { data: mappings } = await supabase
+      .from("job_stage_mappings")
+      .select(`
+        id,
+        sequence_number,
+        pipeline_stage_id,
+        pipeline_stages!inner (
+          id,
+          code,
+          label,
+          desc,
+          color
+        )
+      `)
+      .eq("job_opening_id", linkedOpening.id)
+      .is("deleted_at", null)
+      .order("sequence_number", { ascending: true });
+
+    if (mappings && mappings.length > 0) {
+      stageMappings = mappings;
+    }
+  }
+
+  // Fallback to active pipeline stages if no mappings found
+  if (stageMappings.length === 0) {
+    const { data: defaultStages } = await supabase
+      .from("pipeline_stages")
+      .select("id, code, label, desc, color")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+
+    if (defaultStages) {
+      stageMappings = defaultStages.map((stage, idx) => ({
+        id: stage.id, // Pseudo mapping ID
+        sequence_number: idx + 1,
+        pipeline_stage_id: stage.id,
+        pipeline_stages: stage,
+      }));
+    }
+  }
+
+  const stageIds = stageMappings.map((sm) => sm.pipeline_stage_id);
+  if (stageIds.length > 0) {
+    const { data: sub } = await supabase
+      .from("pipeline_sub_stages")
+      .select("id, pipeline_stage_id, code, label, sequence_number, is_default, is_passed")
+      .in("pipeline_stage_id", stageIds)
+      .is("deleted_at", null)
+      .order("sequence_number", { ascending: true });
+
+    if (sub) {
+      subStages = sub;
+    }
+  }
 
   return (
     <JobPipelineKanbanLoader
@@ -50,10 +111,13 @@ export default async function JobPipelineKanbanPage({ params }: PageProps) {
       jobTitle={jd.position}
       linkedJobOpeningId={linkedOpening?.id ?? null}
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
+      linkedJobOpeningTime={linkedOpening?.created_at ?? null}
       initialPipelineCandidates={initialPipelineCandidates}
       initialPipelineFetchFailed={pipelineFetchError != null}
       canEditPipeline={access.isHr}
       canAddCandidates={access.isHr}
+      stageMappings={stageMappings}
+      subStages={subStages}
     />
   );
 }
