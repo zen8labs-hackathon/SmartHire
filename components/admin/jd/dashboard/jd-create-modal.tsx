@@ -7,6 +7,7 @@ import {
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
+import { JdPipelineStageSelect } from "./jd-stage-select";
 
 export function JdCreateModal() {
   const {
@@ -30,6 +31,9 @@ export function JdCreateModal() {
     formSubmitting,
     discardJdDraft,
     handleSave,
+    allPipelineStages,
+    selectedStageIds,
+    setSelectedStageIds,
   } = useJdDashboard();
 
   return (
@@ -89,7 +93,7 @@ export function JdCreateModal() {
                 </div>
                 <p className="text-sm font-semibold text-foreground">
                   Attach JD Document{" "}
-                  <span className="font-normal text-muted">(optional)</span>
+                  <span className="font-normal text-danger">*</span>
                 </p>
                 <p className="text-xs text-muted">
                   PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
@@ -185,6 +189,15 @@ export function JdCreateModal() {
                   onChange={setCreateViewerChapterIds}
                 />
               </div>
+            </div>
+
+            <div className="space-y-3">
+              <SectionLabel>Pipeline Configuration</SectionLabel>
+              <JdPipelineStageSelect
+                allPipelineStages={allPipelineStages}
+                selectedStageIds={selectedStageIds}
+                onChange={setSelectedStageIds}
+              />
             </div>
 
             {formError && (

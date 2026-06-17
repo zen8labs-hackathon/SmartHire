@@ -4,6 +4,8 @@ import { SectionLabel } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
 
+import { JdPipelineStageSelect } from "./jd-stage-select";
+
 const HIRE_TYPE_OPTIONS = ["New hire", "Replacement"] as const;
 
 export function JdEditModal() {
@@ -21,6 +23,10 @@ export function JdEditModal() {
     editError,
     editSubmitting,
     handleEditSave,
+    allPipelineStages,
+    editSelectedStageIds,
+    setEditSelectedStageIds,
+    editStagesLoading,
   } = useJdDashboard();
 
   return (
@@ -336,6 +342,16 @@ export function JdEditModal() {
                 <Label>Hiring deadline</Label>
                 <Input type="date" />
               </TextField>
+            </div>
+
+            <div className="space-y-4">
+              <SectionLabel>Pipeline Configuration</SectionLabel>
+              <JdPipelineStageSelect
+                allPipelineStages={allPipelineStages}
+                selectedStageIds={editSelectedStageIds}
+                onChange={setEditSelectedStageIds}
+                isLoading={editStagesLoading}
+              />
             </div>
 
             {editError && (

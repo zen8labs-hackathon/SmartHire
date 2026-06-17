@@ -53,9 +53,12 @@ type CreateBody = Partial<JobDescriptionFormData> & {
   viewerEmails?: string[] | string | null;
   /** Chapter ids: all members of these chapters may open this JD. */
   viewerChapterIds?: string[] | null;
+  pipelineStages?: string[] | null;
 };
 
-function sanitize(body: Partial<JobDescriptionFormData>): SanitizedJdInsertPayload {
+function sanitize(
+  body: Partial<JobDescriptionFormData>,
+): SanitizedJdInsertPayload {
   const status =
     body.status !== undefined && isJdStatus(String(body.status))
       ? (body.status as JdStatus)
@@ -125,7 +128,10 @@ export async function GET(request: Request) {
   }
 
   const applicantCountByJd = countsResult.counts;
-  const openingsByJd = new Map<number, { jd_storage_path: string | null; created_at: string }[]>();
+  const openingsByJd = new Map<
+    number,
+    { jd_storage_path: string | null; created_at: string }[]
+  >();
   for (const o of openings ?? []) {
     const jdId = o.job_description_id as number | null;
     if (jdId == null) continue;
@@ -180,6 +186,7 @@ export async function POST(request: Request) {
     jdDraftJobOpeningId: _ignore,
     viewerEmails: viewerEmailsRaw,
     viewerChapterIds: viewerChapterIdsRaw,
+    pipelineStages,
     ...formFields
   } = body;
   void _ignore;
@@ -236,30 +243,35 @@ export async function POST(request: Request) {
     return Response.json({ error: "position is required." }, { status: 400 });
   }
 
-  if (jdDraftJobOpeningId) {
-    const { data: jo, error: joErr } = await auth.supabase
-      .from("job_openings")
-      .select("id, status, jd_storage_path, job_description_id")
-      .eq("id", jdDraftJobOpeningId)
-      .maybeSingle();
+  if (!jdDraftJobOpeningId) {
+    return Response.json(
+      { error: "Attaching a JD document is required to create a new definition." },
+      { status: 400 }
+    );
+  }
 
-    if (joErr) {
-      return Response.json({ error: joErr.message }, { status: 500 });
-    }
-    if (
-      !jo ||
-      jo.status !== "Draft" ||
-      !jo.jd_storage_path ||
-      jo.job_description_id != null
-    ) {
-      return Response.json(
-        {
-          error:
-            "Invalid draft job opening: must be Draft with a JD file and not already linked.",
-        },
-        { status: 400 },
-      );
-    }
+  const { data: jo, error: joErr } = await auth.supabase
+    .from("job_openings")
+    .select("id, status, jd_storage_path, job_description_id")
+    .eq("id", jdDraftJobOpeningId)
+    .maybeSingle();
+
+  if (joErr) {
+    return Response.json({ error: joErr.message }, { status: 500 });
+  }
+  if (
+    !jo ||
+    jo.status !== "Draft" ||
+    !jo.jd_storage_path ||
+    jo.job_description_id != null
+  ) {
+    return Response.json(
+      {
+        error:
+          "Invalid draft job opening: must be Draft with a JD file and not already linked.",
+      },
+      { status: 400 },
+    );
   }
 
   const { data, error } = await auth.supabase
@@ -270,7 +282,7 @@ export async function POST(request: Request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  if (jdDraftJobOpeningId && data) {
+  if (data) {
     const { error: linkErr } = await auth.supabase
       .from("job_openings")
       .update({
@@ -287,9 +299,47 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
+
+    // Insert pipeline stage mappings
+    let resolvedStages = pipelineStages;
+    if (!resolvedStages || resolvedStages.length === 0) {
+      const { data: allStages } = await auth.supabase
+        .from("pipeline_stages")
+        .select("id, code")
+        .is("deleted_at", null);
+      const defaultCodes = ["cv_scan", "interview", "offer"];
+      resolvedStages = defaultCodes
+        .map((code) => allStages?.find((s) => s.code === code)?.id)
+        .filter(Boolean) as string[];
+    }
+
+    if (resolvedStages && resolvedStages.length > 0) {
+      const mappings = resolvedStages.map((stageId: string, idx: number) => ({
+        job_opening_id: jdDraftJobOpeningId,
+        pipeline_stage_id: stageId,
+        sequence_number: idx + 1,
+      }));
+
+      const { error: mapErr } = await auth.supabase
+        .from("job_stage_mappings")
+        .insert(mappings);
+
+      if (mapErr) {
+        await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
+        return Response.json(
+          {
+            error: `Saved JD but could not insert stage mappings: ${mapErr.message}`,
+          },
+          { status: 500 },
+        );
+      }
+    }
   }
 
-  if (data?.id != null && (viewerEmails.length > 0 || viewerChapterIds.length > 0)) {
+  if (
+    data?.id != null &&
+    (viewerEmails.length > 0 || viewerChapterIds.length > 0)
+  ) {
     try {
       const admin = adminForViewers ?? createAdminClient();
       if (viewerEmails.length > 0) {
