@@ -5,9 +5,11 @@ import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-head
 import { coerceJdStatus, type JobDescription, type JdStatus } from "@/lib/jd/types";
 import { jdRowDate } from "../helpers";
 import { utcDateStringToday } from "@/lib/jd/normalize-text";
+import { useToast } from "@/components/admin/toast-provider";
 
 export function useJdListState() {
   const supabase = useMemo(() => createClient(), []);
+  const toast = useToast();
   
   const [rows, setRows] = useState<JobDescription[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +120,7 @@ export function useJdListState() {
           setRows((rs) => rs.map((r) => (r.id === id ? normalized : r)));
           if (onUpdateActiveRow) onUpdateActiveRow(normalized);
         }
+        toast.success(`Status updated to ${next}.`);
       } catch (e) {
         setRows((rs) =>
           rs.map((r) =>
@@ -126,14 +129,14 @@ export function useJdListState() {
               : r,
           ),
         );
-        setStatusUpdateError(
-          e instanceof Error ? e.message : "Status update failed.",
-        );
+        const msg = e instanceof Error ? e.message : "Status update failed.";
+        setStatusUpdateError(msg);
+        toast.error(msg);
       } finally {
         setStatusUpdatingId(null);
       }
     },
-    [authHeaders],
+    [authHeaders, toast],
   );
 
   const confirmDelete = useCallback(async (onDeletedActiveRow?: () => void) => {
@@ -152,10 +155,13 @@ export function useJdListState() {
       }
       if (onDeletedActiveRow) onDeletedActiveRow();
       await loadDescriptions();
+      toast.success("Job description deleted successfully.");
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Unknown error.");
+      const msg = e instanceof Error ? e.message : "Unknown error.";
+      setDeleteError(msg);
+      toast.error(msg);
     }
-  }, [authHeaders, deletingId, loadDescriptions]);
+  }, [authHeaders, deletingId, loadDescriptions, toast]);
 
   return {
     rows,

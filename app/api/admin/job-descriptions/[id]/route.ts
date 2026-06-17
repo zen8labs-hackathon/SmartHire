@@ -75,8 +75,7 @@ function sanitizeEdit(body: Partial<JdEditFormData>): Record<string, unknown> {
   if (body.position !== undefined) {
     result.position = requiredLine(body.position, 50);
   }
-  if (body.level !== undefined)
-    result.level = optionalToDb(body.level, 100);
+  if (body.level !== undefined) result.level = optionalToDb(body.level, 100);
   if (body.headcount !== undefined) {
     const n = body.headcount === "" ? null : Number(body.headcount);
     result.headcount = n !== null && !Number.isNaN(n) && n > 0 ? n : null;
@@ -88,13 +87,19 @@ function sanitizeEdit(body: Partial<JdEditFormData>): Record<string, unknown> {
   if (body.project_info !== undefined)
     result.project_info = optionalToDb(body.project_info);
   if (body.duties_and_responsibilities !== undefined)
-    result.duties_and_responsibilities = optionalToDb(body.duties_and_responsibilities);
+    result.duties_and_responsibilities = optionalToDb(
+      body.duties_and_responsibilities,
+    );
   if (body.team_size !== undefined)
     result.team_size = optionalToDb(body.team_size);
   if (body.experience_requirements_must_have !== undefined)
-    result.experience_requirements_must_have = optionalToDb(body.experience_requirements_must_have);
+    result.experience_requirements_must_have = optionalToDb(
+      body.experience_requirements_must_have,
+    );
   if (body.experience_requirements_nice_to_have !== undefined)
-    result.experience_requirements_nice_to_have = optionalToDb(body.experience_requirements_nice_to_have);
+    result.experience_requirements_nice_to_have = optionalToDb(
+      body.experience_requirements_nice_to_have,
+    );
   if (body.language_requirements !== undefined)
     result.language_requirements = optionalToDb(body.language_requirements);
   if (body.career_development !== undefined)
@@ -144,6 +149,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 
   let viewerEmails: string[] = [];
   let viewerChapterIds: string[] = [];
+  let pipelineStages: string[] = [];
   try {
     const admin = createAdminClient();
     viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
@@ -151,11 +157,34 @@ export async function GET(request: Request, { params }: RouteContext) {
       admin,
       numId,
     );
-  } catch {
-    // optional
+
+    const { data: opening } = await auth.supabase
+      .from("job_openings")
+      .select("id")
+      .eq("job_description_id", numId)
+      .maybeSingle();
+
+    if (opening) {
+      const { data: mappings } = await auth.supabase
+        .from("job_stage_mappings")
+        .select("pipeline_stage_id")
+        .eq("job_opening_id", opening.id)
+        .is("deleted_at", null)
+        .order("sequence_number", { ascending: true });
+      if (mappings) {
+        pipelineStages = mappings.map((m) => m.pipeline_stage_id);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch pipeline stages or viewers:", err);
   }
 
-  return Response.json({ jobDescription: data, viewerEmails, viewerChapterIds });
+  return Response.json({
+    jobDescription: data,
+    viewerEmails,
+    viewerChapterIds,
+    pipelineStages,
+  });
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
@@ -173,7 +202,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  const hasViewerKey = Object.prototype.hasOwnProperty.call(raw, "viewerEmails");
+  const hasViewerKey = Object.prototype.hasOwnProperty.call(
+    raw,
+    "viewerEmails",
+  );
   const viewerEmailsRaw = raw.viewerEmails;
   delete raw.viewerEmails;
 
@@ -184,14 +216,26 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const viewerChapterIdsRaw = raw.viewerChapterIds;
   delete raw.viewerChapterIds;
 
+  const hasPipelineStages = Object.prototype.hasOwnProperty.call(
+    raw,
+    "pipelineStages",
+  );
+  const pipelineStagesRaw = raw.pipelineStages;
+  delete raw.pipelineStages;
+
   const hasJdUpdate = Object.keys(raw).length > 0;
-  if (!hasJdUpdate && !hasViewerKey && !hasViewerChapterKey) {
+  if (
+    !hasJdUpdate &&
+    !hasViewerKey &&
+    !hasViewerChapterKey &&
+    !hasPipelineStages
+  ) {
     return Response.json({ error: "No updates provided." }, { status: 400 });
   }
 
   const { data: existing, error: existingErr } = await auth.supabase
     .from("job_descriptions")
-    .select("status")
+    .select("status, position")
     .eq("id", numId)
     .maybeSingle();
 
@@ -211,10 +255,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     if (body._editMode) {
       const { _editMode: _, ...editBody } = body;
       payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
-      if (
-        editBody.position !== undefined &&
-        !payload.position
-      ) {
+      if (editBody.position !== undefined && !payload.position) {
         return Response.json(
           { error: "position is required." },
           { status: 400 },
@@ -243,6 +284,43 @@ export async function PUT(request: Request, { params }: RouteContext) {
       .eq("id", numId);
 
     if (error) return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  //Check if job_opening is alread exist.
+  if (hasPipelineStages) {
+    const { data: opening } = await auth.supabase
+      .from("job_openings")
+      .select("id")
+      .eq("job_description_id", numId)
+      .maybeSingle();
+
+    if (opening) {
+      await auth.supabase
+        .from("job_stage_mappings")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("job_opening_id", opening.id)
+        .is("deleted_at", null);
+
+      const pipelineStages = pipelineStagesRaw as string[] | null | undefined;
+      if (pipelineStages && pipelineStages.length > 0) {
+        const mappings = pipelineStages.map((stageId: string, idx: number) => ({
+          job_opening_id: opening.id,
+          pipeline_stage_id: stageId,
+          sequence_number: idx + 1,
+        }));
+
+        const { error: mapErr } = await auth.supabase
+          .from("job_stage_mappings")
+          .insert(mappings);
+
+        if (mapErr) {
+          return Response.json(
+            { error: `Failed to insert stage mappings: ${mapErr.message}` },
+            { status: 500 },
+          );
+        }
+      }
+    }
   }
 
   if (hasViewerKey || hasViewerChapterKey) {

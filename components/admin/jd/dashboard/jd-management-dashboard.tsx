@@ -11,14 +11,20 @@ import { JdDetailDrawer } from "./jd-detail-drawer";
 interface JdManagementDashboardProps {
   canManageJds?: boolean;
   chapters?: readonly { id: string; name: string }[];
+  allPipelineStages?: readonly { id: string; label: string; code: string; color: string }[];
 }
 
 export function JdManagementDashboard({
   canManageJds = true,
   chapters = [],
+  allPipelineStages = [],
 }: JdManagementDashboardProps) {
   return (
-    <JdDashboardProvider canManageJds={canManageJds} chapters={chapters}>
+    <JdDashboardProvider
+      canManageJds={canManageJds}
+      chapters={chapters}
+      allPipelineStages={allPipelineStages}
+    >
       <div className="flex flex-col gap-8">
         <JdHeader />
         <JdFilters />
