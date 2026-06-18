@@ -154,6 +154,7 @@ export function useJdListState() {
         throw new Error(json.error ?? "Delete failed.");
       }
       if (onDeletedActiveRow) onDeletedActiveRow();
+      deleteModal.close();
       await loadDescriptions();
       toast.success("Job description deleted successfully.");
     } catch (e) {
@@ -161,7 +162,7 @@ export function useJdListState() {
       setDeleteError(msg);
       toast.error(msg);
     }
-  }, [authHeaders, deletingId, loadDescriptions, toast]);
+  }, [authHeaders, deletingId, deleteModal, loadDescriptions, toast]);
 
   return {
     rows,
