@@ -51,7 +51,14 @@ export async function POST(request: Request) {
       ? body.jobOpeningId
       : null;
 
-  if (jobOpeningId && !isUuid(jobOpeningId)) {
+  if (!jobOpeningId) {
+    return Response.json(
+      { error: "Select a target campaign before uploading." },
+      { status: 400 },
+    );
+  }
+
+  if (!isUuid(jobOpeningId)) {
     return Response.json({ error: "Invalid job opening id." }, { status: 400 });
   }
 
@@ -85,15 +92,13 @@ export async function POST(request: Request) {
 
   const { supabase } = auth;
 
-  if (jobOpeningId) {
-    const { data: job, error: jobErr } = await supabase
-      .from("job_openings")
-      .select("id")
-      .eq("id", jobOpeningId)
-      .maybeSingle();
-    if (jobErr || !job) {
-      return Response.json({ error: "Job opening not found." }, { status: 400 });
-    }
+  const { data: job, error: jobErr } = await supabase
+    .from("job_openings")
+    .select("id")
+    .eq("id", jobOpeningId)
+    .maybeSingle();
+  if (jobErr || !job) {
+    return Response.json({ error: "Job opening not found." }, { status: 400 });
   }
 
   let admin;
@@ -110,8 +115,7 @@ export async function POST(request: Request) {
   }
 
   const candidateId = crypto.randomUUID();
-  const folder = jobOpeningId ?? "unassigned";
-  const storagePath = `${folder}/${candidateId}${ext}`;
+  const storagePath = `${jobOpeningId}/${candidateId}${ext}`;
 
   const uploadedAt = new Date().toISOString();
   const rawUploader = auth.userEmail?.trim() ?? "";
