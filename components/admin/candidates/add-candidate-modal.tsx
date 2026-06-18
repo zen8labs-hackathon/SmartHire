@@ -169,7 +169,7 @@ export function AddCandidateModal({
   const duplicatePayloadRef = useRef<DuplicateFlowState | null>(null);
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
-  const [jobKey, setJobKey] = useState<string>("__none__");
+  const [jobKey, setJobKey] = useState<string | null>(null);
   const [sourceKey, setSourceKey] = useState<string>(CANDIDATE_SOURCE_VALUES[0]);
   const [sourceOther, setSourceOther] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
@@ -192,9 +192,7 @@ export function AddCandidateModal({
   const selectedJobId =
     isCampaignLocked && typeof jdPipelineCampaign === "object"
       ? jdPipelineCampaign.jobOpeningId
-      : jobKey === "__none__"
-        ? null
-        : jobKey;
+      : jobKey;
 
   const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
   const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
@@ -536,16 +534,15 @@ export function AddCandidateModal({
                       </div>
                     ) : (
                       <Select
+                        placeholder="Select a campaign…"
                         value={jobKey}
-                        onChange={(k) => setJobKey(String(k ?? "__none__"))}
+                        onChange={(key) => {
+                          if (typeof key === "string") setJobKey(key);
+                        }}
                         className="mt-2"
                       >
                         <Select.Trigger className="w-full min-w-0">
-                          {jobKey === "__none__" ? (
-                            <span className="text-muted">Select a campaign…</span>
-                          ) : (
-                            <Select.Value />
-                          )}
+                          <Select.Value />
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
@@ -643,14 +640,20 @@ export function AddCandidateModal({
                   <div
                     className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
                       isUploadDisabled
-                        ? "pointer-events-none border-divider bg-content2/20 opacity-50"
+                        ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
                           ? "border-accent bg-accent/5"
                           : "border-divider bg-content2/30"
                     }`}
+                    onDragEnter={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
                     onDragOver={(e) => {
                       if (isUploadDisabled) return;
                       e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
                       setDragOver(true);
                     }}
                     onDragLeave={() => setDragOver(false)}
