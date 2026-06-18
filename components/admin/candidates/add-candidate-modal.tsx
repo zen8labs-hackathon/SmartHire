@@ -130,7 +130,7 @@ function FileIcon({ className }: { className?: string }) {
 }
 
 /**
- * - `undefined` — Candidates page: choose any campaign or unassigned.
+ * - `undefined` — Candidates page: choose a campaign before uploading.
  * - `{ jobOpeningId, title }` — Job description pipeline: uploads are tied to this opening (JD match + AI).
  * - `"no_opening_linked"` — JD context but no `job_openings` row points at this JD yet.
  */
@@ -195,6 +195,9 @@ export function AddCandidateModal({
       : jobKey === "__none__"
         ? null
         : jobKey;
+
+  const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
+  const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
 
   const sessionAuthHeaders = useCallback(
     () => getSessionAuthorizationHeaders(supabase),
@@ -332,6 +335,10 @@ export function AddCandidateModal({
       window.alert(
         "Link a job campaign to this job first (Jobs list → publish / link opening), then try again.",
       );
+      return;
+    }
+    if (isCampaignMissing) {
+      window.alert("Select a target campaign before uploading CVs.");
       return;
     }
     if (!isAllowedCvFilename(file.name)) {
@@ -515,6 +522,9 @@ export function AddCandidateModal({
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Target campaign
+                      {!isCampaignLocked ? (
+                        <span className="ml-1 text-danger">*</span>
+                      ) : null}
                     </Label>
                     {isCampaignLocked && typeof jdPipelineCampaign === "object" ? (
                       <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
@@ -531,19 +541,15 @@ export function AddCandidateModal({
                         className="mt-2"
                       >
                         <Select.Trigger className="w-full min-w-0">
-                          <Select.Value />
+                          {jobKey === "__none__" ? (
+                            <span className="text-muted">Select a campaign…</span>
+                          ) : (
+                            <Select.Value />
+                          )}
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            <ListBox.Item
-                              id="__none__"
-                              textValue="Unassigned"
-                              key="none"
-                            >
-                              Unassigned
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
                             {jobs.map((j) => (
                               <ListBox.Item
                                 key={j.id}
@@ -558,6 +564,11 @@ export function AddCandidateModal({
                         </Select.Popover>
                       </Select>
                     )}
+                    {isCampaignMissing ? (
+                      <p className="mt-1.5 text-xs text-muted">
+                        Required before you can upload CVs.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div>
@@ -631,38 +642,41 @@ export function AddCandidateModal({
                 <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
                   <div
                     className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
-                      isCampaignBlocked
+                      isUploadDisabled
                         ? "pointer-events-none border-divider bg-content2/20 opacity-50"
                         : dragOver
                           ? "border-accent bg-accent/5"
                           : "border-divider bg-content2/30"
                     }`}
                     onDragOver={(e) => {
-                      if (isCampaignBlocked) return;
+                      if (isUploadDisabled) return;
                       e.preventDefault();
                       setDragOver(true);
                     }}
                     onDragLeave={() => setDragOver(false)}
                     onDrop={(e) => {
-                      if (isCampaignBlocked) return;
+                      if (isUploadDisabled) return;
                       e.preventDefault();
                       setDragOver(false);
                       void handleFiles(e.dataTransfer.files);
                     }}
                   >
                     <p className="text-sm font-semibold text-foreground">
-                      Drop CVs here to start ingestion
+                      {isCampaignMissing
+                        ? "Select a target campaign first"
+                        : "Drop CVs here to start ingestion"}
                     </p>
                     <p className="mt-2 max-w-sm text-xs text-muted">
-                      AI will parse contact info, skills, and experience. Select or
-                      drop one or more PDF or DOCX files (max 25MB each).
+                      {isCampaignMissing
+                        ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
+                        : "AI will parse contact info, skills, and experience. Select or drop one or more PDF or DOCX files (max 25MB each)."}
                     </p>
                     <div className="mt-4 flex justify-center">
                       <Button
                         variant="primary"
                         className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
                         onPress={() => fileInputRef.current?.click()}
-                        isDisabled={isCampaignBlocked}
+                        isDisabled={isUploadDisabled}
                       >
                         Select files
                       </Button>
