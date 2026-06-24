@@ -39,12 +39,7 @@ type JobOpening = {
   displayTitle: string;
 };
 
-type UploadPhase =
-  | "signing"
-  | "uploading"
-  | "invoking"
-  | "uploaded"
-  | "error";
+type UploadPhase = "signing" | "uploading" | "invoking" | "uploaded" | "error";
 
 type QueueRow = {
   candidateId: string;
@@ -78,10 +73,14 @@ function formatDate(ts: number) {
 
 function progressForRow(row: QueueRow): { pct: number; label: string } {
   if (row.uploadPhase === "error") return { pct: 0, label: "Upload failed" };
-  if (row.uploadPhase === "signing") return { pct: 8, label: "Preparing upload…" };
-  if (row.uploadPhase === "uploading") return { pct: 25, label: "Uploading file…" };
-  if (row.uploadPhase === "invoking") return { pct: 40, label: "Starting AI scan…" };
-  if (row.parsing_status === "failed") return { pct: 100, label: "Parse failed" };
+  if (row.uploadPhase === "signing")
+    return { pct: 8, label: "Preparing upload…" };
+  if (row.uploadPhase === "uploading")
+    return { pct: 25, label: "Uploading file…" };
+  if (row.uploadPhase === "invoking")
+    return { pct: 40, label: "Starting AI scan…" };
+  if (row.parsing_status === "failed")
+    return { pct: 100, label: "Parse failed" };
   if (row.parsing_status === "completed") return { pct: 100, label: "Done" };
   if (row.parsing_status === "processing") {
     return { pct: 72, label: "Parsing skills & experience…" };
@@ -170,7 +169,9 @@ export function AddCandidateModal({
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
   const [jobKey, setJobKey] = useState<string | null>(null);
-  const [sourceKey, setSourceKey] = useState<string>(CANDIDATE_SOURCE_VALUES[0]);
+  const [sourceKey, setSourceKey] = useState<string>(
+    CANDIDATE_SOURCE_VALUES[0],
+  );
   const [sourceOther, setSourceOther] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -309,14 +310,18 @@ export function AddCandidateModal({
                 ? r
                 : {
                     ...r,
-                    parsing_status: (next.parsing_status as ParsingStatus) ??
+                    parsing_status:
+                      (next.parsing_status as ParsingStatus) ??
                       r.parsing_status,
-                    parsing_error: (next.parsing_error as string | null) ??
-                      r.parsing_error,
+                    parsing_error:
+                      (next.parsing_error as string | null) ?? r.parsing_error,
                   },
             ),
           );
-          if (next.parsing_status === "completed" || next.parsing_status === "failed") {
+          if (
+            next.parsing_status === "completed" ||
+            next.parsing_status === "failed"
+          ) {
             onCandidatesChanged?.();
           }
         },
@@ -368,8 +373,7 @@ export function AddCandidateModal({
           filename: file.name,
           mimeType: file.type || null,
           source: sourceKey,
-          sourceOther:
-            sourceKey === "Other" ? sourceOther.trim() : null,
+          sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
         }),
       });
       const signJson = (await signRes.json()) as {
@@ -378,7 +382,12 @@ export function AddCandidateModal({
         path?: string;
         token?: string;
       };
-      if (!signRes.ok || !signJson.candidateId || !signJson.path || !signJson.token) {
+      if (
+        !signRes.ok ||
+        !signJson.candidateId ||
+        !signJson.path ||
+        !signJson.token
+      ) {
         throw new Error(signJson.error ?? "Could not start upload");
       }
       candidateId = signJson.candidateId;
@@ -487,57 +496,103 @@ export function AddCandidateModal({
 
   return (
     <>
-    <Modal state={modalState}>
-      <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
-        <Modal.Container className="w-full">
-          <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
-            <Modal.CloseTrigger />
-            <Modal.Header className="border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
-              <p className="mt-1 text-sm text-muted">
-                {isCampaignLocked
-                  ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
-                  : "Upload CVs to private storage; AI extracts profile fields in the background."}
-              </p>
-            </Modal.Header>
-            <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
-              {isCampaignBlocked ? (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-                  <p className="font-semibold text-amber-900 dark:text-amber-100">
-                    No campaign linked yet
-                  </p>
-                  <p className="mt-1 text-muted">
-                    Create or link a job opening to this job description from{" "}
-                    <span className="font-medium text-foreground">
-                      Jobs list
-                    </span>{" "}
-                    so uploads can be tied to the JD (required for AI match scoring).
-                  </p>
-                </div>
-              ) : null}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
-                <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
-                  <div>
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Target campaign
-                      {!isCampaignLocked ? (
-                        <span className="ml-1 text-danger">*</span>
-                      ) : null}
-                    </Label>
-                    {isCampaignLocked && typeof jdPipelineCampaign === "object" ? (
-                      <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
-                        <span className="font-medium">{jdPipelineCampaign.title}</span>
-                        <p className="mt-1 text-xs text-muted">
-                          Fixed for this job description — candidates are eligible for
-                          JD-based AI evaluation.
+      <Modal state={modalState}>
+        <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
+          <Modal.Container className="w-full">
+            <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
+              <Modal.CloseTrigger />
+              <Modal.Header className="border-b border-divider px-6 py-5">
+                <Modal.Heading className="text-xl">
+                  Add candidates
+                </Modal.Heading>
+                <p className="mt-1 text-sm text-muted">
+                  {isCampaignLocked
+                    ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
+                    : "Upload CVs to private storage; AI extracts profile fields in the background."}
+                </p>
+              </Modal.Header>
+              <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
+                {isCampaignBlocked ? (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                    <p className="font-semibold text-amber-900 dark:text-amber-100">
+                      No campaign linked yet
+                    </p>
+                    <p className="mt-1 text-muted">
+                      Create or link a job opening to this job description from{" "}
+                      <span className="font-medium text-foreground">
+                        Jobs list
+                      </span>{" "}
+                      so uploads can be tied to the JD (required for AI match
+                      scoring).
+                    </p>
+                  </div>
+                ) : null}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
+                  <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Target campaign
+                        {!isCampaignLocked ? (
+                          <span className="ml-1 text-danger">*</span>
+                        ) : null}
+                      </Label>
+                      {isCampaignLocked &&
+                      typeof jdPipelineCampaign === "object" ? (
+                        <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
+                          <span className="font-medium">
+                            {jdPipelineCampaign.title}
+                          </span>
+                          <p className="mt-1 text-xs text-muted">
+                            Fixed for this job description — candidates are
+                            eligible for JD-based AI evaluation.
+                          </p>
+                        </div>
+                      ) : (
+                        <Select
+                          placeholder="Select a campaign…"
+                          value={jobKey}
+                          onChange={(key) => {
+                            if (typeof key === "string") setJobKey(key);
+                          }}
+                          className="mt-2"
+                        >
+                          <Select.Trigger className="w-full min-w-0">
+                            <Select.Value />
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {jobs.map((j) => (
+                                <ListBox.Item
+                                  key={j.id}
+                                  id={j.id}
+                                  textValue={j.displayTitle}
+                                >
+                                  {j.displayTitle}
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              ))}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                      )}
+                      {isCampaignMissing ? (
+                        <p className="mt-1.5 text-xs text-muted">
+                          Required before you can upload CVs.
                         </p>
-                      </div>
-                    ) : (
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Sourced from
+                      </Label>
                       <Select
-                        placeholder="Select a campaign…"
-                        value={jobKey}
-                        onChange={(key) => {
-                          if (typeof key === "string") setJobKey(key);
+                        value={sourceKey}
+                        onChange={(k) => {
+                          const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                          setSourceKey(next);
+                          if (next !== "Other") setSourceOther("");
                         }}
                         className="mt-2"
                       >
@@ -547,274 +602,240 @@ export function AddCandidateModal({
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            {jobs.map((j) => (
-                              <ListBox.Item
-                                key={j.id}
-                                id={j.id}
-                                textValue={j.displayTitle}
-                              >
-                                {j.displayTitle}
+                            {CANDIDATE_SOURCE_VALUES.map((s) => (
+                              <ListBox.Item key={s} id={s} textValue={s}>
+                                {s}
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
                           </ListBox>
                         </Select.Popover>
                       </Select>
-                    )}
-                    {isCampaignMissing ? (
-                      <p className="mt-1.5 text-xs text-muted">
-                        Required before you can upload CVs.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Sourced from
-                    </Label>
-                    <Select
-                      value={sourceKey}
-                      onChange={(k) => {
-                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-                        setSourceKey(next);
-                        if (next !== "Other") setSourceOther("");
-                      }}
-                      className="mt-2"
-                    >
-                      <Select.Trigger className="w-full min-w-0">
-                        <Select.Value />
-                        <Select.Indicator />
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          {CANDIDATE_SOURCE_VALUES.map((s) => (
-                            <ListBox.Item key={s} id={s} textValue={s}>
-                              {s}
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          ))}
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>
-                    {sourceKey === "Other" ? (
-                      <TextField className="mt-3">
-                        <Label className="text-xs text-muted">
-                          Describe the source
-                        </Label>
-                        <Input
-                          value={sourceOther}
-                          onChange={(e) => setSourceOther(e.target.value)}
-                          placeholder="e.g. University career fair, referral name…"
-                          className="mt-1"
-                        />
-                      </TextField>
-                    ) : null}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          Queue total
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          {queue.length}
-                        </p>
-                      </Card.Content>
-                    </Card>
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          Storage
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          —
-                        </p>
-                        <p className="text-[10px] text-muted">Per-project metrics</p>
-                      </Card.Content>
-                    </Card>
-                  </div>
-                </div>
-
-                <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
-                  <div
-                    className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
-                      isUploadDisabled
-                        ? "border-divider bg-content2/20 opacity-50"
-                        : dragOver
-                          ? "border-accent bg-accent/5"
-                          : "border-divider bg-content2/30"
-                    }`}
-                    onDragEnter={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      setDragOver(true);
-                    }}
-                    onDragOver={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setDragOver(true);
-                    }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      setDragOver(false);
-                      void handleFiles(e.dataTransfer.files);
-                    }}
-                  >
-                    <p className="text-sm font-semibold text-foreground">
-                      {isCampaignMissing
-                        ? "Select a target campaign first"
-                        : "Drop CVs here to start ingestion"}
-                    </p>
-                    <p className="mt-2 max-w-sm text-xs text-muted">
-                      {isCampaignMissing
-                        ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                        : "AI will parse contact info, skills, and experience. Select or drop one or more PDF or DOCX files (max 25MB each)."}
-                    </p>
-                    <div className="mt-4 flex justify-center">
-                      <Button
-                        variant="primary"
-                        className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-                        onPress={() => fileInputRef.current?.click()}
-                        isDisabled={isUploadDisabled}
-                      >
-                        Select files
-                      </Button>
+                      {sourceKey === "Other" ? (
+                        <TextField className="mt-3">
+                          <Label className="text-xs text-muted">
+                            Describe the source
+                          </Label>
+                          <Input
+                            value={sourceOther}
+                            onChange={(e) => setSourceOther(e.target.value)}
+                            placeholder="e.g. University career fair, referral name…"
+                            className="mt-1"
+                          />
+                        </TextField>
+                      ) : null}
                     </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files;
-                        if (f?.length) void handleFiles(f);
-                        e.target.value = "";
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <Card variant="secondary">
+                        <Card.Content className="gap-1 p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                            Queue total
+                          </p>
+                          <p className="text-2xl font-semibold tabular-nums text-foreground">
+                            {queue.length}
+                          </p>
+                        </Card.Content>
+                      </Card>
+                      <Card variant="secondary">
+                        <Card.Content className="gap-1 p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                            Storage
+                          </p>
+                          <p className="text-2xl font-semibold tabular-nums text-foreground">
+                            —
+                          </p>
+                          <p className="text-[10px] text-muted">
+                            Per-project metrics
+                          </p>
+                        </Card.Content>
+                      </Card>
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
+                    <div
+                      className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
+                        isUploadDisabled
+                          ? "border-divider bg-content2/20 opacity-50"
+                          : dragOver
+                            ? "border-accent bg-accent/5"
+                            : "border-divider bg-content2/30"
+                      }`}
+                      onDragEnter={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        setDragOver(true);
                       }}
-                    />
+                      onDragOver={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                        setDragOver(true);
+                      }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        setDragOver(false);
+                        void handleFiles(e.dataTransfer.files);
+                      }}
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {isCampaignMissing
+                          ? "Select a target campaign first"
+                          : "Drop CVs here to start ingestion"}
+                      </p>
+                      <p className="mt-2 max-w-sm text-xs text-muted">
+                        {isCampaignMissing
+                          ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
+                          : "AI will parse contact info, skills, and experience. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                      </p>
+                      <div className="mt-4 flex justify-center">
+                        <Button
+                          variant="primary"
+                          className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
+                          onPress={() => fileInputRef.current?.click()}
+                          isDisabled={isUploadDisabled}
+                        >
+                          Select files
+                        </Button>
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files;
+                          if (f?.length) void handleFiles(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Active upload queue
-                  </h3>
-                  <p className="text-xs text-muted">
-                    Processing starts automatically after each upload; monitor
-                    progress here.
-                  </p>
+                <div>
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Active upload queue
+                    </h3>
+                    <p className="text-xs text-muted">
+                      Processing starts automatically after each upload; monitor
+                      progress here.
+                    </p>
+                  </div>
+
+                  <Card variant="secondary" className="overflow-hidden">
+                    <Card.Content className="gap-0 p-0">
+                      <Table>
+                        <Table.ScrollContainer>
+                          <Table.Content
+                            aria-label="Upload queue"
+                            className="min-w-[640px]"
+                          >
+                            <Table.Header>
+                              <Table.Column isRowHeader>File</Table.Column>
+                              <Table.Column>Upload date</Table.Column>
+                              <Table.Column>Progress</Table.Column>
+                              <Table.Column>Status</Table.Column>
+                            </Table.Header>
+                            <Table.Body>
+                              {queue.length === 0 ? (
+                                <Table.Row id="empty">
+                                  <Table.Cell
+                                    colSpan={4}
+                                    className="text-center text-sm text-muted"
+                                  >
+                                    No files in this session yet.
+                                  </Table.Cell>
+                                </Table.Row>
+                              ) : (
+                                queue.map((row) => {
+                                  const { pct, label } = progressForRow(row);
+                                  const chip = statusChip(row);
+                                  return (
+                                    <Table.Row
+                                      key={row.candidateId}
+                                      id={row.candidateId}
+                                    >
+                                      <Table.Cell>
+                                        <div className="flex items-center gap-3">
+                                          <FileIcon className="size-8 shrink-0 text-muted" />
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium text-foreground">
+                                              {row.filename}
+                                            </p>
+                                            <p className="text-[10px] text-muted">
+                                              {formatBytes(row.size)}
+                                              {row.uploadError
+                                                ? ` · ${row.uploadError}`
+                                                : ""}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </Table.Cell>
+                                      <Table.Cell className="text-sm text-muted">
+                                        {formatDate(row.addedAt)}
+                                      </Table.Cell>
+                                      <Table.Cell>
+                                        <div className="max-w-[200px] space-y-1">
+                                          <div className="h-1.5 overflow-hidden rounded-full bg-content3">
+                                            <div
+                                              className="h-full rounded-full bg-accent transition-[width] duration-300"
+                                              style={{ width: `${pct}%` }}
+                                            />
+                                          </div>
+                                          <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
+                                            {label}
+                                          </p>
+                                        </div>
+                                      </Table.Cell>
+                                      <Table.Cell>
+                                        <Chip
+                                          size="sm"
+                                          variant="soft"
+                                          color={chip.color}
+                                          className="text-[10px] font-bold uppercase"
+                                        >
+                                          {chip.label}
+                                        </Chip>
+                                      </Table.Cell>
+                                    </Table.Row>
+                                  );
+                                })
+                              )}
+                            </Table.Body>
+                          </Table.Content>
+                        </Table.ScrollContainer>
+                      </Table>
+                    </Card.Content>
+                  </Card>
                 </div>
-
-                <Card variant="secondary" className="overflow-hidden">
-                  <Card.Content className="gap-0 p-0">
-                    <Table>
-                      <Table.ScrollContainer>
-                        <Table.Content
-                          aria-label="Upload queue"
-                          className="min-w-[640px]"
-                        >
-                          <Table.Header>
-                            <Table.Column isRowHeader>File</Table.Column>
-                            <Table.Column>Upload date</Table.Column>
-                            <Table.Column>Progress</Table.Column>
-                            <Table.Column>Status</Table.Column>
-                          </Table.Header>
-                          <Table.Body>
-                            {queue.length === 0 ? (
-                              <Table.Row id="empty">
-                                <Table.Cell colSpan={4} className="text-center text-sm text-muted">
-                                  No files in this session yet.
-                                </Table.Cell>
-                              </Table.Row>
-                            ) : (
-                              queue.map((row) => {
-                                const { pct, label } = progressForRow(row);
-                                const chip = statusChip(row);
-                                return (
-                                  <Table.Row key={row.candidateId} id={row.candidateId}>
-                                    <Table.Cell>
-                                      <div className="flex items-center gap-3">
-                                        <FileIcon className="size-8 shrink-0 text-muted" />
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium text-foreground">
-                                            {row.filename}
-                                          </p>
-                                          <p className="text-[10px] text-muted">
-                                            {formatBytes(row.size)}
-                                            {row.uploadError
-                                              ? ` · ${row.uploadError}`
-                                              : ""}
-                                          </p>
-                                        </div>
-                                      </div>
-                                    </Table.Cell>
-                                    <Table.Cell className="text-sm text-muted">
-                                      {formatDate(row.addedAt)}
-                                    </Table.Cell>
-                                    <Table.Cell>
-                                      <div className="max-w-[200px] space-y-1">
-                                        <div className="h-1.5 overflow-hidden rounded-full bg-content3">
-                                          <div
-                                            className="h-full rounded-full bg-accent transition-[width] duration-300"
-                                            style={{ width: `${pct}%` }}
-                                          />
-                                        </div>
-                                        <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
-                                          {label}
-                                        </p>
-                                      </div>
-                                    </Table.Cell>
-                                    <Table.Cell>
-                                      <Chip
-                                        size="sm"
-                                        variant="soft"
-                                        color={chip.color}
-                                        className="text-[10px] font-bold uppercase"
-                                      >
-                                        {chip.label}
-                                      </Chip>
-                                    </Table.Cell>
-                                  </Table.Row>
-                                );
-                              })
-                            )}
-                          </Table.Body>
-                        </Table.Content>
-                      </Table.ScrollContainer>
-                    </Table>
-                  </Card.Content>
-                </Card>
-              </div>
-            </Modal.Body>
-            <Modal.Footer className="border-t border-divider px-6 py-4">
-              <Button slot="close" variant="secondary">
-                Close
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
-    {duplicateFlow ? (
-      <DuplicateCandidateModal
-        key={`${duplicateFlow.newCandidateId}-${duplicateFlow.hit.id}`}
-        open
-        onOpenChange={(next) => {
-          if (!next) finishDuplicate("skip");
-        }}
-        hit={duplicateFlow.hit}
-        newUpload={duplicateFlow.newUpload}
-        isSubmitting={duplicateSubmitting}
-        onUpdateProfile={runDuplicateUpdateWithHistory}
-        onCreateNew={() => finishDuplicate("skip")}
-      />
-    ) : null}
+              </Modal.Body>
+              <Modal.Footer className="border-t border-divider px-6 py-4">
+                <Button slot="close" variant="secondary">
+                  Close
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+      {duplicateFlow ? (
+        <DuplicateCandidateModal
+          key={`${duplicateFlow.newCandidateId}-${duplicateFlow.hit.id}`}
+          open
+          onOpenChange={() => {}}
+          hit={duplicateFlow.hit}
+          newUpload={duplicateFlow.newUpload}
+          isSubmitting={duplicateSubmitting}
+          onUpdateProfile={runDuplicateUpdateWithHistory}
+          onCreateNew={() => finishDuplicate("skip")}
+        />
+      ) : null}
     </>
   );
 }

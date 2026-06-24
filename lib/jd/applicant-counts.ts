@@ -42,6 +42,7 @@ export async function fetchApplicantCountsByJobDescriptionId(
   const { data, error } = await supabase
     .from("job_openings")
     .select("job_description_id, candidates(count)")
+    .eq("candidates.is_active", true)
     .not("job_description_id", "is", null);
 
   if (error) {

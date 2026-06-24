@@ -173,15 +173,11 @@ export function DuplicateCandidateModal({
   return (
     <Modal state={modalState}>
       <Modal.Backdrop
-        isDismissable={!isSubmitting}
+        isDismissable={false}
         className="z-[140] bg-black/45 backdrop-blur-sm"
       >
         <Modal.Container className="z-[140] w-full">
           <Modal.Dialog className="max-h-[92vh] w-full max-w-[640px] min-w-0 overflow-hidden rounded-2xl border border-default-200 bg-content1 p-0 shadow-xl">
-            <Modal.CloseTrigger
-              className="top-4 end-4"
-              isDisabled={isSubmitting}
-            />
             <Modal.Header className="border-b border-divider bg-muted/20 px-6 py-5">
               <div className="flex gap-4 pe-8">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
@@ -192,8 +188,10 @@ export function DuplicateCandidateModal({
                     Duplicate Candidate Found
                   </Modal.Heading>
                   <p className="mt-1 text-sm text-muted">
-                    This candidate is already in your database. Choose how to
-                    proceed.
+                    This candidate is already in your database.{" "}
+                    <span className="font-semibold text-amber-600 dark:text-amber-500">
+                      You must select one of the options below to proceed.
+                    </span>
                   </p>
                 </div>
               </div>
