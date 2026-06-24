@@ -2,6 +2,7 @@ import React from "react";
 import { JdDashboardProvider } from "./context";
 import { JdHeader } from "./jd-header";
 import { JdFilters } from "./jd-filters";
+import { JdStats } from "./jd-stats";
 import { JdTable } from "./jd-table";
 import { JdCreateModal } from "./jd-create-modal";
 import { JdEditModal } from "./jd-edit-modal";
@@ -27,6 +28,7 @@ export function JdManagementDashboard({
     >
       <div className="flex flex-col gap-8">
         <JdHeader />
+        <JdStats />
         <JdFilters />
         <JdTable />
 
