@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 /** Canonical chapter value for full (HR) access. */
 export const HR_WORK_CHAPTER = "HR";
@@ -18,7 +18,22 @@ export type StaffProfileAccess = {
 export async function getStaffProfileAccess(
   supabase: SupabaseClient,
   userId: string,
+  currentUser?: User | null,
 ): Promise<StaffProfileAccess | null> {
+  // Check if we can resolve from JWT app_metadata
+  const user = currentUser || (await supabase.auth.getUser()).data.user;
+  if (user && user.id === userId && user.app_metadata) {
+    const isAdmin = user.app_metadata.is_admin === true;
+    const workChapter = user.app_metadata.work_chapter as string | null;
+    const chapterIds = (user.app_metadata.chapter_ids as string[]) || [];
+
+    if (user.app_metadata.is_admin !== undefined) {
+      const isStaff = isAdmin || workChapter != null || chapterIds.length > 0;
+      const isHr = isAdmin || workChapter === HR_WORK_CHAPTER;
+      return { userId, isAdmin, workChapter, chapterIds, isHr, isStaff };
+    }
+  }
+
   const { data, error } = await supabase
     .from("profiles")
     .select("is_admin, work_chapter")

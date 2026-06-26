@@ -59,7 +59,7 @@ export async function requireAdminForRequest(
         response: Response.json({ error: "Unauthorized" }, { status: 401 }),
       };
     }
-    const access = await getStaffProfileAccess(supabase, user.id);
+    const access = await getStaffProfileAccess(supabase, user.id, user);
     if (!access?.isHr) {
       return {
         ok: false,
@@ -84,7 +84,7 @@ export async function requireAdminForRequest(
       response: Response.json({ error: "Unauthorized" }, { status: 401 }),
     };
   }
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) {
     return {
       ok: false,
