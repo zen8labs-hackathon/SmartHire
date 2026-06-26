@@ -37,21 +37,24 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
 
   const ids = users.map((u) => u.id);
 
-  const { data: profs } = await admin
-    .from("profiles")
-    .select("id, is_admin, work_chapter")
-    .in("id", ids);
+  const [profsRes, pcRowsRes, chapterRowsRes] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("id, is_admin, work_chapter")
+      .in("id", ids),
+    admin
+      .from("profile_chapters")
+      .select("profile_id, chapter_id")
+      .in("profile_id", ids),
+    admin.from("chapters").select("id, name"),
+  ]);
 
   const profById = new Map(
-    (profs ?? []).map((p) => [p.id as string, p]),
+    (profsRes.data ?? []).map((p) => [p.id as string, p]),
   );
 
-  const { data: pcRows } = await admin
-    .from("profile_chapters")
-    .select("profile_id, chapter_id")
-    .in("profile_id", ids);
-
-  const { data: chapterRows } = await admin.from("chapters").select("id, name");
+  const pcRows = pcRowsRes.data;
+  const chapterRows = chapterRowsRes.data;
   const chapterNameById = new Map(
     (chapterRows ?? []).map((c) => [c.id as string, String(c.name)]),
   );
