@@ -20,11 +20,13 @@ import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 type RouteParams = { params: Promise<{ id: string }> };
 
 function candidateRowToDedupe(row: Record<string, unknown>): CandidateDedupeRow {
+  const jo = row.job_openings as { title?: string } | null;
   return {
     id: String(row.id),
     name: (row.name as string | null) ?? null,
     status: (row.status as string | null) ?? null,
     job_opening_id: (row.job_opening_id as string | null) ?? null,
+    job_opening_title: jo?.title ?? null,
     cv_uploaded_at: (row.cv_uploaded_at as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
     parsed_payload: row.parsed_payload,
@@ -186,7 +188,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   const { data: currentRow, error: currentErr } = await auth.supabase
     .from("candidates")
     .select(
-      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256",
+      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
     )
     .eq("id", candidateId)
     .maybeSingle();
@@ -198,7 +200,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       const { data: others, error: othersErr } = await auth.supabase
         .from("candidates")
         .select(
-          "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256",
+          "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
         )
         .eq("is_active", true)
         .neq("id", candidateId);

@@ -119,6 +119,25 @@ describe("findDuplicateCandidateHits", () => {
     expect(hits[0]?.parsedRole).toBe("UX Designer");
   });
 
+  it("populates jobOpeningTitle when present", () => {
+    const hits = findDuplicateCandidateHits(baseCurrent, [
+      {
+        id: "old-1",
+        name: "Old",
+        status: "CvPassed",
+        job_opening_id: "jo",
+        job_opening_title: "Staff Software Engineer",
+        cv_uploaded_at: null,
+        created_at: "2025-12-01",
+        parsed_payload: {
+          email: "same@example.com",
+        },
+      },
+    ]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.jobOpeningTitle).toBe("Staff Software Engineer");
+  });
+
   it("matches cv_content when hashes equal", () => {
     const hash = "b".repeat(64);
     const hits = findDuplicateCandidateHits(

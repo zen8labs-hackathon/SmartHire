@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import {
   AddCandidateModal,
@@ -77,7 +76,6 @@ export function JobPipelineSpreadsheet({
   canEditPipeline,
   canAddCandidates,
 }: Props) {
-  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const [pipelineRows, setPipelineRows] = useState(initialPipelineCandidates);
@@ -115,8 +113,7 @@ export function JobPipelineSpreadsheet({
   const handleDuplicateMergedToExisting = useCallback(async () => {
     setAddCandidatesOpen(false);
     await refetchPipeline();
-    router.push("/admin/candidates");
-  }, [refetchPipeline, router]);
+  }, [refetchPipeline]);
 
   return (
     <div className="relative flex flex-col gap-6 pb-20">
