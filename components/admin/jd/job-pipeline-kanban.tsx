@@ -16,7 +16,6 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useToast } from "@/components/admin/toast-provider";
 
@@ -448,7 +447,6 @@ export function JobPipelineKanban({
   stageMappings,
   subStages,
 }: Props) {
-  const router = useRouter();
   const toast = useToast();
   const supabase = useMemo(() => createClient(), []);
   const [query, setQuery] = useState("");
@@ -618,8 +616,7 @@ export function JobPipelineKanban({
   const handleDuplicateMergedToExisting = useCallback(async () => {
     setAddCandidatesOpen(false);
     await refetchPipeline();
-    router.push("/admin/candidates");
-  }, [refetchPipeline, router]);
+  }, [refetchPipeline]);
 
   function handleDragStart(event: DragStartEvent) {
     const row =
