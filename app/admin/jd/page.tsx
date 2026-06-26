@@ -7,7 +7,7 @@ export default async function AdminJdPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const access = user ? await getStaffProfileAccess(supabase, user.id) : null;
+  const access = user ? await getStaffProfileAccess(supabase, user.id, user) : null;
 
   const { data: chapterRows } = await supabase
     .from("chapters")

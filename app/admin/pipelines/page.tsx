@@ -16,7 +16,7 @@ export default async function AdminPipelinesPage() {
     redirect("/login?next=/admin/pipelines");
   }
 
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) {
     redirect("/admin/jd");
   }

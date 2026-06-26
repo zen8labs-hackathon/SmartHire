@@ -55,7 +55,7 @@ export async function requireStaffForRequest(
       };
     }
 
-    const access = await getStaffProfileAccess(supabase, user.id);
+    const access = await getStaffProfileAccess(supabase, user.id, user);
     if (!access?.isStaff) {
       return {
         ok: false,
@@ -76,7 +76,7 @@ export async function requireStaffForRequest(
     };
   }
 
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) {
     return {
       ok: false,
