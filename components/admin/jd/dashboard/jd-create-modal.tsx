@@ -29,6 +29,7 @@ export function JdCreateModal() {
     chapters,
     formError,
     formSubmitting,
+    createFieldErrors,
     discardJdDraft,
     handleSave,
     allPipelineStages,
@@ -149,6 +150,36 @@ export function JdCreateModal() {
                   <Label>Department / team</Label>
                   <Input placeholder="e.g. Solutions Team" />
                 </TextField>
+
+                <div className="flex flex-col gap-1">
+                  <TextField
+                    value={form.start_date}
+                    onChange={(v) => setField("start_date", v)}
+                    isRequired
+                    isInvalid={!!createFieldErrors.start_date}
+                  >
+                    <Label>Start date</Label>
+                    <Input type="date" />
+                  </TextField>
+                  {createFieldErrors.start_date && (
+                    <p className="text-xs text-danger">{createFieldErrors.start_date}</p>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <TextField
+                    value={form.hiring_deadline}
+                    onChange={(v) => setField("hiring_deadline", v)}
+                    isRequired
+                    isInvalid={!!createFieldErrors.hiring_deadline}
+                  >
+                    <Label>Hiring deadline</Label>
+                    <Input type="date" />
+                  </TextField>
+                  {createFieldErrors.hiring_deadline && (
+                    <p className="text-xs text-danger">{createFieldErrors.hiring_deadline}</p>
+                  )}
+                </div>
               </div>
             </div>
 

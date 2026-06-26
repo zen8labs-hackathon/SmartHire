@@ -135,7 +135,7 @@ export function JobPipelineSpreadsheet({
               ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
               : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
           </p>
-          <div className="inline-flex rounded-xl border border-divider bg-surface-secondary/50 p-1 text-sm">
+          {/* <div className="inline-flex rounded-xl border border-divider bg-surface-secondary/50 p-1 text-sm">
             <span className="rounded-lg bg-surface-tertiary px-3 py-1.5 font-medium text-foreground">
               Table
             </span>
@@ -145,7 +145,7 @@ export function JobPipelineSpreadsheet({
             >
               Kanban v2
             </Link>
-          </div>
+          </div> */}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {pipelineLoadState === "error" ? (

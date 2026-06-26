@@ -622,31 +622,27 @@ export function JdAppliedCandidatesPipeline({
         <Table.ScrollContainer>
           <Table.Content
             aria-label="Candidates for this job description"
-            className="min-w-[1100px]"
+            className="min-w-[1400px]"
           >
             <Table.Header>
               <Table.Column className="w-10" textValue="Select" />
-              <Table.Column isRowHeader>Candidate</Table.Column>
-              <Table.Column>Contact</Table.Column>
+              <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
+              <Table.Column className="text-center">Exp.</Table.Column>
+              <Table.Column>Key Skills</Table.Column>
               <Table.Column>Education</Table.Column>
-              <Table.Column>Skills</Table.Column>
-              <Table.Column>English</Table.Column>
-              <Table.Column>GPA</Table.Column>
+              <Table.Column>Source</Table.Column>
               <Table.Column className="text-center">JD match</Table.Column>
               <Table.Column>Pipeline</Table.Column>
-              <Table.Column>CV uploaded</Table.Column>
+              <Table.Column className="whitespace-nowrap">Uploaded at</Table.Column>
               <Table.Column>Schedule</Table.Column>
             </Table.Header>
             <Table.Body>
               {filteredRows.map((r) => {
                 const row: CandidateRow = candidateDbRowToTableRow(r);
-                const contact = displayFromParsedPayload(r.parsed_payload);
-                const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
-                const edu = [r.degree, r.school].filter(Boolean).join(" · ") || "—";
                 const busy = rowUpdating === r.id;
                 return (
                   <Table.Row key={r.id} id={r.id}>
-                    <Table.Cell className="align-top">
+                    <Table.Cell>
                       <input
                         type="checkbox"
                         className="mt-1 size-4 rounded border-divider accent-accent"
@@ -656,54 +652,98 @@ export function JdAppliedCandidatesPipeline({
                         aria-label={`Select ${row.name}`}
                       />
                     </Table.Cell>
-                    <Table.Cell className="align-top">
-                      <div className="flex items-start gap-2">
-                        <Avatar className="size-9 shrink-0" size="sm">
+                    <Table.Cell>
+                      <div className="flex items-center gap-4">
+                        <Avatar className="size-10 shrink-0" size="md">
                           {row.avatarUrl ? (
                             <Avatar.Image alt="" src={row.avatarUrl} />
                           ) : null}
-                          <Avatar.Fallback className="text-[10px]">
+                          <Avatar.Fallback className="text-xs">
                             {candidateDisplayInitials(row.name)}
                           </Avatar.Fallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <Link
-                            href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
-                            className="font-semibold text-accent hover:underline"
-                          >
-                            {row.name}
-                          </Link>
-                          <p className="text-xs text-muted">{row.role}</p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Link
+                              href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
+                              className="font-semibold text-accent hover:underline"
+                            >
+                              {row.name}
+                            </Link>
+                            {row.hasCvFile ? (
+                              <a
+                                href={`/api/admin/candidates/${r.id}/cv-download`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                              >
+                                CV file
+                              </a>
+                            ) : null}
+                          </div>
+                          <p className="text-xs font-medium text-muted">{row.role}</p>
                         </div>
                       </div>
                     </Table.Cell>
-                    <Table.Cell className="max-w-[200px] align-top text-sm text-muted">
-                      <p className="break-all">{contact.email}</p>
-                      <p className="tabular-nums">{contact.phone}</p>
+                    <Table.Cell className="text-center align-middle">
+                      <div className="flex flex-col items-center tabular-nums">
+                        <span className="text-lg font-semibold leading-none text-foreground">
+                          {row.experienceYears}
+                        </span>
+                        <span className="text-[10px] font-medium text-muted">
+                          Years
+                        </span>
+                      </div>
                     </Table.Cell>
-                    <Table.Cell className="max-w-[200px] align-top text-sm text-muted">
-                      {edu}
+                    <Table.Cell>
+                      <div className="flex flex-wrap gap-1.5">
+                        {row.skills.map((s) => (
+                          <Chip
+                            key={s}
+                            size="sm"
+                            variant="soft"
+                            color="accent"
+                            className="text-[10px] font-bold"
+                          >
+                            {s}
+                          </Chip>
+                        ))}
+                        {row.moreSkills ? (
+                          <Chip
+                            size="sm"
+                            variant="soft"
+                            color="accent"
+                            className="text-[10px] font-bold"
+                          >
+                            +{row.moreSkills}
+                          </Chip>
+                        ) : null}
+                      </div>
                     </Table.Cell>
-                    <Table.Cell className="max-w-[220px] align-top text-xs text-muted">
-                      {skills}
+                    <Table.Cell>
+                      <p className="text-sm font-medium text-foreground">
+                        {row.degree}
+                      </p>
+                      <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
+                        {row.school}
+                      </p>
                     </Table.Cell>
-                    <Table.Cell className="align-top text-sm text-muted">
-                      {contact.englishLevel}
+                    <Table.Cell>
+                      <p className="max-w-[200px] text-sm text-foreground">
+                        {row.sourceLabel}
+                      </p>
                     </Table.Cell>
-                    <Table.Cell className="align-top text-sm tabular-nums text-muted">
-                      {contact.gpa}
-                    </Table.Cell>
-                    <Table.Cell className="align-top text-center">
+                    <Table.Cell className="text-center align-middle">
                       <Chip
                         size="sm"
                         variant="soft"
                         color={jdMatchChipColor(row)}
-                        className="min-w-[3rem] justify-center text-xs font-bold tabular-nums"
+                        className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
                       >
                         {row.jdMatchLabel}
                       </Chip>
                     </Table.Cell>
-                    <Table.Cell className="align-top">
+                    <Table.Cell>
                       <Select
                         value={row.status}
                         isDisabled={!canEditPipeline || busy}
@@ -740,10 +780,10 @@ export function JdAppliedCandidatesPipeline({
                         </Select.Popover>
                       </Select>
                     </Table.Cell>
-                    <Table.Cell className="whitespace-nowrap align-top text-xs text-muted">
+                    <Table.Cell className="whitespace-nowrap text-sm text-foreground">
                       {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
                     </Table.Cell>
-                    <Table.Cell className="max-w-[220px] align-top">
+                    <Table.Cell className="max-w-[220px]">
                       {r.status === "Interview" || r.status === "InterviewPassed" ? (
                         <div className="flex flex-col gap-1">
                           <Input
