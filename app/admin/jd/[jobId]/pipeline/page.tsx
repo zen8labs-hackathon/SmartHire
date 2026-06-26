@@ -20,29 +20,32 @@ export default async function JobPipelinePage({ params }: PageProps) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/admin/jd");
 
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) redirect("/dashboard");
 
-  const { data: jd } = await supabase
-    .from("job_descriptions")
-    .select("id, position")
-    .eq("id", numId)
-    .maybeSingle();
+  const [jdRes, linkedOpeningRes, pipelineRes] = await Promise.all([
+    supabase
+      .from("job_descriptions")
+      .select("id, position")
+      .eq("id", numId)
+      .maybeSingle(),
+    supabase
+      .from("job_openings")
+      .select("id, title")
+      .eq("job_description_id", numId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    fetchCandidatesForJobDescription(supabase, numId, {
+      includeParsedPayload: true,
+    }),
+  ]);
 
+  const jd = jdRes.data;
   if (!jd) notFound();
 
-  const { data: linkedOpening } = await supabase
-    .from("job_openings")
-    .select("id, title")
-    .eq("job_description_id", numId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const { rows: initialPipelineCandidates, error: pipelineFetchError } =
-    await fetchCandidatesForJobDescription(supabase, numId, {
-      includeParsedPayload: true,
-    });
+  const linkedOpening = linkedOpeningRes.data;
+  const { rows: initialPipelineCandidates, error: pipelineFetchError } = pipelineRes;
 
   return (
     <JobPipelineSpreadsheetLoader
