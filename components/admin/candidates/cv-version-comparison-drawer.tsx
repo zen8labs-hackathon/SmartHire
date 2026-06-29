@@ -16,7 +16,7 @@ import {
   Spinner,
   Tooltip,
 } from "@heroui/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import {
@@ -32,6 +32,14 @@ import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume"
 import { buildCvVersionHoverSummaryLines } from "@/lib/candidates/cv-version-hover-summary";
 import { groupSkillsForDisplay } from "@/lib/candidates/group-skills-for-display";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+
+type OtherApplicationItem = {
+  id: string;
+  cvDownloadUrl: string;
+  jobTitle: string;
+  cvUploadedAt: string | null;
+  name: string | null;
+};
 
 function formatMonthYear(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -278,7 +286,7 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
                   </span>
                 </p>
                 {parsed.experienceYears != null &&
-                Number.isFinite(parsed.experienceYears) ? (
+                  Number.isFinite(parsed.experienceYears) ? (
                   <p className="text-muted">
                     Total experience (parsed):{" "}
                     <span className="font-medium tabular-nums text-foreground">
@@ -341,12 +349,17 @@ export function CvVersionComparisonDrawer({
   dbLoadState,
   onStatusChange,
   canEditProfile = true,
-  onProfileSaved = () => {},
+  onProfileSaved = () => { },
   onAfterCvDetailMutation,
 }: CvVersionComparisonDrawerProps) {
   const [previewPreviousId, setPreviewPreviousId] = useState<string | null>(
     null,
   );
+  const [otherApplications, setOtherApplications] = useState<
+    OtherApplicationItem[]
+  >([]);
+  const [otherAppsLoading, setOtherAppsLoading] = useState(false);
+  const [otherAppsError, setOtherAppsError] = useState<string | null>(null);
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<
     | { mode: "archived"; previousCandidateId: string }
@@ -356,6 +369,25 @@ export function CvVersionComparisonDrawer({
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setOtherAppsLoading(true);
+    setOtherAppsError(null);
+    fetch(`/api/admin/candidates/${tableRow.id}/other-applications`, {
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((json: { applications?: OtherApplicationItem[]; error?: string }) => {
+        if (json.error) {
+          setOtherAppsError(json.error);
+        } else {
+          setOtherApplications(json.applications ?? []);
+        }
+      })
+      .catch(() => setOtherAppsError("Could not load other applications."))
+      .finally(() => setOtherAppsLoading(false));
+  }, [isOpen, tableRow.id]);
+
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
@@ -363,6 +395,8 @@ export function CvVersionComparisonDrawer({
         setRestoreDialogOpen(false);
         setRestoreTarget(null);
         setRestoreError(null);
+        setOtherApplications([]);
+        setOtherAppsError(null);
       }
       onOpenChange(open);
     },
@@ -441,9 +475,9 @@ export function CvVersionComparisonDrawer({
   const firstSeenLabel =
     firstSeenMs != null
       ? new Date(firstSeenMs).toLocaleDateString(undefined, {
-          month: "long",
-          year: "numeric",
-        })
+        month: "long",
+        year: "numeric",
+      })
       : "—";
 
   const latestUpdateIso =
@@ -642,8 +676,8 @@ export function CvVersionComparisonDrawer({
                                 <p className="text-xs font-bold leading-tight text-[#0c1e33] dark:text-foreground">
                                   {formatMonthYear(
                                     dbRow.cv_uploaded_at?.trim() ||
-                                      dbRow.updated_at ||
-                                      dbRow.created_at,
+                                    dbRow.updated_at ||
+                                    dbRow.created_at,
                                   )}
                                 </p>
                                 <p className="line-clamp-2 text-[11px] italic leading-snug text-accent">
@@ -704,19 +738,18 @@ export function CvVersionComparisonDrawer({
                           item.previousSnapshot?.role?.trim() || "—";
                         const when = formatMonthYear(
                           item.previousCvUploadedAt ??
-                            item.previousSnapshot?.cvUploadedAt ??
-                            item.replacedAt,
+                          item.previousSnapshot?.cvUploadedAt ??
+                          item.replacedAt,
                         );
                         const isCardPreview =
                           previewPreviousId === item.previousCandidateId;
                         return (
                           <div
                             key={rowKey}
-                            className={`overflow-hidden rounded-xl border border-divider bg-background ${
-                              isCardPreview
-                                ? "ring-1 ring-inset ring-accent"
-                                : ""
-                            }`}
+                            className={`overflow-hidden rounded-xl border border-divider bg-background ${isCardPreview
+                              ? "ring-1 ring-inset ring-accent"
+                              : ""
+                              }`}
                           >
                             <div className="flex items-center gap-2 px-2.5 py-2">
                               {dbRow ? (
@@ -907,7 +940,7 @@ export function CvVersionComparisonDrawer({
                                   </Chip>
                                 ) : null}
                                 {!vItem.isLatest &&
-                                vItem.versionEventId != null ? (
+                                  vItem.versionEventId != null ? (
                                   <Button
                                     size="sm"
                                     variant="tertiary"
@@ -938,10 +971,10 @@ export function CvVersionComparisonDrawer({
                 ) : null}
 
                 {!cvHistoryLoading &&
-                !cvHistoryError &&
-                dbRow &&
-                cvVersions.length === 1 &&
-                cvVersions[0]?.kind === "active" ? (
+                  !cvHistoryError &&
+                  dbRow &&
+                  cvVersions.length === 1 &&
+                  cvVersions[0]?.kind === "active" ? (
                   <p className="text-sm text-muted">
                     No earlier CV versions. This upload is the only CV file on
                     file; manual edits appear here as timeline entries.
@@ -961,6 +994,81 @@ export function CvVersionComparisonDrawer({
               </aside>
             </div>
 
+            <div className="mx-auto w-full max-w-[960px]">
+              <Card className="overflow-hidden p-0">
+                <Disclosure defaultExpanded>
+                  <Disclosure.Heading className="px-4 pt-4 sm:px-6 sm:pt-5">
+                    <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
+                      <span className="min-w-0 flex-1 space-y-1">
+                        <span className="block text-lg font-semibold tracking-tight text-foreground">
+                          Other applications
+                        </span>
+                        <span className="block text-sm font-normal text-muted">
+                          Other CVs submitted by this candidate to different
+                          positions.
+                        </span>
+                      </span>
+                      <Disclosure.Indicator className="mt-1 size-5 shrink-0 text-muted" />
+                    </Disclosure.Trigger>
+                  </Disclosure.Heading>
+                  <Disclosure.Content>
+                    <Disclosure.Body className="border-t border-divider px-4 pb-6 pt-4 sm:px-6">
+                      {otherAppsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted">
+                          <Spinner size="sm" />
+                          Loading…
+                        </div>
+                      ) : otherAppsError ? (
+                        <p className="text-sm text-danger" role="alert">
+                          {otherAppsError}
+                        </p>
+                      ) : otherApplications.length === 0 ? (
+                        <p className="text-sm text-muted">
+                          No other applications found for this candidate.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {otherApplications.map((app) => (
+                            <div
+                              key={app.id}
+                              className="flex flex-col gap-1 rounded-xl border border-divider bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-foreground">
+                                  {app.jobTitle}
+                                </p>
+                                {app.cvUploadedAt ? (
+                                  <p className="text-xs text-muted">
+                                    Uploaded:{" "}
+                                    {new Date(app.cvUploadedAt).toLocaleDateString(
+                                      undefined,
+                                      {
+                                        day: "numeric",
+                                        month: "long",
+                                        year: "numeric",
+                                      },
+                                    )}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <a
+                                href={app.cvDownloadUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex shrink-0 items-center rounded-md border border-divider bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-accent"
+                              >
+                                View CV
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Disclosure.Body>
+                  </Disclosure.Content>
+                </Disclosure>
+              </Card>
+            </div>
+
             {canEditProfile ? (
               <div className="mx-auto w-full max-w-[960px]">
                 <CandidateProfileEditSection
@@ -974,203 +1082,7 @@ export function CvVersionComparisonDrawer({
               </div>
             ) : null}
 
-            <Card className="mx-auto w-full max-w-[960px] overflow-hidden p-0">
-              <Disclosure defaultExpanded>
-                <Disclosure.Heading className="px-4 pt-4 sm:px-6 sm:pt-5">
-                  <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
-                    <span className="min-w-0 flex-1 space-y-1">
-                      <span className="block text-lg font-semibold tracking-tight text-foreground">
-                        Pipeline, sourcing &amp; JD match
-                      </span>
-                      <span className="block text-sm font-normal text-muted">
-                        Pipeline status, table snapshot, applied role, source,
-                        and AI job-description match for this candidate.
-                      </span>
-                    </span>
-                    <Disclosure.Indicator className="mt-1 size-5 shrink-0 text-muted" />
-                  </Disclosure.Trigger>
-                </Disclosure.Heading>
-                <Disclosure.Content>
-                  <Disclosure.Body className="flex flex-col gap-6 border-t border-divider px-4 pb-6 pt-4 sm:px-6">
-                    <div className="flex flex-col gap-6 lg:flex-row">
-                      <div className="flex min-w-0 flex-1 flex-col gap-6">
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Candidate
-                          </h3>
-                          <div className="mt-2 flex items-center gap-3">
-                            <Avatar className="size-10 shrink-0" size="md">
-                              {tableRow.avatarUrl ? (
-                                <Avatar.Image alt="" src={tableRow.avatarUrl} />
-                              ) : null}
-                              <Avatar.Fallback className="text-xs">
-                                {candidateDisplayInitials(tableRow.name)}
-                              </Avatar.Fallback>
-                            </Avatar>
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={candidateStatusChipColor(tableRow.status)}
-                              className="w-fit uppercase"
-                            >
-                              {candidateStatusUiLabel(tableRow.status)}
-                            </Chip>
-                          </div>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Status
-                          </h3>
-                          <div className="mt-2 max-w-xs">
-                            <Select
-                              value={tableRow.status}
-                              isDisabled={
-                                statusUpdateBusy || dbLoadState === "error"
-                              }
-                              onChange={onStatusChangeCb}
-                            >
-                              <Label className="sr-only">Pipeline status</Label>
-                              <Select.Trigger className="w-full">
-                                <Select.Value />
-                                <Select.Indicator />
-                              </Select.Trigger>
-                              <Select.Popover>
-                                <ListBox>
-                                  {drawerStatusOptions.map((s) => (
-                                    <ListBox.Item
-                                      key={s}
-                                      id={s}
-                                      textValue={candidateStatusUiLabel(s)}
-                                    >
-                                      {candidateStatusUiLabel(s)}
-                                      <ListBox.ItemIndicator />
-                                    </ListBox.Item>
-                                  ))}
-                                </ListBox>
-                              </Select.Popover>
-                            </Select>
-                            {statusUpdateBusy ? (
-                              <p className="mt-1.5 text-xs text-muted">
-                                Updating…
-                              </p>
-                            ) : null}
-                            {statusUpdateError ? (
-                              <p
-                                className="mt-1.5 text-xs text-danger"
-                                role="alert"
-                              >
-                                {statusUpdateError}
-                              </p>
-                            ) : null}
-                          </div>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Experience
-                          </h3>
-                          <p className="mt-1 text-sm text-muted">
-                            {tableRow.experienceYears} years
-                          </p>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Key skills
-                          </h3>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {tableRow.skills.map((s) => (
-                              <Chip
-                                key={s}
-                                size="sm"
-                                variant="soft"
-                                color="accent"
-                              >
-                                {s}
-                              </Chip>
-                            ))}
-                            {tableRow.moreSkills ? (
-                              <Chip size="sm" variant="soft" color="accent">
-                                +{tableRow.moreSkills} more
-                              </Chip>
-                            ) : null}
-                          </div>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Education
-                          </h3>
-                          <p className="mt-1 text-sm text-foreground">
-                            {tableRow.degree}
-                          </p>
-                          <p className="text-xs font-bold uppercase text-muted">
-                            {tableRow.school}
-                          </p>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Applied JD
-                          </h3>
-                          <p className="mt-1 text-sm text-muted">
-                            {tableRow.jdCampaignLabel}
-                          </p>
-                        </section>
-                        <Separator />
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            Sourced from
-                          </h3>
-                          <p className="mt-1 text-sm text-muted">
-                            {tableRow.sourceLabel}
-                          </p>
-                        </section>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <section>
-                          <h3 className="text-sm font-semibold text-foreground">
-                            JD match (AI)
-                          </h3>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              color={jdMatchChipColor(tableRow)}
-                              className="text-sm font-bold tabular-nums"
-                            >
-                              {tableRow.jdMatchLabel}
-                            </Chip>
-                            {tableRow.jdMatchScore != null ? (
-                              <span className="text-xs text-muted">/ 100</span>
-                            ) : null}
-                          </div>
-                          {tableRow.jdMatchError ? (
-                            <p
-                              className="mt-2 text-sm text-danger"
-                              role="alert"
-                            >
-                              {tableRow.jdMatchError}
-                            </p>
-                          ) : tableRow.jdMatchRationale ? (
-                            <p className="mt-2 text-sm leading-relaxed text-muted">
-                              {tableRow.jdMatchRationale}
-                            </p>
-                          ) : (
-                            <p className="mt-2 text-sm text-muted">
-                              No rationale yet. Match runs after the CV is
-                              parsed and a job description is available for the
-                              campaign.
-                            </p>
-                          )}
-                        </section>
-                      </div>
-                    </div>
-                  </Disclosure.Body>
-                </Disclosure.Content>
-              </Disclosure>
-            </Card>
+
           </Drawer.Body>
 
           <AlertDialog.Backdrop
