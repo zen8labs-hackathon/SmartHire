@@ -83,15 +83,21 @@ export function JobPipelineSpreadsheet({
     "idle" | "loading" | "error" | "ok"
   >(() => (initialPipelineFetchFailed ? "error" : "ok"));
 
-  const jdPipelineCampaign: JdPipelineCampaignOption | undefined = useMemo(() => {
-    if (linkedJobOpeningId && linkedJobOpeningTitle) {
-      return { jobOpeningId: linkedJobOpeningId, title: linkedJobOpeningTitle };
-    }
-    return "no_opening_linked";
-  }, [linkedJobOpeningId, linkedJobOpeningTitle]);
+  const jdPipelineCampaign: JdPipelineCampaignOption | undefined =
+    useMemo(() => {
+      if (linkedJobOpeningId && linkedJobOpeningTitle) {
+        return {
+          jobOpeningId: linkedJobOpeningId,
+          title: linkedJobOpeningTitle,
+        };
+      }
+      return "no_opening_linked";
+    }, [linkedJobOpeningId, linkedJobOpeningTitle]);
 
-  const refetchPipeline = useCallback(async () => {
-    setPipelineLoadState("loading");
+  const refetchPipeline = useCallback(async (silent = false) => {
+    if (!silent) {
+      setPipelineLoadState("loading");
+    }
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch(
@@ -99,14 +105,14 @@ export function JobPipelineSpreadsheet({
         { credentials: "include", headers: { ...h } },
       );
       if (!res.ok) {
-        setPipelineLoadState("error");
+        if (!silent) setPipelineLoadState("error");
         return;
       }
       const json = (await res.json()) as { candidates?: CandidateDbRow[] };
       setPipelineRows(json.candidates ?? []);
       setPipelineLoadState("ok");
     } catch {
-      setPipelineLoadState("error");
+      if (!silent) setPipelineLoadState("error");
     }
   }, [jobDescriptionId, supabase]);
 
@@ -179,7 +185,7 @@ export function JobPipelineSpreadsheet({
             jobId={jobId}
             dbRows={pipelineRows}
             loadState={pipelineLoadState}
-            onRefetch={() => void refetchPipeline()}
+            onRefetch={(silent) => void refetchPipeline(silent)}
             canEditPipeline={canEditPipeline}
           />
         </Card.Content>

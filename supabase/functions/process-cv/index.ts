@@ -73,9 +73,9 @@ function sanitizeFolderName(name: string): string {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // Remove accents
-    .replace(/[^\w\s.-]/g, "")      // Allow alphanumeric, space, dot, and dash
+    .replace(/[^\w\s.-]/g, "") // Allow alphanumeric, space, dot, and dash
     .trim()
-    .replace(/\s+/g, "_");          // Replace spaces with underscores
+    .replace(/\s+/g, "_"); // Replace spaces with underscores
 }
 
 function getFormattedTimestamp(date: Date = new Date()): string {
@@ -329,7 +329,9 @@ Deno.serve(async (req) => {
 
   const { data: row, error: fetchErr } = await admin
     .from("candidates")
-    .select("id, parsing_status, cv_storage_path, mime_type, original_filename, job_opening_id")
+    .select(
+      "id, parsing_status, cv_storage_path, mime_type, original_filename, job_opening_id",
+    )
     .eq("id", candidateId)
     .maybeSingle();
 
@@ -403,25 +405,15 @@ Deno.serve(async (req) => {
     const originalFilename = row.original_filename || "resume.pdf";
     const extIdx = originalFilename.lastIndexOf(".");
     const ext = extIdx !== -1 ? originalFilename.substring(extIdx) : ".pdf";
-    const nameWithoutExt = extIdx !== -1 ? originalFilename.substring(0, extIdx) : originalFilename;
+    const nameWithoutExt =
+      extIdx !== -1 ? originalFilename.substring(0, extIdx) : originalFilename;
     const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
     const newFilename = `${sanitizedFilename}_v1_${timestamp}${ext}`;
 
-    let jobFolder = "Job_Opening";
+    let jobFolder = row.job_opening_id || "Job_Opening";
     const pathParts = (row.cv_storage_path || "").split("/");
-    if (pathParts.length > 1 && pathParts[0].includes("_")) {
+    if (pathParts.length > 1) {
       jobFolder = pathParts[0];
-    } else if (row.job_opening_id) {
-      const { data: job } = await admin
-        .from("job_openings")
-        .select("title")
-        .eq("id", row.job_opening_id)
-        .maybeSingle();
-      if (job?.title) {
-        jobFolder = `${sanitizeFolderName(job.title)}_${row.job_opening_id}`;
-      } else {
-        jobFolder = row.job_opening_id;
-      }
     }
     const newPath = `${jobFolder}/${candidateFolder}/${newFilename}`;
 
