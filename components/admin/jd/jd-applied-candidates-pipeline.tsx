@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Trash2 } from "lucide-react";
 
 import {
   Avatar,
@@ -116,12 +117,7 @@ function rowMatchesUploadRange(
 function rowMatchesSearch(r: CandidateDbRow, q: string): boolean {
   if (!q.trim()) return true;
   const c = displayFromParsedPayload(r.parsed_payload);
-  const hay = [
-    r.name,
-    r.original_filename,
-    c.email,
-    c.phone,
-  ]
+  const hay = [r.name, r.original_filename, c.email, c.phone]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -142,6 +138,48 @@ export function JdAppliedCandidatesPipeline({
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
+  const [rowPendingDelete, setRowPendingDelete] =
+    useState<CandidateDbRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const deleteModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) {
+        setRowPendingDelete(null);
+        setDeleteError(null);
+      }
+    },
+  });
+
+  const handleDeleteCandidate = useCallback(async () => {
+    if (!rowPendingDelete) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const h = await getSessionAuthorizationHeaders(supabase);
+      const res = await fetch(`/api/admin/candidates/${rowPendingDelete.id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
+        },
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Failed to delete candidate.");
+      }
+      deleteModal.close();
+      onRefetch();
+    } catch (e) {
+      setDeleteError(
+        e instanceof Error ? e.message : "Failed to delete candidate.",
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [rowPendingDelete, deleteModal, onRefetch, supabase]);
+
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [uploadFrom, setUploadFrom] = useState("");
@@ -151,9 +189,9 @@ export function JdAppliedCandidatesPipeline({
     Record<string, string>
   >({});
 
-  const [interviewDrafts, setInterviewDrafts] = useState<Record<string, string>>(
-    {},
-  );
+  const [interviewDrafts, setInterviewDrafts] = useState<
+    Record<string, string>
+  >({});
 
   const offerModal = useOverlayState({
     onOpenChange: (open) => {
@@ -335,7 +373,9 @@ export function JdAppliedCandidatesPipeline({
       await postPipeline(
         selectedRows.map((r) => ({
           id: r.id,
-          status: allCvFail ? ("CvFailed" as const) : ("InterviewFailed" as const),
+          status: allCvFail
+            ? ("CvFailed" as const)
+            : ("InterviewFailed" as const),
         })),
       );
       onRefetch();
@@ -601,7 +641,9 @@ export function JdAppliedCandidatesPipeline({
               size="sm"
               variant="primary"
               className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-              isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
+              isDisabled={
+                !canEditPipeline || pipelineBusy || !bulkOfferEligible
+              }
               onPress={openOfferModal}
             >
               Move to offer…
@@ -636,13 +678,17 @@ export function JdAppliedCandidatesPipeline({
               <Table.Column>Pipeline</Table.Column>
               <Table.Column>CV uploaded</Table.Column>
               <Table.Column>Schedule</Table.Column>
+              <Table.Column className="text-center w-[80px]">
+                Action
+              </Table.Column>
             </Table.Header>
             <Table.Body>
               {filteredRows.map((r) => {
                 const row: CandidateRow = candidateDbRowToTableRow(r);
                 const contact = displayFromParsedPayload(r.parsed_payload);
                 const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
-                const edu = [r.degree, r.school].filter(Boolean).join(" · ") || "—";
+                const edu =
+                  [r.degree, r.school].filter(Boolean).join(" · ") || "—";
                 const busy = rowUpdating === r.id;
                 return (
                   <Table.Row key={r.id} id={r.id}>
@@ -744,7 +790,8 @@ export function JdAppliedCandidatesPipeline({
                       {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
                     </Table.Cell>
                     <Table.Cell className="max-w-[220px] align-top">
-                      {r.status === "Interview" || r.status === "InterviewPassed" ? (
+                      {r.status === "Interview" ||
+                      r.status === "InterviewPassed" ? (
                         <div className="flex flex-col gap-1">
                           <Input
                             type="datetime-local"
@@ -795,6 +842,21 @@ export function JdAppliedCandidatesPipeline({
                       ) : (
                         <span className="text-xs text-muted">—</span>
                       )}
+                    </Table.Cell>
+                    <Table.Cell className="align-top text-center">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="px-2 text-danger hover:bg-danger/5 min-w-0"
+                        isDisabled={!canEditPipeline || busy}
+                        onPress={() => {
+                          setRowPendingDelete(r);
+                          deleteModal.open();
+                        }}
+                        aria-label={`Delete ${row.name}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </Table.Cell>
                   </Table.Row>
                 );
@@ -860,6 +922,60 @@ export function JdAppliedCandidatesPipeline({
                 onPress={() => void confirmOffer()}
               >
                 Confirm
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      <Modal.Backdrop
+        isOpen={deleteModal.isOpen}
+        onOpenChange={deleteModal.setOpen}
+      >
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-md overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
+              <Modal.Heading className="text-lg font-bold text-foreground">
+                Delete Candidate
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="px-5 py-4 space-y-3">
+              <p className="text-sm text-muted">
+                Are you sure you want to delete candidate{" "}
+                <span className="font-semibold text-foreground">
+                  {rowPendingDelete
+                    ? candidateDbRowToTableRow(rowPendingDelete).name
+                    : "this candidate"}
+                </span>
+                ?
+              </p>
+              <p className="text-xs text-danger font-medium bg-danger/5 border border-danger/25 rounded-lg p-2.5">
+                Warning: This action is permanent and cannot be undone. It will
+                remove the candidate from this JD campaign and delete their
+                associated CV file.
+              </p>
+              {deleteError ? (
+                <p className="text-sm text-danger" role="alert">
+                  {deleteError}
+                </p>
+              ) : null}
+            </Modal.Body>
+            <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4 bg-muted/10">
+              <Button
+                variant="secondary"
+                onPress={deleteModal.close}
+                isDisabled={deleteBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="bg-danger text-white hover:bg-danger-600"
+                isDisabled={deleteBusy}
+                onPress={() => void handleDeleteCandidate()}
+              >
+                {deleteBusy ? "Deleting..." : "Delete"}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>
