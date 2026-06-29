@@ -22,6 +22,7 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
   start_date: "",
+  hiring_deadline: "",
 };
 
 export function useJdCreateState(
@@ -35,6 +36,7 @@ export function useJdCreateState(
   const [form, setForm] = useState<JobDescriptionFormData>(DEFAULT_FORM);
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [createFieldErrors, setCreateFieldErrors] = useState<{ start_date?: string; hiring_deadline?: string }>({});
   const [createViewerEmailsText, setCreateViewerEmailsText] = useState("");
   const [createViewerChapterIds, setCreateViewerChapterIds] = useState<string[]>([]);
   const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
@@ -90,6 +92,7 @@ export function useJdCreateState(
         setCreateViewerEmailsText("");
         setCreateViewerChapterIds([]);
         setSelectedStageIds([]);
+        setCreateFieldErrors({});
       } else {
         setSelectedStageIds(defaultStageIds);
       }
@@ -101,6 +104,9 @@ export function useJdCreateState(
     value: JobDescriptionFormData[K],
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === "start_date" || key === "hiring_deadline") {
+      setCreateFieldErrors((prev) => ({ ...prev, [key]: undefined }));
+    }
   }, []);
 
   const ingestJdFile = useCallback(
@@ -220,6 +226,16 @@ export function useJdCreateState(
         setFormSubmitting(false);
         return;
       }
+      if (!asDraft) {
+        const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
+        if (!form.start_date) fieldErrs.start_date = "Start date is required.";
+        if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
+        if (Object.keys(fieldErrs).length > 0) {
+          setCreateFieldErrors(fieldErrs);
+          setFormSubmitting(false);
+          return;
+        }
+      }
       const positionFromFile =
         jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
         "";
@@ -283,6 +299,7 @@ export function useJdCreateState(
     setField,
     formSubmitting,
     formError,
+    createFieldErrors,
     createViewerEmailsText,
     setCreateViewerEmailsText,
     createViewerChapterIds,

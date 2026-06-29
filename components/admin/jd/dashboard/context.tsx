@@ -69,6 +69,7 @@ export interface JdDashboardContextValue {
   setField: <K extends keyof JobDescriptionFormData>(key: K, value: JobDescriptionFormData[K]) => void;
   formSubmitting: boolean;
   formError: string | null;
+  createFieldErrors: { start_date?: string; hiring_deadline?: string };
   createViewerEmailsText: string;
   setCreateViewerEmailsText: React.Dispatch<React.SetStateAction<string>>;
   createViewerChapterIds: string[];
@@ -221,6 +222,7 @@ export function JdDashboardProvider({
         setField: createState.setField,
         formSubmitting: createState.formSubmitting,
         formError: createState.formError,
+        createFieldErrors: createState.createFieldErrors,
         createViewerEmailsText: createState.createViewerEmailsText,
         setCreateViewerEmailsText: createState.setCreateViewerEmailsText,
         createViewerChapterIds: createState.createViewerChapterIds,
