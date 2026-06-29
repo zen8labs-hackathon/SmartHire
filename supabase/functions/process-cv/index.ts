@@ -407,10 +407,21 @@ Deno.serve(async (req) => {
     const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
     const newFilename = `${sanitizedFilename}_v1_${timestamp}${ext}`;
 
-    let jobFolder = row.job_opening_id || "Job_Opening";
+    let jobFolder = "Job_Opening";
     const pathParts = (row.cv_storage_path || "").split("/");
-    if (pathParts.length > 1) {
+    if (pathParts.length > 1 && pathParts[0].includes("_")) {
       jobFolder = pathParts[0];
+    } else if (row.job_opening_id) {
+      const { data: job } = await admin
+        .from("job_openings")
+        .select("title")
+        .eq("id", row.job_opening_id)
+        .maybeSingle();
+      if (job?.title) {
+        jobFolder = `${sanitizeFolderName(job.title)}_${row.job_opening_id}`;
+      } else {
+        jobFolder = row.job_opening_id;
+      }
     }
     const newPath = `${jobFolder}/${candidateFolder}/${newFilename}`;
 

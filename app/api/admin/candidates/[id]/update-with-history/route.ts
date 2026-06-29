@@ -172,16 +172,26 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const fromNew = rowUpdateFromCvDetailSnapshot(snapshotFromCandidateRow(n));
 
   const preservedJobOpeningId =
-    e.job_opening_id == null ? n.job_opening_id ?? null : e.job_opening_id;
+    (e.job_opening_id == null ? n.job_opening_id ?? null : e.job_opening_id) as string | null;
 
   // 1. Determine existing candidate folder structure
   let existingFolder = extractFolderNameFromPath(e.cv_storage_path as string);
-  const jobOpeningId = preservedJobOpeningId || "Job_Opening";
-
-  let jobFolder = jobOpeningId;
+  
+  let jobFolder = "Job_Opening";
   const existingPathParts = (e.cv_storage_path as string || "").split("/");
-  if (existingPathParts.length > 1) {
+  if (existingPathParts.length > 1 && existingPathParts[0].includes("_")) {
     jobFolder = existingPathParts[0];
+  } else if (preservedJobOpeningId) {
+    const { data: job } = await auth.supabase
+      .from("job_openings")
+      .select("title")
+      .eq("id", preservedJobOpeningId)
+      .maybeSingle();
+    if (job?.title) {
+      jobFolder = `${sanitizeFolderName(job.title)}_${preservedJobOpeningId}`;
+    } else {
+      jobFolder = preservedJobOpeningId;
+    }
   }
 
   const timestamp = getFormattedTimestamp();
