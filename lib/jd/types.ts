@@ -72,6 +72,8 @@ export type JobDescriptionFormData = {
   status: JdStatus;
   /** YYYY-MM-DD or "" when unset */
   start_date: string;
+  /** YYYY-MM-DD or "" when unset */
+  hiring_deadline: string;
   update_note: string;
   work_location: string;
   reporting: string;

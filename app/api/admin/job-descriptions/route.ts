@@ -38,6 +38,7 @@ type SanitizedJdInsertPayload = {
   status: string;
   start_date: string | null;
   end_date: string | null;
+  hiring_deadline: string | null;
 };
 
 const UUID_RE =
@@ -84,6 +85,7 @@ function sanitize(
     what_we_offer: optionalToDb(body.what_we_offer),
     start_date: optionalDateToDb(body.start_date),
     end_date: endDate,
+    hiring_deadline: optionalDateToDb(body.hiring_deadline),
   };
 }
 
@@ -241,6 +243,15 @@ export async function POST(request: Request) {
   const payload = sanitize(formFields);
   if (!payload.position) {
     return Response.json({ error: "position is required." }, { status: 400 });
+  }
+
+  if (payload.status !== "Pending") {
+    if (!payload.start_date) {
+      return Response.json({ error: "Start date is required." }, { status: 400 });
+    }
+    if (!payload.hiring_deadline) {
+      return Response.json({ error: "Hiring deadline is required." }, { status: 400 });
+    }
   }
 
   if (!jdDraftJobOpeningId) {

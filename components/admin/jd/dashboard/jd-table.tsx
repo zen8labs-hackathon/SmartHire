@@ -47,6 +47,7 @@ export function JdTable() {
                 <Table.Column>Department</Table.Column>
                 <Table.Column>Start date</Table.Column>
                 <Table.Column>End date</Table.Column>
+                <Table.Column>Hiring deadline</Table.Column>
                 <Table.Column>Status</Table.Column>
                 <Table.Column>Actions</Table.Column>
               </Table.Header>
@@ -61,13 +62,13 @@ export function JdTable() {
               >
                 {loading ? (
                   <Table.Row id="jd-row-loading">
-                    <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
+                    <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
                       Loading…
                     </Table.Cell>
                   </Table.Row>
                 ) : paginatedRows.length === 0 ? (
                   <Table.Row id="jd-row-empty">
-                    <Table.Cell className="py-8 text-center text-muted" colSpan={7}>
+                    <Table.Cell className="py-8 text-center text-muted" colSpan={8}>
                       No jobs found.
                     </Table.Cell>
                   </Table.Row>
@@ -103,6 +104,9 @@ export function JdTable() {
                       </Table.Cell>
                       <Table.Cell className="whitespace-nowrap text-muted">
                         {formatJdCalendarDate(row.end_date)}
+                      </Table.Cell>
+                      <Table.Cell className="whitespace-nowrap text-muted">
+                        {formatJdCalendarDate(row.hiring_deadline)}
                       </Table.Cell>
                       <Table.Cell className="min-w-[9.5rem]">
                         <Select
