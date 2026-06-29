@@ -22,6 +22,7 @@ export type CandidateDedupeRow = {
   name: string | null;
   status: string | null;
   job_opening_id: string | null;
+  job_opening_title?: string | null;
   cv_uploaded_at: string | null;
   created_at: string | null;
   parsed_payload: unknown;
@@ -34,6 +35,7 @@ export type DuplicateCandidateHit = {
   name: string;
   status: string;
   jobOpeningId: string | null;
+  jobOpeningTitle: string | null;
   cvUploadedAt: string | null;
   matchedOn: DuplicateMatchedOn;
   /** Contact / role from the matched (existing) candidate’s parsed CV payload. */
@@ -196,6 +198,7 @@ export function findDuplicateCandidateHits(
         name: String(row.name ?? "Unknown"),
         status: String(row.status ?? "New"),
         jobOpeningId: (row.job_opening_id as string | null) ?? null,
+        jobOpeningTitle: row.job_opening_title ?? null,
         cvUploadedAt:
           (row.cv_uploaded_at as string | null) ??
           (row.created_at as string | null) ??

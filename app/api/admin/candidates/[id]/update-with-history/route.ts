@@ -15,6 +15,13 @@ import {
 } from "@/lib/candidates/cv-versioning-schema-guard";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+import { CV_BUCKET } from "@/lib/candidates/upload-constants";
+import {
+  sanitizeFolderName,
+  getFormattedTimestamp,
+  extractFolderNameFromPath,
+} from "@/lib/candidates/cv-path-utils";
+import { newUuidV8 } from "@/lib/uuid-v8";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -165,15 +172,88 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const fromNew = rowUpdateFromCvDetailSnapshot(snapshotFromCandidateRow(n));
 
   const preservedJobOpeningId =
-    e.job_opening_id == null ? n.job_opening_id ?? null : e.job_opening_id;
+    (e.job_opening_id == null ? n.job_opening_id ?? null : e.job_opening_id) as string | null;
+
+  // 1. Determine existing candidate folder structure
+  let existingFolder = extractFolderNameFromPath(e.cv_storage_path as string);
+  
+  let jobFolder = "Job_Opening";
+  const existingPathParts = (e.cv_storage_path as string || "").split("/");
+  if (existingPathParts.length > 1 && existingPathParts[0].includes("_")) {
+    jobFolder = existingPathParts[0];
+  } else if (preservedJobOpeningId) {
+    const { data: job } = await auth.supabase
+      .from("job_openings")
+      .select("title")
+      .eq("id", preservedJobOpeningId)
+      .maybeSingle();
+    if (job?.title) {
+      jobFolder = `${sanitizeFolderName(job.title)}_${preservedJobOpeningId}`;
+    } else {
+      jobFolder = preservedJobOpeningId;
+    }
+  }
+
+  const timestamp = getFormattedTimestamp();
+
+  if (!existingFolder) {
+    // Migrate the old flat style to a structured folder on the fly
+    const name = sanitizeFolderName(String(e.name || "Candidate"));
+    existingFolder = `${name}_${timestamp}_${newUuidV8()}`;
+
+    const oldPath = e.cv_storage_path as string;
+    if (oldPath) {
+      const oldFilename = e.original_filename as string || "resume.pdf";
+      const extIdx = oldFilename.lastIndexOf(".");
+      const ext = extIdx !== -1 ? oldFilename.substring(extIdx) : ".pdf";
+      const nameWithoutExt = extIdx !== -1 ? oldFilename.substring(0, extIdx) : oldFilename;
+      const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
+      const oldDestFilename = `${sanitizedFilename}_v1_${timestamp}${ext}`;
+      const oldDestPath = `${jobFolder}/${existingFolder}/${oldDestFilename}`;
+
+      const { error: moveOldErr } = await auth.supabase.storage
+        .from(CV_BUCKET)
+        .move(oldPath, oldDestPath);
+
+      if (!moveOldErr) {
+        await auth.supabase
+          .from("candidates")
+          .update({ cv_storage_path: oldDestPath })
+          .eq("id", existingId);
+        e.cv_storage_path = oldDestPath;
+      }
+    }
+  }
+
+  // 2. Move the newly uploaded file to the existing candidate's folder
+  const nextVersion = currentVersion + 1;
+  const newFilenameRaw = n.original_filename as string || "resume.pdf";
+  const extIdx = newFilenameRaw.lastIndexOf(".");
+  const ext = extIdx !== -1 ? newFilenameRaw.substring(extIdx) : ".pdf";
+  const nameWithoutExt = extIdx !== -1 ? newFilenameRaw.substring(0, extIdx) : newFilenameRaw;
+  const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
+  const newDestFilename = `${sanitizedFilename}_v${nextVersion}_${timestamp}${ext}`;
+  const newDestPath = `${jobFolder}/${existingFolder}/${newDestFilename}`;
+
+  const { error: moveNewErr } = await auth.supabase.storage
+    .from(CV_BUCKET)
+    .move(n.cv_storage_path as string, newDestPath);
+
+  if (moveNewErr) {
+    return Response.json(
+      { error: `Failed to move updated CV to folder: ${moveNewErr.message}` },
+      { status: 500 },
+    );
+  }
 
   const mergedUpdate: Record<string, unknown> = {
     ...fromNew,
+    cv_storage_path: newDestPath,
     job_opening_id: preservedJobOpeningId,
     status: e.status,
     interview_at: e.interview_at,
     onboarding_at: e.onboarding_at,
-    cv_detail_version: currentVersion + 1,
+    cv_detail_version: nextVersion,
   };
 
   const { error: upErr } = await auth.supabase

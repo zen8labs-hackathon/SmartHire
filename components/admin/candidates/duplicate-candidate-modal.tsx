@@ -55,74 +55,15 @@ function formatExistingApplied(iso: string | null): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(d);
 }
 
-function formatNewApplied(iso: string | null): string {
-  if (!iso) return "Just now";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Just now";
-  if (Date.now() - d.getTime() < 120_000) return "Just now";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(d);
-}
-
 function WarningIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="currentColor"
       className={className}
-      aria-hidden
+      aria-hidden="true"
     >
       <path d="M12 2L1 21h22L12 2zm0 4.83L19.53 19H4.47L12 6.83zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z" />
-    </svg>
-  );
-}
-
-function UploadDocIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-      <path d="M14 2v6h6M12 18v-6M9 15l3 3 3-3" />
-    </svg>
-  );
-}
-
-function DatabaseIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden
-    >
-      <ellipse cx="12" cy="5" rx="9" ry="3" />
-      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-      <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
-    </svg>
-  );
-}
-
-function SwapArrowIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className}
-      aria-hidden
-    >
-      <path d="M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4" />
     </svg>
   );
 }
@@ -130,21 +71,23 @@ function SwapArrowIcon({ className }: { className?: string }) {
 export type DuplicateCandidateModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  hit: DuplicateCandidateHit;
+  hits: DuplicateCandidateHit[];
   newUpload: DuplicateNewUploadPreview;
+  currentJobTitle: string;
   isSubmitting: boolean;
-  onUpdateProfile: () => Promise<void>;
-  onCreateNew: () => void;
+  onUpdateProfile: (existingCandidateId: string) => Promise<void>;
+  onDiscard: () => Promise<void>;
 };
 
 export function DuplicateCandidateModal({
   open,
   onOpenChange,
-  hit,
+  hits,
   newUpload,
+  currentJobTitle,
   isSubmitting,
   onUpdateProfile,
-  onCreateNew,
+  onDiscard,
 }: DuplicateCandidateModalProps) {
   const modalState = useOverlayTriggerState({
     isOpen: open,
@@ -153,18 +96,20 @@ export function DuplicateCandidateModal({
 
   const [replaceError, setReplaceError] = useState<string | null>(null);
 
-  const displayName = dash(hit.name);
-  const displayEmail = dash(newUpload.email ?? hit.email);
-  const displayPhone = dash(newUpload.phone ?? hit.phone);
+  const primaryHit = hits[0];
+  const displayName = primaryHit ? dash(primaryHit.name) : "—";
+  const displayEmail = dash(newUpload.email ?? primaryHit?.email);
+  const displayPhone = dash(newUpload.phone ?? primaryHit?.phone);
 
-  const dRole = roleDiff(hit, newUpload);
-  const dEmail = emailDiff(hit, newUpload);
-  const dPhone = phoneDiff(hit, newUpload);
+  const dRole = primaryHit ? roleDiff(primaryHit, newUpload) : false;
+  const dEmail = primaryHit ? emailDiff(primaryHit, newUpload) : false;
+  const dPhone = primaryHit ? phoneDiff(primaryHit, newUpload) : false;
 
   const handleUpdate = async () => {
+    if (!primaryHit) return;
     setReplaceError(null);
     try {
-      await onUpdateProfile();
+      await onUpdateProfile(primaryHit.id);
     } catch (e) {
       setReplaceError(e instanceof Error ? e.message : "Update failed");
     }
@@ -181,7 +126,7 @@ export function DuplicateCandidateModal({
             <Modal.Header className="border-b border-divider bg-muted/20 px-6 py-5">
               <div className="flex gap-4 pe-8">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
-                  <WarningIcon className="h-6 w-6" />
+                  <WarningIcon className="h-6 w-6" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <Modal.Heading className="text-lg font-bold text-foreground">
@@ -198,6 +143,7 @@ export function DuplicateCandidateModal({
             </Modal.Header>
 
             <Modal.Body className="space-y-5 px-6 py-5">
+              {/* Candidate Info Summary */}
               <div className="rounded-xl bg-muted/25 px-4 py-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
@@ -227,59 +173,51 @@ export function DuplicateCandidateModal({
                 </div>
               </div>
 
-              <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center">
-                <Card className="min-w-0 flex-1 border border-divider shadow-none">
-                  <Card.Content className="gap-3 p-4">
-                    <div className="flex items-center gap-2">
-                      <UploadDocIcon className="h-5 w-5 shrink-0 text-accent" />
-                      <span className="font-bold text-foreground">New Upload</span>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted">Role intent</p>
-                      <p className="mt-0.5 text-sm font-semibold text-foreground">
-                        <DiffNew changed={dRole}>
-                          {dash(newUpload.parsedRole)}
-                        </DiffNew>
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted">Applied</p>
-                      <p className="mt-0.5 text-sm font-semibold text-foreground">
-                        {formatNewApplied(newUpload.cvUploadedAt)}
-                      </p>
-                    </div>
-                  </Card.Content>
-                </Card>
-
-                <div
-                  className="flex justify-center md:flex-col md:items-center md:py-0"
-                  aria-hidden
-                >
-                  <SwapArrowIcon className="h-6 w-6 rotate-90 text-muted md:rotate-0" />
+              {/* Current Job Opening */}
+              <div className="rounded-xl border border-divider p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                  Current Campaign
+                </p>
+                <div className="mt-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {currentJobTitle}
+                  </p>
+                  <p className="text-xs text-muted mt-0.5">
+                    Expected role: <DiffNew changed={dRole}>{dash(newUpload.parsedRole)}</DiffNew>
+                  </p>
                 </div>
+              </div>
 
-                <Card className="min-w-0 flex-1 border border-divider shadow-none">
-                  <Card.Content className="gap-3 p-4">
-                    <div className="flex items-center gap-2">
-                      <DatabaseIcon className="h-5 w-5 shrink-0 text-success" />
-                      <span className="font-bold text-foreground">
-                        Existing Record
-                      </span>
+              {/* Previously Applied Campaigns */}
+              <div className="rounded-xl border border-divider p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                  Previously Applied Campaigns
+                </p>
+                <div className="max-h-[160px] overflow-y-auto space-y-3 pr-1">
+                  {hits.map((h) => (
+                    <div
+                      key={h.id}
+                      className="flex justify-between items-center text-sm border-b border-divider/50 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {h.jobOpeningTitle || "Untitled campaign"}
+                        </p>
+                        <p className="text-xs text-muted">
+                          Role: {dash(h.parsedRole)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-flex rounded-full bg-content2 px-2.5 py-0.5 text-xs font-medium text-foreground">
+                          {h.status}
+                        </span>
+                        <p className="text-[10px] text-muted mt-0.5 font-variant-numeric: tabular-nums">
+                          Applied date: {formatExistingApplied(h.cvUploadedAt)}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted">Current role</p>
-                      <p className="mt-0.5 text-sm font-semibold text-foreground">
-                        {dash(hit.parsedRole)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted">Last applied</p>
-                      <p className="mt-0.5 text-sm font-semibold text-foreground">
-                        {formatExistingApplied(hit.cvUploadedAt)}
-                      </p>
-                    </div>
-                  </Card.Content>
-                </Card>
+                  ))}
+                </div>
               </div>
 
               {replaceError ? (
@@ -293,11 +231,11 @@ export function DuplicateCandidateModal({
               <div className="flex w-full flex-col-reverse items-stretch justify-end gap-3 sm:flex-row sm:items-center">
                 <Button
                   variant="tertiary"
-                  className="font-semibold text-foreground"
-                  onPress={onCreateNew}
+                  className="font-semibold text-danger hover:bg-danger/5"
+                  onPress={onDiscard}
                   isDisabled={isSubmitting}
                 >
-                  Create New Entry
+                  Discard
                 </Button>
                 <Button
                   variant="primary"
@@ -305,9 +243,9 @@ export function DuplicateCandidateModal({
                   onPress={() => void handleUpdate()}
                   isPending={isSubmitting}
                 >
-                  <span>Update Profile</span>
+                  <span>Update CV</span>
                   <span className="text-xs font-normal opacity-95">
-                    Create a new history version
+                    Save as the latest version…
                   </span>
                 </Button>
               </div>

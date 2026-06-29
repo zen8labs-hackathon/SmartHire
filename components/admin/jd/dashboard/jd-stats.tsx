@@ -17,7 +17,7 @@ export function JdStats() {
       <Card variant="secondary">
         <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
           <Card.Description className="text-sm font-medium text-muted">
-            Tổng số job
+            Total jobs
           </Card.Description>
           <Briefcase className="size-4 text-muted" aria-hidden="true" />
         </Card.Header>
@@ -26,7 +26,7 @@ export function JdStats() {
             {loading ? (
               <>
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Đang tải…</span>
+                <span className="sr-only">Loading…</span>
               </>
             ) : (
               totalJobs
@@ -38,7 +38,7 @@ export function JdStats() {
       <Card variant="secondary">
         <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
           <Card.Description className="text-sm font-medium text-muted">
-            Số job đang chạy
+            Active jobs
           </Card.Description>
           <PlayCircle className="size-4 text-success" aria-hidden="true" />
         </Card.Header>
@@ -47,7 +47,7 @@ export function JdStats() {
             {loading ? (
               <>
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Đang tải…</span>
+                <span className="sr-only">Loading…</span>
               </>
             ) : (
               runningJobs
@@ -59,7 +59,7 @@ export function JdStats() {
       <Card variant="secondary">
         <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
           <Card.Description className="text-sm font-medium text-muted">
-            Số job đang chờ tuyển
+            Pending jobs
           </Card.Description>
           <Clock className="size-4 text-warning" aria-hidden="true" />
         </Card.Header>
@@ -68,7 +68,7 @@ export function JdStats() {
             {loading ? (
               <>
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Đang tải…</span>
+                <span className="sr-only">Loading…</span>
               </>
             ) : (
               pendingJobs
@@ -80,7 +80,7 @@ export function JdStats() {
       <Card variant="secondary">
         <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
           <Card.Description className="text-sm font-medium text-muted">
-            Số job đã hoàn thành
+            Completed jobs
           </Card.Description>
           <CheckCircle2 className="size-4 text-accent" aria-hidden="true" />
         </Card.Header>
@@ -89,7 +89,7 @@ export function JdStats() {
             {loading ? (
               <>
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Đang tải…</span>
+                <span className="sr-only">Loading…</span>
               </>
             ) : (
               completedJobs
@@ -101,7 +101,7 @@ export function JdStats() {
       <Card variant="secondary">
         <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
           <Card.Description className="text-sm font-medium text-muted">
-            Số job đã đóng
+            Closed jobs
           </Card.Description>
           <XCircle className="size-4 text-danger" aria-hidden="true" />
         </Card.Header>
@@ -110,7 +110,7 @@ export function JdStats() {
             {loading ? (
               <>
                 <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Đang tải…</span>
+                <span className="sr-only">Loading…</span>
               </>
             ) : (
               closedJobs

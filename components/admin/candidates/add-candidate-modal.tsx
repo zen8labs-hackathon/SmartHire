@@ -54,7 +54,7 @@ type QueueRow = {
 
 type DuplicateFlowState = {
   newCandidateId: string;
-  hit: DuplicateCandidateHit;
+  hits: DuplicateCandidateHit[];
   newUpload: DuplicateNewUploadPreview;
 };
 
@@ -212,52 +212,95 @@ export function AddCandidateModal({
     resolve(outcome);
   }, []);
 
-  const runDuplicateUpdateWithHistory = useCallback(async () => {
+  const runDuplicateUpdateWithHistory = useCallback(
+    async (existingCandidateId: string) => {
+      const payload = duplicatePayloadRef.current;
+      if (!payload) return;
+      setDuplicateSubmitting(true);
+      try {
+        const procAuth = await sessionAuthHeaders();
+        const repRes = await fetch(
+          `/api/admin/candidates/${existingCandidateId}/update-with-history`,
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", ...procAuth },
+            body: JSON.stringify({
+              newCandidateId: payload.newCandidateId,
+              matchedOn: payload.hits[0]?.matchedOn,
+            }),
+          },
+        );
+        const repJson = (await repRes.json()) as {
+          error?: string;
+          candidate?: CandidateDbRow;
+        };
+        if (!repRes.ok) {
+          throw new Error(
+            repJson.error ?? "Failed to merge duplicate into existing profile",
+          );
+        }
+        finishDuplicate("replaced");
+        if (onDuplicateMergedToExisting) {
+          await onDuplicateMergedToExisting(
+            existingCandidateId,
+            repJson.candidate,
+            payload.newCandidateId,
+          );
+        } else {
+          onCandidatesChanged?.();
+        }
+      } finally {
+        setDuplicateSubmitting(false);
+      }
+    },
+    [
+      sessionAuthHeaders,
+      finishDuplicate,
+      onCandidatesChanged,
+      onDuplicateMergedToExisting,
+    ],
+  );
+
+  const runDiscardDuplicate = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
     setDuplicateSubmitting(true);
     try {
       const procAuth = await sessionAuthHeaders();
-      const repRes = await fetch(
-        `/api/admin/candidates/${payload.hit.id}/update-with-history`,
+      const delRes = await fetch(
+        `/api/admin/candidates/${payload.newCandidateId}`,
         {
-          method: "PUT",
+          method: "DELETE",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...procAuth },
-          body: JSON.stringify({
-            newCandidateId: payload.newCandidateId,
-            matchedOn: payload.hit.matchedOn,
-          }),
+          headers: { ...procAuth },
         },
       );
-      const repJson = (await repRes.json()) as {
-        error?: string;
-        candidate?: CandidateDbRow;
-      };
-      if (!repRes.ok) {
+      if (!delRes.ok) {
+        const delJson = (await delRes.json()) as { error?: string };
         throw new Error(
-          repJson.error ?? "Failed to merge duplicate into existing profile",
+          delJson.error ?? "Failed to discard new duplicate candidate record",
         );
       }
-      finishDuplicate("replaced");
-      if (onDuplicateMergedToExisting) {
-        await onDuplicateMergedToExisting(
-          payload.hit.id,
-          repJson.candidate,
-          payload.newCandidateId,
-        );
-      } else {
-        onCandidatesChanged?.();
-      }
+      finishDuplicate("skip");
+      setQueue((prev) =>
+        prev.map((r) =>
+          r.candidateId === payload.newCandidateId
+            ? {
+                ...r,
+                uploadPhase: "error",
+                uploadError: "Removed due to duplicates",
+              }
+            : r,
+        ),
+      );
+      onCandidatesChanged?.();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
     } finally {
       setDuplicateSubmitting(false);
     }
-  }, [
-    sessionAuthHeaders,
-    finishDuplicate,
-    onCandidatesChanged,
-    onDuplicateMergedToExisting,
-  ]);
+  }, [sessionAuthHeaders, finishDuplicate, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();
@@ -452,7 +495,7 @@ export function AddCandidateModal({
           };
         const flow: DuplicateFlowState = {
           newCandidateId: candidateId,
-          hit: duplicates[0],
+          hits: duplicates,
           newUpload,
         };
         duplicatePayloadRef.current = flow;
@@ -826,14 +869,21 @@ export function AddCandidateModal({
       </Modal>
       {duplicateFlow ? (
         <DuplicateCandidateModal
-          key={`${duplicateFlow.newCandidateId}-${duplicateFlow.hit.id}`}
+          key={`${duplicateFlow.newCandidateId}`}
           open
           onOpenChange={() => {}}
-          hit={duplicateFlow.hit}
+          hits={duplicateFlow.hits}
           newUpload={duplicateFlow.newUpload}
+          currentJobTitle={
+            jobs.find((j) => j.id === selectedJobId)?.displayTitle ||
+            (isCampaignLocked && typeof jdPipelineCampaign === "object"
+              ? jdPipelineCampaign.title
+              : "") ||
+            "Chiến dịch hiện tại"
+          }
           isSubmitting={duplicateSubmitting}
           onUpdateProfile={runDuplicateUpdateWithHistory}
-          onCreateNew={() => finishDuplicate("skip")}
+          onDiscard={runDiscardDuplicate}
         />
       ) : null}
     </>

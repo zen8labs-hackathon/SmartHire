@@ -8,6 +8,7 @@ import {
   MAX_CV_BYTES,
 } from "@/lib/candidates/upload-constants";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeFolderName } from "@/lib/candidates/cv-path-utils";
 
 type Body = {
   jobOpeningId?: string | null;
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
 
   const { data: job, error: jobErr } = await supabase
     .from("job_openings")
-    .select("id")
+    .select("id, title")
     .eq("id", jobOpeningId)
     .maybeSingle();
   if (jobErr || !job) {
@@ -115,7 +116,10 @@ export async function POST(request: Request) {
   }
 
   const candidateId = crypto.randomUUID();
-  const storagePath = `${jobOpeningId}/${candidateId}${ext}`;
+  const jobTitle = job?.title || "Job_Opening";
+  const sanitizedJobTitle = sanitizeFolderName(jobTitle);
+  const jobFolder = `${sanitizedJobTitle}_${jobOpeningId}`;
+  const storagePath = `${jobFolder}/temp-${candidateId}${ext}`;
 
   const uploadedAt = new Date().toISOString();
   const rawUploader = auth.userEmail?.trim() ?? "";
