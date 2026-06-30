@@ -17,7 +17,7 @@ export default async function AdminCandidatesKanbanPage() {
     } = await supabase.auth.getUser();
 
     if (!user) redirect("/login?next=/admin/candidates/v2");
-    const access = await getStaffProfileAccess(supabase, user.id);
+    const access = await getStaffProfileAccess(supabase, user.id, user);
     if (!access?.isHr) redirect("/admin/jd");
 
     const { data } = await supabase
