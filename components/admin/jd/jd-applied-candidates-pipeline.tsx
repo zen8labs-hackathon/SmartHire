@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
-
 import {
   Avatar,
   Button,
@@ -13,6 +12,7 @@ import {
   Label,
   ListBox,
   Modal,
+  Pagination,
   SearchField,
   Select,
   Table,
@@ -43,6 +43,7 @@ import {
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
+
 
 const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All statuses" },
@@ -185,6 +186,8 @@ export function JdAppliedCandidatesPipeline({
   const [uploadFrom, setUploadFrom] = useState("");
   const [uploadTo, setUploadTo] = useState("");
 
+  const [page, setPage] = useState(1);
+
   const [onboardingDrafts, setOnboardingDrafts] = useState<
     Record<string, string>
   >({});
@@ -202,9 +205,15 @@ export function JdAppliedCandidatesPipeline({
     },
   });
 
+  const ROWS_PER_PAGE = 50;
+
   useEffect(() => {
     setSelected(new Set());
   }, [dbRows]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, statusFilter, uploadFrom, uploadTo]);
 
   const statusCounts = useMemo(() => {
     let newPool = 0;
@@ -237,6 +246,15 @@ export function JdAppliedCandidatesPipeline({
     }
     return rows;
   }, [dbRows, query, statusFilter, uploadFrom, uploadTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedRows = useMemo(
+    () => filteredRows.slice((safePage - 1) * ROWS_PER_PAGE, safePage * ROWS_PER_PAGE),
+    [filteredRows, safePage],
+  );
+  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
+  const endIdx = startIdx === 0 ? 0 : startIdx - 1 + paginatedRows.length;
 
   const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
@@ -689,7 +707,7 @@ export function JdAppliedCandidatesPipeline({
               </Table.Column>
             </Table.Header>
             <Table.Body>
-              {filteredRows.map((r) => {
+              {paginatedRows.map((r) => {
                 const row: CandidateRow = candidateDbRowToTableRow(r);
                 const contact = displayFromParsedPayload(r.parsed_payload);
                 const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
@@ -920,6 +938,43 @@ export function JdAppliedCandidatesPipeline({
             </Table.Body>
           </Table.Content>
         </Table.ScrollContainer>
+        {filteredRows.length > 0 ? (
+          <Table.Footer className="border-t border-divider px-4 py-3">
+            <Pagination size="sm">
+              <Pagination.Summary>
+                Showing {startIdx} to {endIdx} of {filteredRows.length} candidates
+              </Pagination.Summary>
+              <Pagination.Content>
+                <Pagination.Item>
+                  <Pagination.Previous
+                    isDisabled={safePage <= 1}
+                    onPress={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <Pagination.PreviousIcon />
+                  </Pagination.Previous>
+                </Pagination.Item>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <Pagination.Item key={p}>
+                    <Pagination.Link
+                      isActive={p === safePage}
+                      onPress={() => setPage(p)}
+                    >
+                      {p}
+                    </Pagination.Link>
+                  </Pagination.Item>
+                ))}
+                <Pagination.Item>
+                  <Pagination.Next
+                    isDisabled={safePage >= totalPages}
+                    onPress={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    <Pagination.NextIcon />
+                  </Pagination.Next>
+                </Pagination.Item>
+              </Pagination.Content>
+            </Pagination>
+          </Table.Footer>
+        ) : null}
       </Table>
 
       {filteredRows.length === 0 ? (
