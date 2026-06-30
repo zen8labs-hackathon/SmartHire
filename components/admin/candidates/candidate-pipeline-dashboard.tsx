@@ -186,8 +186,8 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
   const safePage = Math.min(page, totalPages);
   const pageSize = listPageSize || CANDIDATES_LIST_DEFAULT_LIMIT;
   const paginatedRows = filteredRows;
-  const startIdx = listTotal === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const endIdx = Math.min(safePage * pageSize, listTotal);
+  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const endIdx = filteredRows.length === 0 ? 0 : startIdx - 1 + filteredRows.length;
 
   return (
     <div className="flex flex-col gap-8">
@@ -288,8 +288,8 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                     </Table.Row>
                   ) : null}
                   {dbLoadState === "ok" &&
-                  filteredRows.length === 0 &&
-                  tableSourceRows.length === 0 ? (
+                    filteredRows.length === 0 &&
+                    tableSourceRows.length === 0 ? (
                     <Table.Row id="empty">
                       <Table.Cell>
                         <span className="text-sm text-muted">
@@ -483,8 +483,8 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
             <Table.Footer className="border-t border-divider px-4 py-3">
               <Pagination size="sm">
                 <Pagination.Summary>
-                  Showing {filteredRows.length === 0 ? 0 : startIdx} to {endIdx}{" "}
-                  of {filteredRows.length} candidates
+                  Showing {startIdx} to {endIdx}{" "}
+                  of {listTotal} candidates
                 </Pagination.Summary>
                 <Pagination.Content>
                   <Pagination.Item>
@@ -496,15 +496,15 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                     </Pagination.Previous>
                   </Pagination.Item>
                   {pageWindow(safePage, totalPages, 3).map((p) => (
-                      <Pagination.Item key={p}>
-                        <Pagination.Link
-                          isActive={p === safePage}
-                          onPress={() => setPage(p)}
-                        >
-                          {p}
-                        </Pagination.Link>
-                      </Pagination.Item>
-                    ))}
+                    <Pagination.Item key={p}>
+                      <Pagination.Link
+                        isActive={p === safePage}
+                        onPress={() => setPage(p)}
+                      >
+                        {p}
+                      </Pagination.Link>
+                    </Pagination.Item>
+                  ))}
                   <Pagination.Item>
                     <Pagination.Next
                       isDisabled={safePage >= totalPages}

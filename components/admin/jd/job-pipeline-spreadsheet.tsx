@@ -207,13 +207,18 @@ export function JobPipelineSpreadsheet({
         />
       ) : null}
 
-      <p className="text-center text-xs text-muted">
-        <Link href="/admin/jd" className="text-accent hover:underline">
-          Back to jobs list
+      <div className="flex justify-center">
+        <Link
+          href="/admin/jd"
+          className="inline-flex items-center gap-2 rounded-xl border border-divider bg-surface-secondary px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-tertiary"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden>
+            <path d="M19 12H5"/>
+            <path d="M12 19l-7-7 7-7"/>
+          </svg>
+          Back to Jobs list
         </Link>
-        <span className="mx-2">·</span>
-        <span>Job ID: {jobId}</span>
-      </p>
+      </div>
     </div>
   );
 }
