@@ -355,6 +355,7 @@ export function CvVersionComparisonDrawer({
   const [previewPreviousId, setPreviewPreviousId] = useState<string | null>(
     null,
   );
+  const [previewSnapshotEventId, setPreviewSnapshotEventId] = useState<string | null>(null);
   const [otherApplications, setOtherApplications] = useState<
     OtherApplicationItem[]
   >([]);
@@ -392,6 +393,7 @@ export function CvVersionComparisonDrawer({
     (open: boolean) => {
       if (!open) {
         setPreviewPreviousId(null);
+        setPreviewSnapshotEventId(null);
         setRestoreDialogOpen(false);
         setRestoreTarget(null);
         setRestoreError(null);
@@ -464,8 +466,31 @@ export function CvVersionComparisonDrawer({
     };
   }, [previewHistoryRow, previewParsed, dbRow]);
 
-  const displayCard = previewCardModel ?? activeCardModel;
-  const isPreview = Boolean(previewCardModel && previewPreviousId);
+  const previewSnapshotCard = useMemo((): CvCardModel | null => {
+    if (!previewSnapshotEventId) return null;
+    const vItem = cvVersions.find(
+      (v) => v.kind === "snapshot_event" && v.versionEventId === previewSnapshotEventId,
+    );
+    if (!vItem?.snapshot) return null;
+    const snap = vItem.snapshot;
+    const parsed = normalizeParsedResume(snap.parsed_payload);
+    const skills = parsed.skills.length > 0 ? parsed.skills : (snap.skills ?? []);
+    const name = parsed.name?.trim() || snap.name?.trim() || "—";
+    const role = parsed.role?.trim() || snap.role?.trim() || "—";
+    return {
+      name,
+      role,
+      skills,
+      parsed,
+      cvUploadedAtLabel: formatDayMonthYear(snap.cv_uploaded_at),
+    };
+  }, [previewSnapshotEventId, cvVersions]);
+
+  const displayCard = previewSnapshotCard ?? previewCardModel ?? activeCardModel;
+  const isPreview = Boolean(
+    (previewCardModel && previewPreviousId) ||
+    (previewSnapshotCard && previewSnapshotEventId),
+  );
 
   const totalVersions =
     cvVersions.length > 0 ? cvVersions.length : 1 + cvHistoryRows.length;
@@ -621,7 +646,10 @@ export function CvVersionComparisonDrawer({
                       <Button
                         size="sm"
                         variant="secondary"
-                        onPress={() => setPreviewPreviousId(null)}
+                        onPress={() => {
+                          setPreviewPreviousId(null);
+                          setPreviewSnapshotEventId(null);
+                        }}
                       >
                         Back to active
                       </Button>
@@ -818,11 +846,10 @@ export function CvVersionComparisonDrawer({
                                       size="sm"
                                       variant="secondary"
                                       className="gap-1 px-2 font-semibold"
-                                      onPress={() =>
-                                        setPreviewPreviousId(
-                                          item.previousCandidateId,
-                                        )
-                                      }
+                                      onPress={() => {
+                                        setPreviewSnapshotEventId(null);
+                                        setPreviewPreviousId(item.previousCandidateId);
+                                      }}
                                       isDisabled={isCardPreview}
                                       aria-label={
                                         isCardPreview
@@ -906,10 +933,15 @@ export function CvVersionComparisonDrawer({
                             : vItem.eventType === "pre_restore"
                               ? "Before restore"
                               : "Restore checkpoint";
+                        const isEventPreview =
+                          previewSnapshotEventId === vItem.versionEventId;
+                        const hasSnapData = Boolean(snap?.parsed_payload || snap?.name);
                         return (
                           <div
                             key={rowKey}
-                            className="overflow-hidden rounded-xl border border-divider bg-background"
+                            className={`overflow-hidden rounded-xl border border-divider bg-background ${
+                              isEventPreview ? "ring-1 ring-inset ring-accent" : ""
+                            }`}
                           >
                             <div className="flex flex-col gap-1.5 px-2.5 py-2">
                               <div className="min-w-0">
@@ -938,6 +970,38 @@ export function CvVersionComparisonDrawer({
                                   >
                                     Latest
                                   </Chip>
+                                ) : null}
+                                {!vItem.isLatest && hasSnapData ? (
+                                  <Tooltip delay={0}>
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      className="gap-1 px-2 font-semibold"
+                                      isDisabled={isEventPreview}
+                                      aria-label={
+                                        isEventPreview
+                                          ? "Showing this version in preview"
+                                          : "Preview parsed summary in drawer"
+                                      }
+                                      onPress={() => {
+                                        setPreviewPreviousId(null);
+                                        setPreviewSnapshotEventId(vItem.versionEventId ?? null);
+                                      }}
+                                    >
+                                      <EyeIcon className="size-3.5 shrink-0" />
+                                      <span className="hidden min-[360px]:inline">
+                                        {isEventPreview ? "Shown" : "Preview"}
+                                      </span>
+                                    </Button>
+                                    <Tooltip.Content placement="top" showArrow>
+                                      <Tooltip.Arrow />
+                                      <p>
+                                        {isEventPreview
+                                          ? "This version is shown on the left"
+                                          : "View parsed summary in drawer"}
+                                      </p>
+                                    </Tooltip.Content>
+                                  </Tooltip>
                                 ) : null}
                                 {!vItem.isLatest &&
                                   vItem.versionEventId != null ? (

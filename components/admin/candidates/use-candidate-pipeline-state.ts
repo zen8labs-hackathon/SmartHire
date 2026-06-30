@@ -454,10 +454,12 @@ export function useCandidatePipelineState(
       const tb = new Date(b.cv_uploaded_at ?? b.created_at).getTime();
       return tb - ta;
     });
-    return sortedDb
-      .map(candidateDbRowToTableRow)
-      .filter((row) => isAllowedJob(row.jobOpeningId));
-  }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState]);
+    const mapped = sortedDb.map(candidateDbRowToTableRow);
+    // In page mode the server already applied all filters — skip client-side
+    // job-opening filter so the displayed count matches the fetched page size.
+    if (listMode === "page") return mapped;
+    return mapped.filter((row) => isAllowedJob(row.jobOpeningId));
+  }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState, listMode]);
 
   const statusFilterOptions = useMemo(() => {
     if (listMode === "page") {

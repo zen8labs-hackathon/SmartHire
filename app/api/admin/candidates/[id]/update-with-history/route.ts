@@ -10,7 +10,6 @@ import {
 } from "@/lib/candidates/cv-detail-version-snapshot";
 import {
   isMissingCvDetailVersionColumn,
-  isMissingCvVersionEventsTable,
   versioningMigrationRequiredResponse,
 } from "@/lib/candidates/cv-versioning-schema-guard";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
@@ -152,23 +151,6 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
   const preImageSnap = snapshotFromCandidateRow(e);
 
-  const { error: evErr } = await auth.supabase
-    .from("candidate_cv_detail_version_events")
-    .insert({
-      active_candidate_id: existingId,
-      version: currentVersion,
-      event_type: "pre_restore",
-      change_summary: "Merged duplicate upload into this profile",
-      snapshot: preImageSnap,
-    });
-
-  if (evErr) {
-    if (isMissingCvVersionEventsTable(evErr)) {
-      return versioningMigrationRequiredResponse();
-    }
-    return Response.json({ error: evErr.message }, { status: 500 });
-  }
-
   const fromNew = rowUpdateFromCvDetailSnapshot(snapshotFromCandidateRow(n));
 
   const preservedJobOpeningId =
@@ -216,6 +198,9 @@ export async function PUT(request: Request, { params }: RouteContext) {
     }
   }
 
+  // Final path of the old CV file after any folder migration above.
+  const oldCvPath = (e.cv_storage_path as string | null) ?? null;
+
   // 2. Move the newly uploaded file to the existing candidate's folder
   const nextVersion = currentVersion + 1;
   const newFilenameRaw = (n.original_filename as string) || "resume.pdf";
@@ -261,6 +246,16 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: upErr.message }, { status: 500 });
   }
 
+  // Overwrite newCandidateId row with the pre-merge snapshot of existingId so
+  // the archived row holds old CV data and can be previewed in version history.
+  await auth.supabase
+    .from("candidates")
+    .update({
+      ...rowUpdateFromCvDetailSnapshot(preImageSnap),
+      cv_storage_path: oldCvPath,
+    })
+    .eq("id", newCandidateId);
+
   const replacedAt = new Date().toISOString();
   const actorRaw = auth.userEmail?.trim() ?? "";
   const replacedByEmail =
@@ -283,21 +278,39 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: archErr.message }, { status: 500 });
   }
 
+  // Re-link the current chain head so the version walk stays linear.
+  // Every update-with-history inserts replacement→existingId, but the chain
+  // walker only follows one link per cursor step. Redirect any existing head
+  // (replacement=existingId) to point to newCandidateId instead, then insert
+  // the new head (newCandidateId→existingId) so the walk is:
+  //   existingId → newCandidateId (latest old) → prevHead.previous → …
+  const { data: prevChainHead } = await auth.supabase
+    .from("candidate_cv_replacements")
+    .select("id")
+    .eq("replacement_candidate_id", existingId)
+    .order("replaced_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (prevChainHead) {
+    await auth.supabase
+      .from("candidate_cv_replacements")
+      .update({ replacement_candidate_id: newCandidateId })
+      .eq("id", (prevChainHead as { id: number | string }).id);
+  }
+
   const { error: histErr } = await auth.supabase
     .from("candidate_cv_replacements")
     .insert({
       previous_candidate_id: newCandidateId,
       replacement_candidate_id: existingId,
-      previous_status: String(n.status ?? "New"),
+      previous_status: String(e.status ?? "New"),
       new_status: String(e.status ?? "New"),
       matched_on: matchedOn,
-      previous_cv_storage_path: (n.cv_storage_path as string | null) ?? null,
-      previous_filename: (n.original_filename as string | null) ?? null,
-      previous_mime_type: (n.mime_type as string | null) ?? null,
-      previous_cv_uploaded_at:
-        (n.cv_uploaded_at as string | null) ??
-        (n.created_at as string | null) ??
-        null,
+      previous_cv_storage_path: oldCvPath,
+      previous_filename: preImageSnap.original_filename,
+      previous_mime_type: preImageSnap.mime_type,
+      previous_cv_uploaded_at: preImageSnap.cv_uploaded_at,
       replaced_by_email: replacedByEmail,
       replaced_at: replacedAt,
     });
