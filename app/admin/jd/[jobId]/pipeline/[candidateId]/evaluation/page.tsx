@@ -28,22 +28,32 @@ export default async function PipelineCandidateEvaluationPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/admin/jd");
 
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) redirect("/dashboard");
 
-  const { data: jd } = await supabase
-    .from("job_descriptions")
-    .select("id, position")
-    .eq("id", numId)
-    .maybeSingle();
+  const [jdRes, openingsRes, candRes] = await Promise.all([
+    supabase
+      .from("job_descriptions")
+      .select("id, position")
+      .eq("id", numId)
+      .maybeSingle(),
+    supabase
+      .from("job_openings")
+      .select("id")
+      .eq("job_description_id", numId),
+    supabase
+      .from("candidates")
+      .select(ADMIN_CANDIDATES_SELECT)
+      .eq("id", candidateId)
+      .eq("is_active", true)
+      .maybeSingle(),
+  ]);
 
+  const jd = jdRes.data;
   if (!jd) notFound();
 
-  const { data: openings, error: openingsError } = await supabase
-    .from("job_openings")
-    .select("id")
-    .eq("job_description_id", numId);
-
+  const openings = openingsRes.data;
+  const openingsError = openingsRes.error;
   if (openingsError) notFound();
 
   const openingIds = new Set(
@@ -51,13 +61,8 @@ export default async function PipelineCandidateEvaluationPage({
   );
   if (openingIds.size === 0) notFound();
 
-  const { data: cand, error: candError } = await supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
-    .eq("id", candidateId)
-    .eq("is_active", true)
-    .maybeSingle();
-
+  const cand = candRes.data;
+  const candError = candRes.error;
   if (candError || !cand) notFound();
 
   const [row] = await enrichCandidatesWithJobOpenings(supabase, [

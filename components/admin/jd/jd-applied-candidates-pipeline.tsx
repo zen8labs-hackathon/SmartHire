@@ -57,7 +57,7 @@ type Props = {
   jobId: string;
   dbRows: CandidateDbRow[];
   loadState: "idle" | "loading" | "error" | "ok";
-  onRefetch: () => void;
+  onRefetch: (silent?: boolean) => void;
   /** HR may change pipeline status and schedule; chapter recruiters are view-only here. */
   canEditPipeline?: boolean;
 };
@@ -336,7 +336,7 @@ export function JdAppliedCandidatesPipeline({
     try {
       await postPipeline(updates);
       offerModal.close();
-      onRefetch();
+      onRefetch(true);
     } catch (e) {
       setPipelineError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -352,7 +352,7 @@ export function JdAppliedCandidatesPipeline({
       await postPipeline(
         selectedRows.map((r) => ({ id: r.id, status: "Interview" as const })),
       );
-      onRefetch();
+      onRefetch(true);
     } catch (e) {
       setPipelineError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -378,7 +378,7 @@ export function JdAppliedCandidatesPipeline({
             : ("InterviewFailed" as const),
         })),
       );
-      onRefetch();
+      onRefetch(true);
     } catch (e) {
       setPipelineError(e instanceof Error ? e.message : "Update failed.");
     } finally {
@@ -392,7 +392,7 @@ export function JdAppliedCandidatesPipeline({
       setPipelineError(null);
       try {
         await postPipeline([{ id, status: next }]);
-        onRefetch();
+        onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
       } finally {
@@ -430,7 +430,7 @@ export function JdAppliedCandidatesPipeline({
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { interview_at: iso });
-        onRefetch();
+        onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
       }
@@ -445,7 +445,7 @@ export function JdAppliedCandidatesPipeline({
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { onboarding_at: iso });
-        onRefetch();
+        onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
       }
@@ -554,12 +554,17 @@ export function JdAppliedCandidatesPipeline({
           <Select
             value={statusFilter}
             onChange={(k) => {
-              if (typeof k === "string") setStatusFilter(k);
+              if (typeof k === "string") {
+                setStatusFilter(k);
+                if (document.activeElement instanceof HTMLElement) {
+                  document.activeElement.blur();
+                }
+              }
             }}
             className="min-w-[180px]"
           >
             <Label className="sr-only">Status</Label>
-            <Select.Trigger className="min-h-10">
+            <Select.Trigger className="min-h-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
               {isPipelineStatusKey(statusFilter) ? (
                 <PipelineStatusLabel
                   status={statusFilter}
@@ -796,16 +801,20 @@ export function JdAppliedCandidatesPipeline({
                         {row.jdMatchLabel}
                       </Chip>
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell className="focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none">
                       <Select
                         value={row.status}
                         isDisabled={!canEditPipeline || busy}
                         onChange={(key) => {
-                          if (typeof key === "string")
+                          if (typeof key === "string") {
                             void onStatusChange(r.id, key as CandidateStatus);
+                            if (document.activeElement instanceof HTMLElement) {
+                              document.activeElement.blur();
+                            }
+                          }
                         }}
                       >
-                        <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2">
+                        <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
                           <PipelineStatusLabel
                             status={row.status}
                             variant="inline"

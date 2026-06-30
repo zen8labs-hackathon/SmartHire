@@ -10,7 +10,7 @@ export default async function AdminEvaluationTemplatePage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/admin/evaluation-template");
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
 
   return <CandidateEvaluationTemplateManager />;

@@ -21,7 +21,7 @@ export default async function AdminLayout({
   if (!user) {
     redirect("/login?next=/admin");
   }
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) {
     redirect("/dashboard");
   }

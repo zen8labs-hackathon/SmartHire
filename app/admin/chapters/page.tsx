@@ -12,7 +12,7 @@ export default async function AdminChaptersPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/admin/chapters");
-  const access = await getStaffProfileAccess(supabase, user.id);
+  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
 
   const { data: chapters } = await supabase

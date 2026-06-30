@@ -32,13 +32,7 @@ const bodySchema = z
   .object({
     newCandidateId: z.string().regex(UUID_RE),
     matchedOn: z
-      .enum([
-        "email",
-        "phone",
-        "email_or_phone",
-        "cv_content",
-        "cv_file",
-      ])
+      .enum(["email", "phone", "email_or_phone", "cv_content", "cv_file"])
       .optional(),
   })
   .strict();
@@ -107,7 +101,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: eErr.message }, { status: 500 });
   }
   if (!eRow) {
-    return Response.json({ error: "Existing candidate not found." }, { status: 404 });
+    return Response.json(
+      { error: "Existing candidate not found." },
+      { status: 404 },
+    );
   }
 
   const e = eRow as unknown as Record<string, unknown>;
@@ -131,7 +128,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: nErr.message }, { status: 500 });
   }
   if (!nRow) {
-    return Response.json({ error: "New upload candidate not found." }, { status: 404 });
+    return Response.json(
+      { error: "New upload candidate not found." },
+      { status: 404 },
+    );
   }
 
   const n = nRow as unknown as Record<string, unknown>;
@@ -172,26 +172,16 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const fromNew = rowUpdateFromCvDetailSnapshot(snapshotFromCandidateRow(n));
 
   const preservedJobOpeningId =
-    (e.job_opening_id == null ? n.job_opening_id ?? null : e.job_opening_id) as string | null;
+    e.job_opening_id == null ? (n.job_opening_id ?? null) : e.job_opening_id;
 
   // 1. Determine existing candidate folder structure
   let existingFolder = extractFolderNameFromPath(e.cv_storage_path as string);
-  
-  let jobFolder = "Job_Opening";
-  const existingPathParts = (e.cv_storage_path as string || "").split("/");
-  if (existingPathParts.length > 1 && existingPathParts[0].includes("_")) {
+  const jobOpeningId = preservedJobOpeningId || "Job_Opening";
+
+  let jobFolder = jobOpeningId;
+  const existingPathParts = ((e.cv_storage_path as string) || "").split("/");
+  if (existingPathParts.length > 1) {
     jobFolder = existingPathParts[0];
-  } else if (preservedJobOpeningId) {
-    const { data: job } = await auth.supabase
-      .from("job_openings")
-      .select("title")
-      .eq("id", preservedJobOpeningId)
-      .maybeSingle();
-    if (job?.title) {
-      jobFolder = `${sanitizeFolderName(job.title)}_${preservedJobOpeningId}`;
-    } else {
-      jobFolder = preservedJobOpeningId;
-    }
   }
 
   const timestamp = getFormattedTimestamp();
@@ -203,10 +193,11 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
     const oldPath = e.cv_storage_path as string;
     if (oldPath) {
-      const oldFilename = e.original_filename as string || "resume.pdf";
+      const oldFilename = (e.original_filename as string) || "resume.pdf";
       const extIdx = oldFilename.lastIndexOf(".");
       const ext = extIdx !== -1 ? oldFilename.substring(extIdx) : ".pdf";
-      const nameWithoutExt = extIdx !== -1 ? oldFilename.substring(0, extIdx) : oldFilename;
+      const nameWithoutExt =
+        extIdx !== -1 ? oldFilename.substring(0, extIdx) : oldFilename;
       const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
       const oldDestFilename = `${sanitizedFilename}_v1_${timestamp}${ext}`;
       const oldDestPath = `${jobFolder}/${existingFolder}/${oldDestFilename}`;
@@ -227,10 +218,11 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
   // 2. Move the newly uploaded file to the existing candidate's folder
   const nextVersion = currentVersion + 1;
-  const newFilenameRaw = n.original_filename as string || "resume.pdf";
+  const newFilenameRaw = (n.original_filename as string) || "resume.pdf";
   const extIdx = newFilenameRaw.lastIndexOf(".");
   const ext = extIdx !== -1 ? newFilenameRaw.substring(extIdx) : ".pdf";
-  const nameWithoutExt = extIdx !== -1 ? newFilenameRaw.substring(0, extIdx) : newFilenameRaw;
+  const nameWithoutExt =
+    extIdx !== -1 ? newFilenameRaw.substring(0, extIdx) : newFilenameRaw;
   const sanitizedFilename = sanitizeFolderName(nameWithoutExt);
   const newDestFilename = `${sanitizedFilename}_v${nextVersion}_${timestamp}${ext}`;
   const newDestPath = `${jobFolder}/${existingFolder}/${newDestFilename}`;
