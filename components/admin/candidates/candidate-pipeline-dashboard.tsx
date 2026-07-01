@@ -42,24 +42,6 @@ function pageWindow(current: number, total: number, width: number) {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 }
 
-function EyeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
 function TrashIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -339,10 +321,14 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                           </Avatar>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <p className="font-semibold text-foreground">
+                              <button
+                                type="button"
+                                className="font-semibold text-foreground cursor-pointer hover:underline underline-offset-2 text-left"
+                                onClick={() => openRow(row)}
+                              >
                                 {row.name}
-                              </p>
-                              {row.hasCvFile ? (
+                              </button>
+                              {/* {row.hasCvFile ? (
                                 <a
                                   href={`/api/admin/candidates/${row.id}/cv-download`}
                                   target="_blank"
@@ -351,7 +337,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                                 >
                                   CV file
                                 </a>
-                              ) : null}
+                              ) : null} */}
                             </div>
                             <p className="text-xs font-medium text-muted">
                               {row.role}
@@ -437,22 +423,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                       </Table.Cell>
                       <Table.Cell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Tooltip delay={0}>
-                            <Button
-                              isIconOnly
-                              variant="ghost"
-                              size="sm"
-                              className="text-accent"
-                              aria-label="View details"
-                              onPress={() => openRow(row)}
-                            >
-                              <EyeIcon className="size-5" />
-                            </Button>
-                            <Tooltip.Content placement="top" showArrow>
-                              <Tooltip.Arrow />
-                              <p>View details</p>
-                            </Tooltip.Content>
-                          </Tooltip>
                           <Tooltip delay={0}>
                             <Button
                               isIconOnly

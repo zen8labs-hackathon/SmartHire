@@ -334,9 +334,10 @@ export function PipelineCandidateEvaluationClient({
   };
 
   const shareUrl = latest && origin ? `${origin}${latest.previewPath}` : "";
+  const cvUrl = `/api/admin/candidates/${candidate.id}/cv-download`;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <Breadcrumbs className="text-xs text-muted">
         <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
         <Breadcrumbs.Item href={`/admin/jd/${jobDescriptionId}/pipeline`}>
@@ -345,14 +346,30 @@ export function PipelineCandidateEvaluationClient({
         <Breadcrumbs.Item>Evaluation</Breadcrumbs.Item>
       </Breadcrumbs>
 
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          {candidate.name}
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Interview evaluation — {jobTitle}
-        </p>
-      </div>
+      <div className="flex gap-6 items-start">
+        {/* Left: CV viewer */}
+        <div className="w-5/12 shrink-0 sticky top-6">
+          <p className="mb-2 text-xs font-medium text-muted uppercase tracking-wide">
+            CV — {candidate.name}
+          </p>
+          <iframe
+            src={cvUrl}
+            title={`CV - ${candidate.name}`}
+            className="w-full rounded-xl border border-divider bg-surface-secondary"
+            style={{ height: "calc(100vh - 120px)" }}
+          />
+        </div>
+
+        {/* Right: Evaluation info */}
+        <div className="flex-1 min-w-0 flex flex-col gap-6">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              {candidate.name}
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              Interview evaluation — {jobTitle}
+            </p>
+          </div>
 
       <Card>
         <Card.Header>
@@ -642,6 +659,8 @@ export function PipelineCandidateEvaluationClient({
           </div>
         </Card.Content>
       </Card>
+        </div>{/* end right panel */}
+      </div>{/* end split row */}
     </div>
   );
 }
