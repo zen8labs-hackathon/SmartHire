@@ -42,6 +42,7 @@ export type CandidatePipelineFilterOption = {
 export type CandidatePipelineFiltersCardProps = {
   query: string;
   setQuery: (value: string) => void;
+  searchPlaceholder?: string;
   statusKey?: Key | null;
   setStatusKey?: (key: Key | null) => void;
   statusFilterOptions?: CandidatePipelineFilterOption[];
@@ -61,6 +62,7 @@ export type CandidatePipelineFiltersCardProps = {
 export function CandidatePipelineFiltersCard({
   query,
   setQuery,
+  searchPlaceholder = "Search by name, role, skill, source, JD, or match…",
   statusKey,
   setStatusKey,
   statusFilterOptions,
@@ -90,7 +92,7 @@ export function CandidatePipelineFiltersCard({
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  placeholder="Search by name, role, skill, source, JD, or match…"
+                  placeholder={searchPlaceholder}
                   className="w-full min-w-0"
                 />
                 <SearchField.ClearButton />

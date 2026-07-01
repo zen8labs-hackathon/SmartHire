@@ -1,16 +1,23 @@
 import { useState, useMemo, useEffect } from "react";
+import { today, getLocalTimeZone } from "@internationalized/date";
 import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 import type { JobDescription } from "@/lib/jd/types";
 
 const ROWS_PER_PAGE = 10;
 
+function defaultStartDateRange(): RangeValue<CalendarDate> {
+  const end = today(getLocalTimeZone());
+  const start = end.subtract({ months: 3 });
+  return { start, end };
+}
+
 export function useJdFiltersState(rows: JobDescription[]) {
   const [page, setPage] = useState(1);
   const [jdListSearch, setJdListSearch] = useState("");
   const [jdListStatusKey, setJdListStatusKey] = useState<string>("all");
   const [jdStartDateRange, setJdStartDateRange] =
-    useState<RangeValue<CalendarDate> | null>(null);
+    useState<RangeValue<CalendarDate> | null>(defaultStartDateRange);
 
   const filteredRows = useMemo(() => {
     const q = jdListSearch.trim().toLowerCase();

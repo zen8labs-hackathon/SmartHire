@@ -205,6 +205,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
       <CandidatePipelineFiltersCard
         query={query}
         setQuery={setQuery}
+        searchPlaceholder="Search by name, position, or skill…"
         uploadDateRangeFilter={uploadDateRangeFilter}
         setUploadDateRangeFilter={setUploadDateRangeFilter}
         calendarFocusedDate={calendarFocusedDate}

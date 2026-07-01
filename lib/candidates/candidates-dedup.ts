@@ -112,6 +112,7 @@ export async function queryDedupedCandidatesList(
       (r) =>
         r.name?.toLowerCase().includes(lower) ||
         r.role?.toLowerCase().includes(lower) ||
+        r.skills?.some((s) => s.toLowerCase().includes(lower)) ||
         r.school?.toLowerCase().includes(lower) ||
         r.degree?.toLowerCase().includes(lower) ||
         r.original_filename?.toLowerCase().includes(lower),
