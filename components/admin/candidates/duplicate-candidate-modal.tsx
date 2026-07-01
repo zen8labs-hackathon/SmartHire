@@ -110,8 +110,19 @@ export function DuplicateCandidateModal({
     setReplaceError(null);
     try {
       await onUpdateProfile(primaryHit.id);
+      onOpenChange(false);
     } catch (e) {
       setReplaceError(e instanceof Error ? e.message : "Update failed");
+    }
+  };
+
+  const handleDiscard = async () => {
+    setReplaceError(null);
+    try {
+      await onDiscard();
+      onOpenChange(false);
+    } catch (e) {
+      setReplaceError(e instanceof Error ? e.message : "Discard failed");
     }
   };
 
@@ -232,7 +243,7 @@ export function DuplicateCandidateModal({
                 <Button
                   variant="tertiary"
                   className="font-semibold text-danger hover:bg-danger/5"
-                  onPress={onDiscard}
+                  onPress={() => void handleDiscard()}
                   isDisabled={isSubmitting}
                 >
                   Discard

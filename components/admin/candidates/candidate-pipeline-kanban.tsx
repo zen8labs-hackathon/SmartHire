@@ -459,7 +459,6 @@ export function CandidatePipelineKanban({ initialRows }: Props) {
       updated?: CandidateDbRow,
       stagedNewId?: string,
     ) => {
-      setAddModalOpen(false);
       if (updated) {
         setDbRows((prev) => {
           const withoutStaging = stagedNewId

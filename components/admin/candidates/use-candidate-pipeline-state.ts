@@ -475,15 +475,23 @@ export function useCandidatePipelineState(
     return mapped.filter((row) => isAllowedJob(row.jobOpeningId));
   }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState, listMode]);
 
+  // Stable reference across re-renders (in "page" mode the option set never
+  // depends on the currently-loaded rows) so consumers like the memoized
+  // filters card don't re-render every time the table data refreshes.
+  const pageModeStatusFilterOptions = useMemo(
+    () => [
+      { id: "all", label: "Status: All" },
+      ...PIPELINE_STATUS_DISPLAY_ORDER.map((status) => ({
+        id: status,
+        label: candidateStatusUiLabel(status),
+      })),
+    ],
+    [],
+  );
+
   const statusFilterOptions = useMemo(() => {
     if (listMode === "page") {
-      return [
-        { id: "all", label: "Status: All" },
-        ...PIPELINE_STATUS_DISPLAY_ORDER.map((status) => ({
-          id: status,
-          label: candidateStatusUiLabel(status),
-        })),
-      ];
+      return pageModeStatusFilterOptions;
     }
     const available = new Set<CandidateStatus>();
     for (const row of tableSourceRows) {
@@ -496,7 +504,7 @@ export function useCandidatePipelineState(
         label: candidateStatusUiLabel(status),
       })),
     ];
-  }, [listMode, tableSourceRows]);
+  }, [listMode, tableSourceRows, pageModeStatusFilterOptions]);
 
   const jdFilterOptions = useMemo(
     () => [{ id: "all", label: "JD: All" }, ...jobOpeningOptions],
@@ -527,11 +535,11 @@ export function useCandidatePipelineState(
     dbLoadState === "ok" &&
     filteredRows.length === 0;
 
-  function openRow(row: CandidateRow) {
+  const openRow = useCallback((row: CandidateRow) => {
     setStatusUpdateError(null);
     setActiveRow(row);
     setDrawerOpen(true);
-  }
+  }, []);
 
   const drawerStatusOptions = useMemo(() => {
     if (!activeRow) return [];

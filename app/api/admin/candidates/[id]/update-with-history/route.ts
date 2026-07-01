@@ -246,16 +246,9 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: upErr.message }, { status: 500 });
   }
 
-  // Overwrite newCandidateId row with the pre-merge snapshot of existingId so
-  // the archived row holds old CV data and can be previewed in version history.
-  await auth.supabase
-    .from("candidates")
-    .update({
-      ...rowUpdateFromCvDetailSnapshot(preImageSnap),
-      cv_storage_path: oldCvPath,
-    })
-    .eq("id", newCandidateId);
-
+  // Overwrite newCandidateId row with the pre-merge snapshot of existingId and
+  // archive it in the same write, so the row holds old CV data (for version
+  // history) and is never briefly visible as a second *active* record.
   const replacedAt = new Date().toISOString();
   const actorRaw = auth.userEmail?.trim() ?? "";
   const replacedByEmail =
@@ -266,6 +259,8 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const { error: archErr } = await auth.supabase
     .from("candidates")
     .update({
+      ...rowUpdateFromCvDetailSnapshot(preImageSnap),
+      cv_storage_path: oldCvPath,
       is_active: false,
       replaced_by_candidate_id: existingId,
       replaced_at: replacedAt,

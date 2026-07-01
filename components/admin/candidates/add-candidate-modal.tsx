@@ -28,6 +28,7 @@ import {
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
 import { DuplicateCandidateModal } from "@/components/admin/candidates/duplicate-candidate-modal";
+import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -53,9 +54,18 @@ type QueueRow = {
 };
 
 type DuplicateFlowState = {
-  newCandidateId: string;
+  /** Null while the flow was triggered by the pre-upload check — no row exists yet. */
+  newCandidateId: string | null;
+  /** Set only for the pre-upload flow: the file to actually upload if the user picks "Update CV". */
+  pendingFile?: File;
   hits: DuplicateCandidateHit[];
   newUpload: DuplicateNewUploadPreview;
+};
+
+type CommitUploadResult = {
+  candidateId: string;
+  duplicateCandidates: DuplicateCandidateHit[];
+  duplicateNewUpload: DuplicateNewUploadPreview | null;
 };
 
 function formatBytes(n: number) {
@@ -166,6 +176,11 @@ export function AddCandidateModal({
     ((outcome: "skip" | "replaced") => void) | null
   >(null);
   const duplicatePayloadRef = useRef<DuplicateFlowState | null>(null);
+  /** Candidate ids currently being merged via "Update CV" — the modal's own
+   * parsing-status realtime effect should not independently trigger a list
+   * refresh for these; `onDuplicateMergedToExisting` already handles it once
+   * the merge finishes, so both firing at once causes double re-renders. */
+  const duplicateMergeIdsRef = useRef<Set<string>>(new Set());
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
   const [jobKey, setJobKey] = useState<string | null>(null);
@@ -203,21 +218,151 @@ export function AddCandidateModal({
     [supabase],
   );
 
-  const finishDuplicate = useCallback((outcome: "skip" | "replaced") => {
+  /** Unmounts the duplicate modal right away so the upload queue/progress
+   * underneath becomes visible while the merge/discard keeps running. */
+  const closeDuplicateModal = useCallback(() => {
+    setDuplicateFlow(null);
+  }, []);
+
+  /** Unblocks whichever `ingestFile` call is awaiting the duplicate-flow
+   * outcome. Modal visibility is handled separately by `closeDuplicateModal`. */
+  const resolveDuplicateFlow = useCallback((outcome: "skip" | "replaced") => {
     if (!duplicateResolveRef.current) return;
     const resolve = duplicateResolveRef.current;
     duplicateResolveRef.current = null;
     duplicatePayloadRef.current = null;
-    setDuplicateFlow(null);
     resolve(outcome);
   }, []);
+
+  /**
+   * Sign-upload → Storage upload → invoke `/process` (AI parse + JD match +
+   * post-parse dedupe safety net). Shared by the normal ingest path and by
+   * "Update CV" when a duplicate was already caught by the pre-upload check
+   * (that flow still needs a real, parsed row to merge from).
+   */
+  const commitUploadAndProcess = useCallback(
+    async (file: File): Promise<CommitUploadResult> => {
+      const auth = await sessionAuthHeaders();
+      if (!auth.Authorization) {
+        throw new Error("Session expired. Sign in again.");
+      }
+      const signRes = await fetch("/api/admin/candidates/sign-upload", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...auth },
+        body: JSON.stringify({
+          jobOpeningId: selectedJobId,
+          filename: file.name,
+          mimeType: file.type || null,
+          source: sourceKey,
+          sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
+        }),
+      });
+      const signJson = (await signRes.json()) as {
+        error?: string;
+        candidateId?: string;
+        path?: string;
+        token?: string;
+      };
+      if (
+        !signRes.ok ||
+        !signJson.candidateId ||
+        !signJson.path ||
+        !signJson.token
+      ) {
+        throw new Error(signJson.error ?? "Could not start upload");
+      }
+      const candidateId = signJson.candidateId;
+      queueIdsRef.current.add(candidateId);
+
+      setQueue((q) => [
+        ...q,
+        {
+          candidateId,
+          filename: file.name,
+          size: file.size,
+          addedAt: Date.now(),
+          uploadPhase: "uploading",
+          parsing_status: "pending",
+        },
+      ]);
+
+      try {
+        const { error: upErr } = await supabase.storage
+          .from(CV_BUCKET)
+          .uploadToSignedUrl(signJson.path, signJson.token, file, {
+            contentType: file.type || undefined,
+          });
+        if (upErr) throw new Error(upErr.message);
+
+        setQueue((q) =>
+          q.map((r) =>
+            r.candidateId === candidateId
+              ? { ...r, uploadPhase: "invoking" as const }
+              : r,
+          ),
+        );
+
+        const procAuth = await sessionAuthHeaders();
+        const procRes = await fetch(
+          `/api/admin/candidates/${candidateId}/process`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { ...procAuth },
+          },
+        );
+        const procJson = (await procRes.json()) as {
+          error?: string;
+          duplicateCandidates?: DuplicateCandidateHit[];
+          duplicateNewUpload?: DuplicateNewUploadPreview | null;
+        };
+        if (!procRes.ok) {
+          throw new Error(procJson.error ?? "Failed to start processing");
+        }
+
+        return {
+          candidateId,
+          duplicateCandidates: procJson.duplicateCandidates ?? [],
+          duplicateNewUpload: procJson.duplicateNewUpload ?? null,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        setQueue((q) =>
+          q.map((r) =>
+            r.candidateId === candidateId
+              ? { ...r, uploadPhase: "error", uploadError: msg }
+              : r,
+          ),
+        );
+        throw e;
+      }
+    },
+    [sessionAuthHeaders, selectedJobId, sourceKey, sourceOther, supabase],
+  );
 
   const runDuplicateUpdateWithHistory = useCallback(
     async (existingCandidateId: string) => {
       const payload = duplicatePayloadRef.current;
       if (!payload) return;
+      // Close right away — the rest runs in the background against the
+      // upload queue, same as a normal upload.
+      closeDuplicateModal();
       setDuplicateSubmitting(true);
+      let newCandidateId = payload.newCandidateId;
       try {
+        if (payload.pendingFile) {
+          const result = await commitUploadAndProcess(payload.pendingFile);
+          newCandidateId = result.candidateId;
+          // Remember the uploaded row so a retry after a failed merge below
+          // reuses it instead of re-uploading the file.
+          payload.newCandidateId = newCandidateId;
+          payload.pendingFile = undefined;
+        }
+        if (!newCandidateId) {
+          throw new Error("Missing uploaded candidate to merge.");
+        }
+        duplicateMergeIdsRef.current.add(newCandidateId);
         const procAuth = await sessionAuthHeaders();
         const repRes = await fetch(
           `/api/admin/candidates/${existingCandidateId}/update-with-history`,
@@ -226,7 +371,7 @@ export function AddCandidateModal({
             credentials: "include",
             headers: { "Content-Type": "application/json", ...procAuth },
             body: JSON.stringify({
-              newCandidateId: payload.newCandidateId,
+              newCandidateId,
               matchedOn: payload.hits[0]?.matchedOn,
             }),
           },
@@ -240,31 +385,47 @@ export function AddCandidateModal({
             repJson.error ?? "Failed to merge duplicate into existing profile",
           );
         }
-        finishDuplicate("replaced");
+        resolveDuplicateFlow("replaced");
         if (onDuplicateMergedToExisting) {
           await onDuplicateMergedToExisting(
             existingCandidateId,
             repJson.candidate,
-            payload.newCandidateId,
+            newCandidateId,
           );
         } else {
           onCandidatesChanged?.();
         }
+      } catch (e) {
+        resolveDuplicateFlow("skip");
+        window.alert(
+          e instanceof Error ? e.message : "Failed to update candidate profile",
+        );
       } finally {
+        if (newCandidateId) duplicateMergeIdsRef.current.delete(newCandidateId);
         setDuplicateSubmitting(false);
       }
     },
     [
       sessionAuthHeaders,
-      finishDuplicate,
+      closeDuplicateModal,
+      resolveDuplicateFlow,
       onCandidatesChanged,
       onDuplicateMergedToExisting,
+      commitUploadAndProcess,
     ],
   );
 
   const runDiscardDuplicate = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
+    if (payload.pendingFile) {
+      // Pre-upload duplicate: nothing was ever persisted (no Storage write,
+      // no candidate row), so discarding is just dropping the in-memory file.
+      closeDuplicateModal();
+      resolveDuplicateFlow("skip");
+      return;
+    }
+    closeDuplicateModal();
     setDuplicateSubmitting(true);
     try {
       const procAuth = await sessionAuthHeaders();
@@ -282,7 +443,7 @@ export function AddCandidateModal({
           delJson.error ?? "Failed to discard new duplicate candidate record",
         );
       }
-      finishDuplicate("skip");
+      resolveDuplicateFlow("skip");
       setQueue((prev) =>
         prev.map((r) =>
           r.candidateId === payload.newCandidateId
@@ -296,11 +457,12 @@ export function AddCandidateModal({
       );
       onCandidatesChanged?.();
     } catch (e) {
+      resolveDuplicateFlow("skip");
       window.alert(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
     } finally {
       setDuplicateSubmitting(false);
     }
-  }, [sessionAuthHeaders, finishDuplicate, onCandidatesChanged]);
+  }, [sessionAuthHeaders, closeDuplicateModal, resolveDuplicateFlow, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();
@@ -362,8 +524,9 @@ export function AddCandidateModal({
             ),
           );
           if (
-            next.parsing_status === "completed" ||
-            next.parsing_status === "failed"
+            (next.parsing_status === "completed" ||
+              next.parsing_status === "failed") &&
+            !duplicateMergeIdsRef.current.has(id)
           ) {
             onCandidatesChanged?.();
           }
@@ -400,102 +563,78 @@ export function AddCandidateModal({
       return;
     }
 
-    let candidateId = "";
+    // Client-side pre-check: parse text + hash + regex-extract contact, then
+    // ask the server for duplicates, all before this file touches Storage or
+    // costs an AI call. Best-effort — any failure here just falls through to
+    // the normal upload pipeline, whose post-parse dedupe is the safety net.
+    let preCheckHits: DuplicateCandidateHit[] = [];
+    let preCheckNewUpload: DuplicateNewUploadPreview | null = null;
     try {
+      const signals = await extractCvSignalsClientSide(file);
       const auth = await sessionAuthHeaders();
-      if (!auth.Authorization) {
-        window.alert("Session expired. Sign in again.");
-        return;
-      }
-      const signRes = await fetch("/api/admin/candidates/sign-upload", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...auth },
-        body: JSON.stringify({
-          jobOpeningId: selectedJobId,
-          filename: file.name,
-          mimeType: file.type || null,
-          source: sourceKey,
-          sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-        }),
-      });
-      const signJson = (await signRes.json()) as {
-        error?: string;
-        candidateId?: string;
-        path?: string;
-        token?: string;
-      };
-      if (
-        !signRes.ok ||
-        !signJson.candidateId ||
-        !signJson.path ||
-        !signJson.token
-      ) {
-        throw new Error(signJson.error ?? "Could not start upload");
-      }
-      candidateId = signJson.candidateId;
-      queueIdsRef.current.add(candidateId);
-
-      setQueue((q) => [
-        ...q,
-        {
-          candidateId,
-          filename: file.name,
-          size: file.size,
-          addedAt: Date.now(),
-          uploadPhase: "uploading",
-          parsing_status: "pending",
-        },
-      ]);
-
-      const { error: upErr } = await supabase.storage
-        .from(CV_BUCKET)
-        .uploadToSignedUrl(signJson.path, signJson.token, file, {
-          contentType: file.type || undefined,
-        });
-
-      if (upErr) {
-        throw new Error(upErr.message);
-      }
-
-      setQueue((q) =>
-        q.map((r) =>
-          r.candidateId === candidateId
-            ? { ...r, uploadPhase: "invoking" as const }
-            : r,
-        ),
-      );
-
-      const procAuth = await sessionAuthHeaders();
-      const procRes = await fetch(
-        `/api/admin/candidates/${candidateId}/process`,
-        {
+      if (auth.Authorization) {
+        const preRes = await fetch("/api/admin/candidates/check-duplicate", {
           method: "POST",
           credentials: "include",
-          headers: { ...procAuth },
-        },
-      );
-      const procJson = (await procRes.json()) as {
-        error?: string;
-        duplicateCandidates?: DuplicateCandidateHit[];
-        duplicateNewUpload?: DuplicateNewUploadPreview | null;
-      };
-      if (!procRes.ok) {
-        throw new Error(procJson.error ?? "Failed to start processing");
+          headers: { "Content-Type": "application/json", ...auth },
+          body: JSON.stringify({
+            jobOpeningId: selectedJobId,
+            cvFileSha256: signals.cvFileSha256,
+            cvContentSha256: signals.cvContentSha256,
+            email: signals.email,
+            phone: signals.phone,
+          }),
+        });
+        if (preRes.ok) {
+          const preJson = (await preRes.json()) as {
+            duplicateCandidates?: DuplicateCandidateHit[];
+            duplicateNewUpload?: DuplicateNewUploadPreview | null;
+          };
+          preCheckHits = preJson.duplicateCandidates ?? [];
+          preCheckNewUpload = preJson.duplicateNewUpload ?? null;
+        }
       }
+    } catch {
+      preCheckHits = [];
+      preCheckNewUpload = null;
+    }
 
-      const duplicates = procJson.duplicateCandidates ?? [];
-      if (duplicates.length > 0) {
+    if (preCheckHits.length > 0) {
+      const newUpload: DuplicateNewUploadPreview = preCheckNewUpload ?? {
+        email: null,
+        phone: null,
+        parsedRole: null,
+        cvUploadedAt: null,
+      };
+      const flow: DuplicateFlowState = {
+        newCandidateId: null,
+        pendingFile: file,
+        hits: preCheckHits,
+        newUpload,
+      };
+      duplicatePayloadRef.current = flow;
+      const outcome = await new Promise<"skip" | "replaced">((resolve) => {
+        duplicateResolveRef.current = resolve;
+        setDuplicateFlow(flow);
+      });
+      if (outcome === "replaced") onCandidatesChanged?.();
+      return;
+    }
+
+    try {
+      const result = await commitUploadAndProcess(file);
+
+      if (result.duplicateCandidates.length > 0) {
         const newUpload: DuplicateNewUploadPreview =
-          procJson.duplicateNewUpload ?? {
+          result.duplicateNewUpload ?? {
             email: null,
             phone: null,
             parsedRole: null,
             cvUploadedAt: null,
           };
         const flow: DuplicateFlowState = {
-          newCandidateId: candidateId,
-          hits: duplicates,
+          newCandidateId: result.candidateId,
+          hits: result.duplicateCandidates,
           newUpload,
         };
         duplicatePayloadRef.current = flow;
@@ -507,7 +646,7 @@ export function AddCandidateModal({
 
       setQueue((q) =>
         q.map((r) =>
-          r.candidateId === candidateId
+          r.candidateId === result.candidateId
             ? { ...r, uploadPhase: "uploaded" as const }
             : r,
         ),
@@ -515,18 +654,7 @@ export function AddCandidateModal({
       onCandidatesChanged?.();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      if (candidateId) {
-        queueIdsRef.current.add(candidateId);
-        setQueue((q) =>
-          q.map((r) =>
-            r.candidateId === candidateId
-              ? { ...r, uploadPhase: "error", uploadError: msg }
-              : r,
-          ),
-        );
-      } else {
-        window.alert(msg);
-      }
+      window.alert(msg);
     }
   };
 
@@ -869,7 +997,10 @@ export function AddCandidateModal({
       </Modal>
       {duplicateFlow ? (
         <DuplicateCandidateModal
-          key={`${duplicateFlow.newCandidateId}`}
+          key={
+            duplicateFlow.newCandidateId ??
+            `pre-${duplicateFlow.pendingFile?.name}-${duplicateFlow.pendingFile?.lastModified}`
+          }
           open
           onOpenChange={() => {}}
           hits={duplicateFlow.hits}

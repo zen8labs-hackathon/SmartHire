@@ -2,7 +2,7 @@
 
 import type { CalendarDate } from "@internationalized/date";
 import type { Key } from "@heroui/react";
-import type { Dispatch, SetStateAction } from "react";
+import { memo, type Dispatch, type SetStateAction } from "react";
 import {
   Button,
   Card,
@@ -59,7 +59,7 @@ export type CandidatePipelineFiltersCardProps = {
   calendarIdsSuffix?: string;
 };
 
-export function CandidatePipelineFiltersCard({
+function CandidatePipelineFiltersCardImpl({
   query,
   setQuery,
   searchPlaceholder = "Search by name, role, skill, source, JD, or match…",
@@ -283,3 +283,5 @@ export function CandidatePipelineFiltersCard({
     </Card>
   );
 }
+
+export const CandidatePipelineFiltersCard = memo(CandidatePipelineFiltersCardImpl);
