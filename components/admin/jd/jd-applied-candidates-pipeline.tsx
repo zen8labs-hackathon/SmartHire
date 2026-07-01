@@ -8,16 +8,22 @@ import {
   Button,
   Card,
   Chip,
+  DateField,
+  DateRangePicker,
   Input,
   Label,
   ListBox,
   Modal,
   Pagination,
+  RangeCalendar,
   SearchField,
   Select,
   Table,
   useOverlayState,
 } from "@heroui/react";
+import { today, getLocalTimeZone, type CalendarDate } from "@internationalized/date";
+import { Dialog } from "react-aria-components";
+import type { RangeValue } from "react-aria-components";
 
 import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 import {
@@ -44,6 +50,14 @@ import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
+
+const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 1, label: "Jan" }, { value: 2, label: "Feb" }, { value: 3, label: "Mar" },
+  { value: 4, label: "Apr" }, { value: 5, label: "May" }, { value: 6, label: "Jun" },
+  { value: 7, label: "Jul" }, { value: 8, label: "Aug" }, { value: 9, label: "Sep" },
+  { value: 10, label: "Oct" }, { value: 11, label: "Nov" }, { value: 12, label: "Dec" },
+];
+const YEAR_OPTIONS = Array.from({ length: 2030 - 1990 + 1 }, (_, i) => 1990 + i);
 
 const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All statuses" },
@@ -103,26 +117,29 @@ function cvDay(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
-function rowMatchesUploadRange(
+function rowMatchesUploadDateRange(
   r: CandidateDbRow,
-  from: string,
-  to: string,
+  range: RangeValue<CalendarDate> | null,
 ): boolean {
+  if (!range) return true;
   const day = cvDay(r.cv_uploaded_at ?? r.created_at);
-  if (!day) return !from && !to;
-  if (from && day < from) return false;
-  if (to && day > to) return false;
+  if (!day) return false;
+  if (day < range.start.toString()) return false;
+  if (day > range.end.toString()) return false;
   return true;
 }
 
 function rowMatchesSearch(r: CandidateDbRow, q: string): boolean {
   if (!q.trim()) return true;
+  const lower = q.trim().toLowerCase();
   const c = displayFromParsedPayload(r.parsed_payload);
-  const hay = [r.name, r.original_filename, c.email, c.phone]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return hay.includes(q.trim().toLowerCase());
+  return (
+    (r.name?.toLowerCase().includes(lower) ?? false) ||
+    (r.role?.toLowerCase().includes(lower) ?? false) ||
+    (r.skills?.some((s) => s.toLowerCase().includes(lower)) ?? false) ||
+    (c.email?.toLowerCase().includes(lower) ?? false) ||
+    (c.phone?.toLowerCase().includes(lower) ?? false)
+  );
 }
 
 export function JdAppliedCandidatesPipeline({
@@ -183,8 +200,10 @@ export function JdAppliedCandidatesPipeline({
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [uploadFrom, setUploadFrom] = useState("");
-  const [uploadTo, setUploadTo] = useState("");
+  const [uploadDateRange, setUploadDateRange] = useState<RangeValue<CalendarDate> | null>(null);
+  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
+    today(getLocalTimeZone()),
+  );
 
   const [page, setPage] = useState(1);
 
@@ -213,14 +232,34 @@ export function JdAppliedCandidatesPipeline({
 
   useEffect(() => {
     setPage(1);
-  }, [query, statusFilter, uploadFrom, uploadTo]);
+  }, [query, statusFilter, uploadDateRange]);
+
+  useEffect(() => {
+    if (uploadDateRange?.start) {
+      setCalendarFocusedDate(uploadDateRange.start);
+    }
+  }, [uploadDateRange]);
+
+  const filteredRows = useMemo(() => {
+    let rows = [...dbRows];
+    rows.sort((a, b) => uploadSortKey(b) - uploadSortKey(a));
+
+    const q = query.trim();
+    const sf = statusFilter;
+    rows = rows.filter((r) => rowMatchesSearch(r, q));
+    rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
+    if (sf !== "all") {
+      rows = rows.filter((r) => r.status === sf);
+    }
+    return rows;
+  }, [dbRows, query, statusFilter, uploadDateRange]);
 
   const statusCounts = useMemo(() => {
     let newPool = 0;
     let interviewing = 0;
     let offer = 0;
     let matched = 0;
-    for (const r of dbRows) {
+    for (const r of filteredRows) {
       const st = tableStatusRow(r).status;
       const phase = candidateStatusMajorPhase(st);
       if (phase === "cv_scan") newPool += 1;
@@ -231,21 +270,7 @@ export function JdAppliedCandidatesPipeline({
       }
     }
     return { newPool, interviewing, offer, matched };
-  }, [dbRows]);
-
-  const filteredRows = useMemo(() => {
-    let rows = [...dbRows];
-    rows.sort((a, b) => uploadSortKey(b) - uploadSortKey(a));
-
-    const q = query.trim();
-    const sf = statusFilter;
-    rows = rows.filter((r) => rowMatchesSearch(r, q));
-    rows = rows.filter((r) => rowMatchesUploadRange(r, uploadFrom, uploadTo));
-    if (sf !== "all") {
-      rows = rows.filter((r) => r.status === sf);
-    }
-    return rows;
-  }, [dbRows, query, statusFilter, uploadFrom, uploadTo]);
+  }, [filteredRows]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -523,41 +548,6 @@ export function JdAppliedCandidatesPipeline({
         <p className="text-sm text-danger">{pipelineError}</p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.newPool}
-            </Card.Title>
-            <Card.Description>CV Scan</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.interviewing}
-            </Card.Title>
-            <Card.Description>Interview</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.offer}
-            </Card.Title>
-            <Card.Description>Offer</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.matched}
-            </Card.Title>
-            <Card.Description>Matched</Card.Description>
-          </Card.Header>
-        </Card>
-      </div>
-
       <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary/30 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
           <SearchField
@@ -568,7 +558,7 @@ export function JdAppliedCandidatesPipeline({
             <SearchField.Group className="w-full">
               <SearchField.SearchIcon />
               <SearchField.Input
-                placeholder="Search name, email, phone…"
+                placeholder="Search by name, position, or skill…"
                 className="w-full min-w-0"
               />
               <SearchField.ClearButton />
@@ -618,33 +608,106 @@ export function JdAppliedCandidatesPipeline({
               </ListBox>
             </Select.Popover>
           </Select>
-          <div className="w-full min-w-0 rounded-xl border border-divider bg-surface-secondary/50 px-4 py-3 lg:w-auto lg:max-w-md">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">
-              CV upload date
-            </p>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Label className="text-sm font-medium text-foreground">
-                  From
-                </Label>
-                <Input
-                  type="date"
-                  value={uploadFrom}
-                  onChange={(e) => setUploadFrom(e.target.value)}
-                  className="w-full min-w-0 sm:w-[12rem]"
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Label className="text-sm font-medium text-foreground">
-                  To
-                </Label>
-                <Input
-                  type="date"
-                  value={uploadTo}
-                  onChange={(e) => setUploadTo(e.target.value)}
-                  className="w-full min-w-0 sm:w-[12rem]"
-                />
-              </div>
+          <div className="flex shrink-0 flex-col gap-1">
+            <Label className="block text-left text-xs font-medium text-muted">
+              Filter by upload date
+            </Label>
+            <div className="flex items-center gap-2">
+              <DateRangePicker
+                value={uploadDateRange as any}
+                onChange={(next) => setUploadDateRange(next as any)}
+                className="w-full min-w-[16rem]"
+              >
+                <DateField.Group
+                  fullWidth
+                  variant="primary"
+                  className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                >
+                  <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                    <DateField.Input slot="start">
+                      {(segment) => <DateField.Segment segment={segment} />}
+                    </DateField.Input>
+                    <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-neutral-500 dark:text-neutral-400" />
+                    <DateField.Input slot="end">
+                      {(segment) => <DateField.Segment segment={segment} />}
+                    </DateField.Input>
+                  </DateField.InputContainer>
+                  <DateField.Suffix>
+                    <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                      <DateRangePicker.TriggerIndicator />
+                    </DateRangePicker.Trigger>
+                  </DateField.Suffix>
+                </DateField.Group>
+                <DateRangePicker.Popover>
+                  <Dialog className="outline-none">
+                    <RangeCalendar
+                      focusedValue={calendarFocusedDate as any}
+                      onFocusChange={(next) => setCalendarFocusedDate(next as any)}
+                    >
+                      <RangeCalendar.Header className="flex items-center gap-2">
+                        <RangeCalendar.NavButton slot="previous" />
+                        <div className="flex flex-1 items-center gap-2">
+                          <Label className="sr-only" htmlFor="jd-cal-month">Month</Label>
+                          <select
+                            id="jd-cal-month"
+                            value={calendarFocusedDate.month}
+                            onChange={(e) =>
+                              setCalendarFocusedDate((p) => p.set({ month: Number(e.target.value), day: 1 }))
+                            }
+                            className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
+                          >
+                            {MONTH_OPTIONS.map((m) => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                          <Label className="sr-only" htmlFor="jd-cal-year">Year</Label>
+                          <select
+                            id="jd-cal-year"
+                            value={calendarFocusedDate.year}
+                            onChange={(e) =>
+                              setCalendarFocusedDate((p) => p.set({ year: Number(e.target.value), day: 1 }))
+                            }
+                            className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
+                          >
+                            {YEAR_OPTIONS.map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <RangeCalendar.NavButton slot="next" />
+                      </RangeCalendar.Header>
+                      <RangeCalendar.Grid weekdayStyle="short">
+                        <RangeCalendar.GridHeader>
+                          {(day) => <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>}
+                        </RangeCalendar.GridHeader>
+                        <RangeCalendar.GridBody>
+                          {(date) => (
+                            <RangeCalendar.Cell date={date}>
+                              {({ formattedDate }) => (
+                                <>
+                                  <RangeCalendar.CellIndicator />
+                                  <span className="relative z-[1]">{formattedDate}</span>
+                                </>
+                              )}
+                            </RangeCalendar.Cell>
+                          )}
+                        </RangeCalendar.GridBody>
+                      </RangeCalendar.Grid>
+                    </RangeCalendar>
+                  </Dialog>
+                </DateRangePicker.Popover>
+              </DateRangePicker>
+              {uploadDateRange ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-w-0 px-2 font-semibold text-muted"
+                  aria-label="Clear date filter"
+                  onPress={() => setUploadDateRange(null)}
+                >
+                  Clear
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -686,6 +749,49 @@ export function JdAppliedCandidatesPipeline({
             </Button>
           </div>
         ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Card variant="secondary">
+          <Card.Header className="gap-0.5">
+            <Card.Title className="text-2xl font-semibold tabular-nums">
+              {filteredRows.length}
+            </Card.Title>
+            <Card.Description>Total CV</Card.Description>
+          </Card.Header>
+        </Card>
+        <Card variant="secondary">
+          <Card.Header className="gap-0.5">
+            <Card.Title className="text-2xl font-semibold tabular-nums">
+              {statusCounts.newPool}
+            </Card.Title>
+            <Card.Description>CV Scan</Card.Description>
+          </Card.Header>
+        </Card>
+        <Card variant="secondary">
+          <Card.Header className="gap-0.5">
+            <Card.Title className="text-2xl font-semibold tabular-nums">
+              {statusCounts.interviewing}
+            </Card.Title>
+            <Card.Description>Interview</Card.Description>
+          </Card.Header>
+        </Card>
+        <Card variant="secondary">
+          <Card.Header className="gap-0.5">
+            <Card.Title className="text-2xl font-semibold tabular-nums">
+              {statusCounts.offer}
+            </Card.Title>
+            <Card.Description>Offer</Card.Description>
+          </Card.Header>
+        </Card>
+        <Card variant="secondary">
+          <Card.Header className="gap-0.5">
+            <Card.Title className="text-2xl font-semibold tabular-nums">
+              {statusCounts.matched}
+            </Card.Title>
+            <Card.Description>Matched</Card.Description>
+          </Card.Header>
+        </Card>
       </div>
 
       <Table>
@@ -749,7 +855,7 @@ export function JdAppliedCandidatesPipeline({
                             >
                               {row.name}
                             </Link>
-                            {row.hasCvFile ? (
+                            {/* {row.hasCvFile ? (
                               <a
                                 href={`/api/admin/candidates/${r.id}/cv-download`}
                                 target="_blank"
@@ -758,7 +864,7 @@ export function JdAppliedCandidatesPipeline({
                               >
                                 CV file
                               </a>
-                            ) : null}
+                            ) : null} */}
                           </div>
                           <p className="text-xs font-medium text-muted">
                             {row.role}

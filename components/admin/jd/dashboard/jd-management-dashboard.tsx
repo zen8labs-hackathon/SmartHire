@@ -28,8 +28,8 @@ export function JdManagementDashboard({
     >
       <div className="flex flex-col gap-8">
         <JdHeader />
-        <JdStats />
         <JdFilters />
+        <JdStats />
         <JdTable />
 
         {/* Modals & Drawer */}

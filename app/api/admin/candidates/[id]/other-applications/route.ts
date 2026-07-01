@@ -11,6 +11,7 @@ export type OtherApplicationItem = {
   id: string;
   cvDownloadUrl: string;
   jobTitle: string;
+  jobDescriptionId: number | null;
   cvUploadedAt: string | null;
   name: string | null;
 };
@@ -38,10 +39,23 @@ function jobTitleFromRaw(jo: unknown): string {
   return "—";
 }
 
+function jobDescriptionIdFromRaw(jo: unknown): number | null {
+  if (!jo || typeof jo !== "object") return null;
+  const j = jo as Record<string, unknown>;
+  const jds = j.job_descriptions;
+  const firstJd = Array.isArray(jds) ? jds[0] : jds;
+  if (firstJd && typeof firstJd === "object") {
+    const id = (firstJd as Record<string, unknown>).id;
+    if (typeof id === "number") return id;
+    if (typeof id === "string") { const n = Number(id); return Number.isFinite(n) ? n : null; }
+  }
+  return null;
+}
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 const CV_FIELDS =
-  "id, name, parsed_payload, cv_uploaded_at, cv_storage_path, job_openings!job_opening_id ( id, title, job_descriptions ( position ) )";
+  "id, name, parsed_payload, cv_uploaded_at, cv_storage_path, job_openings!job_opening_id ( id, title, job_descriptions ( id, position ) )";
 
 /**
  * Returns other active candidate rows that share the same email or phone
@@ -118,6 +132,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       id: String(row.id),
       cvDownloadUrl: `${baseUrl}/api/admin/candidates/${String(row.id)}/cv-download`,
       jobTitle: jobTitleFromRaw(row.job_openings),
+      jobDescriptionId: jobDescriptionIdFromRaw(row.job_openings),
       cvUploadedAt:
         typeof row.cv_uploaded_at === "string" ? row.cv_uploaded_at : null,
       name: typeof row.name === "string" ? row.name : null,

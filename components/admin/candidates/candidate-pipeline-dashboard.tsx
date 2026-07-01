@@ -27,10 +27,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
     setPage,
     query,
     setQuery,
-    statusKey,
-    setStatusKey,
-    jdFilterKey,
-    setJdFilterKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -58,8 +54,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
     refreshCvHistoryForCandidate,
     dbLoadState,
     fetchCandidates,
-    statusFilterOptions,
-    jdFilterOptions,
     filteredRows,
     listTotal,
     listPageSize,
@@ -73,6 +67,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
   } = useCandidatePipelineState(initialRows, {
     listMode: "page",
     initialListTotal,
+    deduped: true,
   });
 
   const refreshCvDetailAfterMutation = useCallback(async () => {
@@ -174,12 +169,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
       <CandidatePipelineFiltersCard
         query={query}
         setQuery={setQuery}
-        statusKey={statusKey}
-        setStatusKey={setStatusKey}
-        statusFilterOptions={statusFilterOptions}
-        jdFilterKey={jdFilterKey}
-        setJdFilterKey={setJdFilterKey}
-        jdFilterOptions={jdFilterOptions}
+        searchPlaceholder="Search by name, position, or skill…"
         uploadDateRangeFilter={uploadDateRangeFilter}
         setUploadDateRangeFilter={setUploadDateRangeFilter}
         calendarFocusedDate={calendarFocusedDate}

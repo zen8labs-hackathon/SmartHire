@@ -42,12 +42,13 @@ export type CandidatePipelineFilterOption = {
 export type CandidatePipelineFiltersCardProps = {
   query: string;
   setQuery: (value: string) => void;
-  statusKey: Key | null;
-  setStatusKey: (key: Key | null) => void;
-  statusFilterOptions: CandidatePipelineFilterOption[];
-  jdFilterKey: Key | null;
-  setJdFilterKey: (key: Key | null) => void;
-  jdFilterOptions: CandidatePipelineFilterOption[];
+  searchPlaceholder?: string;
+  statusKey?: Key | null;
+  setStatusKey?: (key: Key | null) => void;
+  statusFilterOptions?: CandidatePipelineFilterOption[];
+  jdFilterKey?: Key | null;
+  setJdFilterKey?: (key: Key | null) => void;
+  jdFilterOptions?: CandidatePipelineFilterOption[];
   uploadDateRangeFilter: RangeValue<CalendarDate> | null;
   setUploadDateRangeFilter: (value: RangeValue<CalendarDate> | null) => void;
   calendarFocusedDate: CalendarDate;
@@ -61,6 +62,7 @@ export type CandidatePipelineFiltersCardProps = {
 function CandidatePipelineFiltersCardImpl({
   query,
   setQuery,
+  searchPlaceholder = "Search by name, role, skill, source, JD, or match…",
   statusKey,
   setStatusKey,
   statusFilterOptions,
@@ -90,60 +92,64 @@ function CandidatePipelineFiltersCardImpl({
               <SearchField.Group className="w-full">
                 <SearchField.SearchIcon />
                 <SearchField.Input
-                  placeholder="Search by name, role, skill, source, JD, or match…"
+                  placeholder={searchPlaceholder}
                   className="w-full min-w-0"
                 />
                 <SearchField.ClearButton />
               </SearchField.Group>
             </SearchField>
 
-            <Select
-              value={statusKey}
-              onChange={(key) => {
-                setStatusKey(key);
-                onFiltersAdjusted?.();
-              }}
-            >
-              <Label className="sr-only">Status</Label>
-              <Select.Trigger className="min-w-[160px]">
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  {statusFilterOptions.map((opt) => (
-                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                      {opt.label}
-                      <ListBox.ItemIndicator />
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </Select.Popover>
-            </Select>
+            {statusFilterOptions && setStatusKey ? (
+              <Select
+                value={statusKey ?? null}
+                onChange={(key) => {
+                  setStatusKey(key);
+                  onFiltersAdjusted?.();
+                }}
+              >
+                <Label className="sr-only">Status</Label>
+                <Select.Trigger className="min-w-[160px]">
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    {statusFilterOptions.map((opt) => (
+                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                        {opt.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+            ) : null}
 
-            <Select
-              value={jdFilterKey}
-              onChange={(key) => {
-                setJdFilterKey(key);
-                onFiltersAdjusted?.();
-              }}
-            >
-              <Label className="sr-only">Job description</Label>
-              <Select.Trigger className="min-w-[200px]">
-                <Select.Value />
-                <Select.Indicator />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  {jdFilterOptions.map((opt) => (
-                    <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                      {opt.label}
-                      <ListBox.ItemIndicator />
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </Select.Popover>
-            </Select>
+            {jdFilterOptions && setJdFilterKey ? (
+              <Select
+                value={jdFilterKey ?? null}
+                onChange={(key) => {
+                  setJdFilterKey(key);
+                  onFiltersAdjusted?.();
+                }}
+              >
+                <Label className="sr-only">Job description</Label>
+                <Select.Trigger className="min-w-[200px]">
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    {jdFilterOptions.map((opt) => (
+                      <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
+                        {opt.label}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+            ) : null}
           </div>
 
           <div className="ml-auto flex shrink-0 flex-col gap-1 self-end">

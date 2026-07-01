@@ -17,7 +17,7 @@ export type JobOpeningEmbed = {
   id: string;
   title: string;
   created_at?: string | null;
-  job_descriptions: { position: string } | { position: string }[] | null;
+  job_descriptions: { id?: number; position: string } | { id?: number; position: string }[] | null;
 };
 
 export type CandidateDbRow = {
