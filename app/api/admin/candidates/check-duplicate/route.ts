@@ -67,18 +67,12 @@ export async function POST(request: Request) {
     return Response.json({ duplicateCandidates: [], duplicateNewUpload: null });
   }
 
-  let queryBuilder = auth.supabase
+  const { data: others, error: othersErr } = await auth.supabase
     .from("candidates")
     .select(
       "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
     )
     .eq("is_active", true);
-
-  queryBuilder = signals.jobOpeningId
-    ? queryBuilder.eq("job_opening_id", signals.jobOpeningId)
-    : queryBuilder.is("job_opening_id", null);
-
-  const { data: others, error: othersErr } = await queryBuilder;
   if (othersErr) {
     return Response.json({ error: othersErr.message }, { status: 500 });
   }

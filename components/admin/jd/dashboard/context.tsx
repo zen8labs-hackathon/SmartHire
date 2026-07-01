@@ -3,7 +3,12 @@ import { useOverlayState } from "@heroui/react";
 import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 
-import type { JobDescription, JobDescriptionFormData, JdEditFormData, JdStatus } from "@/lib/jd/types";
+import type {
+  JobDescription,
+  JobDescriptionFormData,
+  JdEditFormData,
+  JdStatus,
+} from "@/lib/jd/types";
 
 // Hooks
 import { useJdListState } from "./hooks/use-jd-list-state";
@@ -15,7 +20,12 @@ import { useJdDrawerState } from "./hooks/use-jd-drawer-state";
 export interface JdDashboardContextValue {
   canManageJds: boolean;
   chapters: readonly { id: string; name: string }[];
-  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[];
+  allPipelineStages: readonly {
+    id: string;
+    label: string;
+    code: string;
+    color: string;
+  }[];
 
   // Data state
   rows: JobDescription[];
@@ -66,7 +76,10 @@ export interface JdDashboardContextValue {
 
   // Create Modal / Form
   form: JobDescriptionFormData;
-  setField: <K extends keyof JobDescriptionFormData>(key: K, value: JobDescriptionFormData[K]) => void;
+  setField: <K extends keyof JobDescriptionFormData>(
+    key: K,
+    value: JobDescriptionFormData[K],
+  ) => void;
   formSubmitting: boolean;
   formError: string | null;
   createFieldErrors: { start_date?: string; hiring_deadline?: string };
@@ -89,7 +102,10 @@ export interface JdDashboardContextValue {
   // Edit Modal / Form
   editIntakeRow: JobDescription | null;
   editForm: JdEditFormData;
-  setEditField: <K extends keyof JdEditFormData>(key: K, value: JdEditFormData[K]) => void;
+  setEditField: <K extends keyof JdEditFormData>(
+    key: K,
+    value: JdEditFormData[K],
+  ) => void;
   editSubmitting: boolean;
   editError: string | null;
   editUploadPhase: "idle" | "uploading" | "extracting" | "done" | "error";
@@ -124,7 +140,12 @@ export function useJdDashboard() {
 interface JdDashboardProviderProps {
   canManageJds: boolean;
   chapters: readonly { id: string; name: string }[];
-  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[];
+  allPipelineStages: readonly {
+    id: string;
+    label: string;
+    code: string;
+    color: string;
+  }[];
   children: ReactNode;
 }
 
@@ -136,7 +157,10 @@ export function JdDashboardProvider({
 }: JdDashboardProviderProps) {
   const listState = useJdListState();
   const filtersState = useJdFiltersState(listState.rows);
-  const createState = useJdCreateState(listState.loadDescriptions, allPipelineStages);
+  const createState = useJdCreateState(
+    listState.loadDescriptions,
+    allPipelineStages,
+  );
   const editState = useJdEditState(listState.loadDescriptions);
   const drawerState = useJdDrawerState(canManageJds);
 
@@ -145,11 +169,17 @@ export function JdDashboardProvider({
     async (id: number, next: JdStatus) => {
       await listState.updateJdStatus(id, next, (normalized) => {
         if (drawerState.activeRow?.id === id) {
-          drawerState.setActiveRow((ar) => (ar ? { ...ar, ...normalized } : null));
+          drawerState.setActiveRow((ar) =>
+            ar ? { ...ar, ...normalized } : null,
+          );
         }
       });
     },
-    [listState.updateJdStatus, drawerState.activeRow?.id, drawerState.setActiveRow]
+    [
+      listState.updateJdStatus,
+      drawerState.activeRow?.id,
+      drawerState.setActiveRow,
+    ],
   );
 
   // Gluing deletes to active drawer item and modal triggers
@@ -160,7 +190,13 @@ export function JdDashboardProvider({
         drawerState.setDrawerOpen(false);
       }
     });
-  }, [listState.confirmDelete, listState.deletingId, drawerState.activeRow?.id, drawerState.setActiveRow, drawerState.setDrawerOpen]);
+  }, [
+    listState.confirmDelete,
+    listState.deletingId,
+    drawerState.activeRow?.id,
+    drawerState.setActiveRow,
+    drawerState.setDrawerOpen,
+  ]);
 
   return (
     <JdDashboardContext.Provider

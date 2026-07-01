@@ -197,21 +197,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       currentRow as Record<string, unknown>,
     );
     if (shouldFetchCandidatesForDedupe(currentDedupe)) {
-      let queryBuilder = auth.supabase
+      const { data: others, error: othersErr } = await auth.supabase
         .from("candidates")
         .select(
           "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
         )
         .eq("is_active", true)
         .neq("id", candidateId);
-
-      if (currentDedupe.job_opening_id) {
-        queryBuilder = queryBuilder.eq("job_opening_id", currentDedupe.job_opening_id);
-      } else {
-        queryBuilder = queryBuilder.is("job_opening_id", null);
-      }
-
-      const { data: others, error: othersErr } = await queryBuilder;
       if (!othersErr && others) {
         duplicateCandidates = findDuplicateCandidateHits(
           currentDedupe,

@@ -16,18 +16,29 @@ function dash(v: string | null | undefined): string {
 }
 
 function norm(s: string | null | undefined): string {
-  return String(s ?? "").trim().toLowerCase();
+  return String(s ?? "")
+    .trim()
+    .toLowerCase();
 }
 
-function roleDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+function roleDiff(
+  hit: DuplicateCandidateHit,
+  newUpload: DuplicateNewUploadPreview,
+): boolean {
   return norm(hit.parsedRole) !== norm(newUpload.parsedRole);
 }
 
-function emailDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+function emailDiff(
+  hit: DuplicateCandidateHit,
+  newUpload: DuplicateNewUploadPreview,
+): boolean {
   return norm(hit.email) !== norm(newUpload.email);
 }
 
-function phoneDiff(hit: DuplicateCandidateHit, newUpload: DuplicateNewUploadPreview): boolean {
+function phoneDiff(
+  hit: DuplicateCandidateHit,
+  newUpload: DuplicateNewUploadPreview,
+): boolean {
   return norm(hit.phone) !== norm(newUpload.phone);
 }
 
@@ -75,7 +86,8 @@ export type DuplicateCandidateModalProps = {
   newUpload: DuplicateNewUploadPreview;
   currentJobTitle: string;
   isSubmitting: boolean;
-  onUpdateProfile: (existingCandidateId: string) => Promise<void>;
+  willMergeIntoExisting: boolean;
+  onUpdateProfile: () => Promise<void>;
   onDiscard: () => Promise<void>;
 };
 
@@ -86,6 +98,7 @@ export function DuplicateCandidateModal({
   newUpload,
   currentJobTitle,
   isSubmitting,
+  willMergeIntoExisting,
   onUpdateProfile,
   onDiscard,
 }: DuplicateCandidateModalProps) {
@@ -106,10 +119,9 @@ export function DuplicateCandidateModal({
   const dPhone = primaryHit ? phoneDiff(primaryHit, newUpload) : false;
 
   const handleUpdate = async () => {
-    if (!primaryHit) return;
     setReplaceError(null);
     try {
-      await onUpdateProfile(primaryHit.id);
+      await onUpdateProfile();
       onOpenChange(false);
     } catch (e) {
       setReplaceError(e instanceof Error ? e.message : "Update failed");
@@ -194,7 +206,10 @@ export function DuplicateCandidateModal({
                     {currentJobTitle}
                   </p>
                   <p className="text-xs text-muted mt-0.5">
-                    Expected role: <DiffNew changed={dRole}>{dash(newUpload.parsedRole)}</DiffNew>
+                    Expected role:{" "}
+                    <DiffNew changed={dRole}>
+                      {dash(newUpload.parsedRole)}
+                    </DiffNew>
                   </p>
                 </div>
               </div>
@@ -256,7 +271,9 @@ export function DuplicateCandidateModal({
                 >
                   <span>Update CV</span>
                   <span className="text-xs font-normal opacity-95">
-                    Save as the latest version…
+                    {willMergeIntoExisting
+                      ? "Save as the latest version…"
+                      : "Add as a new application for this campaign…"}
                   </span>
                 </Button>
               </div>
