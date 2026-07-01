@@ -498,9 +498,14 @@ export function JdAppliedCandidatesPipeline({
   }
   if (loadState === "error") {
     return (
-      <p className="mt-3 text-sm text-danger">
-        Could not load candidates. Try again later.
-      </p>
+      <div className="mt-3 flex flex-col items-start gap-2">
+        <p className="text-sm text-danger">
+          Could not load candidates. Try again later.
+        </p>
+        <Button variant="secondary" size="sm" onPress={() => onRefetch()}>
+          Retry load
+        </Button>
+      </div>
     );
   }
   if (loadState === "ok" && dbRows.length === 0) {

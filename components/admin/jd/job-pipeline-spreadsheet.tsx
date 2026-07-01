@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
   AddCandidateModal,
   type JdPipelineCampaignOption,
 } from "@/components/admin/candidates/add-candidate-modal";
-import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
+import {
+  JobPipelineDataPanel,
+  type JobPipelineDataPanelHandle,
+} from "@/components/admin/jd/job-pipeline-data-panel";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
-import { Breadcrumbs, Button, Card } from "@heroui/react";
+import { Breadcrumbs, Button } from "@heroui/react";
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
@@ -76,12 +77,8 @@ export function JobPipelineSpreadsheet({
   canEditPipeline,
   canAddCandidates,
 }: Props) {
-  const supabase = useMemo(() => createClient(), []);
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
-  const [pipelineRows, setPipelineRows] = useState(initialPipelineCandidates);
-  const [pipelineLoadState, setPipelineLoadState] = useState<
-    "idle" | "loading" | "error" | "ok"
-  >(() => (initialPipelineFetchFailed ? "error" : "ok"));
+  const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
 
   const jdPipelineCampaign: JdPipelineCampaignOption | undefined =
     useMemo(() => {
@@ -93,33 +90,6 @@ export function JobPipelineSpreadsheet({
       }
       return "no_opening_linked";
     }, [linkedJobOpeningId, linkedJobOpeningTitle]);
-
-  const refetchPipeline = useCallback(async (silent = false) => {
-    if (!silent) {
-      setPipelineLoadState("loading");
-    }
-    try {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch(
-        `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&includeParsedPayload=true`,
-        { credentials: "include", headers: { ...h } },
-      );
-      if (!res.ok) {
-        if (!silent) setPipelineLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as { candidates?: CandidateDbRow[] };
-      setPipelineRows(json.candidates ?? []);
-      setPipelineLoadState("ok");
-    } catch {
-      if (!silent) setPipelineLoadState("error");
-    }
-  }, [jobDescriptionId, supabase]);
-
-  const handleDuplicateMergedToExisting = useCallback(async () => {
-    setAddCandidatesOpen(false);
-    await refetchPipeline();
-  }, [refetchPipeline]);
 
   return (
     <div className="relative flex flex-col gap-6 pb-20">
@@ -151,15 +121,6 @@ export function JobPipelineSpreadsheet({
           </div> */}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {pipelineLoadState === "error" ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onPress={() => void refetchPipeline()}
-            >
-              Retry load
-            </Button>
-          ) : null}
           {canAddCandidates ? (
             <Button
               variant="primary"
@@ -178,18 +139,14 @@ export function JobPipelineSpreadsheet({
         </div>
       </header>
 
-      <Card>
-        <Card.Content className="p-4 sm:p-6">
-          <JdAppliedCandidatesPipeline
-            jobDescriptionId={jobDescriptionId}
-            jobId={jobId}
-            dbRows={pipelineRows}
-            loadState={pipelineLoadState}
-            onRefetch={(silent) => void refetchPipeline(silent)}
-            canEditPipeline={canEditPipeline}
-          />
-        </Card.Content>
-      </Card>
+      <JobPipelineDataPanel
+        ref={pipelinePanelRef}
+        jobDescriptionId={jobDescriptionId}
+        jobId={jobId}
+        initialPipelineCandidates={initialPipelineCandidates}
+        initialPipelineFetchFailed={initialPipelineFetchFailed}
+        canEditPipeline={canEditPipeline}
+      />
 
       {canAddCandidates ? (
         <Button
@@ -208,8 +165,10 @@ export function JobPipelineSpreadsheet({
           open={addCandidatesOpen}
           onOpenChange={setAddCandidatesOpen}
           jdPipelineCampaign={jdPipelineCampaign}
-          onCandidatesChanged={() => void refetchPipeline()}
-          onDuplicateMergedToExisting={handleDuplicateMergedToExisting}
+          onCandidatesChanged={() => pipelinePanelRef.current?.refetch()}
+          onDuplicateMergedToExisting={() =>
+            pipelinePanelRef.current?.refetch()
+          }
         />
       ) : null}
 
