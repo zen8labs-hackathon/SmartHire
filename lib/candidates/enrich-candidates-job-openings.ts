@@ -21,7 +21,7 @@ export async function enrichCandidatesWithJobOpenings(
 
   const { data, error } = await supabase
     .from("job_openings")
-    .select("id, title, created_at, job_descriptions ( position )")
+    .select("id, title, created_at, job_descriptions ( id, position )")
     .in("id", ids);
 
   if (error || !data?.length) return rows;

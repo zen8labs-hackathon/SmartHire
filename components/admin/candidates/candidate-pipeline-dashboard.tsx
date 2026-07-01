@@ -19,12 +19,7 @@ import { CandidatePipelineFiltersCard } from "@/components/admin/candidates/cand
 import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-version-comparison-drawer";
 import { CANDIDATES_LIST_DEFAULT_LIMIT } from "@/lib/candidates/candidates-list-query";
 import { useCandidatePipelineState } from "@/components/admin/candidates/use-candidate-pipeline-state";
-import {
-  candidateDisplayInitials,
-  candidateStatusChipColor,
-  jdMatchChipColor,
-} from "@/lib/candidates/candidate-display";
-import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
+import { candidateDisplayInitials } from "@/lib/candidates/candidate-display";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -40,24 +35,6 @@ function pageWindow(current: number, total: number, width: number) {
   const end = Math.min(total, start + width - 1);
   start = Math.max(1, end - width + 1);
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-}
-
-function EyeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
 }
 
 function TrashIcon({ className }: { className?: string }) {
@@ -96,10 +73,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
     setPage,
     query,
     setQuery,
-    statusKey,
-    setStatusKey,
-    jdFilterKey,
-    setJdFilterKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -127,8 +100,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
     refreshCvHistoryForCandidate,
     dbLoadState,
     fetchCandidates,
-    statusFilterOptions,
-    jdFilterOptions,
     filteredRows,
     listTotal,
     listPageSize,
@@ -142,6 +113,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
   } = useCandidatePipelineState(initialRows, {
     listMode: "page",
     initialListTotal,
+    deduped: true,
   });
 
   const refreshCvDetailAfterMutation = useCallback(async () => {
@@ -233,12 +205,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
       <CandidatePipelineFiltersCard
         query={query}
         setQuery={setQuery}
-        statusKey={statusKey}
-        setStatusKey={setStatusKey}
-        statusFilterOptions={statusFilterOptions}
-        jdFilterKey={jdFilterKey}
-        setJdFilterKey={setJdFilterKey}
-        jdFilterOptions={jdFilterOptions}
         uploadDateRangeFilter={uploadDateRangeFilter}
         setUploadDateRangeFilter={setUploadDateRangeFilter}
         calendarFocusedDate={calendarFocusedDate}
@@ -259,10 +225,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                   <Table.Column className="text-center">Exp.</Table.Column>
                   <Table.Column>Key Skills</Table.Column>
                   <Table.Column>Education</Table.Column>
-                  <Table.Column>Source</Table.Column>
-                  <Table.Column>Applied JD</Table.Column>
-                  <Table.Column className="text-center">JD match</Table.Column>
-                  <Table.Column>Status</Table.Column>
                   <Table.Column className="whitespace-nowrap">
                     Uploaded at
                   </Table.Column>
@@ -276,10 +238,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                           Loading candidates…
                         </span>
                       </Table.Cell>
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -301,10 +259,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
                     </Table.Row>
                   ) : null}
                   {noResultsForUploadDate ? (
@@ -314,10 +268,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                           No results found for this date.
                         </span>
                       </Table.Cell>
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
-                      <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
                       <Table.Cell />
@@ -339,10 +289,14 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                           </Avatar>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <p className="font-semibold text-foreground">
+                              <button
+                                type="button"
+                                className="font-semibold text-foreground cursor-pointer hover:underline underline-offset-2 text-left"
+                                onClick={() => openRow(row)}
+                              >
                                 {row.name}
-                              </p>
-                              {row.hasCvFile ? (
+                              </button>
+                              {/* {row.hasCvFile ? (
                                 <a
                                   href={`/api/admin/candidates/${row.id}/cv-download`}
                                   target="_blank"
@@ -351,7 +305,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                                 >
                                   CV file
                                 </a>
-                              ) : null}
+                              ) : null} */}
                             </div>
                             <p className="text-xs font-medium text-muted">
                               {row.role}
@@ -402,57 +356,11 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
                           {row.school}
                         </p>
                       </Table.Cell>
-                      <Table.Cell>
-                        <p className="max-w-[200px] text-sm text-foreground">
-                          {row.sourceLabel}
-                        </p>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <p className="max-w-[220px] truncate text-sm text-foreground" title={row.jdCampaignLabel}>
-                          {row.jdCampaignLabel}
-                        </p>
-                      </Table.Cell>
-                      <Table.Cell className="text-center align-middle">
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={jdMatchChipColor(row)}
-                          className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
-                        >
-                          {row.jdMatchLabel}
-                        </Chip>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color={candidateStatusChipColor(row.status)}
-                          className="text-[10px] font-bold uppercase"
-                        >
-                          {candidateStatusUiLabel(row.status)}
-                        </Chip>
-                      </Table.Cell>
                       <Table.Cell className="whitespace-nowrap text-sm text-foreground">
                         {formatUploadedAtDisplay(row.cvUploadedAtIso)}
                       </Table.Cell>
                       <Table.Cell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Tooltip delay={0}>
-                            <Button
-                              isIconOnly
-                              variant="ghost"
-                              size="sm"
-                              className="text-accent"
-                              aria-label="View details"
-                              onPress={() => openRow(row)}
-                            >
-                              <EyeIcon className="size-5" />
-                            </Button>
-                            <Tooltip.Content placement="top" showArrow>
-                              <Tooltip.Arrow />
-                              <p>View details</p>
-                            </Tooltip.Content>
-                          </Tooltip>
                           <Tooltip delay={0}>
                             <Button
                               isIconOnly

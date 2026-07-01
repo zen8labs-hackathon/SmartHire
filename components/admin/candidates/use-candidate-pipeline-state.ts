@@ -65,6 +65,8 @@ type UseCandidatePipelineStateOptions = {
   /** `page` = server pagination + filters; `all` = full list (kanban). */
   listMode?: CandidatePipelineListMode;
   initialListTotal?: number;
+  /** When true, fetch from the deduped endpoint that merges CVs from the same person. */
+  deduped?: boolean;
 };
 
 export function useCandidatePipelineState(
@@ -73,6 +75,7 @@ export function useCandidatePipelineState(
 ) {
   const listMode = options.listMode ?? "page";
   const initialListTotal = options.initialListTotal;
+  const deduped = options.deduped ?? false;
   const supabase = useMemo(() => createClient(), []);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
@@ -154,10 +157,21 @@ export function useCandidatePipelineState(
   const fetchCandidates = useCallback(async () => {
     setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
-      const params = buildCandidatesListSearchParams(buildListQuery());
-      const res = await fetch(`/api/admin/candidates?${params}`, {
-        credentials: "include",
-      });
+      let url: string;
+      if (deduped) {
+        const listQuery = buildListQuery();
+        const params = new URLSearchParams();
+        params.set("limit", String(listQuery.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT));
+        params.set("offset", String(listQuery.offset ?? 0));
+        if (listQuery.q) params.set("q", listQuery.q);
+        if (listQuery.uploadFrom) params.set("uploadFrom", listQuery.uploadFrom);
+        if (listQuery.uploadTo) params.set("uploadTo", listQuery.uploadTo);
+        url = `/api/admin/candidates/deduped?${params}`;
+      } else {
+        const params = buildCandidatesListSearchParams(buildListQuery());
+        url = `/api/admin/candidates?${params}`;
+      }
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) {
         setDbLoadState("error");
         return;
@@ -172,7 +186,7 @@ export function useCandidatePipelineState(
     } catch {
       setDbLoadState("error");
     }
-  }, [buildListQuery]);
+  }, [buildListQuery, deduped]);
 
   const fetchJobOpenings = useCallback(async () => {
     try {
@@ -213,7 +227,7 @@ export function useCandidatePipelineState(
     const batch = pendingRealtimeRef.current.splice(0);
     if (batch.length === 0) return;
 
-    if (batch.length > 20) {
+    if (deduped || batch.length > 20) {
       await fetchCandidates();
       return;
     }
@@ -251,7 +265,7 @@ export function useCandidatePipelineState(
         };
       }),
     );
-  }, [fetchCandidates, supabase]);
+  }, [fetchCandidates, supabase, deduped]);
 
   const scheduleRealtimeUpdate = useCallback(
     (change: CandidatesRealtimeChange) => {
@@ -457,7 +471,7 @@ export function useCandidatePipelineState(
     const mapped = sortedDb.map(candidateDbRowToTableRow);
     // In page mode the server already applied all filters — skip client-side
     // job-opening filter so the displayed count matches the fetched page size.
-    if (listMode === "page") return mapped;
+    if (listMode === "page" || deduped) return mapped;
     return mapped.filter((row) => isAllowedJob(row.jobOpeningId));
   }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState, listMode]);
 

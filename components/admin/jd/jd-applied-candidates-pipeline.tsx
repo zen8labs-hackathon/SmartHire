@@ -744,7 +744,7 @@ export function JdAppliedCandidatesPipeline({
                             >
                               {row.name}
                             </Link>
-                            {row.hasCvFile ? (
+                            {/* {row.hasCvFile ? (
                               <a
                                 href={`/api/admin/candidates/${r.id}/cv-download`}
                                 target="_blank"
@@ -753,7 +753,7 @@ export function JdAppliedCandidatesPipeline({
                               >
                                 CV file
                               </a>
-                            ) : null}
+                            ) : null} */}
                           </div>
                           <p className="text-xs font-medium text-muted">
                             {row.role}
