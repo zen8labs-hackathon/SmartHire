@@ -4,13 +4,13 @@ import { Briefcase, PlayCircle, Clock, CheckCircle2, XCircle } from "lucide-reac
 import { useJdDashboard } from "./context";
 
 export function JdStats() {
-  const { rows, loading } = useJdDashboard();
+  const { filteredRows, loading } = useJdDashboard();
 
-  const totalJobs = rows.length;
-  const runningJobs = rows.filter((r) => r.status === "Hiring").length;
-  const pendingJobs = rows.filter((r) => r.status === "Pending").length;
-  const completedJobs = rows.filter((r) => r.status === "Done").length;
-  const closedJobs = rows.filter((r) => r.status === "Closed").length;
+  const totalJobs = filteredRows.length;
+  const runningJobs = filteredRows.filter((r) => r.status === "Hiring").length;
+  const pendingJobs = filteredRows.filter((r) => r.status === "Pending").length;
+  const completedJobs = filteredRows.filter((r) => r.status === "Done").length;
+  const closedJobs = filteredRows.filter((r) => r.status === "Closed").length;
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5" aria-live="polite">
