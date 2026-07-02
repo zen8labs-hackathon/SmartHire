@@ -32,7 +32,7 @@ import {
 } from "@/lib/candidates/candidate-display";
 import {
   getSubStageTextColorClass,
-  isCandidateInOfferSubStage,
+  isCandidateInOfferStage,
   isPipelineStatusKey,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
@@ -167,12 +167,12 @@ function stageSubStageOptionKey(stageMappingId: string, subStateId: string): str
 }
 
 /**
- * Fixed green wash for rows in the offer sub-stage — intentionally independent
- * of the pipeline stage's configured DB color (which only drives the status
- * tag). Applied per-`Table.Cell` rather than `Table.Row`: HeroUI table cells
- * paint their own opaque background on top of the row, so a row-level
- * background never shows. `!important` keeps it visible through the row's
- * hover background too.
+ * Fixed green wash for rows anywhere in the offer stage — intentionally
+ * independent of the pipeline stage's configured DB color (which only
+ * drives the status tag). Applied per-`Table.Cell` rather than `Table.Row`:
+ * HeroUI table cells paint their own opaque background on top of the row,
+ * so a row-level background never shows. `!important` keeps it visible
+ * through the row's hover background too.
  */
 const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
 
@@ -254,7 +254,7 @@ export function JdAppliedCandidatesPipeline({
     [stageMappings, subStages],
   );
 
-  /** The "offer" stage's default ("currently offered") sub-stage — id used for row highlighting and by "Move to offer". */
+  /** The "offer" stage's default ("currently offered") sub-stage — id used by "Move to offer". */
   const offerDefaultSubStage = useMemo(() => {
     const offerStage = stageMappings.find(
       (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === "offer",
@@ -274,6 +274,16 @@ export function JdAppliedCandidatesPipeline({
       ) ?? null,
     [stageMappings],
   );
+
+  /** Every sub-stage id under the "offer" stage — used for the offer-row highlight. */
+  const offerStageSubStateIds = useMemo(() => {
+    if (!offerStageMapping) return null;
+    return new Set(
+      subStages
+        .filter((ss) => ss.pipeline_stage_id === offerStageMapping.pipeline_stage_id)
+        .map((ss) => ss.id),
+    );
+  }, [offerStageMapping, subStages]);
 
   const interviewStageMapping = useMemo(
     () =>
@@ -1052,15 +1062,15 @@ export function JdAppliedCandidatesPipeline({
                   [r.degree, r.school].filter(Boolean).join(" · ") || "—";
                 const busy = rowUpdating === r.id;
                 const resolved = resolveRow(r);
-                const inOfferSubStage = isCandidateInOfferSubStage(
+                const inOfferStage = isCandidateInOfferStage(
                   {
                     currentSubStateId: r.current_sub_state_id,
                     pipelineStatus: r.pipeline_status,
                     status: r.status,
                   },
-                  offerDefaultSubStage?.id,
+                  offerStageSubStateIds,
                 );
-                const offerCellClass = inOfferSubStage ? OFFER_ROW_CELL_CLASS : "";
+                const offerCellClass = inOfferStage ? OFFER_ROW_CELL_CLASS : "";
                 const stageOptions =
                   resolved.stageMappingId && resolved.subStateId
                     ? allowedStageTargets(
