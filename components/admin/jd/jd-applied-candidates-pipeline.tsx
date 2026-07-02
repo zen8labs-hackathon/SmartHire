@@ -668,33 +668,37 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveInterviewTime = useCallback(
-    async (id: string) => {
-      const local = interviewDrafts[id] ?? "";
+    async (id: string, local: string) => {
       setPipelineError(null);
+      setRowUpdating(id);
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { interview_at: iso });
         onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
+      } finally {
+        setRowUpdating(null);
       }
     },
-    [interviewDrafts, onRefetch, patchTimeline],
+    [onRefetch, patchTimeline],
   );
 
   const saveOnboardingTime = useCallback(
-    async (id: string) => {
-      const local = interviewDrafts[`ob-${id}`] ?? "";
+    async (id: string, local: string) => {
       setPipelineError(null);
+      setRowUpdating(id);
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { onboarding_at: iso });
         onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
+      } finally {
+        setRowUpdating(null);
       }
     },
-    [interviewDrafts, onRefetch, patchTimeline],
+    [onRefetch, patchTimeline],
   );
 
   useEffect(() => {
@@ -1253,51 +1257,43 @@ export function JdAppliedCandidatesPipeline({
                       {r.status === "Interview" ||
                       r.status === "InterviewPassed" ? (
                         <div className="flex flex-col gap-1">
+                          <Label className="text-xs font-medium text-muted">
+                            Interview date
+                          </Label>
                           <Input
                             type="datetime-local"
                             value={interviewDrafts[r.id] ?? ""}
-                            disabled={!canEditPipeline}
-                            onChange={(e) =>
+                            disabled={!canEditPipeline || busy}
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setInterviewDrafts((d) => ({
                                 ...d,
-                                [r.id]: e.target.value,
-                              }))
-                            }
+                                [r.id]: value,
+                              }));
+                              void saveInterviewTime(r.id, value);
+                            }}
                             className="w-full min-w-[11rem]"
                           />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="self-start"
-                            isDisabled={!canEditPipeline || busy}
-                            onPress={() => void saveInterviewTime(r.id)}
-                          >
-                            Save interview time
-                          </Button>
                         </div>
                       ) : r.status === "Offer" ? (
                         <div className="flex flex-col gap-1">
+                          <Label className="text-xs font-medium text-muted">
+                            Onboarding date
+                          </Label>
                           <Input
                             type="datetime-local"
                             value={interviewDrafts[`ob-${r.id}`] ?? ""}
-                            disabled={!canEditPipeline}
-                            onChange={(e) =>
+                            disabled={!canEditPipeline || busy}
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setInterviewDrafts((d) => ({
                                 ...d,
-                                [`ob-${r.id}`]: e.target.value,
-                              }))
-                            }
+                                [`ob-${r.id}`]: value,
+                              }));
+                              void saveOnboardingTime(r.id, value);
+                            }}
                             className="w-full min-w-[11rem]"
                           />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="self-start"
-                            isDisabled={!canEditPipeline || busy}
-                            onPress={() => void saveOnboardingTime(r.id)}
-                          >
-                            Save onboarding
-                          </Button>
                         </div>
                       ) : (
                         <span className="text-xs text-muted">—</span>
