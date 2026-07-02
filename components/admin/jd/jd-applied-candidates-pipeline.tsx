@@ -32,6 +32,7 @@ import {
 } from "@/lib/candidates/candidate-display";
 import {
   getSubStageTextColorClass,
+  isCandidateInOfferSubStage,
   isPipelineStatusKey,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
@@ -164,6 +165,16 @@ function findFailSubStage(
 function stageSubStageOptionKey(stageMappingId: string, subStateId: string): string {
   return `${stageMappingId}:${subStateId}`;
 }
+
+/**
+ * Fixed green wash for rows in the offer sub-stage — intentionally independent
+ * of the pipeline stage's configured DB color (which only drives the status
+ * tag). Applied per-`Table.Cell` rather than `Table.Row`: HeroUI table cells
+ * paint their own opaque background on top of the row, so a row-level
+ * background never shows. `!important` keeps it visible through the row's
+ * hover background too.
+ */
+const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
 
 function formatSchedule(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -1033,6 +1044,15 @@ export function JdAppliedCandidatesPipeline({
                   [r.degree, r.school].filter(Boolean).join(" · ") || "—";
                 const busy = rowUpdating === r.id;
                 const resolved = resolveRow(r);
+                const inOfferSubStage = isCandidateInOfferSubStage(
+                  {
+                    currentSubStateId: r.current_sub_state_id,
+                    pipelineStatus: r.pipeline_status,
+                    status: r.status,
+                  },
+                  offerDefaultSubStage?.id,
+                );
+                const offerCellClass = inOfferSubStage ? OFFER_ROW_CELL_CLASS : "";
                 const stageOptions =
                   resolved.stageMappingId && resolved.subStateId
                     ? allowedStageTargets(
@@ -1048,7 +1068,7 @@ export function JdAppliedCandidatesPipeline({
                     : undefined;
                 return (
                   <Table.Row key={r.id} id={r.id}>
-                    <Table.Cell>
+                    <Table.Cell className={offerCellClass}>
                       <input
                         type="checkbox"
                         className="mt-1 size-4 rounded border-divider accent-accent"
@@ -1058,7 +1078,7 @@ export function JdAppliedCandidatesPipeline({
                         aria-label={`Select ${row.name}`}
                       />
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell className={offerCellClass}>
                       <div className="flex items-center gap-4">
                         <Avatar className="size-10 shrink-0" size="md">
                           {row.avatarUrl ? (
@@ -1093,7 +1113,7 @@ export function JdAppliedCandidatesPipeline({
                         </div>
                       </div>
                     </Table.Cell>
-                    <Table.Cell className="text-center align-middle">
+                    <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
                       <div className="flex flex-col items-center tabular-nums">
                         <span className="text-lg font-semibold leading-none text-foreground">
                           {row.experienceYears}
@@ -1103,7 +1123,7 @@ export function JdAppliedCandidatesPipeline({
                         </span>
                       </div>
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell className={offerCellClass}>
                       <div className="flex flex-wrap gap-1.5">
                         {row.skills.map((s) => (
                           <Chip
@@ -1128,7 +1148,7 @@ export function JdAppliedCandidatesPipeline({
                         ) : null}
                       </div>
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell className={offerCellClass}>
                       <p className="text-sm font-medium text-foreground">
                         {row.degree}
                       </p>
@@ -1136,12 +1156,12 @@ export function JdAppliedCandidatesPipeline({
                         {row.school}
                       </p>
                     </Table.Cell>
-                    <Table.Cell>
+                    <Table.Cell className={offerCellClass}>
                       <p className="max-w-[200px] text-sm text-foreground">
                         {row.sourceLabel}
                       </p>
                     </Table.Cell>
-                    <Table.Cell className="text-center align-middle">
+                    <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
                       <Chip
                         size="sm"
                         variant="soft"
@@ -1151,7 +1171,9 @@ export function JdAppliedCandidatesPipeline({
                         {row.jdMatchLabel}
                       </Chip>
                     </Table.Cell>
-                    <Table.Cell className="focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none">
+                    <Table.Cell
+                      className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${offerCellClass}`}
+                    >
                       <Select
                         value={currentOptionKey}
                         isDisabled={!canEditPipeline || busy || stageOptions.length === 0}
@@ -1218,10 +1240,12 @@ export function JdAppliedCandidatesPipeline({
                         </Select.Popover>
                       </Select>
                     </Table.Cell>
-                    <Table.Cell className="whitespace-nowrap text-sm text-foreground">
+                    <Table.Cell
+                      className={`whitespace-nowrap text-sm text-foreground ${offerCellClass}`}
+                    >
                       {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
                     </Table.Cell>
-                    <Table.Cell className="max-w-[220px] align-top">
+                    <Table.Cell className={`max-w-[220px] align-top ${offerCellClass}`}>
                       {r.status === "Interview" ||
                       r.status === "InterviewPassed" ? (
                         <div className="flex flex-col gap-1">
@@ -1275,7 +1299,7 @@ export function JdAppliedCandidatesPipeline({
                         <span className="text-xs text-muted">—</span>
                       )}
                     </Table.Cell>
-                    <Table.Cell className="align-top text-center">
+                    <Table.Cell className={`align-top text-center ${offerCellClass}`}>
                       <Button
                         size="sm"
                         variant="secondary"
