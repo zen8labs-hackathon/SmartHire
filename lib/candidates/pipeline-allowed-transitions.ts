@@ -10,7 +10,7 @@ export const ALL_PIPELINE_STATUSES: CandidateStatus[] = [
 ];
 
 /**
- * Any move between two allowed pipeline statuses is permitted (Kanban / drawer / bulk).
+ * Any move between two allowed pipeline statuses is permitted (dashboard drawer / bulk actions).
  * `from` may still be a legacy DB string (e.g. Interviewing → normalized to Interview).
  * DB still enforces the status enum via `candidates_status_check`.
  */

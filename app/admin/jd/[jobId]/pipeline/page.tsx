@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { JobPipelineSpreadsheetLoader } from "./job-pipeline-spreadsheet-loader";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
+import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
 import { createClient } from "@/lib/supabase/server";
 
 type PageProps = {
@@ -47,6 +48,11 @@ export default async function JobPipelinePage({ params }: PageProps) {
   const linkedOpening = linkedOpeningRes.data;
   const { rows: initialPipelineCandidates, error: pipelineFetchError } = pipelineRes;
 
+  const { stageMappings, subStages } = await fetchJobPipelineConfig(
+    supabase,
+    linkedOpening?.id ?? null,
+  );
+
   return (
     <JobPipelineSpreadsheetLoader
       key={String(jd.id)}
@@ -59,6 +65,8 @@ export default async function JobPipelinePage({ params }: PageProps) {
       initialPipelineFetchFailed={pipelineFetchError != null}
       canEditPipeline={access.isHr}
       canAddCandidates={access.isHr}
+      stageMappings={stageMappings}
+      subStages={subStages}
     />
   );
 }

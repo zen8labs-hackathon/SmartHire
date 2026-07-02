@@ -12,6 +12,7 @@ import {
   type JobPipelineDataPanelHandle,
 } from "@/components/admin/jd/job-pipeline-data-panel";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 import { Breadcrumbs, Button } from "@heroui/react";
 
@@ -64,6 +65,8 @@ type Props = {
   linkedJobOpeningTitle: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
 };
 
 export function JobPipelineSpreadsheet({
@@ -76,6 +79,8 @@ export function JobPipelineSpreadsheet({
   linkedJobOpeningTitle,
   canEditPipeline,
   canAddCandidates,
+  stageMappings,
+  subStages,
 }: Props) {
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
@@ -108,17 +113,6 @@ export function JobPipelineSpreadsheet({
               ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
               : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
           </p>
-          {/* <div className="inline-flex rounded-xl border border-divider bg-surface-secondary/50 p-1 text-sm">
-            <span className="rounded-lg bg-surface-tertiary px-3 py-1.5 font-medium text-foreground">
-              Table
-            </span>
-            <Link
-              href={`/admin/jd/${jobId}/pipeline/v2`}
-              className="rounded-lg px-3 py-1.5 text-muted hover:text-foreground"
-            >
-              Kanban v2
-            </Link>
-          </div> */}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {canAddCandidates ? (
@@ -146,6 +140,8 @@ export function JobPipelineSpreadsheet({
         initialPipelineCandidates={initialPipelineCandidates}
         initialPipelineFetchFailed={initialPipelineFetchFailed}
         canEditPipeline={canEditPipeline}
+        stageMappings={stageMappings}
+        subStages={subStages}
       />
 
       {canAddCandidates ? (

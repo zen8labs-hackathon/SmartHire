@@ -62,7 +62,7 @@ export function uploadDateKeyLocal(iso: string | null): string | null {
 export type CandidatePipelineListMode = "page" | "all";
 
 type UseCandidatePipelineStateOptions = {
-  /** `page` = server pagination + filters; `all` = full list (kanban). */
+  /** `page` = server pagination + filters; `all` = full list (e.g. JD pipeline table). */
   listMode?: CandidatePipelineListMode;
   initialListTotal?: number;
   /** When true, fetch from the deduped endpoint that merges CVs from the same person. */

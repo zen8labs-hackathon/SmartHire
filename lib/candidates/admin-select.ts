@@ -39,7 +39,7 @@ const ADMIN_CANDIDATES_CORE_COLUMNS = [
 ] as const;
 
 /**
- * List / pipeline / kanban — omits `parsed_payload` to cut payload size.
+ * List / pipeline table — omits `parsed_payload` to cut payload size.
  * Use {@link ADMIN_CANDIDATES_SELECT} for detail, profile, and PATCH responses.
  */
 export const ADMIN_CANDIDATES_LIST_SELECT = [
