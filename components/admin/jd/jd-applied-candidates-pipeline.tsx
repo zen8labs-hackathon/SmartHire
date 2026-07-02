@@ -760,6 +760,8 @@ export function JdAppliedCandidatesPipeline({
                   status={statusFilter}
                   variant="inline"
                   uppercase={false}
+                  stageMappings={stageMappings}
+                  subStages={subStages}
                 />
               ) : (
                 <Select.Value />
@@ -777,6 +779,8 @@ export function JdAppliedCandidatesPipeline({
                         status={opt.id as CandidateStatus}
                         variant="inline"
                         uppercase={false}
+                        stageMappings={stageMappings}
+                        subStages={subStages}
                       />
                     )}
                     <ListBox.ItemIndicator />
