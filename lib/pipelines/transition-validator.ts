@@ -141,6 +141,17 @@ const STAGE_SUB_STAGE_TO_LEGACY_STATUS: Record<string, CandidateStatus> = {
 };
 
 /**
+ * Inverse lookup: resolves the stage code + sub-stage code pair for a legacy
+ * `candidates.status` enum value. Used to look up a legacy status's DB-configured
+ * stage color (`pipeline_stages.color`) instead of a hardcoded one.
+ */
+export function stageSubStageCodesForLegacyStatus(
+  status: string,
+): { stage: string; sub: string } | null {
+  return LEGACY_STATUS_TO_STAGE_SUB_STAGE[status.trim().toLowerCase()] ?? null;
+}
+
+/**
  * Resolves the closest legacy `candidates.status` enum value for a given
  * stage code + sub-stage code pair (case-insensitive). Returns null when no
  * mapping exists (e.g. fully custom stages/sub-stages with no legacy analog).
