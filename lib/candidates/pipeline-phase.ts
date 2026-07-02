@@ -30,7 +30,7 @@ export const PIPELINE_PHASES = [
   statuses: readonly CandidateStatus[];
 }>;
 
-/** Flat order for filters, Kanban columns, and status-count APIs */
+/** Flat order for filters and status-count APIs */
 export const PIPELINE_STATUS_DISPLAY_ORDER: CandidateStatus[] =
   PIPELINE_PHASES.flatMap((p) => [...p.statuses]);
 
@@ -122,7 +122,29 @@ export const INTERVIEW_SCHEDULE_STATUSES = new Set<CandidateStatus>([
   "InterviewPassed",
 ]);
 
-/** CV Scan candidates eligible for “Move to interview” (excludes scan failures). */
-export function isEligibleForBulkMoveToInterview(status: string): boolean {
-  return status === "New" || status === "CvPassed" || status === "Consider";
+/**
+ * True when a `pipeline_sub_stages.code` represents a terminal failure/rejection
+ * outcome. No dedicated schema flag exists for this, so — per the naming
+ * convention already used by the seeded "rejected" sub-stage under the "offer"
+ * stage — any code containing "fail" or "reject" (case-insensitive substring
+ * match) is treated as a failure target.
+ */
+export function isFailSubStageCode(code: string | null | undefined): boolean {
+  if (!code) return false;
+  const lower = code.toLowerCase();
+  return lower.includes("fail") || lower.includes("reject");
+}
+
+/**
+ * CV-scan-stage candidates eligible for the "Move to interview" bulk action
+ * in the customizable pipeline-stage system (excludes scan failures).
+ * `stageCode`/`subStageCode` are the candidate's *current* resolved stage and
+ * sub-stage codes (see `resolveCandidatePipelineIds`).
+ */
+export function isEligibleForBulkMoveToInterview(
+  stageCode: string | null | undefined,
+  subStageCode: string | null | undefined,
+): boolean {
+  if ((stageCode ?? "").toLowerCase() !== "cv_scan") return false;
+  return !isFailSubStageCode(subStageCode);
 }

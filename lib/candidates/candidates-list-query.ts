@@ -6,7 +6,7 @@ import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candida
 
 export const CANDIDATES_LIST_DEFAULT_LIMIT = 50;
 export const CANDIDATES_LIST_MAX_LIMIT = 200;
-/** Cap when `all=true` or no limit (job kanban / full list). */
+/** Cap when `all=true` or no limit (job pipeline table / full list). */
 export const CANDIDATES_LIST_MAX_ALL = 2000;
 
 export type CandidatesListQuery = {

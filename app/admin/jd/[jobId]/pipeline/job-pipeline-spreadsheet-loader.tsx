@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 const JobPipelineSpreadsheet = dynamic(
   () =>
@@ -29,6 +30,8 @@ type Props = {
   linkedJobOpeningTitle: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
 };
 
 export function JobPipelineSpreadsheetLoader(props: Props) {

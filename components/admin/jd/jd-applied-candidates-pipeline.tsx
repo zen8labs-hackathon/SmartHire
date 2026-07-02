@@ -30,23 +30,29 @@ import {
   candidateDisplayInitials,
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
-import { isPipelineStatusKey } from "@/lib/candidates/pipeline-status-styles";
+import {
+  getSubStageTextColorClass,
+  isPipelineStatusKey,
+} from "@/lib/candidates/pipeline-status-styles";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
 import {
-  allowedTargetsFromStatus,
-  isPipelineTransitionAllowed,
-} from "@/lib/candidates/pipeline-allowed-transitions";
-import {
   PIPELINE_STATUS_DISPLAY_ORDER,
   candidateStatusMajorPhase,
   candidateStatusUiLabel,
   isEligibleForBulkMoveToInterview,
+  isFailSubStageCode,
 } from "@/lib/candidates/pipeline-phase";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import {
+  isCustomTransitionAllowed,
+  resolveCandidatePipelineIds,
+  type StageMapping,
+  type SubStage,
+} from "@/lib/pipelines/transition-validator";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -75,10 +81,88 @@ type Props = {
   onRefetch: (silent?: boolean) => void;
   /** HR may change pipeline status and schedule; chapter recruiters are view-only here. */
   canEditPipeline?: boolean;
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
 };
 
 function tableStatusRow(r: CandidateDbRow): CandidateRow {
   return candidateDbRowToTableRow(r);
+}
+
+/** A candidate's resolved current stage mapping + sub-stage, with the full objects for display/eligibility checks. */
+type ResolvedRowPipeline = {
+  stageMappingId: string | null;
+  subStateId: string | null;
+  stageMapping: StageMapping | null;
+  subStage: SubStage | null;
+};
+
+function resolveRowPipeline(
+  r: CandidateDbRow,
+  stageMappings: StageMapping[],
+  subStages: SubStage[],
+): ResolvedRowPipeline {
+  const { stageMappingId, subStateId } = resolveCandidatePipelineIds(
+    r,
+    stageMappings,
+    subStages,
+  );
+  return {
+    stageMappingId,
+    subStateId,
+    stageMapping: stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
+    subStage: subStages.find((ss) => ss.id === subStateId) ?? null,
+  };
+}
+
+/** All (stageMappingId, subStateId) targets reachable from a candidate's current position, per `isCustomTransitionAllowed`. */
+function allowedStageTargets(
+  fromStageMappingId: string,
+  fromSubStateId: string,
+  stageMappings: StageMapping[],
+  subStages: SubStage[],
+): Array<{ stageMapping: StageMapping; subStage: SubStage }> {
+  const options: Array<{ stageMapping: StageMapping; subStage: SubStage }> = [];
+  for (const sm of stageMappings) {
+    const subs = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+    for (const ss of subs) {
+      if (
+        isCustomTransitionAllowed(
+          stageMappings,
+          subStages,
+          fromStageMappingId,
+          fromSubStateId,
+          sm.id,
+          ss.id,
+        )
+      ) {
+        options.push({ stageMapping: sm, subStage: ss });
+      }
+    }
+  }
+  return options;
+}
+
+/** The "mark as failed" target sub-stage for a given stage: the sub-stage under that stage whose code matches the fail/reject naming convention, if any (see `isFailSubStageCode`). */
+function findFailSubStage(
+  stageMappingId: string | null,
+  stageMappings: StageMapping[],
+  subStages: SubStage[],
+): SubStage | null {
+  if (!stageMappingId) return null;
+  const stageMapping = stageMappings.find((sm) => sm.id === stageMappingId);
+  if (!stageMapping) return null;
+  return (
+    subStages.find(
+      (ss) =>
+        ss.pipeline_stage_id === stageMapping.pipeline_stage_id &&
+        isFailSubStageCode(ss.code),
+    ) ?? null
+  );
+}
+
+function stageSubStageOptionKey(stageMappingId: string, subStateId: string): string {
+  return `${stageMappingId}:${subStateId}`;
 }
 
 function formatSchedule(iso: string | null | undefined): string | null {
@@ -149,8 +233,55 @@ export function JdAppliedCandidatesPipeline({
   loadState,
   onRefetch,
   canEditPipeline = true,
+  stageMappings,
+  subStages,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
+
+  const resolveRow = useCallback(
+    (r: CandidateDbRow) => resolveRowPipeline(r, stageMappings, subStages),
+    [stageMappings, subStages],
+  );
+
+  /** The "offer" stage's default ("currently offered") sub-stage — id used for row highlighting and by "Move to offer". */
+  const offerDefaultSubStage = useMemo(() => {
+    const offerStage = stageMappings.find(
+      (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === "offer",
+    );
+    if (!offerStage) return null;
+    return (
+      subStages.find(
+        (ss) => ss.pipeline_stage_id === offerStage.pipeline_stage_id && ss.is_default,
+      ) ?? null
+    );
+  }, [stageMappings, subStages]);
+
+  const offerStageMapping = useMemo(
+    () =>
+      stageMappings.find(
+        (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === "offer",
+      ) ?? null,
+    [stageMappings],
+  );
+
+  const interviewStageMapping = useMemo(
+    () =>
+      stageMappings.find(
+        (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === "interview",
+      ) ?? null,
+    [stageMappings],
+  );
+
+  const interviewDefaultSubStage = useMemo(() => {
+    if (!interviewStageMapping) return null;
+    return (
+      subStages.find(
+        (ss) =>
+          ss.pipeline_stage_id === interviewStageMapping.pipeline_stage_id &&
+          ss.is_default,
+      ) ?? null
+    );
+  }, [interviewStageMapping, subStages]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pipelineBusy, setPipelineBusy] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
@@ -317,44 +448,61 @@ export function JdAppliedCandidatesPipeline({
   const bulkInterviewEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every((r) => isEligibleForBulkMoveToInterview(r.status)),
-    [selectedRows],
+      selectedRows.every((r) => {
+        const { stageMapping, subStage } = resolveRow(r);
+        return isEligibleForBulkMoveToInterview(
+          stageMapping?.pipeline_stages?.code ?? null,
+          subStage?.code ?? null,
+        );
+      }),
+    [selectedRows, resolveRow],
   );
 
   const bulkOfferEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      selectedRows.every((r) => r.status === "InterviewPassed"),
-    [selectedRows],
+      selectedRows.every((r) => {
+        const { stageMapping, subStage } = resolveRow(r);
+        return (
+          (stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
+            "interview" && subStage?.is_passed === true
+        );
+      }),
+    [selectedRows, resolveRow],
   );
 
   const bulkFailEligible = useMemo(
     () =>
       selectedRows.length > 0 &&
-      (selectedRows.every((r) =>
-        isPipelineTransitionAllowed(tableStatusRow(r).status, "CvFailed"),
-      ) ||
-        selectedRows.every((r) =>
-          isPipelineTransitionAllowed(
-            tableStatusRow(r).status,
-            "InterviewFailed",
-          ),
-        )),
-    [selectedRows],
+      selectedRows.every((r) => {
+        const { stageMappingId } = resolveRow(r);
+        return findFailSubStage(stageMappingId, stageMappings, subStages) != null;
+      }),
+    [selectedRows, resolveRow, stageMappings, subStages],
   );
 
   const openOfferModal = useCallback(() => {
     const ids = selectedRows
-      .filter((r) => r.status === "InterviewPassed")
+      .filter((r) => {
+        const { stageMapping, subStage } = resolveRow(r);
+        return (
+          (stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
+            "interview" && subStage?.is_passed === true
+        );
+      })
       .map((r) => r.id);
     if (ids.length === 0) return;
     const drafts: Record<string, string> = {};
     for (const id of ids) drafts[id] = "";
     setOnboardingDrafts(drafts);
     offerModal.open();
-  }, [selectedRows, offerModal]);
+  }, [selectedRows, offerModal, resolveRow]);
 
   const confirmOffer = useCallback(async () => {
+    if (!offerStageMapping || !offerDefaultSubStage) {
+      setPipelineError("Offer stage is not configured for this job.");
+      return;
+    }
     const entries = Object.entries(onboardingDrafts);
     for (const [, v] of entries) {
       if (!v?.trim()) {
@@ -364,15 +512,24 @@ export function JdAppliedCandidatesPipeline({
         return;
       }
     }
-    const updates: { id: string; status: "Offer"; onboarding_at: string }[] =
-      [];
+    const updates: {
+      id: string;
+      current_job_stage_mapping_id: string;
+      current_sub_state_id: string;
+      onboarding_at: string;
+    }[] = [];
     for (const [id, local] of entries) {
       const iso = localDatetimeToIso(local);
       if (!iso) {
         setPipelineError("One or more onboarding times are invalid.");
         return;
       }
-      updates.push({ id, status: "Offer", onboarding_at: iso });
+      updates.push({
+        id,
+        current_job_stage_mapping_id: offerStageMapping.id,
+        current_sub_state_id: offerDefaultSubStage.id,
+        onboarding_at: iso,
+      });
     }
     setPipelineError(null);
     setPipelineBusy(true);
@@ -385,40 +542,29 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setPipelineBusy(false);
     }
-  }, [onboardingDrafts, offerModal, onRefetch, postPipeline]);
+  }, [
+    onboardingDrafts,
+    offerModal,
+    onRefetch,
+    postPipeline,
+    offerStageMapping,
+    offerDefaultSubStage,
+  ]);
 
   const moveSelectedToInterview = useCallback(async () => {
     if (!bulkInterviewEligible) return;
-    setPipelineBusy(true);
-    setPipelineError(null);
-    try {
-      await postPipeline(
-        selectedRows.map((r) => ({ id: r.id, status: "Interview" as const })),
-      );
-      onRefetch(true);
-    } catch (e) {
-      setPipelineError(e instanceof Error ? e.message : "Update failed.");
-    } finally {
-      setPipelineBusy(false);
+    if (!interviewStageMapping || !interviewDefaultSubStage) {
+      setPipelineError("Interview stage is not configured for this job.");
+      return;
     }
-  }, [bulkInterviewEligible, onRefetch, postPipeline, selectedRows]);
-
-  const markSelectedFailed = useCallback(async () => {
-    if (!bulkFailEligible) return;
-    const allCvFail =
-      selectedRows.length > 0 &&
-      selectedRows.every((r) =>
-        isPipelineTransitionAllowed(tableStatusRow(r).status, "CvFailed"),
-      );
     setPipelineBusy(true);
     setPipelineError(null);
     try {
       await postPipeline(
         selectedRows.map((r) => ({
           id: r.id,
-          status: allCvFail
-            ? ("CvFailed" as const)
-            : ("InterviewFailed" as const),
+          current_job_stage_mapping_id: interviewStageMapping.id,
+          current_sub_state_id: interviewDefaultSubStage.id,
         })),
       );
       onRefetch(true);
@@ -427,14 +573,58 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setPipelineBusy(false);
     }
-  }, [bulkFailEligible, onRefetch, postPipeline, selectedRows]);
+  }, [
+    bulkInterviewEligible,
+    onRefetch,
+    postPipeline,
+    selectedRows,
+    interviewStageMapping,
+    interviewDefaultSubStage,
+  ]);
+
+  const markSelectedFailed = useCallback(async () => {
+    if (!bulkFailEligible) return;
+    setPipelineBusy(true);
+    setPipelineError(null);
+    try {
+      const updates = selectedRows.map((r) => {
+        const { stageMappingId } = resolveRow(r);
+        const failSubStage = findFailSubStage(stageMappingId, stageMappings, subStages);
+        if (!stageMappingId || !failSubStage) {
+          throw new Error(
+            `No failure sub-stage configured for candidate ${r.id}'s current stage.`,
+          );
+        }
+        return {
+          id: r.id,
+          current_job_stage_mapping_id: stageMappingId,
+          current_sub_state_id: failSubStage.id,
+        };
+      });
+      await postPipeline(updates);
+      onRefetch(true);
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : "Update failed.");
+    } finally {
+      setPipelineBusy(false);
+    }
+  }, [bulkFailEligible, onRefetch, postPipeline, selectedRows, resolveRow, stageMappings, subStages]);
 
   const onStatusChange = useCallback(
-    async (id: string, next: CandidateStatus) => {
+    async (
+      id: string,
+      next: { toStageMappingId: string; toSubStateId: string },
+    ) => {
       setRowUpdating(id);
       setPipelineError(null);
       try {
-        await postPipeline([{ id, status: next }]);
+        await postPipeline([
+          {
+            id,
+            current_job_stage_mapping_id: next.toStageMappingId,
+            current_sub_state_id: next.toSubStateId,
+          },
+        ]);
         onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
@@ -842,6 +1032,20 @@ export function JdAppliedCandidatesPipeline({
                 const edu =
                   [r.degree, r.school].filter(Boolean).join(" · ") || "—";
                 const busy = rowUpdating === r.id;
+                const resolved = resolveRow(r);
+                const stageOptions =
+                  resolved.stageMappingId && resolved.subStateId
+                    ? allowedStageTargets(
+                        resolved.stageMappingId,
+                        resolved.subStateId,
+                        stageMappings,
+                        subStages,
+                      )
+                    : [];
+                const currentOptionKey =
+                  resolved.stageMappingId && resolved.subStateId
+                    ? stageSubStageOptionKey(resolved.stageMappingId, resolved.subStateId)
+                    : undefined;
                 return (
                   <Table.Row key={r.id} id={r.id}>
                     <Table.Cell>
@@ -949,11 +1153,14 @@ export function JdAppliedCandidatesPipeline({
                     </Table.Cell>
                     <Table.Cell className="focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none">
                       <Select
-                        value={row.status}
-                        isDisabled={!canEditPipeline || busy}
+                        value={currentOptionKey}
+                        isDisabled={!canEditPipeline || busy || stageOptions.length === 0}
                         onChange={(key) => {
                           if (typeof key === "string") {
-                            void onStatusChange(r.id, key as CandidateStatus);
+                            const [toStageMappingId, toSubStateId] = key.split(":");
+                            if (toStageMappingId && toSubStateId) {
+                              void onStatusChange(r.id, { toStageMappingId, toSubStateId });
+                            }
                             if (document.activeElement instanceof HTMLElement) {
                               document.activeElement.blur();
                             }
@@ -961,29 +1168,52 @@ export function JdAppliedCandidatesPipeline({
                         }}
                       >
                         <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
-                          <PipelineStatusLabel
-                            status={row.status}
-                            variant="inline"
-                            uppercase={false}
-                          />
+                          {resolved.stageMapping && resolved.subStage ? (
+                            <span
+                              className={`truncate text-sm font-medium ${getSubStageTextColorClass(
+                                resolved.subStage.code,
+                                resolved.subStage.is_passed,
+                                resolved.subStage.is_default,
+                                resolved.stageMapping.pipeline_stages?.color,
+                              )}`}
+                            >
+                              {resolved.stageMapping.pipeline_stages?.label ??
+                                resolved.stageMapping.pipeline_stages?.code}
+                              {" · "}
+                              {resolved.subStage.label}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted">Unassigned</span>
+                          )}
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            {allowedTargetsFromStatus(r.status).map((s) => (
-                              <ListBox.Item
-                                key={s}
-                                id={s}
-                                textValue={candidateStatusUiLabel(s)}
-                              >
-                                <PipelineStatusLabel
-                                  status={s}
-                                  variant="inline"
-                                  uppercase={false}
-                                />
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
+                            {stageOptions.map(({ stageMapping, subStage }) => {
+                              const key = stageSubStageOptionKey(stageMapping.id, subStage.id);
+                              return (
+                                <ListBox.Item
+                                  key={key}
+                                  id={key}
+                                  textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
+                                >
+                                  <span
+                                    className={getSubStageTextColorClass(
+                                      subStage.code,
+                                      subStage.is_passed,
+                                      subStage.is_default,
+                                      stageMapping.pipeline_stages?.color,
+                                    )}
+                                  >
+                                    {stageMapping.pipeline_stages?.label ??
+                                      stageMapping.pipeline_stages?.code}
+                                    {" · "}
+                                    {subStage.label}
+                                  </span>
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              );
+                            })}
                           </ListBox>
                         </Select.Popover>
                       </Select>

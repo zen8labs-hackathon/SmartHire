@@ -10,6 +10,7 @@ import {
 
 import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -25,6 +26,8 @@ type Props = {
   initialPipelineCandidates: CandidateDbRow[];
   initialPipelineFetchFailed: boolean;
   canEditPipeline: boolean;
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
 };
 
 /**
@@ -42,6 +45,8 @@ export const JobPipelineDataPanel = forwardRef<
     initialPipelineCandidates,
     initialPipelineFetchFailed,
     canEditPipeline,
+    stageMappings,
+    subStages,
   },
   ref,
 ) {
@@ -94,6 +99,8 @@ export const JobPipelineDataPanel = forwardRef<
           loadState={pipelineLoadState}
           onRefetch={(silent) => void refetchPipeline(silent)}
           canEditPipeline={canEditPipeline}
+          stageMappings={stageMappings}
+          subStages={subStages}
         />
       </Card.Content>
     </Card>

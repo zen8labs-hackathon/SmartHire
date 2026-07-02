@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { CandidateStatus } from "@/lib/candidates/types";
 
 export interface StageMapping {
   id: string;
@@ -29,32 +30,36 @@ export interface SubStage {
  */
 export async function fetchJobPipelineConfig(
   supabase: SupabaseClient,
-  jobOpeningId: string,
+  jobOpeningId: string | null,
 ) {
-  // 1. Fetch stage mappings
-  const { data: stageMappingsData, error: smError } = await supabase
-    .from("job_stage_mappings")
-    .select(`
-      id,
-      sequence_number,
-      pipeline_stage_id,
-      pipeline_stages!inner (
+  let stageMappings: StageMapping[] = [];
+
+  // 1. Fetch stage mappings (only possible when a job opening is linked)
+  if (jobOpeningId) {
+    const { data: stageMappingsData, error: smError } = await supabase
+      .from("job_stage_mappings")
+      .select(`
         id,
-        code,
-        label,
-        desc,
-        color
-      )
-    `)
-    .eq("job_opening_id", jobOpeningId)
-    .is("deleted_at", null)
-    .order("sequence_number", { ascending: true });
+        sequence_number,
+        pipeline_stage_id,
+        pipeline_stages!inner (
+          id,
+          code,
+          label,
+          desc,
+          color
+        )
+      `)
+      .eq("job_opening_id", jobOpeningId)
+      .is("deleted_at", null)
+      .order("sequence_number", { ascending: true });
 
-  if (smError) {
-    return { stageMappings: [], subStages: [], error: smError.message };
+    if (smError) {
+      return { stageMappings: [], subStages: [], error: smError.message };
+    }
+
+    stageMappings = (stageMappingsData || []) as unknown as StageMapping[];
   }
-
-  let stageMappings = (stageMappingsData || []) as unknown as StageMapping[];
 
   if (stageMappings.length === 0) {
     const { data: defaultStages, error: defError } = await supabase
@@ -111,6 +116,45 @@ const LEGACY_STATUS_TO_STAGE_SUB_STAGE: Record<string, { stage: string; sub: str
   matched: { stage: "offer", sub: "matched" },
   rejected: { stage: "offer", sub: "rejected" },
 };
+
+/**
+ * Inverse of LEGACY_STATUS_TO_STAGE_SUB_STAGE: maps a `${stageCode}:${subStageCode}`
+ * key (both lowercased) to the closest legacy `candidates.status` enum value.
+ * Used to dual-write the legacy `status` column whenever the new pipeline
+ * columns are updated, so consumers that still read `status` directly
+ * (status-counts API, evaluation client, timeline API, duplicate-check API, etc.)
+ * don't go stale.
+ */
+const STAGE_SUB_STAGE_TO_LEGACY_STATUS: Record<string, CandidateStatus> = {
+  "cv_scan:new": "New",
+  "cv_scan:consider": "Consider",
+  "cv_scan:passed": "CvPassed",
+  "cv_scan:failed": "CvFailed",
+  "interview:interview": "Interview",
+  "interview:consider": "InterviewConsider",
+  "interview:canceled": "InterviewCanceled",
+  "interview:passed": "InterviewPassed",
+  "interview:failed": "InterviewFailed",
+  "offer:offer": "Offer",
+  "offer:matched": "Matched",
+  "offer:rejected": "Rejected",
+};
+
+/**
+ * Resolves the closest legacy `candidates.status` enum value for a given
+ * stage code + sub-stage code pair (case-insensitive). Returns null when no
+ * mapping exists (e.g. fully custom stages/sub-stages with no legacy analog).
+ */
+export function legacyStatusForStageSubStage(
+  stageCode: string,
+  subStageCode: string,
+): CandidateStatus | null {
+  return (
+    STAGE_SUB_STAGE_TO_LEGACY_STATUS[
+      `${stageCode.toLowerCase()}:${subStageCode.toLowerCase()}`
+    ] ?? null
+  );
+}
 
 /**
  * Resolves a candidate's stage mapping ID and sub-stage ID, falling back to the first stage default if null.
@@ -216,7 +260,10 @@ export function isCustomTransitionAllowed(
 
 /**
  * Constructs the database update object for a candidate when transitioning.
- * Legacy status column is left untouched to prevent conflict with old pages.
+ * Also dual-writes the closest legacy `status` enum value (see
+ * `legacyStatusForStageSubStage`) in the same patch object so the update
+ * remains a single atomic DB write and consumers still reading `status`
+ * directly don't go stale.
  */
 export function buildNewPipelineCandidatePatch(
   prev: {
@@ -255,6 +302,11 @@ export function buildNewPipelineCandidatePatch(
     current_sub_state_id: update.toSubStateId,
     pipeline_status: `${stageCode}:${subStageCode}`,
   };
+
+  const legacyStatus = legacyStatusForStageSubStage(stageCode, subStageCode);
+  if (legacyStatus) {
+    patch.status = legacyStatus;
+  }
 
   // Date management:
   let interview_at = prev.interview_at ?? null;

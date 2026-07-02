@@ -3,6 +3,7 @@ import {
   resolveCandidatePipelineIds,
   isCustomTransitionAllowed,
   buildNewPipelineCandidatePatch,
+  legacyStatusForStageSubStage,
   type StageMapping,
   type SubStage,
 } from "./transition-validator";
@@ -214,7 +215,7 @@ describe("isCustomTransitionAllowed", () => {
 });
 
 describe("buildNewPipelineCandidatePatch", () => {
-  it("builds correct database patch without status mutated", () => {
+  it("builds correct database patch and dual-writes the closest legacy status", () => {
     const prev = {
       current_job_stage_mapping_id: "mapping-cv-scan",
       current_sub_state_id: "sub-cv-new",
@@ -229,7 +230,9 @@ describe("buildNewPipelineCandidatePatch", () => {
     expect(patch.current_job_stage_mapping_id).toBe("mapping-interview");
     expect(patch.current_sub_state_id).toBe("sub-int-interview");
     expect(patch.pipeline_status).toBe("interview:interview");
-    expect(patch.status).toBeUndefined(); // status should not be mutated
+    // Dual-write: legacy `status` is kept in sync in the same atomic patch so
+    // consumers still reading `status` directly don't go stale.
+    expect(patch.status).toBe("Interview");
     expect(patch.interview_at).toBeTruthy(); // interview_at auto-initialized
   });
 
@@ -279,5 +282,32 @@ describe("buildNewPipelineCandidatePatch", () => {
     const patch = buildNewPipelineCandidatePatch(prev, update, mockStageMappings, mockSubStages);
     expect(patch.offered_at).toBe("2026-06-10T00:00:00Z");
     expect(patch.onboarding_at).toBeNull();
+  });
+});
+
+describe("legacyStatusForStageSubStage", () => {
+  it("maps every seeded stage:sub-stage combination to its closest legacy status", () => {
+    expect(legacyStatusForStageSubStage("cv_scan", "new")).toBe("New");
+    expect(legacyStatusForStageSubStage("cv_scan", "consider")).toBe("Consider");
+    expect(legacyStatusForStageSubStage("cv_scan", "passed")).toBe("CvPassed");
+    expect(legacyStatusForStageSubStage("cv_scan", "failed")).toBe("CvFailed");
+    expect(legacyStatusForStageSubStage("interview", "interview")).toBe("Interview");
+    expect(legacyStatusForStageSubStage("interview", "consider")).toBe("InterviewConsider");
+    expect(legacyStatusForStageSubStage("interview", "canceled")).toBe("InterviewCanceled");
+    expect(legacyStatusForStageSubStage("interview", "passed")).toBe("InterviewPassed");
+    expect(legacyStatusForStageSubStage("interview", "failed")).toBe("InterviewFailed");
+    expect(legacyStatusForStageSubStage("offer", "offer")).toBe("Offer");
+    expect(legacyStatusForStageSubStage("offer", "matched")).toBe("Matched");
+    expect(legacyStatusForStageSubStage("offer", "rejected")).toBe("Rejected");
+  });
+
+  it("is case-insensitive", () => {
+    expect(legacyStatusForStageSubStage("CV_SCAN", "New")).toBe("New");
+    expect(legacyStatusForStageSubStage("Offer", "MATCHED")).toBe("Matched");
+  });
+
+  it("returns null for stage/sub-stage codes with no legacy analog", () => {
+    expect(legacyStatusForStageSubStage("custom_stage", "custom_sub")).toBeNull();
+    expect(legacyStatusForStageSubStage("offer", "on_hold")).toBeNull();
   });
 });
