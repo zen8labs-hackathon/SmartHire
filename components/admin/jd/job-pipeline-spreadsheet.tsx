@@ -165,9 +165,9 @@ export function JobPipelineSpreadsheet({
           open={addCandidatesOpen}
           onOpenChange={setAddCandidatesOpen}
           jdPipelineCampaign={jdPipelineCampaign}
-          onCandidatesChanged={() => pipelinePanelRef.current?.refetch()}
+          onCandidatesChanged={() => pipelinePanelRef.current?.refetch(true)}
           onDuplicateMergedToExisting={() =>
-            pipelinePanelRef.current?.refetch()
+            pipelinePanelRef.current?.refetch(true)
           }
         />
       ) : null}

@@ -16,7 +16,7 @@ import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-head
 import { Card } from "@heroui/react";
 
 export type JobPipelineDataPanelHandle = {
-  refetch: () => void;
+  refetch: (silent?: boolean) => void;
 };
 
 type Props = {
@@ -79,7 +79,7 @@ export const JobPipelineDataPanel = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      refetch: () => void refetchPipeline(),
+      refetch: (silent?: boolean) => void refetchPipeline(silent),
     }),
     [refetchPipeline],
   );
