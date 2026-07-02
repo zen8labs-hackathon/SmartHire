@@ -341,86 +341,96 @@ export function AddCandidateModal({
     [sessionAuthHeaders, selectedJobId, sourceKey, sourceOther, supabase],
   );
 
-  const runDuplicateUpdateWithHistory = useCallback(
-    async (existingCandidateId: string) => {
-      const payload = duplicatePayloadRef.current;
-      if (!payload) return;
-      // Close right away — the rest runs in the background against the
-      // upload queue, same as a normal upload.
-      closeDuplicateModal();
-      setDuplicateSubmitting(true);
-      let newCandidateId = payload.newCandidateId;
-      try {
-        if (payload.pendingFile) {
-          const result = await commitUploadAndProcess(payload.pendingFile);
-          newCandidateId = result.candidateId;
-          // Remember the uploaded row so a retry after a failed merge below
-          // reuses it instead of re-uploading the file.
-          payload.newCandidateId = newCandidateId;
-          payload.pendingFile = undefined;
-        }
-        if (!newCandidateId) {
-          throw new Error("Missing uploaded candidate to merge.");
-        }
-        duplicateMergeIdsRef.current.add(newCandidateId);
-        const procAuth = await sessionAuthHeaders();
-        const repRes = await fetch(
-          `/api/admin/candidates/${existingCandidateId}/update-with-history`,
-          {
-            method: "PUT",
-            credentials: "include",
-            headers: { "Content-Type": "application/json", ...procAuth },
-            body: JSON.stringify({
-              newCandidateId,
-              matchedOn: payload.hits[0]?.matchedOn,
-            }),
-          },
-        );
-        const repJson = (await repRes.json()) as {
-          error?: string;
-          candidate?: CandidateDbRow;
-        };
-        if (!repRes.ok) {
-          throw new Error(
-            repJson.error ?? "Failed to merge duplicate into existing profile",
-          );
-        }
-        resolveDuplicateFlow("replaced");
-        if (onDuplicateMergedToExisting) {
-          await onDuplicateMergedToExisting(
-            existingCandidateId,
-            repJson.candidate,
-            newCandidateId,
-          );
-        } else {
-          onCandidatesChanged?.();
-        }
-      } catch (e) {
-        resolveDuplicateFlow("skip");
-        window.alert(
-          e instanceof Error ? e.message : "Failed to update candidate profile",
-        );
-      } finally {
-        if (newCandidateId) duplicateMergeIdsRef.current.delete(newCandidateId);
-        setDuplicateSubmitting(false);
+  const runDuplicateUpdateWithHistory = useCallback(async () => {
+    const payload = duplicatePayloadRef.current;
+    if (!payload) return;
+    closeDuplicateModal();
+    setDuplicateSubmitting(true);
+    let newCandidateId = payload.newCandidateId;
+    try {
+      if (payload.pendingFile) {
+        const result = await commitUploadAndProcess(payload.pendingFile);
+        newCandidateId = result.candidateId;
+        payload.newCandidateId = newCandidateId;
+        payload.pendingFile = undefined;
       }
-    },
-    [
-      sessionAuthHeaders,
-      closeDuplicateModal,
-      resolveDuplicateFlow,
-      onCandidatesChanged,
-      onDuplicateMergedToExisting,
-      commitUploadAndProcess,
-    ],
-  );
+      if (!newCandidateId) {
+        throw new Error("Missing uploaded candidate to merge.");
+      }
+
+      const sameJobHit = payload.hits.find(
+        (h) => h.jobOpeningId === selectedJobId,
+      );
+
+      if (!sameJobHit) {
+        resolveDuplicateFlow("replaced");
+        setQueue((q) =>
+          q.map((r) =>
+            r.candidateId === newCandidateId
+              ? { ...r, uploadPhase: "uploaded" as const }
+              : r,
+          ),
+        );
+        onCandidatesChanged?.();
+        return;
+      }
+
+      duplicateMergeIdsRef.current.add(newCandidateId);
+      const procAuth = await sessionAuthHeaders();
+      const repRes = await fetch(
+        `/api/admin/candidates/${sameJobHit.id}/update-with-history`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...procAuth },
+          body: JSON.stringify({
+            newCandidateId,
+            matchedOn: sameJobHit.matchedOn,
+          }),
+        },
+      );
+      const repJson = (await repRes.json()) as {
+        error?: string;
+        candidate?: CandidateDbRow;
+      };
+      if (!repRes.ok) {
+        throw new Error(
+          repJson.error ?? "Failed to merge duplicate into existing profile",
+        );
+      }
+      resolveDuplicateFlow("replaced");
+      if (onDuplicateMergedToExisting) {
+        await onDuplicateMergedToExisting(
+          sameJobHit.id,
+          repJson.candidate,
+          newCandidateId,
+        );
+      } else {
+        onCandidatesChanged?.();
+      }
+    } catch (e) {
+      resolveDuplicateFlow("skip");
+      window.alert(
+        e instanceof Error ? e.message : "Failed to update candidate profile",
+      );
+    } finally {
+      if (newCandidateId) duplicateMergeIdsRef.current.delete(newCandidateId);
+      setDuplicateSubmitting(false);
+    }
+  }, [
+    sessionAuthHeaders,
+    closeDuplicateModal,
+    resolveDuplicateFlow,
+    onCandidatesChanged,
+    onDuplicateMergedToExisting,
+    commitUploadAndProcess,
+    selectedJobId,
+  ]);
 
   const runDiscardDuplicate = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
     if (payload.pendingFile) {
-      // Pre-upload duplicate: nothing was ever persisted (no Storage write,
-      // no candidate row), so discarding is just dropping the in-memory file.
       closeDuplicateModal();
       resolveDuplicateFlow("skip");
       return;
@@ -462,7 +472,12 @@ export function AddCandidateModal({
     } finally {
       setDuplicateSubmitting(false);
     }
-  }, [sessionAuthHeaders, closeDuplicateModal, resolveDuplicateFlow, onCandidatesChanged]);
+  }, [
+    sessionAuthHeaders,
+    closeDuplicateModal,
+    resolveDuplicateFlow,
+    onCandidatesChanged,
+  ]);
 
   const loadJobs = useCallback(async () => {
     const auth = await sessionAuthHeaders();
@@ -1013,6 +1028,9 @@ export function AddCandidateModal({
             "Chiến dịch hiện tại"
           }
           isSubmitting={duplicateSubmitting}
+          willMergeIntoExisting={duplicateFlow.hits.some(
+            (h) => h.jobOpeningId === selectedJobId,
+          )}
           onUpdateProfile={runDuplicateUpdateWithHistory}
           onDiscard={runDiscardDuplicate}
         />

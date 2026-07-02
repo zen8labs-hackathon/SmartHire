@@ -188,7 +188,7 @@ export function JdAppliedCandidatesPipeline({
         throw new Error(json.error ?? "Failed to delete candidate.");
       }
       deleteModal.close();
-      onRefetch();
+      onRefetch(true);
     } catch (e) {
       setDeleteError(
         e instanceof Error ? e.message : "Failed to delete candidate.",
@@ -518,30 +518,6 @@ export function JdAppliedCandidatesPipeline({
     });
   }, [dbRows]);
 
-  if (loadState === "loading") {
-    return <p className="mt-3 text-sm text-muted">Loading…</p>;
-  }
-  if (loadState === "error") {
-    return (
-      <div className="mt-3 flex flex-col items-start gap-2">
-        <p className="text-sm text-danger">
-          Could not load candidates. Try again later.
-        </p>
-        <Button variant="secondary" size="sm" onPress={() => onRefetch()}>
-          Retry load
-        </Button>
-      </div>
-    );
-  }
-  if (loadState === "ok" && dbRows.length === 0) {
-    return (
-      <p className="mt-3 text-sm text-muted">
-        No candidates yet. Link a job opening to this JD and add applicants from
-        the Candidates page or the JD pipeline.
-      </p>
-    );
-  }
-
   return (
     <div className="mt-3 flex flex-col gap-4">
       {pipelineError ? (
@@ -817,8 +793,49 @@ export function JdAppliedCandidatesPipeline({
                 Action
               </Table.Column>
             </Table.Header>
-            <Table.Body>
-              {paginatedRows.map((r) => {
+            <Table.Body
+              key={
+                loadState === "loading"
+                  ? "pipeline-table-loading"
+                  : loadState === "error"
+                    ? "pipeline-table-error"
+                    : loadState === "ok" && dbRows.length === 0
+                      ? "pipeline-table-empty"
+                      : "pipeline-table-data"
+              }
+            >
+              {loadState === "loading" ? (
+                <Table.Row id="pipeline-row-loading">
+                  <Table.Cell className="py-8 text-center text-muted" colSpan={11}>
+                    Loading…
+                  </Table.Cell>
+                </Table.Row>
+              ) : loadState === "error" ? (
+                <Table.Row id="pipeline-row-error">
+                  <Table.Cell className="py-8 text-center" colSpan={11}>
+                    <div className="flex flex-col items-center gap-2">
+                      <p className="text-sm text-danger">
+                        Could not load candidates. Try again later.
+                      </p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={() => onRefetch()}
+                      >
+                        Retry load
+                      </Button>
+                    </div>
+                  </Table.Cell>
+                </Table.Row>
+              ) : loadState === "ok" && dbRows.length === 0 ? (
+                <Table.Row id="pipeline-row-empty">
+                  <Table.Cell className="py-8 text-center text-muted" colSpan={11}>
+                    No candidates yet. Link a job opening to this JD and add
+                    applicants from the Candidates page or the JD pipeline.
+                  </Table.Cell>
+                </Table.Row>
+              ) : (
+                paginatedRows.map((r) => {
                 const row: CandidateRow = candidateDbRowToTableRow(r);
                 const contact = displayFromParsedPayload(r.parsed_payload);
                 const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
@@ -1045,7 +1062,8 @@ export function JdAppliedCandidatesPipeline({
                     </Table.Cell>
                   </Table.Row>
                 );
-              })}
+                })
+              )}
             </Table.Body>
           </Table.Content>
         </Table.ScrollContainer>

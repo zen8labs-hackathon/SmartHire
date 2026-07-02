@@ -153,12 +153,12 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
   const fromNew = rowUpdateFromCvDetailSnapshot(snapshotFromCandidateRow(n));
 
-  const preservedJobOpeningId =
-    e.job_opening_id == null ? (n.job_opening_id ?? null) : e.job_opening_id;
+  const mergedJobOpeningId =
+    n.job_opening_id == null ? (e.job_opening_id ?? null) : n.job_opening_id;
 
   // 1. Determine existing candidate folder structure
   let existingFolder = extractFolderNameFromPath(e.cv_storage_path as string);
-  const jobOpeningId = preservedJobOpeningId || "Job_Opening";
+  const jobOpeningId = mergedJobOpeningId || "Job_Opening";
 
   let jobFolder = jobOpeningId;
   const existingPathParts = ((e.cv_storage_path as string) || "").split("/");
@@ -226,7 +226,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const mergedUpdate: Record<string, unknown> = {
     ...fromNew,
     cv_storage_path: newDestPath,
-    job_opening_id: preservedJobOpeningId,
+    job_opening_id: mergedJobOpeningId,
     status: e.status,
     interview_at: e.interview_at,
     onboarding_at: e.onboarding_at,
