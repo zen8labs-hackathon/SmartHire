@@ -158,6 +158,33 @@ export function getStageColorStyles(
   return {};
 }
 
+/**
+ * Resolves whether a candidate row is currently in the "offer" stage's
+ * "offer" sub-stage (i.e. currently offered — not yet matched or rejected).
+ * Uses a 3-tier fallback since no DB trigger keeps `current_sub_state_id` /
+ * `pipeline_status` in sync for candidates that predate the customizable
+ * pipeline migration:
+ *   1. `current_sub_state_id === offerSubStageId` (authoritative once set)
+ *   2. `pipeline_status === "offer:offer"` (denormalized text column)
+ *   3. legacy `status === "Offer"` (pre-migration candidates)
+ */
+export function isCandidateInOfferSubStage(
+  row: {
+    currentSubStateId?: string | null;
+    pipelineStatus?: string | null;
+    status?: string | null;
+  },
+  offerSubStageId: string | null | undefined,
+): boolean {
+  if (offerSubStageId && row.currentSubStateId) {
+    return row.currentSubStateId === offerSubStageId;
+  }
+  if (row.pipelineStatus) {
+    return row.pipelineStatus === "offer:offer";
+  }
+  return row.status === "Offer";
+}
+
 const SUB_STAGE_KEYWORDS = {
   passed: ["pass", "match", "hired", "success"],
   failed: ["fail", "reject", "cancel", "no_show", "decline"],
