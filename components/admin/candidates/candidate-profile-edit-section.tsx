@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Button,
@@ -32,6 +32,8 @@ export type CandidateProfileEditSectionProps = {
   isPreview: boolean;
   dbLoadState: "loading" | "error" | "ok";
   onSaved: (candidate: CandidateDbRow) => void;
+  /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
+  startInEditMode?: boolean;
 };
 
 const FIELD_LABEL =
@@ -133,6 +135,7 @@ export function CandidateProfileEditSection({
   isPreview,
   dbLoadState,
   onSaved,
+  startInEditMode = false,
 }: CandidateProfileEditSectionProps) {
   const [editing, setEditing] = useState(false);
   const [baseline, setBaseline] = useState<CandidateProfileFormSnapshot | null>(
@@ -154,6 +157,7 @@ export function CandidateProfileEditSection({
   const [changeSummary, setChangeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoStartedRef = useRef(false);
 
   const snapFromDb = useMemo(
     () => (dbRow ? snapshotFromDb(dbRow) : null),
@@ -164,6 +168,7 @@ export function CandidateProfileEditSection({
     setEditing(false);
     setBaseline(null);
     setError(null);
+    autoStartedRef.current = false;
   }, [candidateId]);
 
   useEffect(() => {
@@ -218,6 +223,13 @@ export function CandidateProfileEditSection({
     setEditing(true);
     setError(null);
   }, [dbRow, snapFromDb]);
+
+  useEffect(() => {
+    if (!startInEditMode || autoStartedRef.current) return;
+    if (!dbRow || !snapFromDb) return;
+    autoStartedRef.current = true;
+    startEdit();
+  }, [startInEditMode, dbRow, snapFromDb, startEdit]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
