@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
@@ -29,6 +29,7 @@ import {
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
 
+import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 import {
   candidateDisplayInitials,
@@ -342,6 +343,16 @@ export function JdAppliedCandidatesPipeline({
         setRowPendingDelete(null);
         setDeleteError(null);
       }
+    },
+  });
+
+  const [rowPendingEdit, setRowPendingEdit] = useState<CandidateDbRow | null>(
+    null,
+  );
+
+  const editModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingEdit(null);
     },
   });
 
@@ -1077,7 +1088,7 @@ export function JdAppliedCandidatesPipeline({
                 Uploaded at
               </Table.Column>
               <Table.Column>Schedule</Table.Column>
-              <Table.Column className="text-center w-[80px]">
+              <Table.Column className="text-center w-[110px]">
                 Action
               </Table.Column>
             </Table.Header>
@@ -1426,19 +1437,34 @@ export function JdAppliedCandidatesPipeline({
                       <Table.Cell
                         className={`align-top text-center ${offerCellClass}`}
                       >
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="px-2 text-danger hover:bg-danger/5 min-w-0"
-                          isDisabled={!canEditPipeline || busy}
-                          onPress={() => {
-                            setRowPendingDelete(r);
-                            deleteModal.open();
-                          }}
-                          aria-label={`Delete ${row.name}`}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="px-2 min-w-0"
+                            isDisabled={!canEditPipeline || busy}
+                            onPress={() => {
+                              setRowPendingEdit(r);
+                              editModal.open();
+                            }}
+                            aria-label={`Edit ${row.name}`}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="px-2 text-danger hover:bg-danger/5 min-w-0"
+                            isDisabled={!canEditPipeline || busy}
+                            onPress={() => {
+                              setRowPendingDelete(r);
+                              deleteModal.open();
+                            }}
+                            aria-label={`Delete ${row.name}`}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
                       </Table.Cell>
                     </Table.Row>
                   );
@@ -1601,6 +1627,37 @@ export function JdAppliedCandidatesPipeline({
                 {deleteBusy ? "Deleting..." : "Delete"}
               </Button>
             </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      <Modal.Backdrop isOpen={editModal.isOpen} onOpenChange={editModal.setOpen}>
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-2xl overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
+              <Modal.Heading className="text-lg font-bold text-foreground">
+                {rowPendingEdit
+                  ? candidateDbRowToTableRow(rowPendingEdit).name
+                  : "Edit candidate"}
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
+              {rowPendingEdit ? (
+                <CandidateProfileEditSection
+                  candidateId={rowPendingEdit.id}
+                  dbRow={rowPendingEdit}
+                  canEdit={!!canEditPipeline}
+                  isPreview={false}
+                  dbLoadState="ok"
+                  startInEditMode
+                  onSaved={() => {
+                    editModal.close();
+                    onRefetch(true);
+                  }}
+                />
+              ) : null}
+            </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
