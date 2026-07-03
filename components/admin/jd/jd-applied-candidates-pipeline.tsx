@@ -21,7 +21,11 @@ import {
   Table,
   useOverlayState,
 } from "@heroui/react";
-import { today, getLocalTimeZone, type CalendarDate } from "@internationalized/date";
+import {
+  today,
+  getLocalTimeZone,
+  type CalendarDate,
+} from "@internationalized/date";
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
 
@@ -32,7 +36,7 @@ import {
 } from "@/lib/candidates/candidate-display";
 import {
   getSubStageTextColorClass,
-  isCandidateInOfferSubStage,
+  isCandidateInOfferStage,
   isPipelineStatusKey,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
@@ -57,14 +61,24 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
-
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 1, label: "Jan" }, { value: 2, label: "Feb" }, { value: 3, label: "Mar" },
-  { value: 4, label: "Apr" }, { value: 5, label: "May" }, { value: 6, label: "Jun" },
-  { value: 7, label: "Jul" }, { value: 8, label: "Aug" }, { value: 9, label: "Sep" },
-  { value: 10, label: "Oct" }, { value: 11, label: "Nov" }, { value: 12, label: "Dec" },
+  { value: 1, label: "Jan" },
+  { value: 2, label: "Feb" },
+  { value: 3, label: "Mar" },
+  { value: 4, label: "Apr" },
+  { value: 5, label: "May" },
+  { value: 6, label: "Jun" },
+  { value: 7, label: "Jul" },
+  { value: 8, label: "Aug" },
+  { value: 9, label: "Sep" },
+  { value: 10, label: "Oct" },
+  { value: 11, label: "Nov" },
+  { value: 12, label: "Dec" },
 ];
-const YEAR_OPTIONS = Array.from({ length: 2030 - 1990 + 1 }, (_, i) => 1990 + i);
+const YEAR_OPTIONS = Array.from(
+  { length: 2030 - 1990 + 1 },
+  (_, i) => 1990 + i,
+);
 
 const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "all", label: "All statuses" },
@@ -125,7 +139,9 @@ function allowedStageTargets(
 ): Array<{ stageMapping: StageMapping; subStage: SubStage }> {
   const options: Array<{ stageMapping: StageMapping; subStage: SubStage }> = [];
   for (const sm of stageMappings) {
-    const subs = subStages.filter((ss) => ss.pipeline_stage_id === sm.pipeline_stage_id);
+    const subs = subStages.filter(
+      (ss) => ss.pipeline_stage_id === sm.pipeline_stage_id,
+    );
     for (const ss of subs) {
       if (
         isCustomTransitionAllowed(
@@ -162,17 +178,20 @@ function findFailSubStage(
   );
 }
 
-function stageSubStageOptionKey(stageMappingId: string, subStateId: string): string {
+function stageSubStageOptionKey(
+  stageMappingId: string,
+  subStateId: string,
+): string {
   return `${stageMappingId}:${subStateId}`;
 }
 
 /**
- * Fixed green wash for rows in the offer sub-stage — intentionally independent
- * of the pipeline stage's configured DB color (which only drives the status
- * tag). Applied per-`Table.Cell` rather than `Table.Row`: HeroUI table cells
- * paint their own opaque background on top of the row, so a row-level
- * background never shows. `!important` keeps it visible through the row's
- * hover background too.
+ * Fixed green wash for rows anywhere in the offer stage — intentionally
+ * independent of the pipeline stage's configured DB color (which only
+ * drives the status tag). Applied per-`Table.Cell` rather than `Table.Row`:
+ * HeroUI table cells paint their own opaque background on top of the row,
+ * so a row-level background never shows. `!important` keeps it visible
+ * through the row's hover background too.
  */
 const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
 
@@ -254,7 +273,7 @@ export function JdAppliedCandidatesPipeline({
     [stageMappings, subStages],
   );
 
-  /** The "offer" stage's default ("currently offered") sub-stage — id used for row highlighting and by "Move to offer". */
+  /** The "offer" stage's default ("currently offered") sub-stage — id used by "Move to offer". */
   const offerDefaultSubStage = useMemo(() => {
     const offerStage = stageMappings.find(
       (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === "offer",
@@ -262,7 +281,9 @@ export function JdAppliedCandidatesPipeline({
     if (!offerStage) return null;
     return (
       subStages.find(
-        (ss) => ss.pipeline_stage_id === offerStage.pipeline_stage_id && ss.is_default,
+        (ss) =>
+          ss.pipeline_stage_id === offerStage.pipeline_stage_id &&
+          ss.is_default,
       ) ?? null
     );
   }, [stageMappings, subStages]);
@@ -274,6 +295,18 @@ export function JdAppliedCandidatesPipeline({
       ) ?? null,
     [stageMappings],
   );
+
+  /** Every sub-stage id under the "offer" stage — used for the offer-row highlight. */
+  const offerStageSubStateIds = useMemo(() => {
+    if (!offerStageMapping) return null;
+    return new Set(
+      subStages
+        .filter(
+          (ss) => ss.pipeline_stage_id === offerStageMapping.pipeline_stage_id,
+        )
+        .map((ss) => ss.id),
+    );
+  }, [offerStageMapping, subStages]);
 
   const interviewStageMapping = useMemo(
     () =>
@@ -342,9 +375,10 @@ export function JdAppliedCandidatesPipeline({
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [uploadDateRange, setUploadDateRange] = useState<RangeValue<CalendarDate> | null>(null);
-  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
-    today(getLocalTimeZone()),
+  const [uploadDateRange, setUploadDateRange] =
+    useState<RangeValue<CalendarDate> | null>(null);
+  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
+    () => today(getLocalTimeZone()),
   );
 
   const [page, setPage] = useState(1);
@@ -414,13 +448,21 @@ export function JdAppliedCandidatesPipeline({
     return { newPool, interviewing, offer, matched };
   }, [filteredRows]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRows.length / ROWS_PER_PAGE),
+  );
   const safePage = Math.min(page, totalPages);
   const paginatedRows = useMemo(
-    () => filteredRows.slice((safePage - 1) * ROWS_PER_PAGE, safePage * ROWS_PER_PAGE),
+    () =>
+      filteredRows.slice(
+        (safePage - 1) * ROWS_PER_PAGE,
+        safePage * ROWS_PER_PAGE,
+      ),
     [filteredRows, safePage],
   );
-  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
+  const startIdx =
+    filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
   const endIdx = startIdx === 0 ? 0 : startIdx - 1 + paginatedRows.length;
 
   const toggleSelect = useCallback((id: string) => {
@@ -487,7 +529,9 @@ export function JdAppliedCandidatesPipeline({
       selectedRows.length > 0 &&
       selectedRows.every((r) => {
         const { stageMappingId } = resolveRow(r);
-        return findFailSubStage(stageMappingId, stageMappings, subStages) != null;
+        return (
+          findFailSubStage(stageMappingId, stageMappings, subStages) != null
+        );
       }),
     [selectedRows, resolveRow, stageMappings, subStages],
   );
@@ -600,7 +644,11 @@ export function JdAppliedCandidatesPipeline({
     try {
       const updates = selectedRows.map((r) => {
         const { stageMappingId } = resolveRow(r);
-        const failSubStage = findFailSubStage(stageMappingId, stageMappings, subStages);
+        const failSubStage = findFailSubStage(
+          stageMappingId,
+          stageMappings,
+          subStages,
+        );
         if (!stageMappingId || !failSubStage) {
           throw new Error(
             `No failure sub-stage configured for candidate ${r.id}'s current stage.`,
@@ -619,7 +667,15 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setPipelineBusy(false);
     }
-  }, [bulkFailEligible, onRefetch, postPipeline, selectedRows, resolveRow, stageMappings, subStages]);
+  }, [
+    bulkFailEligible,
+    onRefetch,
+    postPipeline,
+    selectedRows,
+    resolveRow,
+    stageMappings,
+    subStages,
+  ]);
 
   const onStatusChange = useCallback(
     async (
@@ -668,33 +724,37 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveInterviewTime = useCallback(
-    async (id: string) => {
-      const local = interviewDrafts[id] ?? "";
+    async (id: string, local: string) => {
       setPipelineError(null);
+      setRowUpdating(id);
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { interview_at: iso });
         onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
+      } finally {
+        setRowUpdating(null);
       }
     },
-    [interviewDrafts, onRefetch, patchTimeline],
+    [onRefetch, patchTimeline],
   );
 
   const saveOnboardingTime = useCallback(
-    async (id: string) => {
-      const local = interviewDrafts[`ob-${id}`] ?? "";
+    async (id: string, local: string) => {
       setPipelineError(null);
+      setRowUpdating(id);
       try {
         const iso = local.trim() ? localDatetimeToIso(local) : null;
         await patchTimeline(id, { onboarding_at: iso });
         onRefetch(true);
       } catch (e) {
         setPipelineError(e instanceof Error ? e.message : "Update failed.");
+      } finally {
+        setRowUpdating(null);
       }
     },
-    [interviewDrafts, onRefetch, patchTimeline],
+    [onRefetch, patchTimeline],
   );
 
   useEffect(() => {
@@ -823,35 +883,52 @@ export function JdAppliedCandidatesPipeline({
                   <Dialog className="outline-none">
                     <RangeCalendar
                       focusedValue={calendarFocusedDate as any}
-                      onFocusChange={(next) => setCalendarFocusedDate(next as any)}
+                      onFocusChange={(next) =>
+                        setCalendarFocusedDate(next as any)
+                      }
                     >
                       <RangeCalendar.Header className="flex items-center gap-2">
                         <RangeCalendar.NavButton slot="previous" />
                         <div className="flex flex-1 items-center gap-2">
-                          <Label className="sr-only" htmlFor="jd-cal-month">Month</Label>
+                          <Label className="sr-only" htmlFor="jd-cal-month">
+                            Month
+                          </Label>
                           <select
                             id="jd-cal-month"
                             value={calendarFocusedDate.month}
                             onChange={(e) =>
-                              setCalendarFocusedDate((p) => p.set({ month: Number(e.target.value), day: 1 }))
+                              setCalendarFocusedDate((p) =>
+                                p.set({
+                                  month: Number(e.target.value),
+                                  day: 1,
+                                }),
+                              )
                             }
                             className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
                           >
                             {MONTH_OPTIONS.map((m) => (
-                              <option key={m.value} value={m.value}>{m.label}</option>
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
                             ))}
                           </select>
-                          <Label className="sr-only" htmlFor="jd-cal-year">Year</Label>
+                          <Label className="sr-only" htmlFor="jd-cal-year">
+                            Year
+                          </Label>
                           <select
                             id="jd-cal-year"
                             value={calendarFocusedDate.year}
                             onChange={(e) =>
-                              setCalendarFocusedDate((p) => p.set({ year: Number(e.target.value), day: 1 }))
+                              setCalendarFocusedDate((p) =>
+                                p.set({ year: Number(e.target.value), day: 1 }),
+                              )
                             }
                             className="h-8 rounded-md border border-neutral-300 bg-background px-2 text-sm outline-none dark:border-neutral-700"
                           >
                             {YEAR_OPTIONS.map((y) => (
-                              <option key={y} value={y}>{y}</option>
+                              <option key={y} value={y}>
+                                {y}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -859,7 +936,11 @@ export function JdAppliedCandidatesPipeline({
                       </RangeCalendar.Header>
                       <RangeCalendar.Grid weekdayStyle="short">
                         <RangeCalendar.GridHeader>
-                          {(day) => <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>}
+                          {(day) => (
+                            <RangeCalendar.HeaderCell>
+                              {day}
+                            </RangeCalendar.HeaderCell>
+                          )}
                         </RangeCalendar.GridHeader>
                         <RangeCalendar.GridBody>
                           {(date) => (
@@ -867,7 +948,9 @@ export function JdAppliedCandidatesPipeline({
                               {({ formattedDate }) => (
                                 <>
                                   <RangeCalendar.CellIndicator />
-                                  <span className="relative z-[1]">{formattedDate}</span>
+                                  <span className="relative z-[1]">
+                                    {formattedDate}
+                                  </span>
                                 </>
                               )}
                             </RangeCalendar.Cell>
@@ -1011,7 +1094,10 @@ export function JdAppliedCandidatesPipeline({
             >
               {loadState === "loading" ? (
                 <Table.Row id="pipeline-row-loading">
-                  <Table.Cell className="py-8 text-center text-muted" colSpan={11}>
+                  <Table.Cell
+                    className="py-8 text-center text-muted"
+                    colSpan={11}
+                  >
                     Loading…
                   </Table.Cell>
                 </Table.Row>
@@ -1034,73 +1120,81 @@ export function JdAppliedCandidatesPipeline({
                 </Table.Row>
               ) : loadState === "ok" && dbRows.length === 0 ? (
                 <Table.Row id="pipeline-row-empty">
-                  <Table.Cell className="py-8 text-center text-muted" colSpan={11}>
+                  <Table.Cell
+                    className="py-8 text-center text-muted"
+                    colSpan={11}
+                  >
                     No candidates yet. Link a job opening to this JD and add
                     applicants from the Candidates page or the JD pipeline.
                   </Table.Cell>
                 </Table.Row>
               ) : (
                 paginatedRows.map((r) => {
-                const row: CandidateRow = candidateDbRowToTableRow(r);
-                const contact = displayFromParsedPayload(r.parsed_payload);
-                const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
-                const edu =
-                  [r.degree, r.school].filter(Boolean).join(" · ") || "—";
-                const busy = rowUpdating === r.id;
-                const resolved = resolveRow(r);
-                const inOfferSubStage = isCandidateInOfferSubStage(
-                  {
-                    currentSubStateId: r.current_sub_state_id,
-                    pipelineStatus: r.pipeline_status,
-                    status: r.status,
-                  },
-                  offerDefaultSubStage?.id,
-                );
-                const offerCellClass = inOfferSubStage ? OFFER_ROW_CELL_CLASS : "";
-                const stageOptions =
-                  resolved.stageMappingId && resolved.subStateId
-                    ? allowedStageTargets(
-                        resolved.stageMappingId,
-                        resolved.subStateId,
-                        stageMappings,
-                        subStages,
-                      )
-                    : [];
-                const currentOptionKey =
-                  resolved.stageMappingId && resolved.subStateId
-                    ? stageSubStageOptionKey(resolved.stageMappingId, resolved.subStateId)
-                    : undefined;
-                return (
-                  <Table.Row key={r.id} id={r.id}>
-                    <Table.Cell className={offerCellClass}>
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 rounded border-divider accent-accent"
-                        checked={selected.has(r.id)}
-                        disabled={!canEditPipeline}
-                        onChange={() => toggleSelect(r.id)}
-                        aria-label={`Select ${row.name}`}
-                      />
-                    </Table.Cell>
-                    <Table.Cell className={offerCellClass}>
-                      <div className="flex items-center gap-4">
-                        <Avatar className="size-10 shrink-0" size="md">
-                          {row.avatarUrl ? (
-                            <Avatar.Image alt="" src={row.avatarUrl} />
-                          ) : null}
-                          <Avatar.Fallback className="text-xs">
-                            {candidateDisplayInitials(row.name)}
-                          </Avatar.Fallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <Link
-                              href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
-                              className="font-semibold text-accent hover:underline"
-                            >
-                              {row.name}
-                            </Link>
-                            {/* {row.hasCvFile ? (
+                  const row: CandidateRow = candidateDbRowToTableRow(r);
+                  const contact = displayFromParsedPayload(r.parsed_payload);
+                  const skills = (r.skills ?? []).slice(0, 6).join(", ") || "—";
+                  const edu =
+                    [r.degree, r.school].filter(Boolean).join(" · ") || "—";
+                  const busy = rowUpdating === r.id;
+                  const resolved = resolveRow(r);
+                  const inOfferStage = isCandidateInOfferStage(
+                    {
+                      currentSubStateId: r.current_sub_state_id,
+                      pipelineStatus: r.pipeline_status,
+                      status: r.status,
+                    },
+                    offerStageSubStateIds,
+                  );
+                  const offerCellClass = inOfferStage
+                    ? OFFER_ROW_CELL_CLASS
+                    : "";
+                  const stageOptions =
+                    resolved.stageMappingId && resolved.subStateId
+                      ? allowedStageTargets(
+                          resolved.stageMappingId,
+                          resolved.subStateId,
+                          stageMappings,
+                          subStages,
+                        )
+                      : [];
+                  const currentOptionKey =
+                    resolved.stageMappingId && resolved.subStateId
+                      ? stageSubStageOptionKey(
+                          resolved.stageMappingId,
+                          resolved.subStateId,
+                        )
+                      : undefined;
+                  return (
+                    <Table.Row key={r.id} id={r.id}>
+                      <Table.Cell className={offerCellClass}>
+                        <input
+                          type="checkbox"
+                          className="mt-1 size-4 rounded border-divider accent-accent"
+                          checked={selected.has(r.id)}
+                          disabled={!canEditPipeline}
+                          onChange={() => toggleSelect(r.id)}
+                          aria-label={`Select ${row.name}`}
+                        />
+                      </Table.Cell>
+                      <Table.Cell className={offerCellClass}>
+                        <div className="flex items-center gap-4">
+                          <Avatar className="size-10 shrink-0" size="md">
+                            {row.avatarUrl ? (
+                              <Avatar.Image alt="" src={row.avatarUrl} />
+                            ) : null}
+                            <Avatar.Fallback className="text-xs">
+                              {candidateDisplayInitials(row.name)}
+                            </Avatar.Fallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <Link
+                                href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
+                                className="font-semibold text-accent hover:underline"
+                              >
+                                {row.name}
+                              </Link>
+                              {/* {row.hasCvFile ? (
                               <a
                                 href={`/api/admin/candidates/${r.id}/cv-download`}
                                 target="_blank"
@@ -1110,216 +1204,244 @@ export function JdAppliedCandidatesPipeline({
                                 CV file
                               </a>
                             ) : null} */}
+                            </div>
+                            <p className="text-xs font-medium text-muted">
+                              {row.role}
+                            </p>
                           </div>
-                          <p className="text-xs font-medium text-muted">
-                            {row.role}
-                          </p>
                         </div>
-                      </div>
-                    </Table.Cell>
-                    <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
-                      <div className="flex flex-col items-center tabular-nums">
-                        <span className="text-lg font-semibold leading-none text-foreground">
-                          {row.experienceYears}
-                        </span>
-                        <span className="text-[10px] font-medium text-muted">
-                          Years
-                        </span>
-                      </div>
-                    </Table.Cell>
-                    <Table.Cell className={offerCellClass}>
-                      <div className="flex flex-wrap gap-1.5">
-                        {row.skills.map((s) => (
-                          <Chip
-                            key={s}
-                            size="sm"
-                            variant="soft"
-                            color="accent"
-                            className="text-[10px] font-bold"
-                          >
-                            {s}
-                          </Chip>
-                        ))}
-                        {row.moreSkills ? (
-                          <Chip
-                            size="sm"
-                            variant="soft"
-                            color="accent"
-                            className="text-[10px] font-bold"
-                          >
-                            +{row.moreSkills}
-                          </Chip>
-                        ) : null}
-                      </div>
-                    </Table.Cell>
-                    <Table.Cell className={offerCellClass}>
-                      <p className="text-sm font-medium text-foreground">
-                        {row.degree}
-                      </p>
-                      <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
-                        {row.school}
-                      </p>
-                    </Table.Cell>
-                    <Table.Cell className={offerCellClass}>
-                      <p className="max-w-[200px] text-sm text-foreground">
-                        {row.sourceLabel}
-                      </p>
-                    </Table.Cell>
-                    <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={jdMatchChipColor(row)}
-                        className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`text-center align-middle ${offerCellClass}`}
                       >
-                        {row.jdMatchLabel}
-                      </Chip>
-                    </Table.Cell>
-                    <Table.Cell
-                      className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${offerCellClass}`}
-                    >
-                      <Select
-                        value={currentOptionKey}
-                        isDisabled={!canEditPipeline || busy || stageOptions.length === 0}
-                        onChange={(key) => {
-                          if (typeof key === "string") {
-                            const [toStageMappingId, toSubStateId] = key.split(":");
-                            if (toStageMappingId && toSubStateId) {
-                              void onStatusChange(r.id, { toStageMappingId, toSubStateId });
-                            }
-                            if (document.activeElement instanceof HTMLElement) {
-                              document.activeElement.blur();
-                            }
-                          }
-                        }}
-                      >
-                        <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
-                          {resolved.stageMapping && resolved.subStage ? (
-                            <span
-                              className={`truncate text-sm font-medium ${getSubStageTextColorClass(
-                                resolved.subStage.code,
-                                resolved.subStage.is_passed,
-                                resolved.subStage.is_default,
-                                resolved.stageMapping.pipeline_stages?.color,
-                              )}`}
+                        <div className="flex flex-col items-center tabular-nums">
+                          <span className="text-lg font-semibold leading-none text-foreground">
+                            {row.experienceYears}
+                          </span>
+                          <span className="text-[10px] font-medium text-muted">
+                            Years
+                          </span>
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell className={offerCellClass}>
+                        <div className="flex flex-wrap gap-1.5">
+                          {row.skills.map((s) => (
+                            <Chip
+                              key={s}
+                              size="sm"
+                              variant="soft"
+                              color="accent"
+                              className="text-[10px] font-bold"
                             >
-                              {resolved.stageMapping.pipeline_stages?.label ??
-                                resolved.stageMapping.pipeline_stages?.code}
-                              {" · "}
-                              {resolved.subStage.label}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-muted">Unassigned</span>
-                          )}
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {stageOptions.map(({ stageMapping, subStage }) => {
-                              const key = stageSubStageOptionKey(stageMapping.id, subStage.id);
-                              return (
-                                <ListBox.Item
-                                  key={key}
-                                  id={key}
-                                  textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
-                                >
-                                  <span
-                                    className={getSubStageTextColorClass(
-                                      subStage.code,
-                                      subStage.is_passed,
-                                      subStage.is_default,
-                                      stageMapping.pipeline_stages?.color,
-                                    )}
-                                  >
-                                    {stageMapping.pipeline_stages?.label ??
-                                      stageMapping.pipeline_stages?.code}
-                                    {" · "}
-                                    {subStage.label}
-                                  </span>
-                                  <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                              );
-                            })}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                    </Table.Cell>
-                    <Table.Cell
-                      className={`whitespace-nowrap text-sm text-foreground ${offerCellClass}`}
-                    >
-                      {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
-                    </Table.Cell>
-                    <Table.Cell className={`max-w-[220px] align-top ${offerCellClass}`}>
-                      {r.status === "Interview" ||
-                      r.status === "InterviewPassed" ? (
-                        <div className="flex flex-col gap-1">
-                          <Input
-                            type="datetime-local"
-                            value={interviewDrafts[r.id] ?? ""}
-                            disabled={!canEditPipeline}
-                            onChange={(e) =>
-                              setInterviewDrafts((d) => ({
-                                ...d,
-                                [r.id]: e.target.value,
-                              }))
-                            }
-                            className="w-full min-w-[11rem]"
-                          />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="self-start"
-                            isDisabled={!canEditPipeline || busy}
-                            onPress={() => void saveInterviewTime(r.id)}
-                          >
-                            Save interview time
-                          </Button>
+                              {s}
+                            </Chip>
+                          ))}
+                          {row.moreSkills ? (
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              color="accent"
+                              className="text-[10px] font-bold"
+                            >
+                              +{row.moreSkills}
+                            </Chip>
+                          ) : null}
                         </div>
-                      ) : r.status === "Offer" ? (
-                        <div className="flex flex-col gap-1">
-                          <Input
-                            type="datetime-local"
-                            value={interviewDrafts[`ob-${r.id}`] ?? ""}
-                            disabled={!canEditPipeline}
-                            onChange={(e) =>
-                              setInterviewDrafts((d) => ({
-                                ...d,
-                                [`ob-${r.id}`]: e.target.value,
-                              }))
-                            }
-                            className="w-full min-w-[11rem]"
-                          />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="self-start"
-                            isDisabled={!canEditPipeline || busy}
-                            onPress={() => void saveOnboardingTime(r.id)}
-                          >
-                            Save onboarding
-                          </Button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted">—</span>
-                      )}
-                    </Table.Cell>
-                    <Table.Cell className={`align-top text-center ${offerCellClass}`}>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="px-2 text-danger hover:bg-danger/5 min-w-0"
-                        isDisabled={!canEditPipeline || busy}
-                        onPress={() => {
-                          setRowPendingDelete(r);
-                          deleteModal.open();
-                        }}
-                        aria-label={`Delete ${row.name}`}
+                      </Table.Cell>
+                      <Table.Cell className={offerCellClass}>
+                        <p className="text-sm font-medium text-foreground">
+                          {row.degree}
+                        </p>
+                        <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
+                          {row.school}
+                        </p>
+                      </Table.Cell>
+                      <Table.Cell className={offerCellClass}>
+                        <p className="max-w-[200px] text-sm text-foreground">
+                          {row.sourceLabel}
+                        </p>
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`text-center align-middle ${offerCellClass}`}
                       >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </Table.Cell>
-                  </Table.Row>
-                );
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color={jdMatchChipColor(row)}
+                          className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
+                        >
+                          {row.jdMatchLabel}
+                        </Chip>
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${offerCellClass}`}
+                      >
+                        <Select
+                          value={currentOptionKey}
+                          isDisabled={
+                            !canEditPipeline ||
+                            busy ||
+                            stageOptions.length === 0
+                          }
+                          onChange={(key) => {
+                            if (typeof key === "string") {
+                              const [toStageMappingId, toSubStateId] =
+                                key.split(":");
+                              if (toStageMappingId && toSubStateId) {
+                                void onStatusChange(r.id, {
+                                  toStageMappingId,
+                                  toSubStateId,
+                                });
+                              }
+                              if (
+                                document.activeElement instanceof HTMLElement
+                              ) {
+                                document.activeElement.blur();
+                              }
+                            }
+                          }}
+                        >
+                          <Select.Trigger className="h-9 min-h-9 min-w-[11rem] justify-start gap-1 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
+                            {resolved.stageMapping && resolved.subStage ? (
+                              <span
+                                className={`truncate text-sm font-medium ${getSubStageTextColorClass(
+                                  resolved.subStage.code,
+                                  resolved.subStage.is_passed,
+                                  resolved.subStage.is_default,
+                                  resolved.stageMapping.pipeline_stages?.color,
+                                )}`}
+                              >
+                                {resolved.stageMapping.pipeline_stages?.label ??
+                                  resolved.stageMapping.pipeline_stages?.code}
+                                {" · "}
+                                {resolved.subStage.label}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-muted">
+                                Unassigned
+                              </span>
+                            )}
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {stageOptions.map(
+                                ({ stageMapping, subStage }) => {
+                                  const key = stageSubStageOptionKey(
+                                    stageMapping.id,
+                                    subStage.id,
+                                  );
+                                  return (
+                                    <ListBox.Item
+                                      key={key}
+                                      id={key}
+                                      textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
+                                    >
+                                      <span
+                                        className={getSubStageTextColorClass(
+                                          subStage.code,
+                                          subStage.is_passed,
+                                          subStage.is_default,
+                                          stageMapping.pipeline_stages?.color,
+                                        )}
+                                      >
+                                        {stageMapping.pipeline_stages?.label ??
+                                          stageMapping.pipeline_stages?.code}
+                                        {" · "}
+                                        {subStage.label}
+                                      </span>
+                                      <ListBox.ItemIndicator />
+                                    </ListBox.Item>
+                                  );
+                                },
+                              )}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`whitespace-nowrap text-sm text-foreground ${offerCellClass}`}
+                      >
+                        {formatSchedule(r.cv_uploaded_at ?? r.created_at) ??
+                          "—"}
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`max-w-[220px] align-top ${offerCellClass}`}
+                      >
+                        {r.status === "Interview" ||
+                        r.status === "InterviewPassed" ? (
+                          <div className="flex flex-col gap-1">
+                            <Label className="text-xs font-medium text-muted">
+                              Interview date
+                            </Label>
+                            <Input
+                              type="datetime-local"
+                              value={interviewDrafts[r.id] ?? ""}
+                              disabled={!canEditPipeline || busy}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setInterviewDrafts((d) => ({
+                                  ...d,
+                                  [r.id]: value,
+                                }));
+                              }}
+                              onBlur={() => {
+                                void saveInterviewTime(
+                                  r.id,
+                                  interviewDrafts[r.id] ?? "",
+                                );
+                              }}
+                              className="w-full min-w-[11rem]"
+                            />
+                          </div>
+                        ) : r.status === "Offer" ? (
+                          <div className="flex flex-col gap-1">
+                            <Label className="text-xs font-medium text-muted">
+                              Onboarding date
+                            </Label>
+                            <Input
+                              type="datetime-local"
+                              value={interviewDrafts[`ob-${r.id}`] ?? ""}
+                              disabled={!canEditPipeline || busy}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setInterviewDrafts((d) => ({
+                                  ...d,
+                                  [`ob-${r.id}`]: value,
+                                }));
+                              }}
+                              onBlur={() => {
+                                void saveOnboardingTime(
+                                  r.id,
+                                  interviewDrafts[`ob-${r.id}`] ?? "",
+                                );
+                              }}
+                              className="w-full min-w-[11rem]"
+                            />
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted">—</span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell
+                        className={`align-top text-center ${offerCellClass}`}
+                      >
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="px-2 text-danger hover:bg-danger/5 min-w-0"
+                          isDisabled={!canEditPipeline || busy}
+                          onPress={() => {
+                            setRowPendingDelete(r);
+                            deleteModal.open();
+                          }}
+                          aria-label={`Delete ${row.name}`}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </Table.Cell>
+                    </Table.Row>
+                  );
                 })
               )}
             </Table.Body>
@@ -1329,7 +1451,8 @@ export function JdAppliedCandidatesPipeline({
           <Table.Footer className="border-t border-divider px-4 py-3">
             <Pagination size="sm">
               <Pagination.Summary>
-                Showing {startIdx} to {endIdx} of {filteredRows.length} candidates
+                Showing {startIdx} to {endIdx} of {filteredRows.length}{" "}
+                candidates
               </Pagination.Summary>
               <Pagination.Content>
                 <Pagination.Item>
@@ -1340,16 +1463,18 @@ export function JdAppliedCandidatesPipeline({
                     <Pagination.PreviousIcon />
                   </Pagination.Previous>
                 </Pagination.Item>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                  <Pagination.Item key={p}>
-                    <Pagination.Link
-                      isActive={p === safePage}
-                      onPress={() => setPage(p)}
-                    >
-                      {p}
-                    </Pagination.Link>
-                  </Pagination.Item>
-                ))}
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                  (p) => (
+                    <Pagination.Item key={p}>
+                      <Pagination.Link
+                        isActive={p === safePage}
+                        onPress={() => setPage(p)}
+                      >
+                        {p}
+                      </Pagination.Link>
+                    </Pagination.Item>
+                  ),
+                )}
                 <Pagination.Item>
                   <Pagination.Next
                     isDisabled={safePage >= totalPages}

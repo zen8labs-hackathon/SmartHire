@@ -1,54 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { isCandidateInOfferSubStage } from "./pipeline-status-styles";
+import { isCandidateInOfferStage } from "./pipeline-status-styles";
 
-describe("isCandidateInOfferSubStage", () => {
-  const offerSubStageId = "sub-offer-offer";
+describe("isCandidateInOfferStage", () => {
+  const offerStageSubStateIds = new Set(["sub-offer-offer", "sub-offer-matched", "sub-offer-rejected"]);
 
-  it("tier 1: uses currentSubStateId when both it and offerSubStageId are present", () => {
+  it("tier 1: uses currentSubStateId membership when offerStageSubStateIds is present", () => {
     expect(
-      isCandidateInOfferSubStage({ currentSubStateId: offerSubStageId }, offerSubStageId),
+      isCandidateInOfferStage({ currentSubStateId: "sub-offer-offer" }, offerStageSubStateIds),
     ).toBe(true);
     expect(
-      isCandidateInOfferSubStage({ currentSubStateId: "sub-offer-matched" }, offerSubStageId),
+      isCandidateInOfferStage({ currentSubStateId: "sub-offer-matched" }, offerStageSubStateIds),
+    ).toBe(true);
+    expect(
+      isCandidateInOfferStage({ currentSubStateId: "sub-offer-rejected" }, offerStageSubStateIds),
+    ).toBe(true);
+    expect(
+      isCandidateInOfferStage({ currentSubStateId: "sub-interview-passed" }, offerStageSubStateIds),
     ).toBe(false);
   });
 
-  it("tier 2: falls back to pipeline_status text when currentSubStateId is absent", () => {
+  it("tier 2: falls back to pipeline_status stage prefix when currentSubStateId is absent", () => {
     expect(
-      isCandidateInOfferSubStage({ pipelineStatus: "offer:offer" }, offerSubStageId),
+      isCandidateInOfferStage({ pipelineStatus: "offer:offer" }, offerStageSubStateIds),
     ).toBe(true);
     expect(
-      isCandidateInOfferSubStage({ pipelineStatus: "offer:matched" }, offerSubStageId),
-    ).toBe(false);
+      isCandidateInOfferStage({ pipelineStatus: "offer:matched" }, offerStageSubStateIds),
+    ).toBe(true);
     expect(
-      isCandidateInOfferSubStage({ pipelineStatus: "offer:rejected" }, offerSubStageId),
+      isCandidateInOfferStage({ pipelineStatus: "offer:rejected" }, offerStageSubStateIds),
+    ).toBe(true);
+    expect(
+      isCandidateInOfferStage({ pipelineStatus: "interview:passed" }, offerStageSubStateIds),
     ).toBe(false);
   });
 
   it("tier 3: falls back to legacy status when neither of the above is available", () => {
-    expect(isCandidateInOfferSubStage({ status: "Offer" }, offerSubStageId)).toBe(true);
-    expect(isCandidateInOfferSubStage({ status: "Matched" }, offerSubStageId)).toBe(false);
-    expect(isCandidateInOfferSubStage({ status: "Rejected" }, offerSubStageId)).toBe(false);
+    expect(isCandidateInOfferStage({ status: "Offer" }, offerStageSubStateIds)).toBe(true);
+    expect(isCandidateInOfferStage({ status: "Matched" }, offerStageSubStateIds)).toBe(true);
+    expect(isCandidateInOfferStage({ status: "Rejected" }, offerStageSubStateIds)).toBe(true);
+    expect(isCandidateInOfferStage({ status: "Interview" }, offerStageSubStateIds)).toBe(false);
+    expect(isCandidateInOfferStage({ status: "New" }, offerStageSubStateIds)).toBe(false);
   });
 
   it("returns false when every field is null/undefined", () => {
-    expect(isCandidateInOfferSubStage({}, offerSubStageId)).toBe(false);
+    expect(isCandidateInOfferStage({}, offerStageSubStateIds)).toBe(false);
     expect(
-      isCandidateInOfferSubStage(
+      isCandidateInOfferStage(
         { currentSubStateId: null, pipelineStatus: null, status: null },
-        offerSubStageId,
+        offerStageSubStateIds,
       ),
     ).toBe(false);
-    expect(isCandidateInOfferSubStage({}, null)).toBe(false);
+    expect(isCandidateInOfferStage({}, null)).toBe(false);
   });
 
-  it("does not use currentSubStateId when offerSubStageId itself is not resolved", () => {
-    // Without a resolved offerSubStageId, tier 1 can't be evaluated so it falls through.
+  it("does not use currentSubStateId when offerStageSubStateIds itself is not resolved", () => {
+    // Without a resolved set, tier 1 can't be evaluated so it falls through.
     expect(
-      isCandidateInOfferSubStage({ currentSubStateId: "some-id", status: "Offer" }, null),
+      isCandidateInOfferStage({ currentSubStateId: "some-id", status: "Offer" }, null),
     ).toBe(true);
     expect(
-      isCandidateInOfferSubStage({ currentSubStateId: "some-id", status: "New" }, null),
+      isCandidateInOfferStage({ currentSubStateId: "some-id", status: "New" }, null),
     ).toBe(false);
+    expect(
+      isCandidateInOfferStage({ currentSubStateId: "some-id", status: "Offer" }, new Set()),
+    ).toBe(true);
   });
 });
