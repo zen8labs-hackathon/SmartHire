@@ -9,6 +9,7 @@ import {
 } from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { upsertJobStageMappings } from "@/lib/pipelines/upsert-job-stage-mappings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   optionalDateToDb,
@@ -295,30 +296,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
       .maybeSingle();
 
     if (opening) {
-      await auth.supabase
-        .from("job_stage_mappings")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("job_opening_id", opening.id)
-        .is("deleted_at", null);
-
       const pipelineStages = pipelineStagesRaw as string[] | null | undefined;
-      if (pipelineStages && pipelineStages.length > 0) {
-        const mappings = pipelineStages.map((stageId: string, idx: number) => ({
-          job_opening_id: opening.id,
-          pipeline_stage_id: stageId,
-          sequence_number: idx + 1,
-        }));
+      const { error: mapErr } = await upsertJobStageMappings(
+        auth.supabase,
+        opening.id,
+        pipelineStages,
+      );
 
-        const { error: mapErr } = await auth.supabase
-          .from("job_stage_mappings")
-          .insert(mappings);
-
-        if (mapErr) {
-          return Response.json(
-            { error: `Failed to insert stage mappings: ${mapErr.message}` },
-            { status: 500 },
-          );
-        }
+      if (mapErr) {
+        return Response.json({ error: mapErr }, { status: 500 });
       }
     }
   }

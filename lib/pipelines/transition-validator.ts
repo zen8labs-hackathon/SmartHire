@@ -183,7 +183,25 @@ export function resolveCandidatePipelineIds(
   let subStateId = candidate.current_sub_state_id ?? null;
 
   if (stageMappingId && subStateId) {
-    return { stageMappingId, subStateId };
+    const isLiveStageMapping = stageMappings.some((sm) => sm.id === stageMappingId);
+    if (isLiveStageMapping) {
+      return { stageMappingId, subStateId };
+    }
+
+    // The stored stageMappingId no longer points at an active row (e.g. it was
+    // soft-deleted by a JD pipeline edit). Sub-stages are global and are never
+    // touched by JD pipeline edits, so if the stored subStateId still resolves
+    // to a real sub-stage, use its pipeline_stage_id to find the live mapping
+    // for that same stage and recover the correct (non-stale) mapping id.
+    const subStage = subStages.find((ss) => ss.id === subStateId);
+    if (subStage) {
+      const liveMapping = stageMappings.find(
+        (sm) => sm.pipeline_stage_id === subStage.pipeline_stage_id,
+      );
+      if (liveMapping) {
+        return { stageMappingId: liveMapping.id, subStateId };
+      }
+    }
   }
 
   // Fallback to legacy status mapping if mapping/substate are missing
@@ -220,6 +238,47 @@ export function resolveCandidatePipelineIds(
   }
 
   return { stageMappingId, subStateId };
+}
+
+/**
+ * Read-only check: true if a candidate's stored `current_job_stage_mapping_id`
+ * no longer points to a live `job_stage_mappings` row AND cannot be recovered
+ * via its `current_sub_state_id` (i.e. the stage was genuinely removed from
+ * the job's pipeline, not just re-mapped to a new id). Used purely for
+ * display — does not affect `resolveCandidatePipelineIds`'s resolution or any
+ * transition-validation behavior.
+ */
+export function wasCandidateStageOrphaned(
+  candidate: {
+    current_job_stage_mapping_id?: string | null;
+    current_sub_state_id?: string | null;
+  },
+  stageMappings: StageMapping[],
+  subStages: SubStage[],
+): boolean {
+  const stageMappingId = candidate.current_job_stage_mapping_id ?? null;
+  const subStateId = candidate.current_sub_state_id ?? null;
+
+  if (!stageMappingId || !subStateId) {
+    return false;
+  }
+
+  const isLiveStageMapping = stageMappings.some((sm) => sm.id === stageMappingId);
+  if (isLiveStageMapping) {
+    return false;
+  }
+
+  const subStage = subStages.find((ss) => ss.id === subStateId);
+  if (subStage) {
+    const liveMapping = stageMappings.find(
+      (sm) => sm.pipeline_stage_id === subStage.pipeline_stage_id,
+    );
+    if (liveMapping) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**

@@ -6,9 +6,11 @@ import { Pencil, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
+  Calendar,
   Card,
   Chip,
   DateField,
+  DatePicker,
   DateRangePicker,
   Input,
   Label,
@@ -24,7 +26,10 @@ import {
 import {
   today,
   getLocalTimeZone,
+  fromDate,
+  toCalendarDateTime,
   type CalendarDate,
+  type CalendarDateTime,
 } from "@internationalized/date";
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
@@ -56,6 +61,7 @@ import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import {
   isCustomTransitionAllowed,
   resolveCandidatePipelineIds,
+  wasCandidateStageOrphaned,
   type StageMapping,
   type SubStage,
 } from "@/lib/pipelines/transition-validator";
@@ -111,6 +117,7 @@ type ResolvedRowPipeline = {
   subStateId: string | null;
   stageMapping: StageMapping | null;
   subStage: SubStage | null;
+  orphaned: boolean;
 };
 
 function resolveRowPipeline(
@@ -128,6 +135,7 @@ function resolveRowPipeline(
     subStateId,
     stageMapping: stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
     subStage: subStages.find((ss) => ss.id === subStateId) ?? null,
+    orphaned: wasCandidateStageOrphaned(r, stageMappings, subStages),
   };
 }
 
@@ -225,6 +233,20 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isoToCalendarDateTime(
+  iso: string | null | undefined,
+): CalendarDateTime | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return toCalendarDateTime(fromDate(d, getLocalTimeZone()));
+}
+
+function calendarDateTimeToIso(value: CalendarDateTime | null): string | null {
+  if (!value) return null;
+  return value.toDate(getLocalTimeZone()).toISOString();
 }
 
 function cvDay(iso: string | null | undefined): string {
@@ -399,7 +421,7 @@ export function JdAppliedCandidatesPipeline({
   >({});
 
   const [interviewDrafts, setInterviewDrafts] = useState<
-    Record<string, string>
+    Record<string, CalendarDateTime | null>
   >({});
 
   const offerModal = useOverlayState({
@@ -735,11 +757,11 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveInterviewTime = useCallback(
-    async (id: string, local: string) => {
+    async (id: string, value: CalendarDateTime | null) => {
       setPipelineError(null);
       setRowUpdating(id);
       try {
-        const iso = local.trim() ? localDatetimeToIso(local) : null;
+        const iso = calendarDateTimeToIso(value);
         await patchTimeline(id, { interview_at: iso });
         onRefetch(true);
       } catch (e) {
@@ -752,11 +774,11 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveOnboardingTime = useCallback(
-    async (id: string, local: string) => {
+    async (id: string, value: CalendarDateTime | null) => {
       setPipelineError(null);
       setRowUpdating(id);
       try {
-        const iso = local.trim() ? localDatetimeToIso(local) : null;
+        const iso = calendarDateTimeToIso(value);
         await patchTimeline(id, { onboarding_at: iso });
         onRefetch(true);
       } catch (e) {
@@ -777,12 +799,12 @@ export function JdAppliedCandidatesPipeline({
           (r.status === "Interview" || r.status === "InterviewPassed") &&
           next[r.id] === undefined
         ) {
-          next[r.id] = isoToDatetimeLocalValue(r.interview_at);
+          next[r.id] = isoToCalendarDateTime(r.interview_at);
           changed = true;
         }
         const obKey = `ob-${r.id}`;
         if (r.status === "Offer" && next[obKey] === undefined) {
-          next[obKey] = isoToDatetimeLocalValue(r.onboarding_at);
+          next[obKey] = isoToCalendarDateTime(r.onboarding_at);
           changed = true;
         }
       }
@@ -1332,6 +1354,14 @@ export function JdAppliedCandidatesPipeline({
                                 Unassigned
                               </span>
                             )}
+                            {resolved.orphaned ? (
+                              <span
+                                className="text-sm leading-none"
+                                title="Previous pipeline stage was removed — this status may be inaccurate"
+                              >
+                                ⚠
+                              </span>
+                            ) : null}
                             <Select.Indicator />
                           </Select.Trigger>
                           <Select.Popover>
@@ -1385,12 +1415,13 @@ export function JdAppliedCandidatesPipeline({
                             <Label className="text-xs font-medium text-muted">
                               Interview date
                             </Label>
-                            <Input
-                              type="datetime-local"
-                              value={interviewDrafts[r.id] ?? ""}
-                              disabled={!canEditPipeline || busy}
-                              onChange={(e) => {
-                                const value = e.target.value;
+                            <DatePicker
+                              value={interviewDrafts[r.id] ?? null}
+                              granularity="minute"
+                              hourCycle={24}
+                              shouldCloseOnSelect={false}
+                              isDisabled={!canEditPipeline || busy}
+                              onChange={(value) => {
                                 setInterviewDrafts((d) => ({
                                   ...d,
                                   [r.id]: value,
@@ -1399,23 +1430,77 @@ export function JdAppliedCandidatesPipeline({
                               onBlur={() => {
                                 void saveInterviewTime(
                                   r.id,
-                                  interviewDrafts[r.id] ?? "",
+                                  interviewDrafts[r.id] ?? null,
                                 );
                               }}
                               className="w-full min-w-[11rem]"
-                            />
+                            >
+                              <DateField.Group
+                                fullWidth
+                                variant="primary"
+                                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                              >
+                                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                                  <DateField.Input>
+                                    {(segment) => (
+                                      <DateField.Segment segment={segment} />
+                                    )}
+                                  </DateField.Input>
+                                </DateField.InputContainer>
+                                <DateField.Suffix>
+                                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                                    <DatePicker.TriggerIndicator />
+                                  </DatePicker.Trigger>
+                                </DateField.Suffix>
+                              </DateField.Group>
+                              <DatePicker.Popover>
+                                <Dialog className="outline-none">
+                                  <Calendar>
+                                    <Calendar.Header className="flex items-center gap-2">
+                                      <Calendar.NavButton slot="previous" />
+                                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
+                                      <Calendar.NavButton slot="next" />
+                                    </Calendar.Header>
+                                    <Calendar.Grid weekdayStyle="short">
+                                      <Calendar.GridHeader>
+                                        {(day) => (
+                                          <Calendar.HeaderCell>
+                                            {day}
+                                          </Calendar.HeaderCell>
+                                        )}
+                                      </Calendar.GridHeader>
+                                      <Calendar.GridBody>
+                                        {(date) => (
+                                          <Calendar.Cell date={date}>
+                                            {({ formattedDate }) => (
+                                              <>
+                                                <Calendar.CellIndicator />
+                                                <span className="relative z-[1]">
+                                                  {formattedDate}
+                                                </span>
+                                              </>
+                                            )}
+                                          </Calendar.Cell>
+                                        )}
+                                      </Calendar.GridBody>
+                                    </Calendar.Grid>
+                                  </Calendar>
+                                </Dialog>
+                              </DatePicker.Popover>
+                            </DatePicker>
                           </div>
                         ) : r.status === "Offer" ? (
                           <div className="flex flex-col gap-1">
                             <Label className="text-xs font-medium text-muted">
                               Onboarding date
                             </Label>
-                            <Input
-                              type="datetime-local"
-                              value={interviewDrafts[`ob-${r.id}`] ?? ""}
-                              disabled={!canEditPipeline || busy}
-                              onChange={(e) => {
-                                const value = e.target.value;
+                            <DatePicker
+                              value={interviewDrafts[`ob-${r.id}`] ?? null}
+                              granularity="minute"
+                              hourCycle={24}
+                              shouldCloseOnSelect={false}
+                              isDisabled={!canEditPipeline || busy}
+                              onChange={(value) => {
                                 setInterviewDrafts((d) => ({
                                   ...d,
                                   [`ob-${r.id}`]: value,
@@ -1424,11 +1509,64 @@ export function JdAppliedCandidatesPipeline({
                               onBlur={() => {
                                 void saveOnboardingTime(
                                   r.id,
-                                  interviewDrafts[`ob-${r.id}`] ?? "",
+                                  interviewDrafts[`ob-${r.id}`] ?? null,
                                 );
                               }}
                               className="w-full min-w-[11rem]"
-                            />
+                            >
+                              <DateField.Group
+                                fullWidth
+                                variant="primary"
+                                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                              >
+                                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                                  <DateField.Input>
+                                    {(segment) => (
+                                      <DateField.Segment segment={segment} />
+                                    )}
+                                  </DateField.Input>
+                                </DateField.InputContainer>
+                                <DateField.Suffix>
+                                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                                    <DatePicker.TriggerIndicator />
+                                  </DatePicker.Trigger>
+                                </DateField.Suffix>
+                              </DateField.Group>
+                              <DatePicker.Popover>
+                                <Dialog className="outline-none">
+                                  <Calendar>
+                                    <Calendar.Header className="flex items-center gap-2">
+                                      <Calendar.NavButton slot="previous" />
+                                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
+                                      <Calendar.NavButton slot="next" />
+                                    </Calendar.Header>
+                                    <Calendar.Grid weekdayStyle="short">
+                                      <Calendar.GridHeader>
+                                        {(day) => (
+                                          <Calendar.HeaderCell>
+                                            {day}
+                                          </Calendar.HeaderCell>
+                                        )}
+                                      </Calendar.GridHeader>
+                                      <Calendar.GridBody>
+                                        {(date) => (
+                                          <Calendar.Cell date={date}>
+                                            {({ formattedDate }) => (
+                                              <>
+                                                <Calendar.CellIndicator />
+                                                <span className="relative z-[1]">
+                                                  {formattedDate}
+                                                </span>
+                                              </>
+                                            )}
+                                          </Calendar.Cell>
+                                        )}
+                                      </Calendar.GridBody>
+                                    </Calendar.Grid>
+                                  </Calendar>
+                                </Dialog>
+                              </DatePicker.Popover>
+                            </DatePicker>
                           </div>
                         ) : (
                           <span className="text-xs text-muted">—</span>
@@ -1631,7 +1769,10 @@ export function JdAppliedCandidatesPipeline({
         </Modal.Container>
       </Modal.Backdrop>
 
-      <Modal.Backdrop isOpen={editModal.isOpen} onOpenChange={editModal.setOpen}>
+      <Modal.Backdrop
+        isOpen={editModal.isOpen}
+        onOpenChange={editModal.setOpen}
+      >
         <Modal.Container>
           <Modal.Dialog className="w-full max-w-2xl overflow-hidden p-0">
             <Modal.CloseTrigger />

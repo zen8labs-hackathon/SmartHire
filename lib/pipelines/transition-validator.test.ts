@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveCandidatePipelineIds,
+  wasCandidateStageOrphaned,
   isCustomTransitionAllowed,
   buildNewPipelineCandidatePatch,
   legacyStatusForStageSubStage,
@@ -109,13 +110,16 @@ const mockSubStages: SubStage[] = [
 
 describe("resolveCandidatePipelineIds", () => {
   it("uses existing IDs if present", () => {
+    // Ids must be "live" (i.e. present in stageMappings) to be trusted as-is;
+    // see the "recovers stage mapping id via sub-state" test below for the
+    // stale-id case.
     const candidate = {
-      current_job_stage_mapping_id: "exist-mapping",
-      current_sub_state_id: "exist-sub-state",
+      current_job_stage_mapping_id: "mapping-interview",
+      current_sub_state_id: "sub-int-interview",
     };
     const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
-    expect(result.stageMappingId).toBe("exist-mapping");
-    expect(result.subStateId).toBe("exist-sub-state");
+    expect(result.stageMappingId).toBe("mapping-interview");
+    expect(result.subStateId).toBe("sub-int-interview");
   });
 
   it("falls back to first stage default sub-stage if IDs and status are null", () => {
@@ -137,6 +141,72 @@ describe("resolveCandidatePipelineIds", () => {
     const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-interview");
     expect(result.subStateId).toBe("sub-int-interview");
+  });
+
+  it("recovers stage mapping id via sub-state when stored stageMappingId is stale", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "stale-mapping-id-not-in-list",
+      current_sub_state_id: "sub-int-interview",
+    };
+    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    expect(result.stageMappingId).toBe("mapping-interview");
+    expect(result.stageMappingId).not.toBe("stale-mapping-id-not-in-list");
+    expect(result.subStateId).toBe("sub-int-interview");
+  });
+
+  it("falls back to legacy status when both ids are stale/unresolvable", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "stale-mapping-id",
+      current_sub_state_id: "stale-sub-state-id",
+      status: "Interview",
+    };
+    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    expect(result.stageMappingId).toBe("mapping-interview");
+    expect(result.subStateId).toBe("sub-int-interview");
+  });
+
+  it("falls back to first-stage default when stageMappingId is stale and no status set", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "stale-mapping-id",
+      current_sub_state_id: "stale-sub-state-id",
+    };
+    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    expect(result.stageMappingId).toBe("mapping-cv-scan");
+    expect(result.subStateId).toBe("sub-cv-new");
+  });
+});
+
+describe("wasCandidateStageOrphaned", () => {
+  it("returns false when ids are both null (never assigned)", () => {
+    const candidate = {
+      current_job_stage_mapping_id: null,
+      current_sub_state_id: null,
+    };
+    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+  });
+
+  it("returns false when the stored stageMappingId is live", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "mapping-interview",
+      current_sub_state_id: "sub-int-interview",
+    };
+    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+  });
+
+  it("returns false when stale but recoverable via sub-state's pipeline_stage_id", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "stale-mapping-id-not-in-list",
+      current_sub_state_id: "sub-int-interview",
+    };
+    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+  });
+
+  it("returns true when stale and not recoverable (stage genuinely removed)", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "stale-mapping-id",
+      current_sub_state_id: "stale-sub-state-id",
+    };
+    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(true);
   });
 });
 
