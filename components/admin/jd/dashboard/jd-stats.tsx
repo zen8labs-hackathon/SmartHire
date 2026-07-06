@@ -1,125 +1,46 @@
+"use client";
+
 import React from "react";
-import { Card } from "@heroui/react";
-import { Briefcase, PlayCircle, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Briefcase, FileCode2, PlayCircle, XCircle } from "lucide-react";
 import { useJdDashboard } from "./context";
+import { DataTableStats } from "@/components/admin/shell/table-system";
 
 export function JdStats() {
-  const { filteredRows, loading } = useJdDashboard();
+  const { filteredRows } = useJdDashboard();
 
   const totalJobs = filteredRows.length;
-  const runningJobs = filteredRows.filter((r) => r.status === "Hiring").length;
-  const pendingJobs = filteredRows.filter((r) => r.status === "Pending").length;
-  const completedJobs = filteredRows.filter((r) => r.status === "Done").length;
-  const closedJobs = filteredRows.filter((r) => r.status === "Closed").length;
+  const draftJobs = filteredRows.filter((r) => r.status === "Pending").length;
+  const activeJobs = filteredRows.filter((r) => r.status === "Hiring").length;
+  const closedJobs = filteredRows.filter((r) => r.status === "Closed" || r.status === "Done").length;
 
-  return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5" aria-live="polite">
-      <Card variant="secondary">
-        <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
-          <Card.Description className="text-sm font-medium text-muted">
-            Total jobs
-          </Card.Description>
-          <Briefcase className="size-4 text-muted" aria-hidden="true" />
-        </Card.Header>
-        <Card.Content className="pt-0">
-          <span className="text-2xl font-bold tracking-tight tabular-nums">
-            {loading ? (
-              <>
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Loading…</span>
-              </>
-            ) : (
-              totalJobs
-            )}
-          </span>
-        </Card.Content>
-      </Card>
+  const stats = [
+    {
+      label: "Total Positions",
+      value: totalJobs,
+      icon: <Briefcase className="h-4.5 w-4.5" />,
+      description: "All job description entries"
+    },
+    {
+      label: "Draft / Pending",
+      value: draftJobs,
+      icon: <FileCode2 className="h-4.5 w-4.5 text-warning" />,
+      description: "Awaiting review or publish"
+    },
+    {
+      label: "Published / Active",
+      value: activeJobs,
+      icon: <PlayCircle className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />,
+      description: "Actively sourcing applicants"
+    },
+    {
+      label: "Closed / Completed",
+      value: closedJobs,
+      icon: <XCircle className="h-4.5 w-4.5 text-danger" />,
+      description: "Recruitment finalized"
+    }
+  ];
 
-      <Card variant="secondary">
-        <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
-          <Card.Description className="text-sm font-medium text-muted">
-            Active jobs
-          </Card.Description>
-          <PlayCircle className="size-4 text-success" aria-hidden="true" />
-        </Card.Header>
-        <Card.Content className="pt-0">
-          <span className="text-2xl font-bold tracking-tight text-success tabular-nums">
-            {loading ? (
-              <>
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Loading…</span>
-              </>
-            ) : (
-              runningJobs
-            )}
-          </span>
-        </Card.Content>
-      </Card>
-
-      <Card variant="secondary">
-        <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
-          <Card.Description className="text-sm font-medium text-muted">
-            Pending jobs
-          </Card.Description>
-          <Clock className="size-4 text-warning" aria-hidden="true" />
-        </Card.Header>
-        <Card.Content className="pt-0">
-          <span className="text-2xl font-bold tracking-tight text-warning tabular-nums">
-            {loading ? (
-              <>
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Loading…</span>
-              </>
-            ) : (
-              pendingJobs
-            )}
-          </span>
-        </Card.Content>
-      </Card>
-
-      <Card variant="secondary">
-        <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
-          <Card.Description className="text-sm font-medium text-muted">
-            Completed jobs
-          </Card.Description>
-          <CheckCircle2 className="size-4 text-accent" aria-hidden="true" />
-        </Card.Header>
-        <Card.Content className="pt-0">
-          <span className="text-2xl font-bold tracking-tight text-accent tabular-nums">
-            {loading ? (
-              <>
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Loading…</span>
-              </>
-            ) : (
-              completedJobs
-            )}
-          </span>
-        </Card.Content>
-      </Card>
-
-      <Card variant="secondary">
-        <Card.Header className="flex flex-row items-center justify-between gap-2 pb-2">
-          <Card.Description className="text-sm font-medium text-muted">
-            Closed jobs
-          </Card.Description>
-          <XCircle className="size-4 text-danger" aria-hidden="true" />
-        </Card.Header>
-        <Card.Content className="pt-0">
-          <span className="text-2xl font-bold tracking-tight text-danger tabular-nums">
-            {loading ? (
-              <>
-                <span className="inline-block h-8 w-12 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
-                <span className="sr-only">Loading…</span>
-              </>
-            ) : (
-              closedJobs
-            )}
-          </span>
-        </Card.Content>
-      </Card>
-    </div>
-  );
+  return <DataTableStats stats={stats} />;
 }
 
 export default JdStats;

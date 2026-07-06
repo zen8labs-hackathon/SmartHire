@@ -122,6 +122,7 @@ export interface JdDashboardContextValue {
   editStagesLoading: boolean;
 
   // API Helpers
+  loadDescriptions: () => Promise<void>;
   updateJdStatus: (id: number, next: JdStatus) => Promise<void>;
   confirmDelete: () => Promise<void>;
   authHeaders: () => Promise<Record<string, string>>;
@@ -297,6 +298,7 @@ export function JdDashboardProvider({
         editStagesLoading: editState.editStagesLoading,
 
         // Actions
+        loadDescriptions: listState.loadDescriptions,
         updateJdStatus,
         confirmDelete,
       }}

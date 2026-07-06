@@ -1,21 +1,19 @@
+"use client";
+
 import React from "react";
-import {
-  Card,
-  DateField,
-  DateRangePicker,
-  Label,
-  ListBox,
-  RangeCalendar,
-  SearchField,
-  Select,
-  Button,
-} from "@heroui/react";
+import { DateField, DateRangePicker, Label, ListBox, RangeCalendar, Select, Button } from "@heroui/react";
 import { Dialog } from "react-aria-components";
 import { JD_STATUS_OPTIONS } from "@/lib/jd/types";
 import { useJdDashboard } from "./context";
+import { DataTableToolbar } from "@/components/admin/shell/table-system";
+import { Calendar } from "lucide-react";
 
 export function JdFilters() {
   const {
+    canManageJds,
+    loading,
+    loadDescriptions,
+    jdModal,
     jdListSearch,
     setJdListSearch,
     jdListStatusKey,
@@ -24,128 +22,121 @@ export function JdFilters() {
     setJdStartDateRange,
   } = useJdDashboard();
 
+  const filtersElement = (
+    <Select
+      value={jdListStatusKey}
+      onChange={(key) => {
+        if (typeof key === "string") setJdListStatusKey(key);
+      }}
+      placeholder="All statuses"
+      className="w-40"
+    >
+      <Label className="sr-only">Status</Label>
+      <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
+          <ListBox.Item id="all" textValue="All statuses" className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+            All statuses
+            <ListBox.ItemIndicator />
+          </ListBox.Item>
+          {JD_STATUS_OPTIONS.map((s) => (
+            <ListBox.Item key={s} id={s} textValue={s} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+              {s}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
+
+  const dateRangeElement = (
+    <div className="flex items-center gap-2">
+      <DateRangePicker
+        value={jdStartDateRange as any}
+        onChange={(val) => setJdStartDateRange(val as any)}
+        className="w-56"
+      >
+        <DateField.Group
+          fullWidth
+          variant="primary"
+          className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-3 text-xs"
+        >
+          <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+            <DateField.Input slot="start" className="outline-none">
+              {(segment) => <DateField.Segment segment={segment} />}
+            </DateField.Input>
+            <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted" />
+            <DateField.Input slot="end" className="outline-none">
+              {(segment) => <DateField.Segment segment={segment} />}
+            </DateField.Input>
+          </DateField.InputContainer>
+          <DateField.Suffix>
+            <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
+              <Calendar className="h-3.5 w-3.5" />
+            </DateRangePicker.Trigger>
+          </DateField.Suffix>
+        </DateField.Group>
+        <DateRangePicker.Popover>
+          <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
+            <RangeCalendar>
+              <RangeCalendar.Header className="flex items-center justify-between mb-2">
+                <RangeCalendar.NavButton slot="previous" />
+                <RangeCalendar.Heading className="text-xs font-bold" />
+                <RangeCalendar.NavButton slot="next" />
+              </RangeCalendar.Header>
+              <RangeCalendar.Grid weekdayStyle="short" className="border-collapse">
+                <RangeCalendar.GridHeader>
+                  {(day) => (
+                    <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">{day}</RangeCalendar.HeaderCell>
+                  )}
+                </RangeCalendar.GridHeader>
+                <RangeCalendar.GridBody>
+                  {(date) => (
+                    <RangeCalendar.Cell date={date} className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0">
+                      {({ formattedDate }) => (
+                        <>
+                          <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
+                          <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">{formattedDate}</span>
+                        </>
+                      )}
+                    </RangeCalendar.Cell>
+                  )}
+                </RangeCalendar.GridBody>
+              </RangeCalendar.Grid>
+            </RangeCalendar>
+          </Dialog>
+        </DateRangePicker.Popover>
+      </DateRangePicker>
+      {jdStartDateRange && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9 px-2.5 border border-divider rounded-xl text-xs font-semibold text-muted"
+          onPress={() => setJdStartDateRange(null)}
+        >
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+
   return (
-    <Card variant="secondary">
-      <Card.Content className="flex flex-col gap-4 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
-          <SearchField
-            value={jdListSearch}
-            onChange={setJdListSearch}
-            className="min-w-[220px] flex-1"
-          >
-            <SearchField.Group className="w-full">
-              <SearchField.SearchIcon />
-              <SearchField.Input
-                placeholder="Search by job title / position…"
-                className="w-full min-w-0"
-              />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
-          <Select
-            value={jdListStatusKey}
-            onChange={(key) => {
-              if (typeof key === "string") setJdListStatusKey(key);
-            }}
-            className="min-w-[200px]"
-          >
-            <Label className="sr-only">Status</Label>
-            <Select.Trigger>
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                <ListBox.Item id="all" textValue="All statuses">
-                  All statuses
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
-                {JD_STATUS_OPTIONS.map((s) => (
-                  <ListBox.Item key={s} id={s} textValue={s}>
-                    {s}
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1 min-w-[min(100%,280px)] max-w-md flex-1">
-              <Label className="text-xs text-muted" id="jd-start-range-label">
-                Start date range
-              </Label>
-              <DateRangePicker
-                aria-labelledby="jd-start-range-label"
-                value={jdStartDateRange as any}
-                onChange={(val) => setJdStartDateRange(val as any)}
-                className="w-full"
-              >
-                <DateField.Group
-                  fullWidth
-                  variant="primary"
-                  className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
-                >
-                  <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-                    <DateField.Input slot="start">
-                      {(segment) => <DateField.Segment segment={segment} />}
-                    </DateField.Input>
-                    <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-neutral-500 dark:text-neutral-400" />
-                    <DateField.Input slot="end">
-                      {(segment) => <DateField.Segment segment={segment} />}
-                    </DateField.Input>
-                  </DateField.InputContainer>
-                  <DateField.Suffix>
-                    <DateRangePicker.Trigger className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
-                      <DateRangePicker.TriggerIndicator />
-                    </DateRangePicker.Trigger>
-                  </DateField.Suffix>
-                </DateField.Group>
-                <DateRangePicker.Popover>
-                  <Dialog className="outline-none">
-                    <RangeCalendar>
-                      <RangeCalendar.Header>
-                        <RangeCalendar.NavButton slot="previous" />
-                        <RangeCalendar.Heading />
-                        <RangeCalendar.NavButton slot="next" />
-                      </RangeCalendar.Header>
-                      <RangeCalendar.Grid weekdayStyle="short">
-                        <RangeCalendar.GridHeader>
-                          {(day) => (
-                            <RangeCalendar.HeaderCell>{day}</RangeCalendar.HeaderCell>
-                          )}
-                        </RangeCalendar.GridHeader>
-                        <RangeCalendar.GridBody>
-                          {(date) => (
-                            <RangeCalendar.Cell date={date}>
-                              {({ formattedDate }) => (
-                                <>
-                                  <RangeCalendar.CellIndicator />
-                                  <span className="relative z-[1]">{formattedDate}</span>
-                                </>
-                              )}
-                            </RangeCalendar.Cell>
-                          )}
-                        </RangeCalendar.GridBody>
-                      </RangeCalendar.Grid>
-                    </RangeCalendar>
-                  </Dialog>
-                </DateRangePicker.Popover>
-              </DateRangePicker>
-            </div>
-            {jdStartDateRange ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0"
-                onPress={() => setJdStartDateRange(null)}
-              >
-                Clear dates
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </Card.Content>
-    </Card>
+    <DataTableToolbar
+      searchQuery={jdListSearch}
+      onSearchChange={setJdListSearch}
+      searchPlaceholder="Search by job title or position..."
+      filters={filtersElement}
+      dateRange={dateRangeElement}
+      onRefresh={loadDescriptions}
+      isRefreshing={loading}
+      createButtonLabel={canManageJds ? "New Position" : undefined}
+      onCreate={canManageJds ? jdModal.open : undefined}
+    />
   );
 }
+
 export default JdFilters;
