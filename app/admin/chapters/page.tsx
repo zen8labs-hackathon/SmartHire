@@ -6,7 +6,7 @@ import { Alert, Card } from "@heroui/react";
 import { ChaptersListSkeleton } from "@/components/admin/chapters-list-skeleton";
 import { ChaptersSetup, type ChapterRow } from "@/components/admin/chapters-setup";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -39,13 +39,11 @@ function ChaptersErrorFallback() {
 }
 
 export default async function AdminChaptersPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/chapters");
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
+
+  const supabase = await createClient();
 
   // Kick off the chapters query but don't await it here, so the static
   // header below renders and streams immediately. The Suspense boundary

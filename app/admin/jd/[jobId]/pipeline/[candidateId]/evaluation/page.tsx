@@ -5,7 +5,7 @@ import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipelin
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { candidateDbRowToEvaluationPipelineRow } from "@/lib/jd/candidate-to-evaluation-pipeline-row";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,14 +22,11 @@ export default async function PipelineCandidateEvaluationPage({
 
   if (!z.string().uuid().safeParse(candidateId).success) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/jd");
-
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) redirect("/dashboard");
+
+  const supabase = await createClient();
 
   const [jdRes, openingsRes, candRes] = await Promise.all([
     supabase

@@ -4,7 +4,7 @@ import { Suspense } from "react";
 
 import { AddUserForm } from "@/components/admin/add-user-form";
 import { listOrgUsersForAdminPage } from "@/lib/admin/list-org-users";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card, Table } from "@heroui/react";
 
@@ -106,14 +106,11 @@ async function TeamAccountsSection() {
 }
 
 export default async function AdminPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin");
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
 
+  const supabase = await createClient();
   const { data: chapters } = await supabase
     .from("chapters")
     .select("id, name")

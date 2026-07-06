@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { queryDedupedCandidatesList } from "@/lib/candidates/candidates-dedup";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { createClient } from "@/lib/supabase/server";
@@ -30,14 +30,11 @@ async function getInitialCandidates(
 }
 
 export default async function AdminCandidatesPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/candidates");
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
+
+  const supabase = await createClient();
 
   // Kick off the candidates query but don't await it here, so the static
   // header + Add Candidate button render immediately. The Suspense boundary
