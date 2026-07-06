@@ -68,26 +68,12 @@ export function JdTable() {
                   <Table.Cell className="py-12 text-center text-sm text-muted font-medium" colSpan={8}>
                     Loading openings...
                   </Table.Cell>
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
                 </Table.Row>
               ) : paginatedRows.length === 0 ? (
                 <Table.Row id="jd-row-empty">
                   <Table.Cell className="py-12 text-center text-sm text-muted font-medium" colSpan={8}>
                     No jobs found.
                   </Table.Cell>
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
                 </Table.Row>
               ) : (
                 paginatedRows.map((row) => (

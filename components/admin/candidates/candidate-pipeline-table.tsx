@@ -64,46 +64,31 @@ function CandidatePipelineTableImpl({
               <Table.Column className="text-right">Actions</Table.Column>
             </Table.Header>
             <Table.Body>
-              {dbLoadState === "loading" && tableSourceRows.length === 0 ? (
+               {dbLoadState === "loading" && tableSourceRows.length === 0 ? (
                 <Table.Row id="loading">
-                  <Table.Cell>
+                  <Table.Cell colSpan={6} className="py-8 text-center">
                     <span className="text-sm text-muted">Loading candidates…</span>
                   </Table.Cell>
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
                 </Table.Row>
               ) : null}
               {dbLoadState === "ok" &&
               rows.length === 0 &&
               tableSourceRows.length === 0 ? (
                 <Table.Row id="empty">
-                  <Table.Cell>
+                  <Table.Cell colSpan={6} className="py-8 text-center">
                     <span className="text-sm text-muted">
                       No candidates yet. Use Add Candidate to upload CVs.
                     </span>
                   </Table.Cell>
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
                 </Table.Row>
               ) : null}
               {noResultsForUploadDate ? (
                 <Table.Row id="empty-upload-date">
-                  <Table.Cell>
+                  <Table.Cell colSpan={6} className="py-8 text-center">
                     <span className="text-sm text-muted">
                       No results found for this date.
                     </span>
                   </Table.Cell>
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
-                  <Table.Cell />
                 </Table.Row>
               ) : null}
               {rows.map((row) => (
