@@ -169,7 +169,7 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
     };
 
     return (
-      <Card.Content className="p-6">
+      <div className="pt-2">
         {stageMode === "list" ? (
           <StageList
             stages={stages}
@@ -188,7 +188,7 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
             busy={busy}
           />
         )}
-      </Card.Content>
+      </div>
     );
   },
 );

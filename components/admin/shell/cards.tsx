@@ -60,7 +60,7 @@ export function StatisticCard({
 }
 
 export type SectionCardProps = {
-  title?: string;
+  title?: React.ReactNode;
   description?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;

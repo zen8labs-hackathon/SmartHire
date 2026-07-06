@@ -1,35 +1,28 @@
-import { Card } from "@heroui/react";
+import { SectionCard } from "@/components/admin/shell/cards";
 
 const LOADING_ROW_IDS = ["chapters-loading-1", "chapters-loading-2", "chapters-loading-3"];
 
-/**
- * Suspense fallback for just the add-form + list region of `/admin/chapters`
- * (i.e. the part of `ChaptersSetup` gated on `use(chaptersPromise)`). Mirrors
- * the `Card.Content` skeleton in `app/admin/chapters/loading.tsx`, which
- * remains the route-level fallback shown before any HTML streams.
- */
 export function ChaptersListSkeleton() {
   return (
-    <Card.Content className="flex flex-col gap-4 animate-pulse">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="h-10 min-w-0 flex-1 rounded-xl bg-default-100" />
-        <div className="h-10 w-20 shrink-0 rounded-xl bg-default-200" />
-      </div>
-
-      <div>
-        <div className="h-3 w-16 rounded bg-default-100" />
-        <ul className="mt-2 flex list-none flex-col gap-2">
+    <SectionCard title="Manage Chapters" description="List of currently active departments and the creation form.">
+      <div className="flex flex-col gap-5 animate-pulse">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end bg-surface-secondary/20 p-4 rounded-xl border border-divider mb-2">
+          <div className="h-9 min-w-0 flex-1 rounded-xl bg-default-100" />
+          <div className="h-9 w-24 shrink-0 rounded-xl bg-default-200" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 w-16 rounded bg-default-200 mb-3" />
           {LOADING_ROW_IDS.map((id) => (
-            <li
+            <div
               key={id}
-              className="flex items-center justify-between gap-3 rounded-xl border border-divider px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-xl border border-divider bg-surface-secondary/20 px-4 py-3"
             >
               <div className="h-4 w-32 rounded bg-default-200" />
-              <div className="h-4 w-12 rounded bg-default-100" />
-            </li>
+              <div className="h-6 w-14 rounded-lg bg-default-100 border border-divider" />
+            </div>
           ))}
-        </ul>
+        </div>
       </div>
-    </Card.Content>
+    </SectionCard>
   );
 }

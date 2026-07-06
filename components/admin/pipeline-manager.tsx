@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Card } from "@heroui/react";
+import { Alert, Button } from "@heroui/react";
+import { SectionCard } from "@/components/admin/shell/cards";
 
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
@@ -19,8 +20,8 @@ import { SubStageForm } from "./pipelines/sub-stage-form";
 
 function StagesErrorFallback() {
   return (
-    <Card.Content className="p-6">
-      <Alert status="danger">
+    <div className="p-6">
+      <Alert status="danger" className="rounded-xl">
         <Alert.Indicator />
         <Alert.Content>
           <Alert.Title>Error</Alert.Title>
@@ -29,7 +30,7 @@ function StagesErrorFallback() {
           </Alert.Description>
         </Alert.Content>
       </Alert>
-    </Card.Content>
+    </div>
   );
 }
 
@@ -265,26 +266,21 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {/* Left Column - Stages */}
-      <Card className="min-h-[500px]">
-        <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
-          <div className="flex items-center justify-between w-full">
-            <div>
-              <Card.Title className="text-lg">Pipeline Stages</Card.Title>
-              <Card.Description>
-                Workflow configuration stages
-              </Card.Description>
-            </div>
-            <Button
-              size="sm"
-              variant="primary"
-              onPress={() => stagesPanelRef.current?.startAdd()}
-              isDisabled={busy || !stagesPanelReady}
-            >
-              Add Stage
-            </Button>
-          </div>
-        </Card.Header>
-
+      <SectionCard
+        title="Pipeline Stages"
+        description="Workflow configuration stages"
+        actions={
+          <Button
+            size="sm"
+            variant="primary"
+            className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+            onPress={() => stagesPanelRef.current?.startAdd()}
+            isDisabled={busy || !stagesPanelReady}
+          >
+            Add Stage
+          </Button>
+        }
+      >
         <SuspenseErrorBoundary fallback={<StagesErrorFallback />}>
           <Suspense fallback={<StagesPanelSkeleton />}>
             <StagesPanel
@@ -299,46 +295,34 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
             />
           </Suspense>
         </SuspenseErrorBoundary>
-      </Card>
+      </SectionCard>
 
       {/* Right Column - Sub-stages */}
-      <Card className="min-h-[500px]">
-        <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
-          <div className="flex items-center justify-between w-full">
-            <div>
-              <Card.Title className="text-lg">
-                {selectedStage
-                  ? `Sub-stages of ${selectedStage.label}`
-                  : "Sub-stages"}
-              </Card.Title>
-              <Card.Description>
-                {selectedStage
-                  ? "Manage workflow substates"
-                  : "Select a stage to view its sub-stages"}
-              </Card.Description>
-            </div>
-            {selectedStage && subStageMode === "list" && (
-              <Button
-                size="sm"
-                variant="primary"
-                onPress={() => setSubStageMode("add")}
-                isDisabled={busy}
-              >
-                Add Sub-stage
-              </Button>
-            )}
-          </div>
-        </Card.Header>
-
-        <Card.Content className="p-6">
+      <SectionCard
+        title={selectedStage ? `Sub-stages of ${selectedStage.label}` : "Sub-stages"}
+        description={selectedStage ? "Manage workflow substates" : "Select a stage to view its sub-stages"}
+        actions={
+          selectedStage && subStageMode === "list" ? (
+            <Button
+              size="sm"
+              variant="primary"
+              className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+              onPress={() => setSubStageMode("add")}
+              isDisabled={busy}
+            >
+              Add Sub-stage
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="pt-2">
           {!selectedStage ? (
-            <div className="flex h-[350px] flex-col items-center justify-center rounded-xl border border-dashed border-divider text-center p-6">
-              <p className="text-sm font-medium text-foreground">
+            <div className="flex h-[350px] flex-col items-center justify-center rounded-xl border border-dashed border-divider text-center p-6 bg-surface-secondary/10">
+              <p className="text-sm font-semibold text-foreground">
                 No Stage Selected
               </p>
-              <p className="mt-1 text-xs text-muted">
-                Select a pipeline stage on the left to view and manage its
-                sub-stages.
+              <p className="mt-1.5 text-xs text-muted">
+                Select a pipeline stage on the left to view and manage its sub-stages.
               </p>
             </div>
           ) : subStageMode === "list" ? (
@@ -361,8 +345,8 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
               busy={busy}
             />
           )}
-        </Card.Content>
-      </Card>
+        </div>
+      </SectionCard>
     </div>
   );
 }

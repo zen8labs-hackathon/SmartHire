@@ -1,5 +1,3 @@
-import { Card } from "@heroui/react";
-
 const LOADING_ROW_IDS = ["pipelines-loading-1", "pipelines-loading-2", "pipelines-loading-3"];
 
 function PipelineRowsSkeleton() {
@@ -8,10 +6,10 @@ function PipelineRowsSkeleton() {
       {LOADING_ROW_IDS.map((id) => (
         <div
           key={id}
-          className="flex items-center justify-between gap-3 rounded-xl border border-divider px-3 py-2"
+          className="flex items-center justify-between gap-3 rounded-xl border border-divider bg-surface-secondary/20 px-4 py-3"
         >
           <div className="h-4 w-32 rounded bg-default-200" />
-          <div className="h-4 w-16 rounded bg-default-100" />
+          <div className="h-6 w-14 rounded-lg bg-default-100 border border-divider" />
         </div>
       ))}
     </div>
@@ -20,36 +18,33 @@ function PipelineRowsSkeleton() {
 
 export default function Loading() {
   return (
-    <div className="flex flex-col gap-6 animate-pulse">
+    <div className="flex flex-col gap-6 font-sans animate-pulse">
       <div>
         <div className="h-7 w-48 rounded bg-default-200" />
         <div className="mt-2 h-4 w-96 max-w-full rounded bg-default-100" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card className="min-h-[500px]">
-          <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
+        <div className="rounded-2xl border border-divider bg-surface-primary p-6 shadow-sm min-h-[500px]">
+          <div className="flex items-center justify-between border-b border-divider pb-4 mb-4">
             <div>
               <div className="h-5 w-32 rounded bg-default-200" />
-              <div className="mt-1.5 h-4 w-40 rounded bg-default-100" />
+              <div className="mt-2 h-4 w-40 rounded bg-default-100" />
             </div>
-          </Card.Header>
-          <Card.Content className="p-6">
-            <PipelineRowsSkeleton />
-          </Card.Content>
-        </Card>
+            <div className="h-9 w-20 rounded-xl bg-default-200" />
+          </div>
+          <PipelineRowsSkeleton />
+        </div>
 
-        <Card className="min-h-[500px]">
-          <Card.Header className="flex items-center justify-between border-b border-divider px-6 py-4">
+        <div className="rounded-2xl border border-divider bg-surface-primary p-6 shadow-sm min-h-[500px]">
+          <div className="flex items-center justify-between border-b border-divider pb-4 mb-4">
             <div>
               <div className="h-5 w-36 rounded bg-default-200" />
-              <div className="mt-1.5 h-4 w-48 rounded bg-default-100" />
+              <div className="mt-2 h-4 w-48 rounded bg-default-100" />
             </div>
-          </Card.Header>
-          <Card.Content className="p-6">
-            <PipelineRowsSkeleton />
-          </Card.Content>
-        </Card>
+          </div>
+          <PipelineRowsSkeleton />
+        </div>
       </div>
     </div>
   );

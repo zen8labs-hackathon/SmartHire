@@ -10,7 +10,9 @@ import {
   type DragEvent,
 } from "react";
 
-import { Button, Card, Label } from "@heroui/react";
+import { Alert, Button, Label } from "@heroui/react";
+import { SectionCard } from "@/components/admin/shell/cards";
+import { UploadCloud, FileText, Download, Trash2, Eye } from "lucide-react";
 
 import {
   CANDIDATE_EVAL_TEMPLATE_BUCKET,
@@ -46,9 +48,6 @@ export function CandidateEvaluationTemplateManager({
     [supabase],
   );
 
-  // Used to re-sync after uploads/removals (the initial state above is
-  // already seeded from `templateInfoPromise`, so no fetch-on-mount effect
-  // is needed here).
   const refresh = useCallback(async () => {
     setLoadError(null);
     try {
@@ -245,115 +244,138 @@ export function CandidateEvaluationTemplateManager({
       : null;
 
   return (
-    <>
-      {loadError ? (
-        <p className="text-sm text-danger" role="alert">
-          {loadError}
-        </p>
-      ) : null}
+    <SectionCard
+      title="Template File Configuration"
+      description="One active evaluation file at a time. Maximum file size is 10 MB. PDF format only."
+    >
+      <div className="flex flex-col gap-4">
+        {loadError ? (
+          <p className="text-sm text-danger font-semibold" role="alert">
+            {loadError}
+          </p>
+        ) : null}
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Template file</Card.Title>
-          <Card.Description>
-            One active file at a time. Replacing the template deletes the
-            previous file. Maximum size 10 MB, PDF only.
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
-          {info?.hasFile ? (
-            <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-foreground">
+        {info?.hasFile ? (
+          <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary/40 p-4 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="h-10 w-10 shrink-0 flex items-center justify-center bg-accent/10 rounded-xl text-accent border border-accent/20">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-foreground truncate text-sm">
                   {info.originalFilename ?? "evaluation-template.pdf"}
                 </p>
                 {updatedLabel ? (
-                  <p className="mt-1 text-muted">Last updated {updatedLabel}</p>
+                  <p className="mt-1 text-muted font-medium text-[10px]">
+                    Last updated {updatedLabel}
+                  </p>
                 ) : null}
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="shrink-0 self-start"
-                isDisabled={busy}
-                onPress={() => void onPreview()}
-              >
-                Preview
-              </Button>
             </div>
-          ) : (
-            <p className="text-sm text-muted">No template uploaded yet.</p>
-          )}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 px-3 rounded-lg border border-divider shrink-0 text-xs font-bold"
+              isDisabled={busy}
+              onPress={() => void onPreview()}
+            >
+              <Eye className="h-3.5 w-3.5 mr-1" />
+              Preview
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted font-medium py-3 text-center bg-surface-secondary/20 rounded-xl border border-dashed border-divider">
+            No template uploaded yet.
+          </p>
+        )}
 
-          {actionError ? (
-            <p className="text-sm text-danger" role="alert">
-              {actionError}
+        {actionError ? (
+          <Alert status="danger" className="rounded-xl">
+            <Alert.Indicator />
+            <Alert.Content>
+              <Alert.Title>Error</Alert.Title>
+              <Alert.Description>{actionError}</Alert.Description>
+            </Alert.Content>
+          </Alert>
+        ) : null}
+
+        <div
+          className={
+            dragOver
+              ? "rounded-xl border-2 border-dashed border-accent bg-accent/5 p-8 text-center transition-colors cursor-pointer"
+              : "rounded-xl border-2 border-dashed border-divider bg-surface-secondary/10 p-8 text-center transition-colors hover:bg-surface-secondary/20 cursor-pointer"
+          }
+          onDragOver={(e: DragEvent) => {
+            if (busy) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e: DragEvent) => {
+            if (busy) return;
+            e.preventDefault();
+            setDragOver(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) void ingestFile(f);
+          }}
+        >
+          <div className="flex flex-col items-center justify-center">
+            <UploadCloud className="h-8 w-8 text-muted mb-2 animate-bounce" />
+            <Label className="text-xs font-semibold text-muted mb-1 block">
+              Drag and drop your PDF here or browse
+            </Label>
+            <p className="text-[10px] text-muted/60 mb-4 font-semibold">
+              PDF files up to 10MB
             </p>
-          ) : null}
-
-          <div
-            className={
-              dragOver
-                ? "rounded-xl border-2 border-dashed border-accent bg-accent/5 p-8 text-center transition-colors"
-                : "rounded-xl border-2 border-dashed border-divider p-8 text-center transition-colors"
-            }
-            onDragOver={(e: DragEvent) => {
-              if (busy) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e: DragEvent) => {
-              if (busy) return;
-              e.preventDefault();
-              setDragOver(false);
-              const f = e.dataTransfer.files?.[0];
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="sr-only"
+            accept=".pdf,application/pdf"
+            aria-hidden
+            tabIndex={-1}
+            disabled={busy}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              const f = e.target.files?.[0];
               if (f) void ingestFile(f);
             }}
-          >
-            <Label className="text-sm font-medium text-foreground">
-              Drop a PDF here or choose a file
-            </Label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="sr-only"
-              accept=".pdf,application/pdf"
-              aria-hidden
-              tabIndex={-1}
-              disabled={busy}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                const f = e.target.files?.[0];
-                if (f) void ingestFile(f);
-              }}
-            />
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              <Button
-                variant="primary"
-                isDisabled={busy}
-                onPress={() => fileInputRef.current?.click()}
-              >
-                {info?.hasFile ? "Replace PDF" : "Upload PDF"}
-              </Button>
-              {info?.hasFile ? (
-                <>
-                  <Button
-                    variant="secondary"
-                    isDisabled={busy}
-                    onPress={() => void onDownload()}
-                  >
-                    Download
-                  </Button>
-                  <Button variant="danger" isDisabled={busy} onPress={onRemove}>
-                    Remove
-                  </Button>
-                </>
-              ) : null}
-            </div>
+          />
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button
+              variant="primary"
+              className="h-8 px-4 rounded-lg bg-accent text-white font-bold text-xs"
+              isDisabled={busy}
+              onPress={() => fileInputRef.current?.click()}
+            >
+              {info?.hasFile ? "Replace PDF" : "Upload PDF"}
+            </Button>
+            {info?.hasFile ? (
+              <>
+                <Button
+                  variant="secondary"
+                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                  isDisabled={busy}
+                  onPress={() => void onDownload()}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                  Download
+                </Button>
+                <Button
+                  variant="danger"
+                  className="h-8 px-3 rounded-lg border border-red-200 hover:bg-red-50 text-xs font-bold text-danger"
+                  isDisabled={busy}
+                  onPress={onRemove}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Remove
+                </Button>
+              </>
+            ) : null}
           </div>
-        </Card.Content>
-      </Card>
-    </>
+        </div>
+      </div>
+    </SectionCard>
   );
 }

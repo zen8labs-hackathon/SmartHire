@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "Upload and manage organization-wide interview templates.",
 };
 
-import { Alert, Card } from "@heroui/react";
+import { Alert } from "@heroui/react";
 
 import {
   CandidateEvaluationTemplateManager,
@@ -17,14 +17,10 @@ import { TemplateSkeleton } from "@/components/admin/candidate-evaluation-templa
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/admin/shell/page-header";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-// Supabase never rejects a query promise (it resolves with `{ error }`
-// populated), so this helper throws explicitly. That gives `use()` a real
-// rejection to propagate to `SuspenseErrorBoundary` below instead of the
-// Card silently rendering with an empty template state. Mirrors the shape
-// returned by `GET /api/admin/candidate-evaluation-template`.
 async function getTemplateInfo(
   supabase: SupabaseServerClient,
 ): Promise<TemplateInfo> {
@@ -52,19 +48,17 @@ async function getTemplateInfo(
 
 function TemplateErrorFallback() {
   return (
-    <Card>
-      <Card.Content>
-        <Alert status="danger">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Title>Error</Alert.Title>
-            <Alert.Description>
-              Could not load the template status. Please refresh.
-            </Alert.Description>
-          </Alert.Content>
-        </Alert>
-      </Card.Content>
-    </Card>
+    <div className="p-4">
+      <Alert status="danger" className="rounded-xl">
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>Error</Alert.Title>
+          <Alert.Description>
+            Could not load the template status. Please refresh.
+          </Alert.Description>
+        </Alert.Content>
+      </Alert>
+    </div>
   );
 }
 
@@ -74,23 +68,14 @@ export default async function AdminEvaluationTemplatePage() {
   if (!access?.isHr) redirect("/admin/jd");
 
   const supabase = await createClient();
-
-  // Kick off the template-status query but don't await it here, so the
-  // static title below renders immediately. The Suspense boundary only gates
-  // the "Template file" Card, which is the part that actually needs the data.
   const templateInfoPromise = getTemplateInfo(supabase);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Evaluation template
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">
-          Upload a single PDF used as the organisation-wide candidate interview
-          evaluation form (for example, an interview evaluation sheet).
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 font-sans">
+      <PageHeader
+        title="Evaluation Template"
+        description="Upload and manage the PDF document used as the organisation-wide candidate interview evaluation form."
+      />
 
       <SuspenseErrorBoundary fallback={<TemplateErrorFallback />}>
         <Suspense fallback={<TemplateSkeleton />}>

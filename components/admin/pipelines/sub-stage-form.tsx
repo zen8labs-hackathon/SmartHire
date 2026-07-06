@@ -87,12 +87,14 @@ export function SubStageForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-4">
-      <h3 className="font-semibold text-foreground">
+      <h3 className="font-bold text-sm text-foreground mb-2">
         {mode === "add" ? "Add New Sub-stage" : `Edit Sub-stage: ${initialValues?.label}`}
       </h3>
 
       {fieldError ? (
-        <p className="text-xs text-danger font-medium">{fieldError}</p>
+        <p className="text-xs text-rose-500 font-semibold bg-rose-50 dark:bg-rose-950/20 p-2.5 rounded-lg border border-rose-200">
+          {fieldError}
+        </p>
       ) : null}
 
       <TextField
@@ -101,10 +103,14 @@ export function SubStageForm({
         value={label}
         onChange={setLabel}
         validate={(v) => (!v.trim() ? "Label is required." : null)}
+        className="w-full"
       >
-        <Label>Sub-stage Label</Label>
-        <Input placeholder="e.g. CV Passed" />
-        <FieldError />
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Sub-stage Label</Label>
+        <Input
+          placeholder="e.g. CV Passed"
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
       <TextField
@@ -112,7 +118,7 @@ export function SubStageForm({
         name="code"
         value={code}
         onChange={setCode}
-        isDisabled={mode === "edit"} // Disable changing code on existing sub-stage
+        isDisabled={mode === "edit"}
         validate={(v) => {
           if (!v.trim()) return "Code is required.";
           if (!/^[a-z0-9_]+$/.test(v)) {
@@ -120,10 +126,14 @@ export function SubStageForm({
           }
           return null;
         }}
+        className="w-full"
       >
-        <Label>Sub-stage Code</Label>
-        <Input placeholder="e.g. cv_passed (no spaces)" />
-        <FieldError />
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Sub-stage Code</Label>
+        <Input
+          placeholder="e.g. cv_passed (no spaces)"
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none disabled:opacity-50"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
       <TextField
@@ -137,49 +147,65 @@ export function SubStageForm({
           if (Number.isNaN(n) || n < 1) return "Must be a valid positive integer.";
           return null;
         }}
+        className="w-full"
       >
-        <Label>Sequence Number (Sort Order)</Label>
-        <Input type="number" min={1} step={1} />
-        <FieldError />
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Sequence Number (Sort Order)</Label>
+        <Input
+          type="number"
+          min={1}
+          step={1}
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
       <div className="flex flex-col gap-4 border-t border-divider pt-4 mt-2">
-        <label className="flex items-start gap-3 cursor-pointer text-sm font-medium text-foreground select-none">
+        <label className="flex items-start gap-3 cursor-pointer text-xs font-bold text-foreground select-none">
           <input
             type="checkbox"
             checked={isDefault}
             onChange={(e) => setIsDefault(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-700 bg-background text-accent focus:ring-accent accent-accent"
+            className="mt-0.5 h-4 w-4 rounded border-divider bg-surface-secondary/20 text-accent focus:ring-accent accent-accent"
           />
           <div>
             <span>Default Sub-stage</span>
-            <p className="text-xs text-muted font-normal mt-0.5">
+            <p className="text-[10px] text-muted font-semibold mt-1 leading-normal">
               New candidates in this stage will be placed in this sub-stage by default. (Only one default allowed per stage)
             </p>
           </div>
         </label>
 
-        <label className="flex items-start gap-3 cursor-pointer text-sm font-medium text-foreground select-none">
+        <label className="flex items-start gap-3 cursor-pointer text-xs font-bold text-foreground select-none">
           <input
             type="checkbox"
             checked={isPassed}
             onChange={(e) => setIsPassed(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-700 bg-background text-success focus:ring-success accent-success"
+            className="mt-0.5 h-4 w-4 rounded border-divider bg-surface-secondary/20 text-emerald-500 focus:ring-emerald-500 accent-emerald-500"
           />
           <div>
             <span>Passed Sub-stage</span>
-            <p className="text-xs text-muted font-normal mt-0.5">
+            <p className="text-[10px] text-muted font-semibold mt-1 leading-normal">
               Candidates in this sub-stage are considered to have passed this stage. (At most one passed allowed per stage)
             </p>
           </div>
         </label>
       </div>
 
-      <div className="flex items-center justify-end gap-3 mt-2">
-        <Button variant="secondary" onPress={onCancel} isDisabled={busy}>
+      <div className="flex items-center justify-end gap-3 mt-4">
+        <Button
+          variant="secondary"
+          onPress={onCancel}
+          isDisabled={busy}
+          className="h-8 px-3.5 rounded-lg border border-divider text-xs font-bold bg-surface-secondary hover:bg-surface-secondary/80"
+        >
           Cancel
         </Button>
-        <Button type="submit" variant="primary" isDisabled={busy}>
+        <Button
+          type="submit"
+          variant="primary"
+          isDisabled={busy}
+          className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold hover:bg-accent/90"
+        >
           {busy ? "Saving..." : "Save Sub-stage"}
         </Button>
       </div>
