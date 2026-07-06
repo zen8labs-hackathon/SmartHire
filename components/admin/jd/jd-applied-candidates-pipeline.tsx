@@ -6,9 +6,12 @@ import { Pencil, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
+  Calendar,
   Card,
   Chip,
+  cn,
   DateField,
+  DatePicker,
   DateRangePicker,
   Input,
   Label,
@@ -24,7 +27,10 @@ import {
 import {
   today,
   getLocalTimeZone,
+  fromDate,
+  toCalendarDateTime,
   type CalendarDate,
+  type CalendarDateTime,
 } from "@internationalized/date";
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
@@ -36,9 +42,11 @@ import {
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
 import {
+  getStageColorClasses,
+  getStageColorStyles,
   getSubStageTextColorClass,
+  getSubStageTextColorStyle,
   isCandidateInOfferStage,
-  isPipelineStatusKey,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
   type CandidateDbRow,
@@ -46,19 +54,22 @@ import {
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
 import {
-  PIPELINE_STATUS_DISPLAY_ORDER,
-  candidateStatusMajorPhase,
-  candidateStatusUiLabel,
   isEligibleForBulkMoveToInterview,
   isFailSubStageCode,
 } from "@/lib/candidates/pipeline-phase";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import type { CandidateRow } from "@/lib/candidates/types";
 import {
   isCustomTransitionAllowed,
   resolveCandidatePipelineIds,
+  wasCandidateStageOrphaned,
   type StageMapping,
   type SubStage,
 } from "@/lib/pipelines/transition-validator";
+import {
+  buildPipelineStageSubStageFilterOptions,
+  countByStageMappingId,
+  type PipelineStageSubStageFilterOption,
+} from "@/lib/pipelines/jd-pipeline-filter-options";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -81,14 +92,6 @@ const YEAR_OPTIONS = Array.from(
   (_, i) => 1990 + i,
 );
 
-const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: "all", label: "All statuses" },
-  ...PIPELINE_STATUS_DISPLAY_ORDER.map((sid) => ({
-    id: sid,
-    label: candidateStatusUiLabel(sid),
-  })),
-];
-
 type Props = {
   jobDescriptionId: number;
   jobId: string;
@@ -101,16 +104,13 @@ type Props = {
   subStages: SubStage[];
 };
 
-function tableStatusRow(r: CandidateDbRow): CandidateRow {
-  return candidateDbRowToTableRow(r);
-}
-
 /** A candidate's resolved current stage mapping + sub-stage, with the full objects for display/eligibility checks. */
 type ResolvedRowPipeline = {
   stageMappingId: string | null;
   subStateId: string | null;
   stageMapping: StageMapping | null;
   subStage: SubStage | null;
+  orphaned: boolean;
 };
 
 function resolveRowPipeline(
@@ -128,6 +128,7 @@ function resolveRowPipeline(
     subStateId,
     stageMapping: stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
     subStage: subStages.find((ss) => ss.id === subStateId) ?? null,
+    orphaned: wasCandidateStageOrphaned(r, stageMappings, subStages),
   };
 }
 
@@ -187,6 +188,53 @@ function stageSubStageOptionKey(
 }
 
 /**
+ * Renders a (stageMapping, subStage) pair that has no legacy `CandidateStatus`
+ * analog — i.e. a fully custom pipeline stage/sub-stage. Mirrors the markup
+ * and color helpers of `PipelineStatusLabel`'s "inline" variant so custom and
+ * legacy-analog options in the status filter dropdown look consistent.
+ */
+function PipelineStageSubStageInlineLabel({
+  stageMapping,
+  subStage,
+}: {
+  stageMapping: StageMapping;
+  subStage: SubStage;
+}) {
+  const stageColor = stageMapping.pipeline_stages?.color ?? null;
+  const surfaceClass = getStageColorClasses(stageColor, "badge");
+  const surfaceStyle = getStageColorStyles(stageColor, "badge");
+  const detailClass = getSubStageTextColorClass(
+    subStage.code,
+    subStage.is_passed,
+    subStage.is_default,
+    stageColor,
+  );
+  const detailStyle = getSubStageTextColorStyle(
+    subStage.code,
+    subStage.is_passed,
+    subStage.is_default,
+    stageColor,
+  );
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        surfaceClass,
+      )}
+      style={surfaceStyle}
+    >
+      <span className="text-xs text-foreground">
+        {stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code}
+      </span>
+      <span className="mx-1 text-xs text-muted">·</span>
+      <span className={cn("text-xs", detailClass)} style={detailStyle}>
+        {subStage.label}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Fixed green wash for rows anywhere in the offer stage — intentionally
  * independent of the pipeline stage's configured DB color (which only
  * drives the status tag). Applied per-`Table.Cell` rather than `Table.Row`:
@@ -195,6 +243,31 @@ function stageSubStageOptionKey(
  * through the row's hover background too.
  */
 const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
+
+/**
+ * Responsive grid-column count for the stat-card row: one "Total CV" card
+ * plus one per configured pipeline stage. Falls back to a fixed 4-column
+ * layout (wrapping to multiple rows) once the stage count grows large,
+ * rather than trying to fit an arbitrarily wide single row.
+ */
+function statCardGridClass(cardCount: number): string {
+  switch (cardCount) {
+    case 1:
+      return "grid-cols-1";
+    case 2:
+      return "grid-cols-2";
+    case 3:
+      return "grid-cols-2 lg:grid-cols-3";
+    case 4:
+      return "grid-cols-2 lg:grid-cols-4";
+    case 5:
+      return "grid-cols-2 lg:grid-cols-5";
+    case 6:
+      return "grid-cols-2 lg:grid-cols-6";
+    default:
+      return "grid-cols-2 lg:grid-cols-4";
+  }
+}
 
 function formatSchedule(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -225,6 +298,20 @@ function isoToDatetimeLocalValue(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isoToCalendarDateTime(
+  iso: string | null | undefined,
+): CalendarDateTime | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return toCalendarDateTime(fromDate(d, getLocalTimeZone()));
+}
+
+function calendarDateTimeToIso(value: CalendarDateTime | null): string | null {
+  if (!value) return null;
+  return value.toDate(getLocalTimeZone()).toISOString();
 }
 
 function cvDay(iso: string | null | undefined): string {
@@ -272,6 +359,18 @@ export function JdAppliedCandidatesPipeline({
   const resolveRow = useCallback(
     (r: CandidateDbRow) => resolveRowPipeline(r, stageMappings, subStages),
     [stageMappings, subStages],
+  );
+
+  /** One status-filter option per (stageMapping, subStage) pair configured for this job. */
+  const filterOptions = useMemo(
+    () => buildPipelineStageSubStageFilterOptions(stageMappings, subStages),
+    [stageMappings, subStages],
+  );
+
+  /** Ordered by `sequence_number`; drives both filter options and the per-stage stat cards. */
+  const orderedStageMappings = useMemo(
+    () => [...stageMappings].sort((a, b) => a.sequence_number - b.sequence_number),
+    [stageMappings],
   );
 
   /** The "offer" stage's default ("currently offered") sub-stage — id used by "Move to offer". */
@@ -386,6 +485,11 @@ export function JdAppliedCandidatesPipeline({
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const selectedFilterOption: PipelineStageSubStageFilterOption | null =
+    useMemo(
+      () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
+      [filterOptions, statusFilter],
+    );
   const [uploadDateRange, setUploadDateRange] =
     useState<RangeValue<CalendarDate> | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
@@ -399,7 +503,7 @@ export function JdAppliedCandidatesPipeline({
   >({});
 
   const [interviewDrafts, setInterviewDrafts] = useState<
-    Record<string, string>
+    Record<string, CalendarDateTime | null>
   >({});
 
   const offerModal = useOverlayState({
@@ -421,6 +525,16 @@ export function JdAppliedCandidatesPipeline({
     setPage(1);
   }, [query, statusFilter, uploadDateRange]);
 
+  // If the selected filter's stage/sub-stage was removed by a JD pipeline
+  // edit (stale composite id), reset to "all" instead of silently showing
+  // zero rows.
+  useEffect(() => {
+    if (statusFilter === "all") return;
+    if (!filterOptions.some((opt) => opt.id === statusFilter)) {
+      setStatusFilter("all");
+    }
+  }, [statusFilter, filterOptions]);
+
   useEffect(() => {
     if (uploadDateRange?.start) {
       setCalendarFocusedDate(uploadDateRange.start);
@@ -436,28 +550,26 @@ export function JdAppliedCandidatesPipeline({
     rows = rows.filter((r) => rowMatchesSearch(r, q));
     rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
     if (sf !== "all") {
-      rows = rows.filter((r) => r.status === sf);
+      rows = rows.filter((r) => {
+        const resolved = resolveRow(r);
+        if (!resolved.stageMappingId || !resolved.subStateId) return false;
+        return (
+          stageSubStageOptionKey(resolved.stageMappingId, resolved.subStateId) ===
+          sf
+        );
+      });
     }
     return rows;
-  }, [dbRows, query, statusFilter, uploadDateRange]);
+  }, [dbRows, query, statusFilter, uploadDateRange, resolveRow]);
 
-  const statusCounts = useMemo(() => {
-    let newPool = 0;
-    let interviewing = 0;
-    let offer = 0;
-    let matched = 0;
-    for (const r of filteredRows) {
-      const st = tableStatusRow(r).status;
-      const phase = candidateStatusMajorPhase(st);
-      if (phase === "cv_scan") newPool += 1;
-      else if (phase === "interview") interviewing += 1;
-      else if (phase === "offer") {
-        if (st === "Offer") offer += 1;
-        else if (st === "Matched") matched += 1;
-      }
-    }
-    return { newPool, interviewing, offer, matched };
-  }, [filteredRows]);
+  const stageMappingCounts = useMemo(
+    () =>
+      countByStageMappingId(
+        filteredRows.map((r) => resolveRow(r).stageMappingId),
+        stageMappings,
+      ),
+    [filteredRows, resolveRow, stageMappings],
+  );
 
   const totalPages = Math.max(
     1,
@@ -735,11 +847,11 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveInterviewTime = useCallback(
-    async (id: string, local: string) => {
+    async (id: string, value: CalendarDateTime | null) => {
       setPipelineError(null);
       setRowUpdating(id);
       try {
-        const iso = local.trim() ? localDatetimeToIso(local) : null;
+        const iso = calendarDateTimeToIso(value);
         await patchTimeline(id, { interview_at: iso });
         onRefetch(true);
       } catch (e) {
@@ -752,11 +864,11 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const saveOnboardingTime = useCallback(
-    async (id: string, local: string) => {
+    async (id: string, value: CalendarDateTime | null) => {
       setPipelineError(null);
       setRowUpdating(id);
       try {
-        const iso = local.trim() ? localDatetimeToIso(local) : null;
+        const iso = calendarDateTimeToIso(value);
         await patchTimeline(id, { onboarding_at: iso });
         onRefetch(true);
       } catch (e) {
@@ -777,12 +889,12 @@ export function JdAppliedCandidatesPipeline({
           (r.status === "Interview" || r.status === "InterviewPassed") &&
           next[r.id] === undefined
         ) {
-          next[r.id] = isoToDatetimeLocalValue(r.interview_at);
+          next[r.id] = isoToCalendarDateTime(r.interview_at);
           changed = true;
         }
         const obKey = `ob-${r.id}`;
         if (r.status === "Offer" && next[obKey] === undefined) {
-          next[obKey] = isoToDatetimeLocalValue(r.onboarding_at);
+          next[obKey] = isoToCalendarDateTime(r.onboarding_at);
           changed = true;
         }
       }
@@ -826,14 +938,21 @@ export function JdAppliedCandidatesPipeline({
           >
             <Label className="sr-only">Status</Label>
             <Select.Trigger className="min-h-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
-              {isPipelineStatusKey(statusFilter) ? (
-                <PipelineStatusLabel
-                  status={statusFilter}
-                  variant="inline"
-                  uppercase={false}
-                  stageMappings={stageMappings}
-                  subStages={subStages}
-                />
+              {statusFilter !== "all" && selectedFilterOption ? (
+                selectedFilterOption.legacyStatus ? (
+                  <PipelineStatusLabel
+                    status={selectedFilterOption.legacyStatus}
+                    variant="inline"
+                    uppercase={false}
+                    stageMappings={stageMappings}
+                    subStages={subStages}
+                  />
+                ) : (
+                  <PipelineStageSubStageInlineLabel
+                    stageMapping={selectedFilterOption.stageMapping}
+                    subStage={selectedFilterOption.subStage}
+                  />
+                )
               ) : (
                 <Select.Value />
               )}
@@ -841,17 +960,28 @@ export function JdAppliedCandidatesPipeline({
             </Select.Trigger>
             <Select.Popover>
               <ListBox>
-                {FILTER_STATUS_OPTIONS.map((opt) => (
-                  <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                    {opt.id === "all" ? (
-                      opt.label
-                    ) : (
+                <ListBox.Item id="all" textValue="All statuses">
+                  All statuses
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+                {filterOptions.map((opt) => (
+                  <ListBox.Item
+                    key={opt.id}
+                    id={opt.id}
+                    textValue={`${opt.stageMapping.pipeline_stages?.label ?? opt.stageMapping.pipeline_stages?.code} - ${opt.subStage.label}`}
+                  >
+                    {opt.legacyStatus ? (
                       <PipelineStatusLabel
-                        status={opt.id as CandidateStatus}
+                        status={opt.legacyStatus}
                         variant="inline"
                         uppercase={false}
                         stageMappings={stageMappings}
                         subStages={subStages}
+                      />
+                    ) : (
+                      <PipelineStageSubStageInlineLabel
+                        stageMapping={opt.stageMapping}
+                        subStage={opt.subStage}
                       />
                     )}
                     <ListBox.ItemIndicator />
@@ -1026,7 +1156,9 @@ export function JdAppliedCandidatesPipeline({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div
+        className={`grid gap-3 ${statCardGridClass(1 + orderedStageMappings.length)}`}
+      >
         <Card variant="secondary">
           <Card.Header className="gap-0.5">
             <Card.Title className="text-2xl font-semibold tabular-nums">
@@ -1035,38 +1167,18 @@ export function JdAppliedCandidatesPipeline({
             <Card.Description>Total CV</Card.Description>
           </Card.Header>
         </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.newPool}
-            </Card.Title>
-            <Card.Description>CV Scan</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.interviewing}
-            </Card.Title>
-            <Card.Description>Interview</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.offer}
-            </Card.Title>
-            <Card.Description>Offer</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.matched}
-            </Card.Title>
-            <Card.Description>Matched</Card.Description>
-          </Card.Header>
-        </Card>
+        {orderedStageMappings.map((sm) => (
+          <Card variant="secondary" key={sm.id}>
+            <Card.Header className="gap-0.5">
+              <Card.Title className="text-2xl font-semibold tabular-nums">
+                {stageMappingCounts[sm.id] ?? 0}
+              </Card.Title>
+              <Card.Description>
+                {sm.pipeline_stages?.label ?? sm.pipeline_stages?.code}
+              </Card.Description>
+            </Card.Header>
+          </Card>
+        ))}
       </div>
 
       <Table>
@@ -1332,6 +1444,14 @@ export function JdAppliedCandidatesPipeline({
                                 Unassigned
                               </span>
                             )}
+                            {resolved.orphaned ? (
+                              <span
+                                className="text-sm leading-none"
+                                title="Previous pipeline stage was removed — this status may be inaccurate"
+                              >
+                                ⚠
+                              </span>
+                            ) : null}
                             <Select.Indicator />
                           </Select.Trigger>
                           <Select.Popover>
@@ -1385,12 +1505,13 @@ export function JdAppliedCandidatesPipeline({
                             <Label className="text-xs font-medium text-muted">
                               Interview date
                             </Label>
-                            <Input
-                              type="datetime-local"
-                              value={interviewDrafts[r.id] ?? ""}
-                              disabled={!canEditPipeline || busy}
-                              onChange={(e) => {
-                                const value = e.target.value;
+                            <DatePicker
+                              value={interviewDrafts[r.id] ?? null}
+                              granularity="minute"
+                              hourCycle={24}
+                              shouldCloseOnSelect={false}
+                              isDisabled={!canEditPipeline || busy}
+                              onChange={(value) => {
                                 setInterviewDrafts((d) => ({
                                   ...d,
                                   [r.id]: value,
@@ -1399,23 +1520,77 @@ export function JdAppliedCandidatesPipeline({
                               onBlur={() => {
                                 void saveInterviewTime(
                                   r.id,
-                                  interviewDrafts[r.id] ?? "",
+                                  interviewDrafts[r.id] ?? null,
                                 );
                               }}
                               className="w-full min-w-[11rem]"
-                            />
+                            >
+                              <DateField.Group
+                                fullWidth
+                                variant="primary"
+                                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                              >
+                                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                                  <DateField.Input>
+                                    {(segment) => (
+                                      <DateField.Segment segment={segment} />
+                                    )}
+                                  </DateField.Input>
+                                </DateField.InputContainer>
+                                <DateField.Suffix>
+                                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                                    <DatePicker.TriggerIndicator />
+                                  </DatePicker.Trigger>
+                                </DateField.Suffix>
+                              </DateField.Group>
+                              <DatePicker.Popover>
+                                <Dialog className="outline-none">
+                                  <Calendar>
+                                    <Calendar.Header className="flex items-center gap-2">
+                                      <Calendar.NavButton slot="previous" />
+                                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
+                                      <Calendar.NavButton slot="next" />
+                                    </Calendar.Header>
+                                    <Calendar.Grid weekdayStyle="short">
+                                      <Calendar.GridHeader>
+                                        {(day) => (
+                                          <Calendar.HeaderCell>
+                                            {day}
+                                          </Calendar.HeaderCell>
+                                        )}
+                                      </Calendar.GridHeader>
+                                      <Calendar.GridBody>
+                                        {(date) => (
+                                          <Calendar.Cell date={date}>
+                                            {({ formattedDate }) => (
+                                              <>
+                                                <Calendar.CellIndicator />
+                                                <span className="relative z-[1]">
+                                                  {formattedDate}
+                                                </span>
+                                              </>
+                                            )}
+                                          </Calendar.Cell>
+                                        )}
+                                      </Calendar.GridBody>
+                                    </Calendar.Grid>
+                                  </Calendar>
+                                </Dialog>
+                              </DatePicker.Popover>
+                            </DatePicker>
                           </div>
                         ) : r.status === "Offer" ? (
                           <div className="flex flex-col gap-1">
                             <Label className="text-xs font-medium text-muted">
                               Onboarding date
                             </Label>
-                            <Input
-                              type="datetime-local"
-                              value={interviewDrafts[`ob-${r.id}`] ?? ""}
-                              disabled={!canEditPipeline || busy}
-                              onChange={(e) => {
-                                const value = e.target.value;
+                            <DatePicker
+                              value={interviewDrafts[`ob-${r.id}`] ?? null}
+                              granularity="minute"
+                              hourCycle={24}
+                              shouldCloseOnSelect={false}
+                              isDisabled={!canEditPipeline || busy}
+                              onChange={(value) => {
                                 setInterviewDrafts((d) => ({
                                   ...d,
                                   [`ob-${r.id}`]: value,
@@ -1424,11 +1599,64 @@ export function JdAppliedCandidatesPipeline({
                               onBlur={() => {
                                 void saveOnboardingTime(
                                   r.id,
-                                  interviewDrafts[`ob-${r.id}`] ?? "",
+                                  interviewDrafts[`ob-${r.id}`] ?? null,
                                 );
                               }}
                               className="w-full min-w-[11rem]"
-                            />
+                            >
+                              <DateField.Group
+                                fullWidth
+                                variant="primary"
+                                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
+                              >
+                                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                                  <DateField.Input>
+                                    {(segment) => (
+                                      <DateField.Segment segment={segment} />
+                                    )}
+                                  </DateField.Input>
+                                </DateField.InputContainer>
+                                <DateField.Suffix>
+                                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
+                                    <DatePicker.TriggerIndicator />
+                                  </DatePicker.Trigger>
+                                </DateField.Suffix>
+                              </DateField.Group>
+                              <DatePicker.Popover>
+                                <Dialog className="outline-none">
+                                  <Calendar>
+                                    <Calendar.Header className="flex items-center gap-2">
+                                      <Calendar.NavButton slot="previous" />
+                                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
+                                      <Calendar.NavButton slot="next" />
+                                    </Calendar.Header>
+                                    <Calendar.Grid weekdayStyle="short">
+                                      <Calendar.GridHeader>
+                                        {(day) => (
+                                          <Calendar.HeaderCell>
+                                            {day}
+                                          </Calendar.HeaderCell>
+                                        )}
+                                      </Calendar.GridHeader>
+                                      <Calendar.GridBody>
+                                        {(date) => (
+                                          <Calendar.Cell date={date}>
+                                            {({ formattedDate }) => (
+                                              <>
+                                                <Calendar.CellIndicator />
+                                                <span className="relative z-[1]">
+                                                  {formattedDate}
+                                                </span>
+                                              </>
+                                            )}
+                                          </Calendar.Cell>
+                                        )}
+                                      </Calendar.GridBody>
+                                    </Calendar.Grid>
+                                  </Calendar>
+                                </Dialog>
+                              </DatePicker.Popover>
+                            </DatePicker>
                           </div>
                         ) : (
                           <span className="text-xs text-muted">—</span>
@@ -1631,7 +1859,10 @@ export function JdAppliedCandidatesPipeline({
         </Modal.Container>
       </Modal.Backdrop>
 
-      <Modal.Backdrop isOpen={editModal.isOpen} onOpenChange={editModal.setOpen}>
+      <Modal.Backdrop
+        isOpen={editModal.isOpen}
+        onOpenChange={editModal.setOpen}
+      >
         <Modal.Container>
           <Modal.Dialog className="w-full max-w-2xl overflow-hidden p-0">
             <Modal.CloseTrigger />
