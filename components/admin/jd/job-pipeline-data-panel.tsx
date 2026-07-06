@@ -2,6 +2,7 @@
 
 import {
   forwardRef,
+  use,
   useCallback,
   useImperativeHandle,
   useMemo,
@@ -23,11 +24,13 @@ export type JobPipelineDataPanelHandle = {
 type Props = {
   jobDescriptionId: number;
   jobId: string;
-  initialPipelineCandidates: CandidateDbRow[];
-  initialPipelineFetchFailed: boolean;
+  pipelineDataPromise: Promise<{
+    rows: CandidateDbRow[];
+    fetchFailed: boolean;
+    stageMappings: StageMapping[];
+    subStages: SubStage[];
+  }>;
   canEditPipeline: boolean;
-  stageMappings: StageMapping[];
-  subStages: SubStage[];
 };
 
 /**
@@ -39,22 +42,16 @@ export const JobPipelineDataPanel = forwardRef<
   JobPipelineDataPanelHandle,
   Props
 >(function JobPipelineDataPanel(
-  {
-    jobDescriptionId,
-    jobId,
-    initialPipelineCandidates,
-    initialPipelineFetchFailed,
-    canEditPipeline,
-    stageMappings,
-    subStages,
-  },
+  { jobDescriptionId, jobId, pipelineDataPromise, canEditPipeline },
   ref,
 ) {
+  const { rows, fetchFailed, stageMappings, subStages } =
+    use(pipelineDataPromise);
   const supabase = useMemo(() => createClient(), []);
-  const [pipelineRows, setPipelineRows] = useState(initialPipelineCandidates);
+  const [pipelineRows, setPipelineRows] = useState(rows);
   const [pipelineLoadState, setPipelineLoadState] = useState<
     "idle" | "loading" | "error" | "ok"
-  >(() => (initialPipelineFetchFailed ? "error" : "ok"));
+  >(() => (fetchFailed ? "error" : "ok"));
 
   const refetchPipeline = useCallback(
     async (silent = false) => {

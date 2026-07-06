@@ -1,10 +1,25 @@
-import React, { type ChangeEvent } from "react";
+import React from "react";
 import { Button } from "@heroui/react";
-import { useJdDashboard } from "./context";
 
-export function JdHeader() {
-  const { canManageJds, jdModal, jdFileInputRef, ingestJdFile } = useJdDashboard();
+export interface JdHeaderProps {
+  canManageJds: boolean;
+  /**
+   * True until the Suspense-gated dashboard body (which owns the create
+   * modal via `JdDashboardProvider`) has mounted and registered its bridge,
+   * so this button doesn't call into a modal that isn't wired up yet.
+   */
+  disabled: boolean;
+  onNewDefinition: () => void;
+}
 
+/**
+ * Static title + "New definition" trigger for `/admin/jd`. Rendered outside
+ * the Suspense boundary that gates the filters/stats/table region, so it
+ * doesn't need `canManageJds` from context and can't itself suspend. Opening
+ * the create modal (and the hidden file input that drives it) lives inside
+ * `JdCreateModal`, reached here via the `onNewDefinition` bridge callback.
+ */
+export function JdHeader({ canManageJds, disabled, onNewDefinition }: JdHeaderProps) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
@@ -20,25 +35,12 @@ export function JdHeader() {
           <Button
             variant="primary"
             className="bg-gradient-to-br from-[#002542] to-[#1b3b5a] shadow-sm"
-            onPress={() => {
-              jdModal.open();
-            }}
+            isDisabled={disabled}
+            onPress={onNewDefinition}
           >
             <span className="text-lg leading-none">+</span>
             New definition
           </Button>
-          <input
-            ref={jdFileInputRef}
-            type="file"
-            className="sr-only"
-            accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-            aria-hidden
-            tabIndex={-1}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              const f = e.target.files?.[0];
-              if (f) void ingestJdFile(f);
-            }}
-          />
         </div>
       ) : null}
     </div>

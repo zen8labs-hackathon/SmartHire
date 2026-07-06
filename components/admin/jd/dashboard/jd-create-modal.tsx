@@ -51,6 +51,22 @@ export function JdCreateModal() {
           </Modal.Header>
 
           <Modal.Body className="max-h-[72vh] space-y-6 overflow-y-auto px-6 py-6">
+            {/* Hidden file input driving the "Browse Files" button and the
+                drag-and-drop zone below. Lives here (rather than in
+                JdHeader) since it's only ever used in the context of this
+                modal. */}
+            <input
+              ref={jdFileInputRef}
+              type="file"
+              className="sr-only"
+              accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+              aria-hidden
+              tabIndex={-1}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                const f = e.target.files?.[0];
+                if (f) void ingestJdFile(f);
+              }}
+            />
             {/* File upload (optional) */}
             <Card
               variant="secondary"

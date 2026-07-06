@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { forwardRef, use, useCallback, useImperativeHandle } from "react";
 
 import { AlertDialog, Button, Spinner } from "@heroui/react";
 
@@ -16,12 +16,21 @@ import {
 } from "@/lib/candidates/db-row";
 import type { CandidateRow } from "@/lib/candidates/types";
 
-type Props = {
-  initialRows?: CandidateDbRow[];
-  initialListTotal?: number;
+export type CandidatePipelineDashboardHandle = {
+  /** Opens the "Add Candidate" modal, callable from a header button that
+   * lives outside the Suspense boundary this component is wrapped in. */
+  openAddModal: () => void;
 };
 
-export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Props) {
+type Props = {
+  candidatesPromise: Promise<{ rows: CandidateDbRow[]; total: number }>;
+};
+
+export const CandidatePipelineDashboard = forwardRef<
+  CandidatePipelineDashboardHandle,
+  Props
+>(function CandidatePipelineDashboard({ candidatesPromise }, ref) {
+  const { rows: initialRows, total: initialListTotal } = use(candidatesPromise);
   const {
     page,
     setPage,
@@ -115,6 +124,14 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
 
   const handleFiltersAdjusted = useCallback(() => setPage(1), [setPage]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      openAddModal: () => setAddModalOpen(true),
+    }),
+    [setAddModalOpen],
+  );
+
   const totalPages = Math.max(
     1,
     Math.ceil(listTotal / (listPageSize || CANDIDATES_LIST_DEFAULT_LIMIT)),
@@ -126,26 +143,7 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
   const endIdx = filteredRows.length === 0 ? 0 : startIdx - 1 + filteredRows.length;
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-muted">
-            Smart Hire Suite
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-            Active Talent Pool
-          </h1>
-        </div>
-        <Button
-          variant="primary"
-          className="bg-gradient-to-br from-[#002542] to-[#1b3b5a] shadow-sm"
-          onPress={() => setAddModalOpen(true)}
-        >
-          <span className="text-lg leading-none">+</span>
-          Add Candidate
-        </Button>
-      </div>
-
+    <>
       {dbLoadState === "error" ? (
         <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
           Could not load candidates from the database. Showing sample data until
@@ -270,6 +268,6 @@ export function CandidatePipelineDashboard({ initialRows, initialListTotal }: Pr
           </AlertDialog.Dialog>
         </AlertDialog.Container>
       </AlertDialog.Backdrop>
-    </div>
+    </>
   );
-}
+});

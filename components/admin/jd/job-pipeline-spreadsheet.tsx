@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
@@ -11,10 +11,26 @@ import {
   JobPipelineDataPanel,
   type JobPipelineDataPanelHandle,
 } from "@/components/admin/jd/job-pipeline-data-panel";
+import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skeleton";
+import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
-import { Breadcrumbs, Button } from "@heroui/react";
+import { Alert, Breadcrumbs, Button } from "@heroui/react";
+
+function PipelineErrorFallback() {
+  return (
+    <Alert status="danger">
+      <Alert.Indicator />
+      <Alert.Content>
+        <Alert.Title>Error</Alert.Title>
+        <Alert.Description>
+          Could not load the pipeline. Please refresh.
+        </Alert.Description>
+      </Alert.Content>
+    </Alert>
+  );
+}
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
@@ -59,28 +75,27 @@ type Props = {
   jobDescriptionId: number;
   jobId: string;
   jobTitle: string;
-  initialPipelineCandidates: CandidateDbRow[];
-  initialPipelineFetchFailed: boolean;
   linkedJobOpeningId: string | null;
   linkedJobOpeningTitle: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
-  stageMappings: StageMapping[];
-  subStages: SubStage[];
+  pipelineDataPromise: Promise<{
+    rows: CandidateDbRow[];
+    fetchFailed: boolean;
+    stageMappings: StageMapping[];
+    subStages: SubStage[];
+  }>;
 };
 
 export function JobPipelineSpreadsheet({
   jobDescriptionId,
   jobId,
   jobTitle,
-  initialPipelineCandidates,
-  initialPipelineFetchFailed,
   linkedJobOpeningId,
   linkedJobOpeningTitle,
   canEditPipeline,
   canAddCandidates,
-  stageMappings,
-  subStages,
+  pipelineDataPromise,
 }: Props) {
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
@@ -133,16 +148,17 @@ export function JobPipelineSpreadsheet({
         </div>
       </header>
 
-      <JobPipelineDataPanel
-        ref={pipelinePanelRef}
-        jobDescriptionId={jobDescriptionId}
-        jobId={jobId}
-        initialPipelineCandidates={initialPipelineCandidates}
-        initialPipelineFetchFailed={initialPipelineFetchFailed}
-        canEditPipeline={canEditPipeline}
-        stageMappings={stageMappings}
-        subStages={subStages}
-      />
+      <SuspenseErrorBoundary fallback={<PipelineErrorFallback />}>
+        <Suspense fallback={<PipelineTableSkeleton />}>
+          <JobPipelineDataPanel
+            ref={pipelinePanelRef}
+            jobDescriptionId={jobDescriptionId}
+            jobId={jobId}
+            pipelineDataPromise={pipelineDataPromise}
+            canEditPipeline={canEditPipeline}
+          />
+        </Suspense>
+      </SuspenseErrorBoundary>
 
       {canAddCandidates ? (
         <Button

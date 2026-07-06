@@ -1,8 +1,8 @@
 "use client";
 
 import {
+  use,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -20,17 +20,22 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
-type TemplateInfo = {
+export type TemplateInfo = {
   hasFile: boolean;
   originalFilename: string | null;
   mimeType: string | null;
   updatedAt: string | null;
 };
 
-export function CandidateEvaluationTemplateManager() {
+export function CandidateEvaluationTemplateManager({
+  templateInfoPromise,
+}: {
+  templateInfoPromise: Promise<TemplateInfo>;
+}) {
+  const initialInfo = use(templateInfoPromise);
   const supabase = useMemo(() => createClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [info, setInfo] = useState<TemplateInfo | null>(null);
+  const [info, setInfo] = useState<TemplateInfo | null>(initialInfo);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -41,6 +46,9 @@ export function CandidateEvaluationTemplateManager() {
     [supabase],
   );
 
+  // Used to re-sync after uploads/removals (the initial state above is
+  // already seeded from `templateInfoPromise`, so no fetch-on-mount effect
+  // is needed here).
   const refresh = useCallback(async () => {
     setLoadError(null);
     try {
@@ -66,10 +74,6 @@ export function CandidateEvaluationTemplateManager() {
       setLoadError("Could not load template status.");
     }
   }, [authHeaders]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   const ingestFile = async (file: File) => {
     setActionError(null);
@@ -241,17 +245,7 @@ export function CandidateEvaluationTemplateManager() {
       : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Evaluation template
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">
-          Upload a single PDF used as the organisation-wide candidate interview
-          evaluation form (for example, an interview evaluation sheet).
-        </p>
-      </div>
-
+    <>
       {loadError ? (
         <p className="text-sm text-danger" role="alert">
           {loadError}
@@ -360,6 +354,6 @@ export function CandidateEvaluationTemplateManager() {
           </div>
         </Card.Content>
       </Card>
-    </div>
+    </>
   );
 }

@@ -15,7 +15,7 @@ import {
   requiredLine,
   utcDateStringToday,
 } from "@/lib/jd/normalize-text";
-import { fetchApplicantCountsByJobDescriptionId } from "@/lib/jd/applicant-counts";
+import { queryJobDescriptionsWithEnrichment } from "@/lib/jd/list-with-enrichment";
 import {
   isJdStatus,
   type JdStatus,
@@ -96,72 +96,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
 
-  let query = auth.supabase
-    .from("job_descriptions")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const { jobDescriptions, error } = await queryJobDescriptionsWithEnrichment(
+    auth.supabase,
+    { status },
+  );
+  if (error) return Response.json({ error }, { status: 500 });
 
-  if (status && isJdStatus(status)) {
-    query = query.eq("status", status);
-  }
-
-  const { data, error } = await query;
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  const jds = data ?? [];
-  if (jds.length === 0) {
-    return Response.json({ jobDescriptions: [] });
-  }
-
-  const [openingsResult, countsResult] = await Promise.all([
-    auth.supabase
-      .from("job_openings")
-      .select("id, job_description_id, jd_storage_path, created_at")
-      .not("job_description_id", "is", null),
-    fetchApplicantCountsByJobDescriptionId(auth.supabase),
-  ]);
-
-  const { data: openings, error: openingsError } = openingsResult;
-  if (openingsError) {
-    return Response.json({ error: openingsError.message }, { status: 500 });
-  }
-  if (countsResult.error) {
-    return Response.json({ error: countsResult.error }, { status: 500 });
-  }
-
-  const applicantCountByJd = countsResult.counts;
-  const openingsByJd = new Map<
-    number,
-    { jd_storage_path: string | null; created_at: string }[]
-  >();
-  for (const o of openings ?? []) {
-    const jdId = o.job_description_id as number | null;
-    if (jdId == null) continue;
-    const list = openingsByJd.get(jdId) ?? [];
-    list.push({
-      jd_storage_path: (o.jd_storage_path as string | null) ?? null,
-      created_at: String(o.created_at),
-    });
-    openingsByJd.set(jdId, list);
-  }
-
-  const enriched = jds.map((row: Record<string, unknown>) => {
-    const id = row.id as number;
-    const list = openingsByJd.get(id) ?? [];
-    const withFile = list
-      .filter((x) => x.jd_storage_path)
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      )[0];
-    return {
-      ...row,
-      applicant_count: applicantCountByJd.get(id) ?? 0,
-      has_jd_source_file: Boolean(withFile?.jd_storage_path),
-    };
-  });
-
-  return Response.json({ jobDescriptions: enriched });
+  return Response.json({ jobDescriptions });
 }
 
 export async function POST(request: Request) {
