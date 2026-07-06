@@ -36,7 +36,7 @@ async function getPipelineData(
 ): Promise<PipelineData> {
   const [candidatesResult, pipelineConfig] = await Promise.all([
     fetchCandidatesForJobDescription(supabase, jobDescriptionId, {
-      includeParsedPayload: true,
+      contactFieldsOnly: true,
     }),
     fetchJobPipelineConfig(supabase, jobOpeningId),
   ]);

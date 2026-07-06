@@ -54,3 +54,16 @@ export const ADMIN_CANDIDATES_SELECT = [
   ...ADMIN_CANDIDATES_CORE_COLUMNS.slice(8),
   JOB_OPENINGS_EMBED,
 ].join(", ");
+
+/**
+ * List/pipeline table variant that includes lightweight, JSON-path-projected
+ * contact fields (email/phone only) instead of the full `parsed_payload` blob.
+ * Used by the JD pipeline table, which needs email/phone for search matching
+ * but not the rest of the (potentially large) parsed CV payload.
+ */
+export const ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT = [
+  ...ADMIN_CANDIDATES_CORE_COLUMNS,
+  "parsed_contact_email:parsed_payload->>email",
+  "parsed_contact_phone:parsed_payload->>phone",
+  JOB_OPENINGS_EMBED,
+].join(", ");
