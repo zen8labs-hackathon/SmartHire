@@ -9,8 +9,6 @@ import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundar
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { createClient } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
-
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 // Supabase never rejects a query promise (it resolves with `{ error }`

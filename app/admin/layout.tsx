@@ -6,8 +6,6 @@ import { ToastProvider } from "@/components/admin/toast-provider";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { createClient } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
-
 export default async function AdminLayout({
   children,
 }: Readonly<{

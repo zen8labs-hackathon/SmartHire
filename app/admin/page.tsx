@@ -8,8 +8,6 @@ import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { createClient } from "@/lib/supabase/server";
 import { Card, Table } from "@heroui/react";
 
-export const dynamic = "force-dynamic";
-
 function TeamAccountsSkeleton() {
   return (
     <Card variant="secondary" className="border-divider animate-pulse">
