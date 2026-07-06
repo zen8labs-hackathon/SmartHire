@@ -623,7 +623,7 @@ export function useCandidatePipelineState(
     } finally {
       setDeleteInProgress(false);
     }
-  }, [activeRow?.id, fetchCandidates, rowPendingDelete]);
+  }, [activeRow, fetchCandidates, rowPendingDelete]);
 
   return {
     page,
