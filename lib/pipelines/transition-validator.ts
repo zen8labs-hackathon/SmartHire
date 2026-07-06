@@ -168,6 +168,62 @@ export function legacyStatusForStageSubStage(
 }
 
 /**
+ * Attempts to repair a candidate's stored (stageMappingId, subStateId) pair
+ * when one or both no longer point at a live row. Two independent causes can
+ * make an id stale:
+ * - `stageMappingId` is soft-deleted by a JD pipeline edit (job_stage_mappings).
+ * - `subStateId` is soft-deleted independently via Pipeline Manager
+ *   (pipeline_sub_stages) — this never touches job_stage_mappings, so the
+ *   stage mapping can remain perfectly live while the sub-stage is gone.
+ *
+ * Returns null when no live recovery target exists (candidate is genuinely
+ * orphaned). Shared by `resolveCandidatePipelineIds` and
+ * `wasCandidateStageOrphaned` so both stay in sync.
+ */
+function recoverLivePipelineIds(
+  stageMappingId: string,
+  subStateId: string,
+  stageMappings: StageMapping[],
+  subStages: SubStage[],
+): { stageMappingId: string; subStateId: string } | null {
+  const liveStageMapping = stageMappings.find((sm) => sm.id === stageMappingId);
+  const isLiveSubStage = subStages.some((ss) => ss.id === subStateId);
+
+  if (liveStageMapping && isLiveSubStage) {
+    return { stageMappingId, subStateId };
+  }
+
+  if (liveStageMapping && !isLiveSubStage) {
+    // The stage mapping is fine; only the sub-stage was soft-deleted. Recover
+    // by falling back to that same stage's default sub-stage.
+    const defaultSubStage = subStages.find(
+      (ss) => ss.pipeline_stage_id === liveStageMapping.pipeline_stage_id && ss.is_default,
+    );
+    if (defaultSubStage) {
+      return { stageMappingId, subStateId: defaultSubStage.id };
+    }
+    return null;
+  }
+
+  // The stored stageMappingId no longer points at an active row (e.g. it was
+  // soft-deleted by a JD pipeline edit). Sub-stages are global and are never
+  // touched by JD pipeline edits, so if the stored subStateId still resolves
+  // to a live sub-stage, use its pipeline_stage_id to find the live mapping
+  // for that same stage and recover the correct (non-stale) mapping id.
+  const subStage = subStages.find((ss) => ss.id === subStateId);
+  if (subStage) {
+    const liveMapping = stageMappings.find(
+      (sm) => sm.pipeline_stage_id === subStage.pipeline_stage_id,
+    );
+    if (liveMapping) {
+      return { stageMappingId: liveMapping.id, subStateId };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolves a candidate's stage mapping ID and sub-stage ID, falling back to the first stage default if null.
  */
 export function resolveCandidatePipelineIds(
@@ -183,24 +239,9 @@ export function resolveCandidatePipelineIds(
   let subStateId = candidate.current_sub_state_id ?? null;
 
   if (stageMappingId && subStateId) {
-    const isLiveStageMapping = stageMappings.some((sm) => sm.id === stageMappingId);
-    if (isLiveStageMapping) {
-      return { stageMappingId, subStateId };
-    }
-
-    // The stored stageMappingId no longer points at an active row (e.g. it was
-    // soft-deleted by a JD pipeline edit). Sub-stages are global and are never
-    // touched by JD pipeline edits, so if the stored subStateId still resolves
-    // to a real sub-stage, use its pipeline_stage_id to find the live mapping
-    // for that same stage and recover the correct (non-stale) mapping id.
-    const subStage = subStages.find((ss) => ss.id === subStateId);
-    if (subStage) {
-      const liveMapping = stageMappings.find(
-        (sm) => sm.pipeline_stage_id === subStage.pipeline_stage_id,
-      );
-      if (liveMapping) {
-        return { stageMappingId: liveMapping.id, subStateId };
-      }
+    const recovered = recoverLivePipelineIds(stageMappingId, subStateId, stageMappings, subStages);
+    if (recovered) {
+      return recovered;
     }
   }
 
@@ -242,11 +283,11 @@ export function resolveCandidatePipelineIds(
 
 /**
  * Read-only check: true if a candidate's stored `current_job_stage_mapping_id`
- * no longer points to a live `job_stage_mappings` row AND cannot be recovered
- * via its `current_sub_state_id` (i.e. the stage was genuinely removed from
- * the job's pipeline, not just re-mapped to a new id). Used purely for
- * display — does not affect `resolveCandidatePipelineIds`'s resolution or any
- * transition-validation behavior.
+ * or `current_sub_state_id` no longer points to a live row AND cannot be
+ * recovered (i.e. the stage/sub-stage was genuinely removed, not just
+ * re-mapped to a new id). Used purely for display — does not affect
+ * `resolveCandidatePipelineIds`'s resolution or any transition-validation
+ * behavior.
  */
 export function wasCandidateStageOrphaned(
   candidate: {
@@ -263,22 +304,7 @@ export function wasCandidateStageOrphaned(
     return false;
   }
 
-  const isLiveStageMapping = stageMappings.some((sm) => sm.id === stageMappingId);
-  if (isLiveStageMapping) {
-    return false;
-  }
-
-  const subStage = subStages.find((ss) => ss.id === subStateId);
-  if (subStage) {
-    const liveMapping = stageMappings.find(
-      (sm) => sm.pipeline_stage_id === subStage.pipeline_stage_id,
-    );
-    if (liveMapping) {
-      return false;
-    }
-  }
-
-  return true;
+  return recoverLivePipelineIds(stageMappingId, subStateId, stageMappings, subStages) === null;
 }
 
 /**

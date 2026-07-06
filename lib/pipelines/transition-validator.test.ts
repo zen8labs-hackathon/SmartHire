@@ -174,6 +174,19 @@ describe("resolveCandidatePipelineIds", () => {
     expect(result.stageMappingId).toBe("mapping-cv-scan");
     expect(result.subStateId).toBe("sub-cv-new");
   });
+
+  it("recovers to the stage's default sub-stage when only the sub-stage was soft-deleted", () => {
+    // stageMappingId is live but subStateId was deleted independently via
+    // Pipeline Manager (e.g. sub-stage delete), which never touches
+    // job_stage_mappings.
+    const candidate = {
+      current_job_stage_mapping_id: "mapping-interview",
+      current_sub_state_id: "deleted-sub-state-id",
+    };
+    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    expect(result.stageMappingId).toBe("mapping-interview");
+    expect(result.subStateId).toBe("sub-int-interview");
+  });
 });
 
 describe("wasCandidateStageOrphaned", () => {
@@ -207,6 +220,49 @@ describe("wasCandidateStageOrphaned", () => {
       current_sub_state_id: "stale-sub-state-id",
     };
     expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(true);
+  });
+
+  it("returns false when only the sub-stage was soft-deleted but the stage has a default to recover to", () => {
+    const candidate = {
+      current_job_stage_mapping_id: "mapping-interview",
+      current_sub_state_id: "deleted-sub-state-id",
+    };
+    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+  });
+
+  it("returns true when the sub-stage was soft-deleted and its stage has no default sub-stage to recover to", () => {
+    const stageMappingsNoDefault: StageMapping[] = [
+      {
+        id: "mapping-no-default",
+        sequence_number: 1,
+        pipeline_stage_id: "stage-no-default",
+        pipeline_stages: {
+          id: "stage-no-default",
+          code: "custom",
+          label: "Custom",
+          desc: null,
+          color: null,
+        },
+      },
+    ];
+    const subStagesNoDefault: SubStage[] = [
+      {
+        id: "sub-no-default-only",
+        pipeline_stage_id: "stage-no-default",
+        code: "only",
+        label: "Only",
+        sequence_number: 1,
+        is_default: false,
+        is_passed: false,
+      },
+    ];
+    const candidate = {
+      current_job_stage_mapping_id: "mapping-no-default",
+      current_sub_state_id: "deleted-sub-state-id",
+    };
+    expect(
+      wasCandidateStageOrphaned(candidate, stageMappingsNoDefault, subStagesNoDefault),
+    ).toBe(true);
   });
 });
 
