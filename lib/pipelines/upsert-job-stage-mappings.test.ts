@@ -1,196 +1,65 @@
 import { describe, expect, it, vi } from "vitest";
 import { upsertJobStageMappings } from "./upsert-job-stage-mappings";
 
-interface RecordedCall {
-  method: string;
-  args: unknown[];
-}
-
 /**
- * Minimal fake Supabase query-builder chain. Each `.from(...)` call consumes
- * the next queued response and returns a thenable chain object that records
- * every method invocation (select/eq/is/in/update/insert) so tests can assert
- * exactly which mutations were issued and with what arguments/ids.
+ * The reconciliation logic itself now lives in the `upsert_job_stage_mappings`
+ * Postgres function (see migration 20260706120000_atomic_upsert_job_stage_mappings_fn.sql)
+ * so it runs as a single transaction. These tests only cover the thin RPC
+ * wrapper; the SQL function's behavior should be exercised against a real
+ * Postgres instance (e.g. via the Supabase MCP / db:migrate + manual query).
  */
-function createMockSupabase(responses: Array<{ data?: unknown; error: unknown }>) {
-  let call = 0;
-  const calls: RecordedCall[] = [];
-
-  const from = vi.fn(() => {
-    const response = responses[call];
-    call++;
-
-    const record = (method: string, args: unknown[]) => {
-      calls.push({ method, args });
-      return builder;
-    };
-
-    const builder: {
-      select: (...args: unknown[]) => typeof builder;
-      eq: (...args: unknown[]) => typeof builder;
-      is: (...args: unknown[]) => typeof builder;
-      in: (...args: unknown[]) => typeof builder;
-      update: (...args: unknown[]) => typeof builder;
-      insert: (...args: unknown[]) => typeof builder;
-      then: (
-        resolve: (v: unknown) => unknown,
-        reject?: (e: unknown) => unknown,
-      ) => Promise<unknown>;
-    } = {
-      select: (...args: unknown[]) => record("select", args),
-      eq: (...args: unknown[]) => record("eq", args),
-      is: (...args: unknown[]) => record("is", args),
-      in: (...args: unknown[]) => record("in", args),
-      update: (...args: unknown[]) => record("update", args),
-      insert: (...args: unknown[]) => record("insert", args),
-      then: (resolve, reject) => Promise.resolve(response).then(resolve, reject),
-    };
-
-    return builder;
-  });
-
-  return { from, calls };
+function createMockSupabase(response: { error: unknown }) {
+  const rpc = vi.fn().mockResolvedValue(response);
+  return { rpc };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function asSupabase(from: unknown): any {
-  return { from };
+function asSupabase(rpc: unknown): any {
+  return { rpc };
 }
 
 describe("upsertJobStageMappings", () => {
-  it("unchanged stage list: no insert, no soft-delete, only sequence_number updates, ids preserved", async () => {
-    const activeMappings = [
-      { id: "m1", pipeline_stage_id: "s1", sequence_number: 1 },
-      { id: "m2", pipeline_stage_id: "s2", sequence_number: 2 },
-    ];
-    const { from, calls } = createMockSupabase([
-      { data: activeMappings, error: null }, // select active mappings
-      { error: null }, // update m1 sequence_number
-      { error: null }, // update m2 sequence_number
-    ]);
+  it("calls the upsert_job_stage_mappings RPC with the job opening id and stage ids", async () => {
+    const { rpc } = createMockSupabase({ error: null });
 
-    const result = await upsertJobStageMappings(asSupabase(from), "opening-1", ["s1", "s2"]);
+    const result = await upsertJobStageMappings(asSupabase(rpc), "opening-1", ["s1", "s2"]);
 
     expect(result.error).toBeNull();
-
-    const inserts = calls.filter((c) => c.method === "insert");
-    expect(inserts).toHaveLength(0);
-
-    const softDeletes = calls.filter(
-      (c) => c.method === "update" && (c.args[0] as Record<string, unknown>).deleted_at,
-    );
-    expect(softDeletes).toHaveLength(0);
-
-    const sequenceUpdates = calls.filter(
-      (c) => c.method === "update" && "sequence_number" in (c.args[0] as Record<string, unknown>),
-    );
-    expect(sequenceUpdates).toHaveLength(2);
-
-    const updatedIds = calls
-      .filter((c) => c.method === "eq" && c.args[0] === "id")
-      .map((c) => c.args[1]);
-    expect(updatedIds).toEqual(["m1", "m2"]);
+    expect(rpc).toHaveBeenCalledWith("upsert_job_stage_mappings", {
+      p_job_opening_id: "opening-1",
+      p_stage_ids: ["s1", "s2"],
+    });
   });
 
-  it("adding one new stage to an existing list: existing ids untouched, exactly one insert, no soft-deletes", async () => {
-    const activeMappings = [{ id: "m1", pipeline_stage_id: "s1", sequence_number: 1 }];
-    const { from, calls } = createMockSupabase([
-      { data: activeMappings, error: null }, // select active mappings
-      { error: null }, // update m1 sequence_number
-      { error: null }, // insert s2
-    ]);
+  it("defaults null pipelineStages to an empty array", async () => {
+    const { rpc } = createMockSupabase({ error: null });
 
-    const result = await upsertJobStageMappings(asSupabase(from), "opening-1", ["s1", "s2"]);
+    const result = await upsertJobStageMappings(asSupabase(rpc), "opening-1", null);
 
     expect(result.error).toBeNull();
-
-    const softDeletes = calls.filter(
-      (c) => c.method === "update" && (c.args[0] as Record<string, unknown>).deleted_at,
-    );
-    expect(softDeletes).toHaveLength(0);
-
-    const updatedIds = calls
-      .filter((c) => c.method === "eq" && c.args[0] === "id")
-      .map((c) => c.args[1]);
-    expect(updatedIds).toEqual(["m1"]);
-
-    const inserts = calls.filter((c) => c.method === "insert");
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0].args[0]).toEqual([
-      { job_opening_id: "opening-1", pipeline_stage_id: "s2", sequence_number: 2 },
-    ]);
+    expect(rpc).toHaveBeenCalledWith("upsert_job_stage_mappings", {
+      p_job_opening_id: "opening-1",
+      p_stage_ids: [],
+    });
   });
 
-  it("removing one stage: remaining ids untouched, the removed stage's row soft-deleted, no inserts", async () => {
-    const activeMappings = [
-      { id: "m1", pipeline_stage_id: "s1", sequence_number: 1 },
-      { id: "m2", pipeline_stage_id: "s2", sequence_number: 2 },
-    ];
-    const { from, calls } = createMockSupabase([
-      { data: activeMappings, error: null }, // select active mappings
-      { error: null }, // soft-delete m2
-      { error: null }, // update m1 sequence_number
-    ]);
+  it("defaults undefined pipelineStages to an empty array", async () => {
+    const { rpc } = createMockSupabase({ error: null });
 
-    const result = await upsertJobStageMappings(asSupabase(from), "opening-1", ["s1"]);
+    const result = await upsertJobStageMappings(asSupabase(rpc), "opening-1", undefined);
 
     expect(result.error).toBeNull();
-
-    const inserts = calls.filter((c) => c.method === "insert");
-    expect(inserts).toHaveLength(0);
-
-    const softDeletes = calls.filter(
-      (c) => c.method === "update" && (c.args[0] as Record<string, unknown>).deleted_at,
-    );
-    expect(softDeletes).toHaveLength(1);
-    const softDeletedIds = calls
-      .filter((c) => c.method === "in" && c.args[0] === "id")
-      .map((c) => c.args[1]);
-    expect(softDeletedIds).toEqual([["m2"]]);
-
-    const updatedIds = calls
-      .filter((c) => c.method === "eq" && c.args[0] === "id")
-      .map((c) => c.args[1]);
-    expect(updatedIds).toEqual(["m1"]);
+    expect(rpc).toHaveBeenCalledWith("upsert_job_stage_mappings", {
+      p_job_opening_id: "opening-1",
+      p_stage_ids: [],
+    });
   });
 
-  it("empty new stage list: all active mappings soft-deleted", async () => {
-    const activeMappings = [
-      { id: "m1", pipeline_stage_id: "s1", sequence_number: 1 },
-      { id: "m2", pipeline_stage_id: "s2", sequence_number: 2 },
-    ];
-    const { from, calls } = createMockSupabase([
-      { data: activeMappings, error: null }, // select active mappings
-      { error: null }, // soft-delete m1, m2
-    ]);
+  it("propagates the RPC error without swallowing it", async () => {
+    const { rpc } = createMockSupabase({ error: { message: "boom" } });
 
-    const result = await upsertJobStageMappings(asSupabase(from), "opening-1", []);
-
-    expect(result.error).toBeNull();
-
-    const inserts = calls.filter((c) => c.method === "insert");
-    expect(inserts).toHaveLength(0);
-
-    const sequenceUpdates = calls.filter(
-      (c) => c.method === "update" && "sequence_number" in (c.args[0] as Record<string, unknown>),
-    );
-    expect(sequenceUpdates).toHaveLength(0);
-
-    const softDeletedIds = calls
-      .filter((c) => c.method === "in" && c.args[0] === "id")
-      .map((c) => c.args[1]);
-    expect(softDeletedIds).toEqual([["m1", "m2"]]);
-  });
-
-  it("propagates the select error without mutating anything", async () => {
-    const { from, calls } = createMockSupabase([
-      { data: null, error: { message: "boom" } },
-    ]);
-
-    const result = await upsertJobStageMappings(asSupabase(from), "opening-1", ["s1"]);
+    const result = await upsertJobStageMappings(asSupabase(rpc), "opening-1", ["s1"]);
 
     expect(result.error).toContain("boom");
-    expect(calls.filter((c) => c.method === "insert")).toHaveLength(0);
-    expect(calls.filter((c) => c.method === "update")).toHaveLength(0);
   });
 });
