@@ -1,5 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Chapters | Smart Hire Admin",
+  description: "Define recruiting chapters and viewer access.",
+};
 
 import { Alert, Card } from "@heroui/react";
 

@@ -1,5 +1,11 @@
 import { JdManagementDashboard } from "@/components/admin/jd/jd-management-dashboard";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Jobs | Smart Hire Admin",
+  description: "Manage and monitor recruitment job descriptions.",
+};
 import {
   queryJobDescriptionsWithEnrichment,
   type JobDescriptionListRow,

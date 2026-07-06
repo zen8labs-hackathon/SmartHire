@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Users | Smart Hire Admin",
+  description: "View team accounts and invite new users.",
+};
 
 import { AddUserForm } from "@/components/admin/add-user-form";
 import { listOrgUsersForAdminPage } from "@/lib/admin/list-org-users";

@@ -1,4 +1,10 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Pipelines | Smart Hire Admin",
+  description: "Configure candidate pipeline stages and sub-stages.",
+};
 
 import { PipelineManager } from "@/components/admin/pipeline-manager";
 import { getRequestAuth } from "@/lib/admin/request-auth";

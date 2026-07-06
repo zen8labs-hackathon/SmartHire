@@ -1,4 +1,10 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Candidates | Smart Hire Admin",
+  description: "View active talent pool, CV uploads, and pipeline statuses.",
+};
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
 import { getRequestAuth } from "@/lib/admin/request-auth";

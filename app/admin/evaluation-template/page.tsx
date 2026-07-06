@@ -1,5 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Evaluation Template | Smart Hire Admin",
+  description: "Upload and manage organization-wide interview templates.",
+};
 
 import { Alert, Card } from "@heroui/react";
 
