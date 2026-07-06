@@ -5,8 +5,6 @@ import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
 import { createClient } from "@/lib/supabase/server";
 
-export const dynamic = "force-dynamic";
-
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 // Supabase never rejects a query promise (it resolves with `{ error }`
