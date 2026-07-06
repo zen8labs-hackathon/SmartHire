@@ -9,6 +9,7 @@ import {
   Calendar,
   Card,
   Chip,
+  cn,
   DateField,
   DatePicker,
   DateRangePicker,
@@ -41,9 +42,11 @@ import {
   jdMatchChipColor,
 } from "@/lib/candidates/candidate-display";
 import {
+  getStageColorClasses,
+  getStageColorStyles,
   getSubStageTextColorClass,
+  getSubStageTextColorStyle,
   isCandidateInOfferStage,
-  isPipelineStatusKey,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
   type CandidateDbRow,
@@ -51,13 +54,10 @@ import {
 } from "@/lib/candidates/db-row";
 import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
 import {
-  PIPELINE_STATUS_DISPLAY_ORDER,
-  candidateStatusMajorPhase,
-  candidateStatusUiLabel,
   isEligibleForBulkMoveToInterview,
   isFailSubStageCode,
 } from "@/lib/candidates/pipeline-phase";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import type { CandidateRow } from "@/lib/candidates/types";
 import {
   isCustomTransitionAllowed,
   resolveCandidatePipelineIds,
@@ -65,6 +65,11 @@ import {
   type StageMapping,
   type SubStage,
 } from "@/lib/pipelines/transition-validator";
+import {
+  buildPipelineStageSubStageFilterOptions,
+  countByStageMappingId,
+  type PipelineStageSubStageFilterOption,
+} from "@/lib/pipelines/jd-pipeline-filter-options";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
@@ -87,14 +92,6 @@ const YEAR_OPTIONS = Array.from(
   (_, i) => 1990 + i,
 );
 
-const FILTER_STATUS_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: "all", label: "All statuses" },
-  ...PIPELINE_STATUS_DISPLAY_ORDER.map((sid) => ({
-    id: sid,
-    label: candidateStatusUiLabel(sid),
-  })),
-];
-
 type Props = {
   jobDescriptionId: number;
   jobId: string;
@@ -106,10 +103,6 @@ type Props = {
   stageMappings: StageMapping[];
   subStages: SubStage[];
 };
-
-function tableStatusRow(r: CandidateDbRow): CandidateRow {
-  return candidateDbRowToTableRow(r);
-}
 
 /** A candidate's resolved current stage mapping + sub-stage, with the full objects for display/eligibility checks. */
 type ResolvedRowPipeline = {
@@ -195,6 +188,53 @@ function stageSubStageOptionKey(
 }
 
 /**
+ * Renders a (stageMapping, subStage) pair that has no legacy `CandidateStatus`
+ * analog — i.e. a fully custom pipeline stage/sub-stage. Mirrors the markup
+ * and color helpers of `PipelineStatusLabel`'s "inline" variant so custom and
+ * legacy-analog options in the status filter dropdown look consistent.
+ */
+function PipelineStageSubStageInlineLabel({
+  stageMapping,
+  subStage,
+}: {
+  stageMapping: StageMapping;
+  subStage: SubStage;
+}) {
+  const stageColor = stageMapping.pipeline_stages?.color ?? null;
+  const surfaceClass = getStageColorClasses(stageColor, "badge");
+  const surfaceStyle = getStageColorStyles(stageColor, "badge");
+  const detailClass = getSubStageTextColorClass(
+    subStage.code,
+    subStage.is_passed,
+    subStage.is_default,
+    stageColor,
+  );
+  const detailStyle = getSubStageTextColorStyle(
+    subStage.code,
+    subStage.is_passed,
+    subStage.is_default,
+    stageColor,
+  );
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        surfaceClass,
+      )}
+      style={surfaceStyle}
+    >
+      <span className="text-xs text-foreground">
+        {stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code}
+      </span>
+      <span className="mx-1 text-xs text-muted">·</span>
+      <span className={cn("text-xs", detailClass)} style={detailStyle}>
+        {subStage.label}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Fixed green wash for rows anywhere in the offer stage — intentionally
  * independent of the pipeline stage's configured DB color (which only
  * drives the status tag). Applied per-`Table.Cell` rather than `Table.Row`:
@@ -203,6 +243,31 @@ function stageSubStageOptionKey(
  * through the row's hover background too.
  */
 const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
+
+/**
+ * Responsive grid-column count for the stat-card row: one "Total CV" card
+ * plus one per configured pipeline stage. Falls back to a fixed 4-column
+ * layout (wrapping to multiple rows) once the stage count grows large,
+ * rather than trying to fit an arbitrarily wide single row.
+ */
+function statCardGridClass(cardCount: number): string {
+  switch (cardCount) {
+    case 1:
+      return "grid-cols-1";
+    case 2:
+      return "grid-cols-2";
+    case 3:
+      return "grid-cols-2 lg:grid-cols-3";
+    case 4:
+      return "grid-cols-2 lg:grid-cols-4";
+    case 5:
+      return "grid-cols-2 lg:grid-cols-5";
+    case 6:
+      return "grid-cols-2 lg:grid-cols-6";
+    default:
+      return "grid-cols-2 lg:grid-cols-4";
+  }
+}
 
 function formatSchedule(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -294,6 +359,18 @@ export function JdAppliedCandidatesPipeline({
   const resolveRow = useCallback(
     (r: CandidateDbRow) => resolveRowPipeline(r, stageMappings, subStages),
     [stageMappings, subStages],
+  );
+
+  /** One status-filter option per (stageMapping, subStage) pair configured for this job. */
+  const filterOptions = useMemo(
+    () => buildPipelineStageSubStageFilterOptions(stageMappings, subStages),
+    [stageMappings, subStages],
+  );
+
+  /** Ordered by `sequence_number`; drives both filter options and the per-stage stat cards. */
+  const orderedStageMappings = useMemo(
+    () => [...stageMappings].sort((a, b) => a.sequence_number - b.sequence_number),
+    [stageMappings],
   );
 
   /** The "offer" stage's default ("currently offered") sub-stage — id used by "Move to offer". */
@@ -408,6 +485,11 @@ export function JdAppliedCandidatesPipeline({
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const selectedFilterOption: PipelineStageSubStageFilterOption | null =
+    useMemo(
+      () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
+      [filterOptions, statusFilter],
+    );
   const [uploadDateRange, setUploadDateRange] =
     useState<RangeValue<CalendarDate> | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
@@ -443,6 +525,16 @@ export function JdAppliedCandidatesPipeline({
     setPage(1);
   }, [query, statusFilter, uploadDateRange]);
 
+  // If the selected filter's stage/sub-stage was removed by a JD pipeline
+  // edit (stale composite id), reset to "all" instead of silently showing
+  // zero rows.
+  useEffect(() => {
+    if (statusFilter === "all") return;
+    if (!filterOptions.some((opt) => opt.id === statusFilter)) {
+      setStatusFilter("all");
+    }
+  }, [statusFilter, filterOptions]);
+
   useEffect(() => {
     if (uploadDateRange?.start) {
       setCalendarFocusedDate(uploadDateRange.start);
@@ -458,28 +550,26 @@ export function JdAppliedCandidatesPipeline({
     rows = rows.filter((r) => rowMatchesSearch(r, q));
     rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
     if (sf !== "all") {
-      rows = rows.filter((r) => r.status === sf);
+      rows = rows.filter((r) => {
+        const resolved = resolveRow(r);
+        if (!resolved.stageMappingId || !resolved.subStateId) return false;
+        return (
+          stageSubStageOptionKey(resolved.stageMappingId, resolved.subStateId) ===
+          sf
+        );
+      });
     }
     return rows;
-  }, [dbRows, query, statusFilter, uploadDateRange]);
+  }, [dbRows, query, statusFilter, uploadDateRange, resolveRow]);
 
-  const statusCounts = useMemo(() => {
-    let newPool = 0;
-    let interviewing = 0;
-    let offer = 0;
-    let matched = 0;
-    for (const r of filteredRows) {
-      const st = tableStatusRow(r).status;
-      const phase = candidateStatusMajorPhase(st);
-      if (phase === "cv_scan") newPool += 1;
-      else if (phase === "interview") interviewing += 1;
-      else if (phase === "offer") {
-        if (st === "Offer") offer += 1;
-        else if (st === "Matched") matched += 1;
-      }
-    }
-    return { newPool, interviewing, offer, matched };
-  }, [filteredRows]);
+  const stageMappingCounts = useMemo(
+    () =>
+      countByStageMappingId(
+        filteredRows.map((r) => resolveRow(r).stageMappingId),
+        stageMappings,
+      ),
+    [filteredRows, resolveRow, stageMappings],
+  );
 
   const totalPages = Math.max(
     1,
@@ -848,14 +938,21 @@ export function JdAppliedCandidatesPipeline({
           >
             <Label className="sr-only">Status</Label>
             <Select.Trigger className="min-h-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
-              {isPipelineStatusKey(statusFilter) ? (
-                <PipelineStatusLabel
-                  status={statusFilter}
-                  variant="inline"
-                  uppercase={false}
-                  stageMappings={stageMappings}
-                  subStages={subStages}
-                />
+              {statusFilter !== "all" && selectedFilterOption ? (
+                selectedFilterOption.legacyStatus ? (
+                  <PipelineStatusLabel
+                    status={selectedFilterOption.legacyStatus}
+                    variant="inline"
+                    uppercase={false}
+                    stageMappings={stageMappings}
+                    subStages={subStages}
+                  />
+                ) : (
+                  <PipelineStageSubStageInlineLabel
+                    stageMapping={selectedFilterOption.stageMapping}
+                    subStage={selectedFilterOption.subStage}
+                  />
+                )
               ) : (
                 <Select.Value />
               )}
@@ -863,17 +960,28 @@ export function JdAppliedCandidatesPipeline({
             </Select.Trigger>
             <Select.Popover>
               <ListBox>
-                {FILTER_STATUS_OPTIONS.map((opt) => (
-                  <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label}>
-                    {opt.id === "all" ? (
-                      opt.label
-                    ) : (
+                <ListBox.Item id="all" textValue="All statuses">
+                  All statuses
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+                {filterOptions.map((opt) => (
+                  <ListBox.Item
+                    key={opt.id}
+                    id={opt.id}
+                    textValue={`${opt.stageMapping.pipeline_stages?.label ?? opt.stageMapping.pipeline_stages?.code} - ${opt.subStage.label}`}
+                  >
+                    {opt.legacyStatus ? (
                       <PipelineStatusLabel
-                        status={opt.id as CandidateStatus}
+                        status={opt.legacyStatus}
                         variant="inline"
                         uppercase={false}
                         stageMappings={stageMappings}
                         subStages={subStages}
+                      />
+                    ) : (
+                      <PipelineStageSubStageInlineLabel
+                        stageMapping={opt.stageMapping}
+                        subStage={opt.subStage}
                       />
                     )}
                     <ListBox.ItemIndicator />
@@ -1048,7 +1156,9 @@ export function JdAppliedCandidatesPipeline({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div
+        className={`grid gap-3 ${statCardGridClass(1 + orderedStageMappings.length)}`}
+      >
         <Card variant="secondary">
           <Card.Header className="gap-0.5">
             <Card.Title className="text-2xl font-semibold tabular-nums">
@@ -1057,38 +1167,18 @@ export function JdAppliedCandidatesPipeline({
             <Card.Description>Total CV</Card.Description>
           </Card.Header>
         </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.newPool}
-            </Card.Title>
-            <Card.Description>CV Scan</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.interviewing}
-            </Card.Title>
-            <Card.Description>Interview</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.offer}
-            </Card.Title>
-            <Card.Description>Offer</Card.Description>
-          </Card.Header>
-        </Card>
-        <Card variant="secondary">
-          <Card.Header className="gap-0.5">
-            <Card.Title className="text-2xl font-semibold tabular-nums">
-              {statusCounts.matched}
-            </Card.Title>
-            <Card.Description>Matched</Card.Description>
-          </Card.Header>
-        </Card>
+        {orderedStageMappings.map((sm) => (
+          <Card variant="secondary" key={sm.id}>
+            <Card.Header className="gap-0.5">
+              <Card.Title className="text-2xl font-semibold tabular-nums">
+                {stageMappingCounts[sm.id] ?? 0}
+              </Card.Title>
+              <Card.Description>
+                {sm.pipeline_stages?.label ?? sm.pipeline_stages?.code}
+              </Card.Description>
+            </Card.Header>
+          </Card>
+        ))}
       </div>
 
       <Table>
