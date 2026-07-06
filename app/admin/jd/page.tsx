@@ -1,6 +1,25 @@
 import { JdManagementDashboard } from "@/components/admin/jd/jd-management-dashboard";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import {
+  queryJobDescriptionsWithEnrichment,
+  type JobDescriptionListRow,
+} from "@/lib/jd/list-with-enrichment";
 import { createClient } from "@/lib/supabase/server";
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+// `queryJobDescriptionsWithEnrichment` resolves to `{ jobDescriptions, error }`
+// rather than throwing (Supabase queries never reject on their own), so this
+// helper throws explicitly. That gives `use()` a real rejection to propagate
+// to the `SuspenseErrorBoundary` inside `JdManagementDashboard` instead of the
+// list silently rendering empty.
+async function getJobDescriptionsList(
+  supabase: SupabaseServerClient,
+): Promise<JobDescriptionListRow[]> {
+  const { jobDescriptions, error } = await queryJobDescriptionsWithEnrichment(supabase);
+  if (error) throw new Error(error);
+  return jobDescriptions;
+}
 
 export default async function AdminJdPage() {
   const supabase = await createClient();
@@ -24,11 +43,18 @@ export default async function AdminJdPage() {
   const chapterRows = chapterRowsRes.data;
   const pipelineStages = pipelineStagesRes.data;
 
+  // Kick off the JD list query but don't await it here, so the static header
+  // below renders immediately. The Suspense boundary inside
+  // JdManagementDashboard only gates the filters/stats/table region, which is
+  // the part that actually needs this data.
+  const jdListPromise = getJobDescriptionsList(supabase);
+
   return (
     <JdManagementDashboard
       canManageJds={access?.isHr === true}
       chapters={chapterRows ?? []}
       allPipelineStages={pipelineStages ?? []}
+      initialRowsPromise={jdListPromise}
     />
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import { useOverlayState } from "@heroui/react";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
@@ -7,17 +7,39 @@ import { jdRowDate } from "../helpers";
 import { utcDateStringToday } from "@/lib/jd/normalize-text";
 import { useToast } from "@/components/admin/toast-provider";
 
-export function useJdListState() {
+/** Normalizes a raw JD row (server- or client-fetched) into display shape. */
+function normalizeJdRow(row: JobDescription): JobDescription {
+  return {
+    ...row,
+    status: coerceJdStatus(String(row.status)),
+    start_date: jdRowDate(row.start_date),
+    end_date: jdRowDate(row.end_date),
+  };
+}
+
+export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
   const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
-  
-  const [rows, setRows] = useState<JobDescription[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Supabase queries never reject on their own (they resolve with `{ error }`
+  // populated), so the promise passed in here is expected to come from a
+  // helper that throws explicitly on error (see app/admin/jd/page.tsx). That
+  // gives `use()` a real rejection to propagate to the `SuspenseErrorBoundary`
+  // wrapping this hook's caller. `use()` may be called conditionally (unlike
+  // other hooks), so callers that don't have a promise yet (e.g. tests) still
+  // work via the client-fetch fallback below.
+  const initialRows = initialRowsPromise ? use(initialRowsPromise) : undefined;
+
+  const [rows, setRows] = useState<JobDescription[]>(() =>
+    (initialRows ?? []).map(normalizeJdRow),
+  );
+  const [loading, setLoading] = useState(!initialRows);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
 
   const deleteModal = useOverlayState({
     onOpenChange: (open) => {
@@ -67,6 +89,10 @@ export function useJdListState() {
   }, [supabase]);
 
   useEffect(() => {
+    if (skipInitialFetchRef.current) {
+      skipInitialFetchRef.current = false;
+      return;
+    }
     void loadDescriptions();
   }, [loadDescriptions]);
 

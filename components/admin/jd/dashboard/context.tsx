@@ -146,6 +146,7 @@ interface JdDashboardProviderProps {
     code: string;
     color: string;
   }[];
+  initialRowsPromise?: Promise<JobDescription[]>;
   children: ReactNode;
 }
 
@@ -153,9 +154,10 @@ export function JdDashboardProvider({
   canManageJds,
   chapters,
   allPipelineStages,
+  initialRowsPromise,
   children,
 }: JdDashboardProviderProps) {
-  const listState = useJdListState();
+  const listState = useJdListState(initialRowsPromise);
   const filtersState = useJdFiltersState(listState.rows);
   const createState = useJdCreateState(
     listState.loadDescriptions,
