@@ -33,6 +33,7 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
   const isLinkActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
     if (href === "/admin") return pathname === "/admin";
+    if (href === "/admin/users") return pathname === "/admin/users" || pathname.startsWith("/admin/users/");
     if (href === "/admin/candidates") return pathname === "/admin/candidates" || pathname.startsWith("/admin/candidates/");
     if (href === "/admin/jd") return pathname === "/admin/jd" || pathname.startsWith("/admin/jd/");
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -82,6 +83,13 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
             <span>Dashboard</span>
           </Link>
 
+          {isHr && (
+            <Link href="/admin" className={navLinkClass(isLinkActive("/admin"))}>
+              <Settings className="h-4 w-4 shrink-0" />
+              <span>Admin Panel</span>
+            </Link>
+          )}
+
           <Link href="/admin/jd" className={navLinkClass(isLinkActive("/admin/jd"))}>
             <Briefcase className="h-4 w-4 shrink-0" />
             <span>Jobs</span>
@@ -94,7 +102,7 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
                 <span>Candidates</span>
               </Link>
 
-              <Link href="/admin" className={navLinkClass(isLinkActive("/admin"))}>
+              <Link href="/admin/users" className={navLinkClass(isLinkActive("/admin/users"))}>
                 <Users className="h-4 w-4 shrink-0" />
                 <span>Users</span>
               </Link>
