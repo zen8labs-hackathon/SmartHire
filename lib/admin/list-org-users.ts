@@ -18,10 +18,13 @@ export type OrgUserRow = {
 const MAX_LIST_PAGES = 50;
 
 /**
- * Lists auth users with recruiting access summary (service role; HR admin page only).
+ * Paginates through every auth user once (service role). Used instead of
+ * per-id `getUserById` calls, which turn into a slow N+1 round-trip per
+ * caller (e.g. rendering a chapter's member list) as the org grows.
  */
-export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
-  const admin = createAdminClient();
+async function listAllAuthUsers(
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<{ id: string; email: string }[]> {
   const users: { id: string; email: string }[] = [];
 
   let page = 1;
@@ -41,6 +44,16 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     page += 1;
     if (page > MAX_LIST_PAGES) break;
   }
+
+  return users;
+}
+
+/**
+ * Lists auth users with recruiting access summary (service role; HR admin page only).
+ */
+export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
+  const admin = createAdminClient();
+  const users = await listAllAuthUsers(admin);
 
   if (users.length === 0) return [];
 
@@ -115,4 +128,41 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
 
   rows.sort((a, b) => a.email.localeCompare(b.email, undefined, { sensitivity: "base" }));
   return rows;
+}
+
+export type ChapterMemberRow = {
+  profileId: string;
+  email: string;
+  role: "head" | "member";
+};
+
+/**
+ * Lists the members of a single chapter (service role; HR admin page only).
+ */
+export async function listChapterMembers(
+  chapterId: string,
+): Promise<ChapterMemberRow[]> {
+  const admin = createAdminClient();
+
+  const { data: pcRows, error: pcErr } = await admin
+    .from("profile_chapters")
+    .select("profile_id, role")
+    .eq("chapter_id", chapterId);
+  if (pcErr) throw new Error(pcErr.message);
+  if (!pcRows || pcRows.length === 0) return [];
+
+  const emailById = new Map(
+    (await listAllAuthUsers(admin)).map((u) => [u.id, u.email]),
+  );
+
+  return pcRows
+    .map((r): ChapterMemberRow => {
+      const profileId = r.profile_id as string;
+      return {
+        profileId,
+        email: emailById.get(profileId) ?? "—",
+        role: r.role === "head" ? "head" : "member",
+      };
+    })
+    .sort((a, b) => a.email.localeCompare(b.email, undefined, { sensitivity: "base" }));
 }

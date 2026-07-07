@@ -4,7 +4,7 @@ const LOADING_ROW_IDS = ["chapters-loading-1", "chapters-loading-2", "chapters-l
 
 export function ChaptersListSkeleton() {
   return (
-    <SectionCard title="Manage Chapters" description="List of currently active departments and the creation form.">
+    <SectionCard>
       <div className="flex flex-col gap-5 animate-pulse">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end bg-surface-secondary/20 p-4 rounded-xl border border-divider mb-2">
           <div className="h-9 min-w-0 flex-1 rounded-xl bg-default-100" />
