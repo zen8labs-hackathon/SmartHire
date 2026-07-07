@@ -20,6 +20,62 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type FeatureColor = "accent" | "blue" | "purple" | "warning" | "cyan" | "success";
+
+const COLOR_STYLES: Record<
+  FeatureColor,
+  { iconBg: string; iconText: string; iconHover: string; badge: string; border: string; link: string }
+> = {
+  accent: {
+    iconBg: "bg-accent/10",
+    iconText: "text-accent",
+    iconHover: "group-hover:bg-accent group-hover:text-white",
+    badge: "bg-accent/10 text-accent",
+    border: "hover:border-accent/35",
+    link: "text-accent",
+  },
+  blue: {
+    iconBg: "bg-blue-500/10",
+    iconText: "text-blue-600 dark:text-blue-400",
+    iconHover: "group-hover:bg-blue-600 group-hover:text-white",
+    badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    border: "hover:border-blue-500/35",
+    link: "text-blue-600 dark:text-blue-400",
+  },
+  purple: {
+    iconBg: "bg-purple-500/10",
+    iconText: "text-purple-600 dark:text-purple-400",
+    iconHover: "group-hover:bg-purple-600 group-hover:text-white",
+    badge: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+    border: "hover:border-purple-500/35",
+    link: "text-purple-600 dark:text-purple-400",
+  },
+  warning: {
+    iconBg: "bg-warning/10",
+    iconText: "text-warning",
+    iconHover: "group-hover:bg-warning group-hover:text-white",
+    badge: "bg-warning/10 text-warning",
+    border: "hover:border-warning/35",
+    link: "text-warning",
+  },
+  cyan: {
+    iconBg: "bg-cyan-500/10",
+    iconText: "text-cyan-600 dark:text-cyan-400",
+    iconHover: "group-hover:bg-cyan-600 group-hover:text-white",
+    badge: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+    border: "hover:border-cyan-500/35",
+    link: "text-cyan-600 dark:text-cyan-400",
+  },
+  success: {
+    iconBg: "bg-success/10",
+    iconText: "text-success",
+    iconHover: "group-hover:bg-success group-hover:text-white",
+    badge: "bg-success/10 text-success",
+    border: "hover:border-success/35",
+    link: "text-success",
+  },
+};
+
 type FeatureCardProps = {
   href: string;
   title: string;
@@ -27,6 +83,7 @@ type FeatureCardProps = {
   icon: React.ReactNode;
   locked?: boolean;
   statusText?: string;
+  color?: FeatureColor;
 };
 
 function FeatureLinkCard({
@@ -36,14 +93,17 @@ function FeatureLinkCard({
   icon,
   locked = false,
   statusText,
+  color = "accent",
 }: FeatureCardProps) {
+  const styles = COLOR_STYLES[color];
+
   const content = (
     <Card
       variant="secondary"
       className={`group relative h-full border border-divider/60 p-5 rounded-2xl transition-all duration-200 ${
         locked
           ? "opacity-60 bg-surface-secondary/20 cursor-not-allowed"
-          : "hover:border-accent/35 hover:bg-surface-secondary/50 hover:-translate-y-0.5 shadow-sm hover:shadow-md cursor-pointer"
+          : `${styles.border} hover:bg-surface-secondary/50 hover:-translate-y-0.5 shadow-sm hover:shadow-md cursor-pointer`
       }`}
     >
       <div className="flex h-full flex-col justify-between gap-4">
@@ -53,7 +113,7 @@ function FeatureLinkCard({
               className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
                 locked
                   ? "bg-surface-tertiary text-muted"
-                  : "bg-accent/10 text-accent group-hover:bg-accent group-hover:text-white"
+                  : `${styles.iconBg} ${styles.iconText} ${styles.iconHover}`
               }`}
             >
               {locked ? <Lock className="h-4.5 w-4.5" /> : icon}
@@ -63,7 +123,7 @@ function FeatureLinkCard({
                 className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
                   locked
                     ? "bg-surface-tertiary text-muted border border-divider"
-                    : "bg-accent/10 text-accent"
+                    : styles.badge
                 }`}
               >
                 {statusText}
@@ -80,7 +140,9 @@ function FeatureLinkCard({
         </div>
 
         {!locked && (
-          <span className="text-[11px] font-semibold text-accent flex items-center gap-1 group-hover:underline">
+          <span
+            className={`text-[11px] font-semibold ${styles.link} flex items-center gap-1 group-hover:underline`}
+          >
             Launch tools →
           </span>
         )}
@@ -144,7 +206,7 @@ export default async function DashboardPage() {
           className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-accent/5 blur-3xl animate-pulse-glow"
         />
         <div className="relative">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-accent">
+          <span className="text-md font-bold uppercase tracking-widest text-accent">
             Welcome back
           </span>
           <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground md:text-3xl">
@@ -158,7 +220,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* User Information details */}
-      <SectionCard
+      {/* <SectionCard
         title="My Account Overview"
         description="Your workspace profile and credentials."
       >
@@ -212,7 +274,7 @@ export default async function DashboardPage() {
             </div>
           </div>
         </div>
-      </SectionCard>
+      </SectionCard> */}
 
       {/* Feature Cards Grid */}
       <div className="space-y-3">
@@ -227,6 +289,7 @@ export default async function DashboardPage() {
             description="Manage job opening definitions and track candidate applications pipelines."
             icon={<Briefcase className="h-4.5 w-4.5" />}
             statusText="Core tool"
+            color="accent"
           />
 
           <FeatureLinkCard
@@ -236,6 +299,7 @@ export default async function DashboardPage() {
             icon={<FileText className="h-4.5 w-4.5" />}
             locked={!isHr}
             statusText={isHr ? "HR Admin" : "Locked"}
+            color="blue"
           />
 
           <FeatureLinkCard
@@ -245,6 +309,7 @@ export default async function DashboardPage() {
             icon={<Users className="h-4.5 w-4.5" />}
             locked={!isHr}
             statusText={isHr ? "HR Admin" : "Locked"}
+            color="purple"
           />
 
           <FeatureLinkCard
@@ -254,6 +319,7 @@ export default async function DashboardPage() {
             icon={<Layers className="h-4.5 w-4.5" />}
             locked={!isHr}
             statusText={isHr ? "Setup" : "Locked"}
+            color="warning"
           />
 
           <FeatureLinkCard
@@ -263,6 +329,7 @@ export default async function DashboardPage() {
             icon={<Compass className="h-4.5 w-4.5" />}
             locked={!isHr}
             statusText={isHr ? "Setup" : "Locked"}
+            color="cyan"
           />
 
           <FeatureLinkCard
@@ -272,6 +339,7 @@ export default async function DashboardPage() {
             icon={<FileSpreadsheet className="h-4.5 w-4.5" />}
             locked={!isHr}
             statusText={isHr ? "Setup" : "Locked"}
+            color="success"
           />
         </div>
       </div>
