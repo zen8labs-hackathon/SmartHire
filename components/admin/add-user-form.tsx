@@ -49,9 +49,20 @@ export function AddUserForm({
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("none");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+  const [headChapterIds, setHeadChapterIds] = useState<string[]>([]);
 
   function toggleChapter(id: string) {
-    setSelectedChapterIds((prev) =>
+    setSelectedChapterIds((prev) => {
+      if (prev.includes(id)) {
+        setHeadChapterIds((h) => h.filter((x) => x !== id));
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
+  }
+
+  function toggleChapterHead(id: string) {
+    setHeadChapterIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
@@ -61,6 +72,9 @@ export function AddUserForm({
       <input type="hidden" name="recruiting_access" value={recruitingAccess} />
       {selectedChapterIds.map((id) => (
         <input key={id} type="hidden" name="chapter_ids" value={id} />
+      ))}
+      {headChapterIds.map((id) => (
+        <input key={`head-${id}`} type="hidden" name="chapter_head_ids" value={id} />
       ))}
       {state?.error ? (
         <Alert status="danger">
@@ -163,23 +177,56 @@ export function AddUserForm({
               No chapters defined yet. Add them under Setup → Chapters first.
             </p>
           ) : (
-            <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-divider p-3">
-              {chapters.map((c) => (
-                <label
-                  key={c.id}
-                  className="flex cursor-pointer items-center gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded border-divider"
-                    checked={selectedChapterIds.includes(c.id)}
-                    onChange={() => toggleChapter(c.id)}
-                  />
-                  <span>{c.name}</span>
-                </label>
-              ))}
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-divider p-3">
+              {chapters.map((c) => {
+                const checked = selectedChapterIds.includes(c.id);
+                const isHead = headChapterIds.includes(c.id);
+                return (
+                  <div key={c.id} className="space-y-1">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="rounded border-divider"
+                        checked={checked}
+                        onChange={() => toggleChapter(c.id)}
+                      />
+                      <span>{c.name}</span>
+                    </label>
+                    {checked ? (
+                      <div className="ml-6 flex items-center gap-3 text-xs text-muted">
+                        <label className="flex cursor-pointer items-center gap-1">
+                          <input
+                            type="radio"
+                            name={`chapter_role_${c.id}`}
+                            checked={!isHead}
+                            onChange={() =>
+                              isHead ? toggleChapterHead(c.id) : undefined
+                            }
+                          />
+                          Member
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-1">
+                          <input
+                            type="radio"
+                            name={`chapter_role_${c.id}`}
+                            checked={isHead}
+                            onChange={() =>
+                              isHead ? undefined : toggleChapterHead(c.id)
+                            }
+                          />
+                          Head (can view this chapter&apos;s JDs)
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
+          <Description>
+            Head can open JDs granted to this chapter (and everything under
+            them); member keeps chapter membership but cannot.
+          </Description>
         </div>
       ) : null}
 
