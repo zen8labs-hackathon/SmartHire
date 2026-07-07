@@ -65,13 +65,13 @@ function SortableStageItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center justify-between gap-3 rounded-xl border border-divider bg-background p-3 transition-colors hover:border-default-400"
+      {...listeners}
+      {...attributes}
+      className="flex cursor-grab items-center justify-between gap-3 rounded-xl border border-divider bg-background p-3 transition-colors hover:border-default-400 active:cursor-grabbing"
     >
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <div
-          {...listeners}
-          {...attributes}
-          className="cursor-grab active:cursor-grabbing text-muted hover:text-foreground p-1 rounded hover:bg-surface-secondary transition-colors"
+          className="text-muted p-1 rounded"
           aria-label="Drag to reorder"
         >
           <GripVertical className="h-4 w-4" />
@@ -98,6 +98,7 @@ function SortableStageItem({
         className="text-muted hover:text-danger min-w-0 p-1.5 h-auto rounded-lg"
         aria-label="Remove stage"
         onPress={onRemove}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <X className="h-4 w-4" />
       </Button>
