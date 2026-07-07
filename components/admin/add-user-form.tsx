@@ -20,7 +20,7 @@ import {
   TextField,
 } from "@heroui/react";
 
-type RecruitingAccessKey = "none" | "hr" | "chapter";
+type RecruitingAccessKey = "hr" | "chapter";
 
 export type AddUserChapterOption = ChapterOption;
 
@@ -50,7 +50,7 @@ export function AddUserForm({
     null,
   );
   const [recruitingAccess, setRecruitingAccess] =
-    useState<RecruitingAccessKey>("none");
+    useState<RecruitingAccessKey>("chapter");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [headChapterIds, setHeadChapterIds] = useState<string[]>([]);
 
@@ -140,8 +140,8 @@ export function AddUserForm({
         <Select
           value={recruitingAccess}
           onChange={(k) => {
-            const next = String(k ?? "none") as RecruitingAccessKey;
-            if (next === "none" || next === "hr" || next === "chapter") {
+            const next = String(k ?? "chapter") as RecruitingAccessKey;
+            if (next === "hr" || next === "chapter") {
               setRecruitingAccess(next);
               if (next !== "chapter") {
                 setSelectedChapterIds([]);
@@ -156,10 +156,6 @@ export function AddUserForm({
           </Select.Trigger>
           <Select.Popover>
             <ListBox>
-              <ListBox.Item id="none" textValue="Dashboard only">
-                Dashboard only
-                <ListBox.ItemIndicator />
-              </ListBox.Item>
               <ListBox.Item id="hr" textValue="HR — full recruiting">
                 HR — full recruiting
                 <ListBox.ItemIndicator />

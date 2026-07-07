@@ -53,6 +53,7 @@ export function EditUserAccessForm({
     adminUpdateUserAccess,
     null,
   );
+  const wasDashboardOnly = initialAccessKey(user) === "none";
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>(initialAccessKey(user));
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>(
@@ -135,10 +136,12 @@ export function EditUserAccessForm({
           </Select.Trigger>
           <Select.Popover>
             <ListBox>
-              <ListBox.Item id="none" textValue="Dashboard only">
-                Dashboard only
-                <ListBox.ItemIndicator />
-              </ListBox.Item>
+              {wasDashboardOnly ? (
+                <ListBox.Item id="none" textValue="Dashboard only">
+                  Dashboard only
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ) : null}
               <ListBox.Item id="hr" textValue="HR — full recruiting">
                 HR — full recruiting
                 <ListBox.ItemIndicator />

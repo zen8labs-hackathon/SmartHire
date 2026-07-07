@@ -55,7 +55,7 @@ export function ChapterRolePicker({
                   onClick={() => isHead && onToggleHead(c.id)}
                   className={`px-2.5 py-1 transition-colors ${
                     !isHead
-                      ? "bg-default-200 font-medium text-foreground"
+                      ? "bg-accent font-medium text-white"
                       : "text-muted hover:bg-default-100"
                   }`}
                 >
