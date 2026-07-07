@@ -281,13 +281,6 @@ export function Sidebar({
               collapsed && "flex-col mt-2",
             )}
           >
-            {/* <button
-              onClick={() => setProfileModalOpen(true)}
-              aria-label="Settings"
-              className="shrink-0 rounded-xl p-1.5 bg-surface-tertiary border border-divider/60 text-foreground/80 hover:bg-surface-tertiary/90 hover:text-foreground cursor-pointer focus:outline-none transition-all duration-150"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </button> */}
             <button
               onClick={handleSignOut}
               disabled={isPendingSignOut}
