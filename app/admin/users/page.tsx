@@ -4,7 +4,11 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { AddUserForm } from "@/components/admin/add-user-form";
-import { listOrgUsersForAdminPage } from "@/lib/admin/list-org-users";
+import {
+  queryOrgUsersList,
+  USERS_LIST_DEFAULT_LIMIT,
+  type UsersListResult,
+} from "@/lib/admin/users-list-query";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@heroui/react";
@@ -16,21 +20,28 @@ export const metadata: Metadata = {
   description: "View team accounts and invite new users.",
 };
 
-async function TeamAccountsSection() {
-  let orgUsers: Awaited<ReturnType<typeof listOrgUsersForAdminPage>> = [];
+const EMPTY_USERS_RESULT: UsersListResult = {
+  users: [],
+  pagination: { total: 0, limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 },
+  counts: { total: 0, hr: 0, recruiter: 0, dashboardOnly: 0 },
+};
+
+async function TeamAccountsSection({ chapters }: { chapters: any[] }) {
+  let result = EMPTY_USERS_RESULT;
   try {
-    orgUsers = await listOrgUsersForAdminPage();
+    result = await queryOrgUsersList({ limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 });
   } catch {
-    orgUsers = [];
+    result = EMPTY_USERS_RESULT;
   }
 
-  const users = orgUsers.map((u) => ({
-    id: u.id,
-    email: u.email,
-    accessSummary: u.accessSummary,
-  }));
-
-  return <UsersTableWrapper users={users} />;
+  return (
+    <UsersTableWrapper
+      initialUsers={result.users}
+      initialPagination={result.pagination}
+      initialCounts={result.counts}
+      chapters={chapters}
+    />
+  );
 }
 
 export default async function AdminUsersPage() {
@@ -56,30 +67,8 @@ export default async function AdminUsersPage() {
       </div>
 
       <Suspense fallback={<DataTableSkeleton columnsCount={2} rowsCount={4} />}>
-        <TeamAccountsSection />
+        <TeamAccountsSection chapters={chapters ?? []} />
       </Suspense>
-
-      <div className="grid gap-6 lg:grid-cols-12">
-        <Card className="border-divider lg:col-span-5 xl:col-span-4 rounded-2xl shadow-sm">
-          <Card.Header className="border-b border-divider px-5 py-4">
-            <Card.Title className="text-base font-semibold">Invite User</Card.Title>
-            <Card.Description className="text-xs">
-              Creates an Auth user and sets recruiting access on their profile.
-            </Card.Description>
-          </Card.Header>
-          <Card.Content className="flex flex-col gap-4 p-5">
-            <AddUserForm chapters={chapters ?? []} />
-            <p className="text-center text-sm text-muted mt-2">
-              <Link
-                href="/dashboard"
-                className="font-semibold text-accent hover:underline"
-              >
-                Back to dashboard
-              </Link>
-            </p>
-          </Card.Content>
-        </Card>
-      </div>
     </div>
   );
 }

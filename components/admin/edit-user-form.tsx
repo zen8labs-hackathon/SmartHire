@@ -1,70 +1,53 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { useFormStatus } from "react-dom";
-
+import { useState, useTransition } from "react";
 import {
-  adminAddUser,
-  type AdminUserFormState,
-} from "@/app/admin/actions";
-import {
-  Alert,
   Button,
   Description,
-  FieldError,
-  Input,
   Label,
   ListBox,
   Select,
   TextField,
+  Input,
 } from "@heroui/react";
-
-import { useEffect } from "react";
+import { adminUpdateUserAccess } from "@/app/admin/actions";
 import { useToast } from "@/components/admin/toast-provider";
 
 type RecruitingAccessKey = "none" | "hr" | "chapter";
 
-export type AddUserChapterOption = { id: string; name: string };
+export type EditUserChapterOption = { id: string; name: string };
 
-function SubmitButton({ children }: { children: React.ReactNode }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button
-      type="submit"
-      className="w-full"
-      variant="primary"
-      isDisabled={pending}
-    >
-      {pending ? "Creating…" : children}
-    </Button>
-  );
-}
+export type EditUserData = {
+  id: string;
+  email: string;
+  recruitingAccess: RecruitingAccessKey;
+  chapterIds: string[];
+  chapterHeadIds: string[];
+};
 
-export function AddUserForm({
+export function EditUserForm({
   chapters,
+  initialData,
   onSuccess,
+  onCancel,
 }: {
-  chapters: readonly AddUserChapterOption[];
-  onSuccess?: () => void;
+  chapters: readonly EditUserChapterOption[];
+  initialData: EditUserData;
+  onSuccess: () => void;
+  onCancel: () => void;
 }) {
-  const [state, formAction] = useActionState<AdminUserFormState, FormData>(
-    adminAddUser,
-    null,
-  );
-  const { success: triggerSuccess } = useToast();
+  const { success: triggerSuccess, error: triggerError } = useToast();
+  const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    if (state?.message) {
-      triggerSuccess(state.message);
-      if (onSuccess) {
-        onSuccess();
-      }
-    }
-  }, [state, triggerSuccess, onSuccess]);
-  const [recruitingAccess, setRecruitingAccess] =
-    useState<RecruitingAccessKey>("none");
-  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
-  const [headChapterIds, setHeadChapterIds] = useState<string[]>([]);
+  const [recruitingAccess, setRecruitingAccess] = useState<RecruitingAccessKey>(
+    initialData.recruitingAccess
+  );
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>(
+    initialData.chapterIds
+  );
+  const [headChapterIds, setHeadChapterIds] = useState<string[]>(
+    initialData.chapterHeadIds
+  );
 
   function toggleChapter(id: string) {
     setSelectedChapterIds((prev) => {
@@ -78,67 +61,34 @@ export function AddUserForm({
 
   function toggleChapterHead(id: string) {
     setHeadChapterIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   }
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    startTransition(async () => {
+      const res = await adminUpdateUserAccess(
+        initialData.id,
+        recruitingAccess,
+        selectedChapterIds,
+        headChapterIds
+      );
+
+      if (res?.error) {
+        triggerError(res.error);
+      } else {
+        triggerSuccess(res?.message || "User access updated successfully.");
+        onSuccess();
+      }
+    });
+  };
+
   return (
-    <form action={formAction} className="flex w-full flex-col gap-4">
-      <input type="hidden" name="recruiting_access" value={recruitingAccess} />
-      {selectedChapterIds.map((id) => (
-        <input key={id} type="hidden" name="chapter_ids" value={id} />
-      ))}
-      {headChapterIds.map((id) => (
-        <input key={`head-${id}`} type="hidden" name="chapter_head_ids" value={id} />
-      ))}
-      {state?.error ? (
-        <Alert status="danger">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Title>Could not create user</Alert.Title>
-            <Alert.Description>{state.error}</Alert.Description>
-          </Alert.Content>
-        </Alert>
-      ) : null}
-
-      {state?.message ? (
-        <Alert status="success">
-          <Alert.Indicator />
-          <Alert.Content>
-            <Alert.Title>Done</Alert.Title>
-            <Alert.Description>{state.message}</Alert.Description>
-          </Alert.Content>
-        </Alert>
-      ) : null}
-
-      <TextField
-        isRequired
-        name="email"
-        type="email"
-        autoComplete="off"
-        validate={(value) => {
-          const v = value.trim().toLowerCase();
-          if (!v) return "Email is required.";
-          if (v.length < 5) return "Enter a valid email.";
-          return null;
-        }}
-      >
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
+      <TextField isReadOnly name="email" value={initialData.email}>
         <Label>Email</Label>
-        <Input placeholder="new.user@gmail.com" />
-        <FieldError />
-      </TextField>
-
-      <TextField
-        isRequired
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={8}
-      >
-        <Label>Initial password</Label>
-        <Input placeholder="••••••••" />
-        <Description>At least 8 characters. Share it securely with the user.</Description>
-        <FieldError />
+        <Input className="opacity-70 cursor-not-allowed bg-surface-secondary/20" />
       </TextField>
 
       <div className="space-y-2">
@@ -178,7 +128,7 @@ export function AddUserForm({
         </Select>
         <Description>
           Chapter recruiters need at least one chapter and must be granted on each
-          job (by email or whole chapter) to open that job.
+          job to open that job.
         </Description>
       </div>
 
@@ -212,7 +162,7 @@ export function AddUserForm({
                         <label className="flex cursor-pointer items-center gap-1">
                           <input
                             type="radio"
-                            name={`chapter_role_${c.id}`}
+                            name={`edit_chapter_role_${c.id}`}
                             checked={!isHead}
                             onChange={() =>
                               isHead ? toggleChapterHead(c.id) : undefined
@@ -223,7 +173,7 @@ export function AddUserForm({
                         <label className="flex cursor-pointer items-center gap-1">
                           <input
                             type="radio"
-                            name={`chapter_role_${c.id}`}
+                            name={`edit_chapter_role_${c.id}`}
                             checked={isHead}
                             onChange={() =>
                               isHead ? undefined : toggleChapterHead(c.id)
@@ -238,14 +188,28 @@ export function AddUserForm({
               })}
             </div>
           )}
-          <Description>
-            Head can open JDs granted to this chapter (and everything under
-            them); member keeps chapter membership but cannot.
-          </Description>
         </div>
       ) : null}
 
-      <SubmitButton>Add user</SubmitButton>
+      <div className="flex items-center justify-end gap-3 mt-4">
+        <Button
+          type="button"
+          variant="secondary"
+          onPress={onCancel}
+          isDisabled={isPending}
+          className="h-9 px-4 rounded-xl border border-divider text-xs font-semibold hover:bg-surface-secondary"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          isDisabled={isPending}
+          className="h-9 px-4 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent/90"
+        >
+          {isPending ? "Saving..." : "Save changes"}
+        </Button>
+      </div>
     </form>
   );
 }

@@ -169,3 +169,206 @@ export async function adminAddUser(
     message: `Created account for ${email}. ${accessHint} They can sign in with this email and password.`,
   };
 }
+
+export async function adminGetUserDetails(userId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    throw new Error("Not authorized.");
+  }
+
+  const admin = createAdminClient();
+  
+  const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
+  if (authErr || !authUser?.user) {
+    throw new Error("User not found in Auth.");
+  }
+
+  const { data: profile, error: profErr } = await admin
+    .from("profiles")
+    .select("work_chapter")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profErr) {
+    throw new Error(`Failed to fetch profile: ${profErr.message}`);
+  }
+
+  const { data: pChapters, error: pcErr } = await admin
+    .from("profile_chapters")
+    .select("chapter_id, role")
+    .eq("profile_id", userId);
+
+  if (pcErr) {
+    throw new Error(`Failed to fetch chapters: ${pcErr.message}`);
+  }
+
+  const chapterIds = (pChapters ?? []).map((x) => x.chapter_id as string);
+  const chapterHeadIds = (pChapters ?? [])
+    .filter((x) => x.role === "head")
+    .map((x) => x.chapter_id as string);
+
+  let recruitingAccess: "none" | "hr" | "chapter" = "none";
+  if (profile?.work_chapter === HR_WORK_CHAPTER) {
+    recruitingAccess = "hr";
+  } else if (chapterIds.length > 0) {
+    recruitingAccess = "chapter";
+  }
+
+  return {
+    id: userId,
+    email: authUser.user.email ?? "",
+    recruitingAccess,
+    chapterIds,
+    chapterHeadIds,
+  };
+}
+
+export async function adminUpdateUserAccess(
+  userId: string,
+  recruitingAccess: "none" | "hr" | "chapter",
+  chapterIds: string[],
+  chapterHeadIds: string[],
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
+  }
+
+  let workChapter: string | null = null;
+  if (recruitingAccess === "hr") {
+    workChapter = HR_WORK_CHAPTER;
+  } else if (recruitingAccess === "chapter") {
+    if (chapterIds.length === 0) {
+      return {
+        error: "Select at least one chapter for a chapter recruiter.",
+      };
+    }
+  } else if (recruitingAccess !== "none") {
+    return { error: "Invalid recruiting access selection." };
+  }
+
+  const admin = createAdminClient();
+
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const { data: found, error: chErr } = await admin
+      .from("chapters")
+      .select("id")
+      .in("id", chapterIds);
+    if (chErr) {
+      return { error: `Could not validate chapters: ${chErr.message}` };
+    }
+    if ((found?.length ?? 0) !== chapterIds.length) {
+      return { error: "One or more selected chapters are invalid." };
+    }
+  }
+
+  const { error: delPcErr } = await admin
+    .from("profile_chapters")
+    .delete()
+    .eq("profile_id", userId);
+
+  if (delPcErr) {
+    return {
+      error: `Could not reset chapter membership: ${delPcErr.message}`,
+    };
+  }
+
+  const { error: profileErr } = await admin
+    .from("profiles")
+    .update({ work_chapter: workChapter })
+    .eq("id", userId);
+
+  if (profileErr) {
+    return {
+      error: `Could not save recruiting access: ${profileErr.message}`,
+    };
+  }
+
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const headSet = new Set(chapterHeadIds);
+    const { error: insPcErr } = await admin.from("profile_chapters").insert(
+      chapterIds.map((chapter_id) => ({
+        profile_id: userId,
+        chapter_id,
+        role: headSet.has(chapter_id) ? "head" : "member",
+      })),
+    );
+    if (insPcErr) {
+      return {
+        error: `Could not save chapter membership: ${insPcErr.message}`,
+      };
+    }
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/users");
+  return { message: "User access updated successfully." };
+}
+
+export async function adminUpdateUserPassword(userId: string, newPassword: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
+  }
+
+  if (newPassword.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { message: "Password updated successfully." };
+}
+
+export async function adminDeleteUser(userId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user?.id === userId) {
+    return { error: "You cannot delete your own account." };
+  }
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(userId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/users");
+  return { message: "User account deleted successfully." };
+}
