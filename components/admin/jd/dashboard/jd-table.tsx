@@ -16,7 +16,7 @@ export function JdTable() {
     fetchError,
     statusUpdateError,
     paginatedRows,
-    filteredRows,
+    total,
     startIdx,
     endIdx,
     canManageJds,
@@ -31,10 +31,12 @@ export function JdTable() {
     setPage,
     totalPages,
     safePage,
+    pageSize,
+    setPageSize,
   } = useJdDashboard();
 
   return (
-    <SectionCard title="Active Openings" description="List of job descriptions and recruitment details.">
+    <SectionCard>
       {(fetchError || statusUpdateError) && (
         <div className="space-y-1 pb-4 text-xs font-semibold text-danger">
           {fetchError ? <p>{fetchError}</p> : null}
@@ -216,8 +218,10 @@ export function JdTable() {
         setPage={setPage}
         startIdx={startIdx}
         endIdx={endIdx}
-        totalCount={filteredRows.length}
+        totalCount={total}
         itemTypeLabel="positions"
+        pageSize={pageSize}
+        setPageSize={setPageSize}
       />
     </SectionCard>
   );

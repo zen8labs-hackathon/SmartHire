@@ -11,8 +11,9 @@ import type {
 } from "@/lib/jd/types";
 
 // Hooks
-import { useJdListState } from "./hooks/use-jd-list-state";
+import { useJdListState, type JdListInitialData } from "./hooks/use-jd-list-state";
 import { useJdFiltersState } from "./hooks/use-jd-filters-state";
+import { JD_LIST_PAGE_SIZE } from "@/lib/jd/list-with-enrichment";
 import { useJdCreateState } from "./hooks/use-jd-create-state";
 import { useJdEditState } from "./hooks/use-jd-edit-state";
 import { useJdDrawerState } from "./hooks/use-jd-drawer-state";
@@ -46,7 +47,10 @@ export interface JdDashboardContextValue {
   setJdListStatusKey: (status: string) => void;
   jdStartDateRange: RangeValue<CalendarDate> | null;
   setJdStartDateRange: (range: RangeValue<CalendarDate> | null) => void;
-  filteredRows: JobDescription[];
+  pageSize: number;
+  setPageSize: (size: number) => void;
+  statusCounts: Record<JdStatus, number>;
+  total: number;
   totalPages: number;
   safePage: number;
   paginatedRows: JobDescription[];
@@ -147,7 +151,7 @@ interface JdDashboardProviderProps {
     code: string;
     color: string;
   }[];
-  initialRowsPromise?: Promise<JobDescription[]>;
+  initialRowsPromise?: Promise<JdListInitialData>;
   children: ReactNode;
 }
 
@@ -158,8 +162,28 @@ export function JdDashboardProvider({
   initialRowsPromise,
   children,
 }: JdDashboardProviderProps) {
-  const listState = useJdListState(initialRowsPromise);
-  const filtersState = useJdFiltersState(listState.rows);
+  const filtersState = useJdFiltersState();
+  const listState = useJdListState(
+    {
+      page: filtersState.page,
+      debouncedJdListSearch: filtersState.debouncedJdListSearch,
+      jdListStatusKey: filtersState.jdListStatusKey,
+      jdStartDateRange: filtersState.jdStartDateRange,
+      pageSize: filtersState.pageSize,
+    },
+    initialRowsPromise,
+  );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(listState.pagination.total / filtersState.pageSize),
+  );
+  const safePage = Math.min(filtersState.page, totalPages);
+  const startIdx =
+    listState.pagination.total === 0 ? 0 : (safePage - 1) * filtersState.pageSize + 1;
+  const endIdx =
+    listState.pagination.total === 0
+      ? 0
+      : Math.min(safePage * filtersState.pageSize, listState.pagination.total);
   const createState = useJdCreateState(
     listState.loadDescriptions,
     allPipelineStages,
@@ -228,12 +252,15 @@ export function JdDashboardProvider({
         setJdListStatusKey: filtersState.setJdListStatusKey,
         jdStartDateRange: filtersState.jdStartDateRange,
         setJdStartDateRange: filtersState.setJdStartDateRange,
-        filteredRows: filtersState.filteredRows,
-        totalPages: filtersState.totalPages,
-        safePage: filtersState.safePage,
-        paginatedRows: filtersState.paginatedRows,
-        startIdx: filtersState.startIdx,
-        endIdx: filtersState.endIdx,
+        pageSize: filtersState.pageSize,
+        setPageSize: filtersState.setPageSize,
+        statusCounts: listState.statusCounts,
+        total: listState.pagination.total,
+        totalPages,
+        safePage,
+        paginatedRows: listState.rows,
+        startIdx,
+        endIdx,
 
         // Modals
         jdModal: createState.jdModal,

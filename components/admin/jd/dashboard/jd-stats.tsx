@@ -6,12 +6,12 @@ import { useJdDashboard } from "./context";
 import { DataTableStats } from "@/components/admin/shell/table-system";
 
 export function JdStats() {
-  const { filteredRows } = useJdDashboard();
+  const { total, statusCounts } = useJdDashboard();
 
-  const totalJobs = filteredRows.length;
-  const draftJobs = filteredRows.filter((r) => r.status === "Pending").length;
-  const activeJobs = filteredRows.filter((r) => r.status === "Hiring").length;
-  const closedJobs = filteredRows.filter((r) => r.status === "Closed" || r.status === "Done").length;
+  const totalJobs = total;
+  const draftJobs = statusCounts.Pending;
+  const activeJobs = statusCounts.Hiring;
+  const closedJobs = statusCounts.Closed + statusCounts.Done;
 
   const stats = [
     {

@@ -1,14 +1,48 @@
 import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import { useOverlayState } from "@heroui/react";
+import type { CalendarDate } from "@internationalized/date";
+import type { RangeValue } from "react-aria-components";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { coerceJdStatus, type JobDescription, type JdStatus } from "@/lib/jd/types";
+import {
+  JD_LIST_PAGE_SIZE,
+  type JobDescriptionListRow,
+  type JobDescriptionsListPagination,
+} from "@/lib/jd/list-with-enrichment";
 import { jdRowDate } from "../helpers";
 import { utcDateStringToday } from "@/lib/jd/normalize-text";
 import { useToast } from "@/components/admin/toast-provider";
 
+const EMPTY_STATUS_COUNTS: Record<JdStatus, number> = {
+  Pending: 0,
+  Hiring: 0,
+  Done: 0,
+  Closed: 0,
+};
+
+const EMPTY_PAGINATION: JobDescriptionsListPagination = {
+  total: 0,
+  limit: JD_LIST_PAGE_SIZE,
+  offset: 0,
+};
+
+export type JdListInitialData = {
+  jobDescriptions: JobDescriptionListRow[];
+  pagination: JobDescriptionsListPagination;
+  statusCounts: Record<JdStatus, number>;
+};
+
+export type JdListFilters = {
+  page: number;
+  debouncedJdListSearch: string;
+  jdListStatusKey: string;
+  jdStartDateRange: RangeValue<CalendarDate> | null;
+  pageSize: number;
+};
+
 /** Normalizes a raw JD row (server- or client-fetched) into display shape. */
-function normalizeJdRow(row: JobDescription): JobDescription {
+function normalizeJdRow<T extends JobDescription>(row: T): T {
   return {
     ...row,
     status: coerceJdStatus(String(row.status)),
@@ -17,7 +51,26 @@ function normalizeJdRow(row: JobDescription): JobDescription {
   };
 }
 
-export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
+function buildJdListSearchParams(filters: JdListFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  const q = filters.debouncedJdListSearch.trim();
+  if (q) params.set("q", q);
+  if (filters.jdListStatusKey !== "all") {
+    params.set("status", filters.jdListStatusKey);
+  }
+  if (filters.jdStartDateRange) {
+    params.set("startFrom", filters.jdStartDateRange.start.toString());
+    params.set("startTo", filters.jdStartDateRange.end.toString());
+  }
+  params.set("limit", String(filters.pageSize));
+  params.set("offset", String((filters.page - 1) * filters.pageSize));
+  return params;
+}
+
+export function useJdListState(
+  filters: JdListFilters,
+  initialDataPromise?: Promise<JdListInitialData>,
+) {
   const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
 
@@ -28,18 +81,31 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
   // wrapping this hook's caller. `use()` may be called conditionally (unlike
   // other hooks), so callers that don't have a promise yet (e.g. tests) still
   // work via the client-fetch fallback below.
-  const initialRows = initialRowsPromise ? use(initialRowsPromise) : undefined;
+  const initialData = initialDataPromise ? use(initialDataPromise) : undefined;
 
   const [rows, setRows] = useState<JobDescription[]>(() =>
-    (initialRows ?? []).map(normalizeJdRow),
+    (initialData?.jobDescriptions ?? []).map(normalizeJdRow),
   );
-  const [loading, setLoading] = useState(!initialRows);
+  const [pagination, setPagination] = useState<JobDescriptionsListPagination>(() => ({
+    total: initialData?.pagination?.total ?? 0,
+    limit: initialData?.pagination?.limit ?? filters.pageSize,
+    offset: initialData?.pagination?.offset ?? 0,
+  }));
+  const [statusCounts, setStatusCounts] = useState<Record<JdStatus, number>>(
+    initialData?.statusCounts ?? EMPTY_STATUS_COUNTS,
+  );
+  const [loading, setLoading] = useState(!initialData);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
+  const skipInitialFetchRef = useRef(Boolean(initialData));
+
+  const filtersRef = useRef(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+  });
 
   const deleteModal = useOverlayState({
     onOpenChange: (open) => {
@@ -55,32 +121,27 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
     return { "Content-Type": "application/json", ...h };
   }, [supabase]);
 
-  const loadDescriptions = useCallback(async () => {
-    setLoading(true);
+  const loadDescriptions = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setFetchError(null);
     setStatusUpdateError(null);
     try {
       const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch("/api/admin/job-descriptions", {
+      const params = buildJdListSearchParams(filtersRef.current);
+      const res = await fetch(`/api/admin/job-descriptions?${params}`, {
         credentials: "include",
         headers: { ...h },
       });
       const json = (await res.json()) as {
         jobDescriptions?: JobDescription[];
+        pagination?: JobDescriptionsListPagination;
+        statusCounts?: Record<JdStatus, number>;
         error?: string;
       };
       if (!res.ok) throw new Error(json.error ?? "Failed to load.");
-      setRows(
-        (json.jobDescriptions ?? []).map((r) => {
-          const row = r as JobDescription;
-          return {
-            ...row,
-            status: coerceJdStatus(String(row.status)),
-            start_date: jdRowDate(row.start_date),
-            end_date: jdRowDate(row.end_date),
-          };
-        }),
-      );
+      setRows((json.jobDescriptions ?? []).map(normalizeJdRow));
+      setPagination(json.pagination ?? { total: 0, limit: filters.pageSize, offset: 0 });
+      setStatusCounts(json.statusCounts ?? EMPTY_STATUS_COUNTS);
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : "Unknown error.");
     } finally {
@@ -94,7 +155,14 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
       return;
     }
     void loadDescriptions();
-  }, [loadDescriptions]);
+  }, [
+    loadDescriptions,
+    filters.page,
+    filters.debouncedJdListSearch,
+    filters.jdListStatusKey,
+    filters.jdStartDateRange,
+    filters.pageSize,
+  ]);
 
   const updateJdStatus = useCallback(
     async (id: number, next: JdStatus, onUpdateActiveRow?: (normalized: JobDescription) => void) => {
@@ -137,16 +205,15 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
         if (!res.ok) throw new Error(json.error ?? "Update failed.");
         if (json.jobDescription) {
           const jd = json.jobDescription;
-          const normalized: JobDescription = {
-            ...jd,
-            status: coerceJdStatus(String(jd.status)),
-            start_date: jdRowDate(jd.start_date),
-            end_date: jdRowDate(jd.end_date),
-          };
+          const normalized = normalizeJdRow(jd);
           setRows((rs) => rs.map((r) => (r.id === id ? normalized : r)));
           if (onUpdateActiveRow) onUpdateActiveRow(normalized);
         }
         toast.success(`Status updated to ${next}.`);
+        // Status counts / totals may shift (e.g. status filter active); resync
+        // quietly so the table doesn't flash a loading state for a change the
+        // user already sees applied to the row.
+        await loadDescriptions({ silent: true });
       } catch (e) {
         setRows((rs) =>
           rs.map((r) =>
@@ -162,7 +229,7 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
         setStatusUpdatingId(null);
       }
     },
-    [authHeaders, toast],
+    [authHeaders, toast, loadDescriptions],
   );
 
   const confirmDelete = useCallback(async (onDeletedActiveRow?: () => void) => {
@@ -192,6 +259,8 @@ export function useJdListState(initialRowsPromise?: Promise<JobDescription[]>) {
 
   return {
     rows,
+    pagination,
+    statusCounts,
     loading,
     fetchError,
     statusUpdateError,

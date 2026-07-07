@@ -3,7 +3,7 @@ import { Alert } from "@heroui/react";
 
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import { JdListSkeleton } from "@/components/admin/jd/jd-list-skeleton";
-import type { JobDescription } from "@/lib/jd/types";
+import type { JdListInitialData } from "./hooks/use-jd-list-state";
 
 import { JdDashboardProvider } from "./context";
 import { JdHeader } from "./jd-header";
@@ -19,7 +19,7 @@ interface JdManagementDashboardProps {
   canManageJds?: boolean;
   chapters?: readonly { id: string; name: string }[];
   allPipelineStages?: readonly { id: string; label: string; code: string; color: string }[];
-  initialRowsPromise?: Promise<JobDescription[]>;
+  initialRowsPromise?: Promise<JdListInitialData>;
 }
 
 function JdListErrorFallback() {
@@ -39,8 +39,8 @@ function JdListErrorFallback() {
 function JdDashboardBody() {
   return (
     <>
-      <JdFilters />
       <JdStats />
+      <JdFilters />
       <JdTable />
 
       {/* Modals & Drawer */}

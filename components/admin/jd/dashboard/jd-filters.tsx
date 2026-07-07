@@ -1,11 +1,24 @@
 "use client";
 
 import React from "react";
-import { DateField, DateRangePicker, Label, ListBox, RangeCalendar, Select, Button } from "@heroui/react";
+import {
+  DateField,
+  DateRangePicker,
+  Label,
+  ListBox,
+  RangeCalendar,
+  Select,
+  Button,
+  useOverlayState,
+} from "@heroui/react";
 import { Dialog } from "react-aria-components";
 import { JD_STATUS_OPTIONS } from "@/lib/jd/types";
 import { useJdDashboard } from "./context";
-import { DataTableToolbar } from "@/components/admin/shell/table-system";
+import {
+  DataTableFilterButton,
+  DataTableFilterModal,
+  DataTableToolbar,
+} from "@/components/admin/shell/table-system";
 import { Calendar } from "lucide-react";
 
 export function JdFilters() {
@@ -22,6 +35,14 @@ export function JdFilters() {
     setJdStartDateRange,
   } = useJdDashboard();
 
+  const filterModal = useOverlayState();
+  const activeFilterCount =
+    (jdListStatusKey !== "all" ? 1 : 0) + (jdStartDateRange ? 1 : 0);
+  const clearAllFilters = () => {
+    setJdListStatusKey("all");
+    setJdStartDateRange(null);
+  };
+
   const filtersElement = (
     <Select
       value={jdListStatusKey}
@@ -29,9 +50,9 @@ export function JdFilters() {
         if (typeof key === "string") setJdListStatusKey(key);
       }}
       placeholder="All statuses"
-      className="w-40"
+      className="w-full"
     >
-      <Label className="sr-only">Status</Label>
+      <Label className="mb-1 block text-xs font-semibold text-muted">Status</Label>
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         <Select.Value />
         <Select.Indicator />
@@ -54,11 +75,13 @@ export function JdFilters() {
   );
 
   const dateRangeElement = (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs font-semibold text-muted">Start date</Label>
+      <div className="flex items-center gap-2">
       <DateRangePicker
         value={jdStartDateRange as any}
         onChange={(val) => setJdStartDateRange(val as any)}
-        className="w-56"
+        className="w-full"
       >
         <DateField.Group
           fullWidth
@@ -121,21 +144,36 @@ export function JdFilters() {
           Clear
         </Button>
       )}
+      </div>
     </div>
   );
 
   return (
-    <DataTableToolbar
-      searchQuery={jdListSearch}
-      onSearchChange={setJdListSearch}
-      searchPlaceholder="Search by job title or position..."
-      filters={filtersElement}
-      dateRange={dateRangeElement}
-      onRefresh={loadDescriptions}
-      isRefreshing={loading}
-      createButtonLabel={canManageJds ? "New Position" : undefined}
-      onCreate={canManageJds ? jdModal.open : undefined}
-    />
+    <>
+      <DataTableToolbar
+        searchQuery={jdListSearch}
+        onSearchChange={setJdListSearch}
+        searchPlaceholder="Search by job title or position..."
+        filters={
+          <DataTableFilterButton
+            onPress={filterModal.open}
+            activeCount={activeFilterCount}
+          />
+        }
+        onRefresh={loadDescriptions}
+        isRefreshing={loading}
+        createButtonLabel={canManageJds ? "New Position" : undefined}
+        onCreate={canManageJds ? jdModal.open : undefined}
+      />
+      <DataTableFilterModal
+        isOpen={filterModal.isOpen}
+        onOpenChange={filterModal.setOpen}
+        onClear={activeFilterCount > 0 ? clearAllFilters : undefined}
+      >
+        {filtersElement}
+        {dateRangeElement}
+      </DataTableFilterModal>
+    </>
   );
 }
 
