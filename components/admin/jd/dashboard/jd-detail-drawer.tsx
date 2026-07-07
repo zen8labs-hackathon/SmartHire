@@ -1,9 +1,6 @@
 import React from "react";
-import { Drawer, Chip, Separator, TextField, Label, TextArea, Button } from "@heroui/react";
-import {
-  appendEmailToViewerDraft,
-  JdViewerEmailSearch,
-} from "@/components/admin/jd/jd-viewer-email-search";
+import { Drawer, Chip, Separator, Label, Button } from "@heroui/react";
+import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { statusChipColor, formatJdCalendarDate, formatDate, formatHireTypeDisplay } from "./helpers";
 import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
@@ -21,8 +18,8 @@ export function JdDetailDrawer() {
     openEdit,
     drawerViewersLoading,
     authHeaders,
-    setDrawerViewerDraft,
-    drawerViewerDraft,
+    setDrawerViewerEmails,
+    drawerViewerEmails,
     chapters,
     drawerViewerChapterIds,
     setDrawerViewerChapterIds,
@@ -267,28 +264,11 @@ export function JdDetailDrawer() {
                         <p className="text-xs text-muted">Loading viewers…</p>
                       ) : (
                         <>
-                          <JdViewerEmailSearch
+                          <JdViewerEmailsField
+                            emails={drawerViewerEmails}
+                            onChange={setDrawerViewerEmails}
                             getHeaders={authHeaders}
-                            onPickEmail={(em) =>
-                              setDrawerViewerDraft((d) =>
-                                appendEmailToViewerDraft(d, em),
-                              )
-                            }
                           />
-                          <TextField
-                            value={drawerViewerDraft}
-                            onChange={setDrawerViewerDraft}
-                          >
-                            <Label className="text-xs text-muted">
-                              Viewer emails
-                            </Label>
-                            <TextArea
-                              placeholder={
-                                "recruiter@company.com\nlead@company.com"
-                              }
-                              className="min-h-[6rem] font-mono text-xs"
-                            />
-                          </TextField>
                           <div className="space-y-2">
                             <Label className="text-xs text-muted">
                               Viewer chapters (whole chapter)

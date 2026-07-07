@@ -1,17 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { X as XIcon } from "lucide-react";
 
-import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
-import { normalizeEmail } from "@/lib/auth/email";
-import { Input, Label, TextField } from "@heroui/react";
-
-export function appendEmailToViewerDraft(draft: string, email: string): string {
-  const e = normalizeEmail(email);
-  const existing = new Set(parseViewerEmailInput(draft));
-  if (existing.has(e)) return draft;
-  return draft.trim() ? `${draft.trim()}\n${e}` : e;
-}
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
+import { Chip, Input, Label, TextField } from "@heroui/react";
 
 export function JdViewerEmailSearch({
   getHeaders,
@@ -117,6 +110,61 @@ export function JdViewerEmailSearch({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Individual JD viewers: search-and-pick an email, shown as removable chips.
+ * Once added an email is a static tag (click only removes it via the ×
+ * button) — it is never re-editable as free text, so a typo can't silently
+ * corrupt an already-added grant.
+ */
+export function JdViewerEmailsField({
+  emails,
+  onChange,
+  getHeaders,
+}: {
+  emails: readonly string[];
+  onChange: (emails: string[]) => void;
+  getHeaders: () => Promise<Record<string, string>>;
+}) {
+  const addEmail = useCallback(
+    (raw: string) => {
+      const e = normalizeEmail(raw);
+      if (!e || !isValidEmail(e)) return;
+      onChange(emails.includes(e) ? [...emails] : [...emails, e]);
+    },
+    [emails, onChange],
+  );
+
+  function removeEmail(email: string) {
+    onChange(emails.filter((e) => e !== email));
+  }
+
+  return (
+    <div className="space-y-2">
+      <JdViewerEmailSearch getHeaders={getHeaders} onPickEmail={addEmail} />
+
+      {emails.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 rounded-lg border border-divider p-2">
+          {emails.map((email) => (
+            <Chip key={email} color="default" variant="soft" size="sm" className="gap-1 pr-1">
+              <Chip.Label className="font-mono">{email}</Chip.Label>
+              <button
+                type="button"
+                aria-label={`Remove ${email}`}
+                onClick={() => removeEmail(email)}
+                className="rounded-full p-0.5 hover:bg-foreground/10"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </Chip>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted">No individual viewers added yet.</p>
+      )}
     </div>
   );
 }

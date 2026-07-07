@@ -15,6 +15,93 @@ export type AdminUserFormState = { error?: string; message?: string } | null;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function parseIdList(formData: FormData, field: string): string[] {
+  const set = new Set<string>();
+  for (const x of formData.getAll(field)) {
+    const s = String(x).trim();
+    if (UUID_RE.test(s)) set.add(s);
+  }
+  return [...set];
+}
+
+/**
+ * Validates the recruiting-access selection and (re)writes profiles.work_chapter +
+ * profile_chapters (with per-chapter head/member role) for an existing profile.
+ * Shared by adminAddUser (after the auth user is created) and adminUpdateUserAccess.
+ */
+async function syncRecruitingAccess(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  recruitingAccess: string,
+  chapterIds: string[],
+  chapterHeadIds: Set<string>,
+): Promise<{ error: string } | { workChapter: string | null }> {
+  let workChapter: string | null = null;
+  if (recruitingAccess === "hr") {
+    workChapter = HR_WORK_CHAPTER;
+  } else if (recruitingAccess === "chapter") {
+    if (chapterIds.length === 0) {
+      return { error: "Select at least one chapter for a chapter recruiter." };
+    }
+  } else if (recruitingAccess !== "none") {
+    return { error: "Invalid recruiting access selection." };
+  }
+
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const { data: found, error: chErr } = await admin
+      .from("chapters")
+      .select("id")
+      .in("id", chapterIds);
+    if (chErr) {
+      return { error: `Could not validate chapters: ${chErr.message}` };
+    }
+    if ((found?.length ?? 0) !== chapterIds.length) {
+      return { error: "One or more selected chapters are invalid." };
+    }
+  }
+
+  const { error: delPcErr } = await admin
+    .from("profile_chapters")
+    .delete()
+    .eq("profile_id", profileId);
+  if (delPcErr) {
+    return { error: `Chapter membership could not be reset: ${delPcErr.message}` };
+  }
+
+  const { error: profileErr } = await admin
+    .from("profiles")
+    .update({ work_chapter: workChapter })
+    .eq("id", profileId);
+  if (profileErr) {
+    return { error: `Recruiting access could not be saved: ${profileErr.message}` };
+  }
+
+  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
+    const { error: insPcErr } = await admin.from("profile_chapters").insert(
+      chapterIds.map((chapter_id) => ({
+        profile_id: profileId,
+        chapter_id,
+        role: chapterHeadIds.has(chapter_id) ? "head" : "member",
+      })),
+    );
+    if (insPcErr) {
+      return { error: `Chapter membership could not be saved: ${insPcErr.message}` };
+    }
+  }
+
+  return { workChapter };
+}
+
+function accessHint(
+  workChapter: string | null,
+  chapterCount: number,
+  headCount: number,
+): string {
+  if (workChapter == null && chapterCount === 0) return "Dashboard only.";
+  if (workChapter === HR_WORK_CHAPTER) return "Full HR recruiting access.";
+  return `Chapter recruiter (${chapterCount} chapter${chapterCount === 1 ? "" : "s"}, ${headCount} as head).`;
+}
+
 export async function adminAddUser(
   _prev: AdminUserFormState,
   formData: FormData,
@@ -46,31 +133,11 @@ export async function adminAddUser(
   const recruitingAccess = String(
     formData.get("recruiting_access") ?? "none",
   ).trim();
+  const chapterIds = parseIdList(formData, "chapter_ids");
+  const chapterHeadIds = new Set(parseIdList(formData, "chapter_head_ids"));
 
-  const chapterIdSet = new Set<string>();
-  for (const x of formData.getAll("chapter_ids")) {
-    const s = String(x).trim();
-    if (UUID_RE.test(s)) chapterIdSet.add(s);
-  }
-  const chapterIds = [...chapterIdSet];
-
-  const chapterHeadIdSet = new Set<string>();
-  for (const x of formData.getAll("chapter_head_ids")) {
-    const s = String(x).trim();
-    if (UUID_RE.test(s)) chapterHeadIdSet.add(s);
-  }
-
-  let workChapter: string | null = null;
-  if (recruitingAccess === "hr") {
-    workChapter = HR_WORK_CHAPTER;
-  } else if (recruitingAccess === "chapter") {
-    if (chapterIds.length === 0) {
-      return {
-        error: "Select at least one chapter for a chapter recruiter.",
-      };
-    }
-  } else if (recruitingAccess !== "none") {
-    return { error: "Invalid recruiting access selection." };
+  if (recruitingAccess === "chapter" && chapterIds.length === 0) {
+    return { error: "Select at least one chapter for a chapter recruiter." };
   }
 
   let admin: ReturnType<typeof createAdminClient>;
@@ -81,19 +148,6 @@ export async function adminAddUser(
       error:
         "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to create users from the admin panel.",
     };
-  }
-
-  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
-    const { data: found, error: chErr } = await admin
-      .from("chapters")
-      .select("id")
-      .in("id", chapterIds);
-    if (chErr) {
-      return { error: `Could not validate chapters: ${chErr.message}` };
-    }
-    if ((found?.length ?? 0) !== chapterIds.length) {
-      return { error: "One or more selected chapters are invalid." };
-    }
   }
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -120,52 +174,119 @@ export async function adminAddUser(
     };
   }
 
-  const { error: delPcErr } = await admin
-    .from("profile_chapters")
-    .delete()
-    .eq("profile_id", newId);
-
-  if (delPcErr) {
-    return {
-      error: `Account was created but chapter membership could not be reset: ${delPcErr.message}`,
-    };
-  }
-
-  const { error: profileErr } = await admin
-    .from("profiles")
-    .update({ work_chapter: workChapter })
-    .eq("id", newId);
-
-  if (profileErr) {
-    return {
-      error: `Account was created but recruiting access could not be saved: ${profileErr.message}`,
-    };
-  }
-
-  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
-    const { error: insPcErr } = await admin.from("profile_chapters").insert(
-      chapterIds.map((chapter_id) => ({
-        profile_id: newId,
-        chapter_id,
-        role: chapterHeadIdSet.has(chapter_id) ? "head" : "member",
-      })),
-    );
-    if (insPcErr) {
-      return {
-        error: `Account was created but chapter membership could not be saved: ${insPcErr.message}`,
-      };
-    }
+  const result = await syncRecruitingAccess(
+    admin,
+    newId,
+    recruitingAccess,
+    chapterIds,
+    chapterHeadIds,
+  );
+  if ("error" in result) {
+    return { error: `Account was created but ${result.error.charAt(0).toLowerCase()}${result.error.slice(1)}` };
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/chapters");
-  const accessHint =
-    workChapter == null && chapterIds.length === 0
-      ? "Dashboard only."
-      : workChapter === HR_WORK_CHAPTER
-        ? "Full HR recruiting access."
-        : `Chapter recruiter (${chapterIds.length} chapter${chapterIds.length === 1 ? "" : "s"}, ${chapterHeadIdSet.size} as head).`;
   return {
-    message: `Created account for ${email}. ${accessHint} They can sign in with this email and password.`,
+    message: `Created account for ${email}. ${accessHint(result.workChapter, chapterIds.length, chapterHeadIds.size)} They can sign in with this email and password.`,
   };
+}
+
+export async function adminUpdateUserAccess(
+  _prev: AdminUserFormState,
+  formData: FormData,
+): Promise<AdminUserFormState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
+  }
+
+  const targetId = String(formData.get("user_id") ?? "").trim();
+  if (!UUID_RE.test(targetId)) {
+    return { error: "Invalid user id." };
+  }
+
+  const recruitingAccess = String(
+    formData.get("recruiting_access") ?? "none",
+  ).trim();
+  const chapterIds = parseIdList(formData, "chapter_ids");
+  const chapterHeadIds = new Set(parseIdList(formData, "chapter_head_ids"));
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return {
+      error:
+        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to edit users from the admin panel.",
+    };
+  }
+
+  const result = await syncRecruitingAccess(
+    admin,
+    targetId,
+    recruitingAccess,
+    chapterIds,
+    chapterHeadIds,
+  );
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/chapters");
+  return {
+    message: `Updated access. ${accessHint(result.workChapter, chapterIds.length, chapterHeadIds.size)}`,
+  };
+}
+
+export type AdminDeleteUserState = { error?: string; message?: string } | null;
+
+export async function adminDeleteUser(
+  _prev: AdminDeleteUserState,
+  formData: FormData,
+): Promise<AdminDeleteUserState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
+  }
+
+  const targetId = String(formData.get("user_id") ?? "").trim();
+  if (!UUID_RE.test(targetId)) {
+    return { error: "Invalid user id." };
+  }
+  if (targetId === user?.id) {
+    return { error: "You cannot delete your own account." };
+  }
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return {
+      error:
+        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to delete users from the admin panel.",
+    };
+  }
+
+  const { error } = await admin.auth.admin.deleteUser(targetId);
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/chapters");
+  return { message: "User deleted." };
 }

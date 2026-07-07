@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useOverlayState } from "@heroui/react";
 import { createClient } from "@/lib/supabase/client";
-import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
 import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
@@ -37,7 +36,7 @@ export function useJdCreateState(
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [createFieldErrors, setCreateFieldErrors] = useState<{ start_date?: string; hiring_deadline?: string }>({});
-  const [createViewerEmailsText, setCreateViewerEmailsText] = useState("");
+  const [createViewerEmails, setCreateViewerEmails] = useState<string[]>([]);
   const [createViewerChapterIds, setCreateViewerChapterIds] = useState<string[]>([]);
   const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
 
@@ -89,7 +88,7 @@ export function useJdCreateState(
         resetUploadState();
         setFormError(null);
         setForm(DEFAULT_FORM);
-        setCreateViewerEmailsText("");
+        setCreateViewerEmails([]);
         setCreateViewerChapterIds([]);
         setSelectedStageIds([]);
         setCreateFieldErrors({});
@@ -253,10 +252,9 @@ export function useJdCreateState(
       const postBodyBase = jdDraftJobOpeningId
         ? { ...payload, jdDraftJobOpeningId }
         : payload;
-      const viewerEmails = parseViewerEmailInput(createViewerEmailsText);
       const postBody = {
         ...postBodyBase,
-        viewerEmails,
+        viewerEmails: createViewerEmails,
         viewerChapterIds: createViewerChapterIds,
         pipelineStages: selectedStageIds,
       };
@@ -284,7 +282,7 @@ export function useJdCreateState(
     [
       authHeaders,
       createViewerChapterIds,
-      createViewerEmailsText,
+      createViewerEmails,
       form,
       jdDraftJobOpeningId,
       jdModal,
@@ -300,8 +298,8 @@ export function useJdCreateState(
     formSubmitting,
     formError,
     createFieldErrors,
-    createViewerEmailsText,
-    setCreateViewerEmailsText,
+    createViewerEmails,
+    setCreateViewerEmails,
     createViewerChapterIds,
     setCreateViewerChapterIds,
     selectedStageIds,

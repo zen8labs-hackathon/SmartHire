@@ -1,8 +1,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export type ChapterMembership = {
+  chapterId: string;
+  chapterName: string;
+  role: "head" | "member";
+};
+
 export type OrgUserRow = {
   id: string;
   email: string;
+  isAdmin: boolean;
+  workChapter: string | null;
+  chapterMemberships: ChapterMembership[];
   accessSummary: string;
 };
 
@@ -59,7 +68,7 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     (chapterRows ?? []).map((c) => [c.id as string, String(c.name)]),
   );
 
-  const chaptersByProfile = new Map<string, { name: string; role: string }[]>();
+  const chaptersByProfile = new Map<string, ChapterMembership[]>();
   for (const r of pcRows ?? []) {
     const pid = r.profile_id as string;
     const cid = r.chapter_id as string;
@@ -67,31 +76,39 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     if (!name) continue;
     const role = r.role === "head" ? "head" : "member";
     const arr = chaptersByProfile.get(pid) ?? [];
-    arr.push({ name, role });
+    arr.push({ chapterId: cid, chapterName: name, role });
     chaptersByProfile.set(pid, arr);
   }
 
   const rows: OrgUserRow[] = users.map((u) => {
     const p = profById.get(u.id);
+    const isAdmin = p?.is_admin === true;
+    const wc = typeof p?.work_chapter === "string" ? p.work_chapter.trim() : "";
+    const workChapter = wc.length > 0 ? wc : null;
+    const chapterMemberships = (chaptersByProfile.get(u.id) ?? []).sort((a, b) =>
+      a.chapterName.localeCompare(b.chapterName),
+    );
+
     const parts: string[] = [];
-    if (p?.is_admin === true) parts.push("Admin");
-    const wc =
-      typeof p?.work_chapter === "string" ? p.work_chapter.trim() : "";
-    if (wc === "HR") parts.push("HR");
-    const ch = chaptersByProfile.get(u.id);
-    if (ch?.length) {
-      const formatted = ch
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => `${c.name} (${c.role})`);
-      parts.push(`Chapters: ${formatted.join(", ")}`);
+    if (isAdmin) parts.push("Admin");
+    if (workChapter === "HR") parts.push("HR");
+    if (chapterMemberships.length > 0) {
+      parts.push(
+        `Chapters: ${chapterMemberships
+          .map((c) => `${c.chapterName} (${c.role})`)
+          .join(", ")}`,
+      );
     }
     if (parts.length === 0) {
       parts.push("Dashboard only");
     }
+
     return {
       id: u.id,
       email: u.email,
+      isAdmin,
+      workChapter,
+      chapterMemberships,
       accessSummary: parts.join(" · "),
     };
   });
