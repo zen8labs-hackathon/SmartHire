@@ -5,10 +5,11 @@ import {
   Button,
   Card,
   Input,
+  Modal,
   Pagination as HeroUIPagination,
   Spinner
 } from "@heroui/react";
-import { Search, RotateCw, Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, RotateCw, Plus, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 
 // ==========================================
 // 1. TOOLBAR
@@ -99,6 +100,92 @@ export function DataTableToolbar({
 }
 
 // ==========================================
+// 1b. FILTER MODAL (sub-field filters, opened from the toolbar)
+// ==========================================
+
+export type DataTableFilterButtonProps = {
+  onPress: () => void;
+  /** Number of non-default sub-field filters currently applied. */
+  activeCount?: number;
+  label?: string;
+};
+
+export function DataTableFilterButton({
+  onPress,
+  activeCount = 0,
+  label = "Filters",
+}: DataTableFilterButtonProps) {
+  return (
+    <Button
+      variant="ghost"
+      onPress={onPress}
+      className="h-9 gap-1.5 rounded-xl border border-divider bg-surface-secondary/40 px-3 text-xs font-semibold text-foreground hover:bg-surface-secondary"
+    >
+      <SlidersHorizontal className="h-3.5 w-3.5" />
+      <span>{label}</span>
+      {activeCount > 0 && (
+        <span className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+          {activeCount}
+        </span>
+      )}
+    </Button>
+  );
+}
+
+export type DataTableFilterModalProps = {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  title?: string;
+  onClear?: () => void;
+  children: React.ReactNode;
+};
+
+export function DataTableFilterModal({
+  isOpen,
+  onOpenChange,
+  title = "Filters",
+  onClear,
+  children,
+}: DataTableFilterModalProps) {
+  return (
+    <Modal.Backdrop
+      className="bg-black/40 backdrop-blur-sm"
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+    >
+      <Modal.Container>
+        <Modal.Dialog className="w-full max-w-md overflow-hidden p-0">
+          <Modal.CloseTrigger />
+          <Modal.Header className="border-b border-divider px-6 py-5">
+            <Modal.Heading>{title}</Modal.Heading>
+          </Modal.Header>
+          <Modal.Body className="flex flex-col gap-4 px-6 py-5">
+            {children}
+          </Modal.Body>
+          <Modal.Footer className="justify-between gap-2 border-t border-divider px-6 py-4">
+            {onClear ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs font-semibold text-muted"
+                onPress={onClear}
+              >
+                Clear all
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button variant="primary" size="sm" onPress={() => onOpenChange(false)}>
+              Done
+            </Button>
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+  );
+}
+
+// ==========================================
 // 2. PAGINATION
 // ==========================================
 
@@ -110,6 +197,8 @@ export type DataTablePaginationProps = {
   endIdx: number;
   totalCount: number;
   itemTypeLabel?: string;
+  pageSize?: number;
+  setPageSize?: (size: number) => void;
 };
 
 export function DataTablePagination({
@@ -120,6 +209,8 @@ export function DataTablePagination({
   endIdx,
   totalCount,
   itemTypeLabel = "items",
+  pageSize,
+  setPageSize,
 }: DataTablePaginationProps) {
   // Page window helper
   const width = 3;
@@ -130,11 +221,31 @@ export function DataTablePagination({
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between py-4 border-t border-divider/60 font-sans">
-      <p className="text-xs text-muted font-medium">
-        Showing <span className="font-semibold text-foreground">{startIdx}</span> to{" "}
-        <span className="font-semibold text-foreground">{endIdx}</span> of{" "}
-        <span className="font-semibold text-foreground">{totalCount}</span> {itemTypeLabel}
-      </p>
+      <div className="flex flex-wrap items-center gap-4">
+        <p className="text-xs text-muted font-medium">
+          Showing <span className="font-semibold text-foreground">{startIdx}</span> to{" "}
+          <span className="font-semibold text-foreground">{endIdx}</span> of{" "}
+          <span className="font-semibold text-foreground">{totalCount}</span> {itemTypeLabel}
+        </p>
+
+        {setPageSize && pageSize !== undefined && (
+          <div className="flex items-center gap-1.5 text-xs text-muted font-medium">
+            <span>Show:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+              }}
+              className="h-7 rounded-lg border border-divider bg-surface-secondary/40 hover:bg-surface-secondary px-1.5 text-[11px] font-semibold outline-none cursor-pointer transition-colors focus:border-accent text-foreground"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        )}
+      </div>
 
       {totalPages > 1 && (
         <nav aria-label="Pagination" className="flex items-center space-x-1">
