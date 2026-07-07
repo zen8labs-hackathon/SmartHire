@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
-import { parseViewerEmailInput } from "@/lib/admin/jd-viewer-sync";
 import type { JobDescription } from "@/lib/jd/types";
 
 export function useJdDrawerState(canManageJds: boolean) {
@@ -13,7 +12,7 @@ export function useJdDrawerState(canManageJds: boolean) {
   const [drawerStatusCounts, setDrawerStatusCounts] = useState<Record<string, number> | null>(null);
   const [drawerStatusCountsError, setDrawerStatusCountsError] = useState<string | null>(null);
 
-  const [drawerViewerDraft, setDrawerViewerDraft] = useState("");
+  const [drawerViewerEmails, setDrawerViewerEmails] = useState<string[]>([]);
   const [drawerViewerChapterIds, setDrawerViewerChapterIds] = useState<string[]>([]);
   const [drawerViewersLoading, setDrawerViewersLoading] = useState(false);
   const [drawerViewersBusy, setDrawerViewersBusy] = useState(false);
@@ -27,7 +26,7 @@ export function useJdDrawerState(canManageJds: boolean) {
   // Load viewers
   useEffect(() => {
     if (!drawerOpen || !activeRow?.id || !canManageJds) {
-      setDrawerViewerDraft("");
+      setDrawerViewerEmails([]);
       setDrawerViewerChapterIds([]);
       setDrawerViewersError(null);
       setDrawerViewersLoading(false);
@@ -51,16 +50,16 @@ export function useJdDrawerState(canManageJds: boolean) {
         if (cancelled) return;
         if (!res.ok) {
           setDrawerViewersError(json.error ?? "Could not load viewers.");
-          setDrawerViewerDraft("");
+          setDrawerViewerEmails([]);
           setDrawerViewerChapterIds([]);
           return;
         }
-        setDrawerViewerDraft((json.viewerEmails ?? []).join("\n"));
+        setDrawerViewerEmails(json.viewerEmails ?? []);
         setDrawerViewerChapterIds(json.viewerChapterIds ?? []);
       } catch {
         if (!cancelled) {
           setDrawerViewersError("Could not load viewers.");
-          setDrawerViewerDraft("");
+          setDrawerViewerEmails([]);
           setDrawerViewerChapterIds([]);
         }
       } finally {
@@ -118,13 +117,12 @@ export function useJdDrawerState(canManageJds: boolean) {
     setDrawerViewersError(null);
     try {
       const headers = await authHeaders();
-      const emails = parseViewerEmailInput(drawerViewerDraft);
       const res = await fetch(`/api/admin/job-descriptions/${activeRow.id}`, {
         method: "PUT",
         credentials: "include",
         headers,
         body: JSON.stringify({
-          viewerEmails: emails,
+          viewerEmails: drawerViewerEmails,
           viewerChapterIds: drawerViewerChapterIds,
         }),
       });
@@ -135,7 +133,7 @@ export function useJdDrawerState(canManageJds: boolean) {
       };
       if (!res.ok) throw new Error(json.error ?? "Save failed.");
       if (json.viewerEmails) {
-        setDrawerViewerDraft(json.viewerEmails.join("\n"));
+        setDrawerViewerEmails(json.viewerEmails);
       }
       if (json.viewerChapterIds) {
         setDrawerViewerChapterIds(json.viewerChapterIds);
@@ -147,7 +145,7 @@ export function useJdDrawerState(canManageJds: boolean) {
     } finally {
       setDrawerViewersBusy(false);
     }
-  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerDraft]);
+  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerEmails]);
 
   return {
     drawerOpen,
@@ -156,8 +154,8 @@ export function useJdDrawerState(canManageJds: boolean) {
     setActiveRow,
     drawerStatusCounts,
     drawerStatusCountsError,
-    drawerViewerDraft,
-    setDrawerViewerDraft,
+    drawerViewerEmails,
+    setDrawerViewerEmails,
     drawerViewerChapterIds,
     setDrawerViewerChapterIds,
     drawerViewersLoading,
