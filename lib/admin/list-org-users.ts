@@ -44,7 +44,7 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
       .in("id", ids),
     admin
       .from("profile_chapters")
-      .select("profile_id, chapter_id")
+      .select("profile_id, chapter_id, role")
       .in("profile_id", ids),
     admin.from("chapters").select("id, name"),
   ]);
@@ -59,14 +59,15 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     (chapterRows ?? []).map((c) => [c.id as string, String(c.name)]),
   );
 
-  const chaptersByProfile = new Map<string, string[]>();
+  const chaptersByProfile = new Map<string, { name: string; role: string }[]>();
   for (const r of pcRows ?? []) {
     const pid = r.profile_id as string;
     const cid = r.chapter_id as string;
     const name = chapterNameById.get(cid);
     if (!name) continue;
+    const role = r.role === "head" ? "head" : "member";
     const arr = chaptersByProfile.get(pid) ?? [];
-    arr.push(name);
+    arr.push({ name, role });
     chaptersByProfile.set(pid, arr);
   }
 
@@ -79,7 +80,11 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     if (wc === "HR") parts.push("HR");
     const ch = chaptersByProfile.get(u.id);
     if (ch?.length) {
-      parts.push(`Chapters: ${[...new Set(ch)].sort().join(", ")}`);
+      const formatted = ch
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => `${c.name} (${c.role})`);
+      parts.push(`Chapters: ${formatted.join(", ")}`);
     }
     if (parts.length === 0) {
       parts.push("Dashboard only");

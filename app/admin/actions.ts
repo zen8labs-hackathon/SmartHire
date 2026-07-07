@@ -54,6 +54,12 @@ export async function adminAddUser(
   }
   const chapterIds = [...chapterIdSet];
 
+  const chapterHeadIdSet = new Set<string>();
+  for (const x of formData.getAll("chapter_head_ids")) {
+    const s = String(x).trim();
+    if (UUID_RE.test(s)) chapterHeadIdSet.add(s);
+  }
+
   let workChapter: string | null = null;
   if (recruitingAccess === "hr") {
     workChapter = HR_WORK_CHAPTER;
@@ -141,6 +147,7 @@ export async function adminAddUser(
       chapterIds.map((chapter_id) => ({
         profile_id: newId,
         chapter_id,
+        role: chapterHeadIdSet.has(chapter_id) ? "head" : "member",
       })),
     );
     if (insPcErr) {
@@ -157,7 +164,7 @@ export async function adminAddUser(
       ? "Dashboard only."
       : workChapter === HR_WORK_CHAPTER
         ? "Full HR recruiting access."
-        : `Chapter recruiter (${chapterIds.length} chapter${chapterIds.length === 1 ? "" : "s"}).`;
+        : `Chapter recruiter (${chapterIds.length} chapter${chapterIds.length === 1 ? "" : "s"}, ${chapterHeadIdSet.size} as head).`;
   return {
     message: `Created account for ${email}. ${accessHint} They can sign in with this email and password.`,
   };
