@@ -28,7 +28,7 @@ export function CandidatePipelineDashboardLoader({
   candidatesPromise: Promise<{ rows: CandidateDbRow[]; total: number }>;
 }) {
   return (
-    <div className="flex flex-col gap-6 font-sans">
+    <div className="flex flex-col gap-4 font-sans">
       <PageHeader
         title="Active Candidates"
         description="Search, filter, and screen candidate resume profiles."

@@ -59,7 +59,7 @@ export function JdManagementDashboard({
   initialRowsPromise,
 }: JdManagementDashboardProps) {
   return (
-    <div className="flex flex-col gap-6 font-sans">
+    <div className="flex flex-col gap-4 font-sans">
       <JdHeader />
 
       <SuspenseErrorBoundary fallback={<JdListErrorFallback />}>

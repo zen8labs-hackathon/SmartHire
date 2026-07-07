@@ -41,7 +41,7 @@ export function DataTableToolbar({
   createButtonDisabled = false,
 }: DataTableToolbarProps) {
   return (
-    <div className="flex flex-col gap-3.5 pb-4.5 border-b border-divider/60 mb-5 lg:flex-row lg:items-center lg:justify-between">
+    <div className="flex flex-col gap-3.5 pb-4.5 border-b border-divider/60 mb-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-1 flex-wrap items-center gap-3">
         {onSearchChange && (
           <div className="relative min-w-[280px] flex-1 max-w-md">
@@ -311,7 +311,7 @@ export type DataTableStatsProps = {
 
 export function DataTableStats({ stats }: DataTableStatsProps) {
   return (
-    <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-6">
+    <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-3">
       {stats.map((stat, idx) => (
         <Card
           key={idx}
