@@ -11,10 +11,15 @@ import {
   ListBox,
   RangeCalendar,
   Select,
+  useOverlayState,
 } from "@heroui/react";
 import type { RangeValue } from "react-aria-components";
 import { Dialog } from "react-aria-components";
-import { DataTableToolbar } from "@/components/admin/shell/table-system";
+import {
+  DataTableFilterButton,
+  DataTableFilterModal,
+  DataTableToolbar,
+} from "@/components/admin/shell/table-system";
 import { Calendar } from "lucide-react";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
@@ -89,9 +94,22 @@ function CandidatePipelineFiltersCardImpl({
 }: CandidatePipelineFiltersCardProps) {
   const monthId = `candidate-calendar-month${calendarIdsSuffix}`;
   const yearId = `candidate-calendar-year${calendarIdsSuffix}`;
+  const filterModal = useOverlayState();
+
+  const activeFilterCount =
+    (statusKey != null && statusKey !== "all" ? 1 : 0) +
+    (jdFilterKey != null && jdFilterKey !== "all" ? 1 : 0) +
+    (uploadDateRangeFilter ? 1 : 0);
+
+  const clearAllFilters = () => {
+    setStatusKey?.("all");
+    setJdFilterKey?.("all");
+    setUploadDateRangeFilter(null);
+    onFiltersAdjusted?.();
+  };
 
   const filtersElement = (
-    <div className="flex items-center gap-3.5">
+    <div className="flex flex-col gap-3.5">
       {statusFilterOptions && setStatusKey && (
         <Select
           value={statusKey ?? null}
@@ -100,9 +118,9 @@ function CandidatePipelineFiltersCardImpl({
             onFiltersAdjusted?.();
           }}
           placeholder="Filter by status"
-          className="w-40"
+          className="w-full"
         >
-          <Label className="sr-only">Status</Label>
+          <Label className="mb-1 block text-xs font-semibold text-muted">Status</Label>
           <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
             <Select.Value />
             <Select.Indicator />
@@ -128,9 +146,9 @@ function CandidatePipelineFiltersCardImpl({
             onFiltersAdjusted?.();
           }}
           placeholder="Filter by Job"
-          className="w-48"
+          className="w-full"
         >
-          <Label className="sr-only">Job description</Label>
+          <Label className="mb-1 block text-xs font-semibold text-muted">Job description</Label>
           <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
             <Select.Value />
             <Select.Indicator />
@@ -151,14 +169,16 @@ function CandidatePipelineFiltersCardImpl({
   );
 
   const dateRangeElement = (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs font-semibold text-muted">Upload date</Label>
+      <div className="flex items-center gap-2">
       <DateRangePicker
         value={uploadDateRangeFilter as any}
         onChange={(next) => {
           setUploadDateRangeFilter(next as any);
           onFiltersAdjusted?.();
         }}
-        className="w-56"
+        className="w-full"
       >
         <DateField.Group
           fullWidth
@@ -271,22 +291,37 @@ function CandidatePipelineFiltersCardImpl({
           Clear
         </Button>
       ) : null}
+      </div>
     </div>
   );
 
   return (
-    <DataTableToolbar
-      searchQuery={query}
-      onSearchChange={setQuery}
-      searchPlaceholder={searchPlaceholder}
-      filters={filtersElement}
-      dateRange={dateRangeElement}
-      onRefresh={onRefresh}
-      isRefreshing={isRefreshing}
-      createButtonLabel={createButtonLabel}
-      onCreate={onCreate}
-      createButtonDisabled={createButtonDisabled}
-    />
+    <>
+      <DataTableToolbar
+        searchQuery={query}
+        onSearchChange={setQuery}
+        searchPlaceholder={searchPlaceholder}
+        filters={
+          <DataTableFilterButton
+            onPress={filterModal.open}
+            activeCount={activeFilterCount}
+          />
+        }
+        onRefresh={onRefresh}
+        isRefreshing={isRefreshing}
+        createButtonLabel={createButtonLabel}
+        onCreate={onCreate}
+        createButtonDisabled={createButtonDisabled}
+      />
+      <DataTableFilterModal
+        isOpen={filterModal.isOpen}
+        onOpenChange={filterModal.setOpen}
+        onClear={activeFilterCount > 0 ? clearAllFilters : undefined}
+      >
+        {filtersElement}
+        {dateRangeElement}
+      </DataTableFilterModal>
+    </>
   );
 }
 

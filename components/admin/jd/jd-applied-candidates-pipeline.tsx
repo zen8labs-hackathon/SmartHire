@@ -5,13 +5,22 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
 import { Pencil, Trash2, Users as UsersIcon, Layers as LayersIcon, Calendar as CalendarIcon } from "lucide-react";
-import { DataTableStats, DataTableToolbar, DataTablePagination } from "@/components/admin/shell/table-system";
+import {
+  DataTableStats,
+  DataTableToolbar,
+  DataTablePagination,
+  DataTableFilterButton,
+  DataTableFilterModal,
+} from "@/components/admin/shell/table-system";
+import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 import {
   Avatar,
   Button,
@@ -81,6 +90,7 @@ import {
 } from "@/lib/pipelines/jd-pipeline-filter-options";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
+import { buildCandidatesListSearchParams } from "@/lib/candidates/candidates-list-query";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 1, label: "Jan" },
@@ -286,12 +296,6 @@ function formatSchedule(iso: string | null | undefined): string | null {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(t));
-}
-
-function uploadSortKey(r: CandidateDbRow): number {
-  const raw = r.cv_uploaded_at ?? r.created_at;
-  const t = Date.parse(raw);
-  return Number.isNaN(t) ? 0 : t;
 }
 
 function localDatetimeToIso(local: string): string | null {
@@ -1034,6 +1038,7 @@ export function JdAppliedCandidatesPipeline({
   }, [rowPendingDelete, deleteModal, onRefetch, supabase]);
 
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 350);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const selectedFilterOption: PipelineStageSubStageFilterOption | null =
     useMemo(
@@ -1045,8 +1050,16 @@ export function JdAppliedCandidatesPipeline({
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
     () => today(getLocalTimeZone()),
   );
+  const filterModal = useOverlayState();
+  const activeFilterCount =
+    (statusFilter !== "all" ? 1 : 0) + (uploadDateRange ? 1 : 0);
+  const clearAllFilters = () => {
+    setStatusFilter("all");
+    setUploadDateRange(null);
+  };
 
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePageQueryParam();
+  const skipInitialPageResetRef = useRef(true);
 
   const [onboardingDrafts, setOnboardingDrafts] = useState<
     Record<string, string>
@@ -1065,15 +1078,24 @@ export function JdAppliedCandidatesPipeline({
     },
   });
 
-  const ROWS_PER_PAGE = 50;
+  const [pageSize, setPageSize] = useState(10);
+
+  const handlePageSizeChange = useCallback((size: number) => {
+    setPageSize(size);
+    setPage(1);
+  }, [setPage]);
 
   useEffect(() => {
     setSelected(new Set());
   }, [dbRows]);
 
   useEffect(() => {
+    if (skipInitialPageResetRef.current) {
+      skipInitialPageResetRef.current = false;
+      return;
+    }
     setPage(1);
-  }, [query, statusFilter, uploadDateRange]);
+  }, [debouncedQuery, statusFilter, uploadDateRange]);
 
   // If the selected filter's stage/sub-stage was removed by a JD pipeline
   // edit (stale composite id), reset to "all" instead of silently showing
@@ -1091,52 +1113,99 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [uploadDateRange]);
 
-  const filteredRows = useMemo(() => {
-    let rows = [...dbRows];
-    rows.sort((a, b) => uploadSortKey(b) - uploadSortKey(a));
-
-    const q = query.trim();
-    const sf = statusFilter;
-    rows = rows.filter((r) => rowMatchesSearch(r, q));
-    rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
-    if (sf !== "all") {
-      rows = rows.filter((r) => {
-        const resolved = resolveRow(r);
-        if (!resolved.stageMappingId || !resolved.subStateId) return false;
-        return (
-          stageSubStageOptionKey(resolved.stageMappingId, resolved.subStateId) ===
-          sf
-        );
-      });
+  // Stage-count summary row: derived from the full `dbRows` (all=true, every
+  // candidate for this JD) fetch, filtered by search/date only — not by the
+  // stage/sub-stage filter itself, so selecting one stage doesn't zero out
+  // every other stage's card.
+  const statsSourceRows = useMemo(() => {
+    let rows = dbRows;
+    if (debouncedQuery.trim()) {
+      rows = rows.filter((r) => rowMatchesSearch(r, debouncedQuery));
     }
+    rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
     return rows;
-  }, [dbRows, query, statusFilter, uploadDateRange, resolveRow]);
+  }, [dbRows, debouncedQuery, uploadDateRange]);
 
   const stageMappingCounts = useMemo(
     () =>
       countByStageMappingId(
-        filteredRows.map((r) => resolveRow(r).stageMappingId),
+        statsSourceRows.map((r) => resolveRow(r).stageMappingId),
         stageMappings,
       ),
-    [filteredRows, resolveRow, stageMappings],
+    [statsSourceRows, resolveRow, stageMappings],
   );
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredRows.length / ROWS_PER_PAGE),
-  );
+  // The rendered table is its own backend-paginated query (scoped by
+  // jobDescriptionId + the same filters, including the stage/sub-stage
+  // filter), independent of the `dbRows` full fetch used for stats above.
+  const [pageRows, setPageRows] = useState<CandidateDbRow[]>([]);
+  const [pageTotal, setPageTotal] = useState(0);
+  const [pageLoadState, setPageLoadState] = useState<
+    "loading" | "error" | "ok"
+  >("loading");
+
+  const fetchPage = useCallback(async () => {
+    setPageLoadState((s) => (s === "ok" ? "ok" : "loading"));
+    try {
+      const h = await getSessionAuthorizationHeaders(supabase);
+      const params = buildCandidatesListSearchParams({
+        jobDescriptionId,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        q: debouncedQuery.trim() || undefined,
+        uploadFrom: uploadDateRange?.start.toString(),
+        uploadTo: uploadDateRange?.end.toString(),
+        stageMappingId: selectedFilterOption?.stageMapping.id,
+        subStateId: selectedFilterOption?.subStage.id,
+        legacyStatus: selectedFilterOption?.legacyStatus ?? undefined,
+        contactFieldsOnly: true,
+      });
+      const res = await fetch(`/api/admin/candidates?${params}`, {
+        credentials: "include",
+        headers: { ...h },
+      });
+      if (!res.ok) {
+        setPageLoadState("error");
+        return;
+      }
+      const json = (await res.json()) as {
+        candidates?: CandidateDbRow[];
+        pagination?: { total: number };
+      };
+      setPageRows(json.candidates ?? []);
+      setPageTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
+      setPageLoadState("ok");
+    } catch {
+      setPageLoadState("error");
+    }
+  }, [
+    supabase,
+    jobDescriptionId,
+    page,
+    debouncedQuery,
+    uploadDateRange,
+    selectedFilterOption,
+    pageSize,
+  ]);
+
+  useEffect(() => {
+    void fetchPage();
+  }, [fetchPage]);
+
+  const paginatedRows = pageRows;
+  const totalPages = Math.max(1, Math.ceil(pageTotal / pageSize));
   const safePage = Math.min(page, totalPages);
-  const paginatedRows = useMemo(
-    () =>
-      filteredRows.slice(
-        (safePage - 1) * ROWS_PER_PAGE,
-        safePage * ROWS_PER_PAGE,
-      ),
-    [filteredRows, safePage],
-  );
-  const startIdx =
-    filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
+  const startIdx = pageTotal === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const endIdx = startIdx === 0 ? 0 : startIdx - 1 + paginatedRows.length;
+
+  const tableLoadState: "loading" | "error" | "empty" | "data" =
+    loadState === "loading" || pageLoadState === "loading"
+      ? "loading"
+      : loadState === "error" || pageLoadState === "error"
+        ? "error"
+        : paginatedRows.length === 0
+          ? "empty"
+          : "data";
 
   const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
@@ -1465,9 +1534,9 @@ export function JdAppliedCandidatesPipeline({
         }
       }}
       placeholder="All statuses"
-      className="w-48"
+      className="w-full"
     >
-      <Label className="sr-only">Status</Label>
+      <Label className="mb-1 block text-xs font-semibold text-muted">Status</Label>
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {statusFilter !== "all" && selectedFilterOption ? (
           selectedFilterOption.legacyStatus ? (
@@ -1525,11 +1594,13 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const dateRangeElement = (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-1.5">
+      <Label className="text-xs font-semibold text-muted">Upload date</Label>
+      <div className="flex items-center gap-2">
       <DateRangePicker
         value={uploadDateRange as any}
         onChange={(next) => setUploadDateRange(next as any)}
-        className="w-56"
+        className="w-full"
       >
         <DateField.Group
           fullWidth
@@ -1631,6 +1702,7 @@ export function JdAppliedCandidatesPipeline({
           Clear
         </Button>
       )}
+      </div>
     </div>
   );
 
@@ -1699,12 +1771,27 @@ export function JdAppliedCandidatesPipeline({
       <DataTableToolbar
         searchQuery={query}
         onSearchChange={setQuery}
-        searchPlaceholder="Search by name, position, or skill…"
-        filters={filtersElement}
-        dateRange={dateRangeElement}
-        onRefresh={() => onRefetch(false)}
-        isRefreshing={loadState === "loading"}
+        searchPlaceholder="Search by name, role, school, or degree…"
+        filters={
+          <DataTableFilterButton
+            onPress={filterModal.open}
+            activeCount={activeFilterCount}
+          />
+        }
+        onRefresh={() => {
+          onRefetch(false);
+          void fetchPage();
+        }}
+        isRefreshing={loadState === "loading" || pageLoadState === "loading"}
       />
+      <DataTableFilterModal
+        isOpen={filterModal.isOpen}
+        onOpenChange={filterModal.setOpen}
+        onClear={activeFilterCount > 0 ? clearAllFilters : undefined}
+      >
+        {filtersElement}
+        {dateRangeElement}
+      </DataTableFilterModal>
 
       {bulkActionsElement}
 
@@ -1735,16 +1822,16 @@ export function JdAppliedCandidatesPipeline({
             </Table.Header>
             <Table.Body
               key={
-                loadState === "loading"
+                tableLoadState === "loading"
                   ? "pipeline-table-loading"
-                  : loadState === "error"
+                  : tableLoadState === "error"
                     ? "pipeline-table-error"
-                    : loadState === "ok" && dbRows.length === 0
+                    : tableLoadState === "empty"
                       ? "pipeline-table-empty"
                       : "pipeline-table-data"
               }
             >
-              {loadState === "loading" ? (
+              {tableLoadState === "loading" ? (
                 <Table.Row id="pipeline-row-loading">
                   <Table.Cell
                     className="py-8 text-center text-muted"
@@ -1753,7 +1840,7 @@ export function JdAppliedCandidatesPipeline({
                     Loading…
                   </Table.Cell>
                 </Table.Row>
-              ) : loadState === "error" ? (
+              ) : tableLoadState === "error" ? (
                 <Table.Row id="pipeline-row-error">
                   <Table.Cell className="py-8 text-center" colSpan={11}>
                     <div className="flex flex-col items-center gap-2">
@@ -1763,14 +1850,17 @@ export function JdAppliedCandidatesPipeline({
                       <Button
                         variant="secondary"
                         size="sm"
-                        onPress={() => onRefetch()}
+                        onPress={() => {
+                          onRefetch();
+                          void fetchPage();
+                        }}
                       >
                         Retry load
                       </Button>
                     </div>
                   </Table.Cell>
                 </Table.Row>
-              ) : loadState === "ok" && dbRows.length === 0 ? (
+              ) : tableLoadState === "empty" && dbRows.length === 0 ? (
                 <Table.Row id="pipeline-row-empty">
                   <Table.Cell
                     className="py-8 text-center text-muted"
@@ -1780,7 +1870,7 @@ export function JdAppliedCandidatesPipeline({
                     applicants from the Candidates page or the JD pipeline.
                   </Table.Cell>
                 </Table.Row>
-              ) : (
+              ) : tableLoadState === "empty" ? null : (
                 paginatedRows.map((r) => (
                   <PipelineTableRow
                     key={r.id}
@@ -1811,19 +1901,21 @@ export function JdAppliedCandidatesPipeline({
         </Table.ScrollContainer>
       </Table>
 
-      {filteredRows.length > 0 ? (
+      {pageTotal > 0 ? (
         <DataTablePagination
           page={safePage}
           totalPages={totalPages}
           setPage={setPage}
           startIdx={startIdx}
           endIdx={endIdx}
-          totalCount={filteredRows.length}
+          totalCount={pageTotal}
           itemTypeLabel="candidates"
+          pageSize={pageSize}
+          setPageSize={handlePageSizeChange}
         />
       ) : null}
 
-      {filteredRows.length === 0 ? (
+      {pageTotal === 0 && tableLoadState !== "loading" ? (
         <p className="text-center text-sm text-muted">
           No candidates match the current filters.
         </p>

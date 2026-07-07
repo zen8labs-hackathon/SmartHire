@@ -11,7 +11,12 @@ import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-vers
 import { CANDIDATES_LIST_DEFAULT_LIMIT } from "@/lib/candidates/candidates-list-query";
 import { useCandidatePipelineState } from "@/components/admin/candidates/use-candidate-pipeline-state";
 import { DataTableStats } from "@/components/admin/shell/table-system";
-import { Users as UsersIcon, Layers as LayersIcon, Clock as ClockIcon, CheckCircle2 as CheckIcon } from "lucide-react";
+import {
+  Users as UsersIcon,
+  Layers as LayersIcon,
+  Clock as ClockIcon,
+  CheckCircle2 as CheckIcon,
+} from "lucide-react";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
@@ -68,6 +73,7 @@ export const CandidatePipelineDashboard = forwardRef<
     filteredRows,
     listTotal,
     listPageSize,
+    changeListPageSize,
     tableSourceRows,
     activeDbRow,
     noResultsForUploadDate,
@@ -141,34 +147,39 @@ export const CandidatePipelineDashboard = forwardRef<
   const safePage = Math.min(page, totalPages);
   const pageSize = listPageSize || CANDIDATES_LIST_DEFAULT_LIMIT;
   const paginatedRows = filteredRows;
-  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const endIdx = filteredRows.length === 0 ? 0 : startIdx - 1 + filteredRows.length;
+  const startIdx =
+    filteredRows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const endIdx =
+    filteredRows.length === 0 ? 0 : startIdx - 1 + filteredRows.length;
 
   const candidateStats = [
     {
-      label: "Talent Pool",
+      label: "Candidates",
       value: tableSourceRows.length,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
-      description: "Total uploaded CVs"
+      description: "Total uploaded CVs",
     },
     {
       label: "Experienced staff",
-      value: tableSourceRows.filter((r) => (r.experienceYears ?? 0) >= 5).length,
+      value: tableSourceRows.filter((r) => (r.experienceYears ?? 0) >= 5)
+        .length,
       icon: <LayersIcon className="h-4.5 w-4.5" />,
-      description: "5+ years of experience"
+      description: "5+ years of experience",
     },
     {
       label: "Screened CVs",
-      value: tableSourceRows.filter((r) => r.status.toUpperCase() !== "NEW").length,
+      value: tableSourceRows.filter((r) => r.status.toUpperCase() !== "NEW")
+        .length,
       icon: <ClockIcon className="h-4.5 w-4.5 text-accent" />,
-      description: "In review or further stages"
+      description: "In review or further stages",
     },
     {
       label: "Offers Extended",
-      value: tableSourceRows.filter((r) => r.status.toUpperCase() === "OFFER").length,
+      value: tableSourceRows.filter((r) => r.status.toUpperCase() === "OFFER")
+        .length,
       icon: <CheckIcon className="h-4.5 w-4.5 text-success" />,
-      description: "Hiring final stages"
-    }
+      description: "Hiring final stages",
+    },
   ];
 
   return (
@@ -223,6 +234,8 @@ export const CandidatePipelineDashboard = forwardRef<
         startIdx={startIdx}
         endIdx={endIdx}
         listTotal={listTotal}
+        pageSize={listPageSize}
+        setPageSize={changeListPageSize}
       />
 
       {activeRow ? (
@@ -282,7 +295,11 @@ export const CandidatePipelineDashboard = forwardRef<
               </p>
             </AlertDialog.Body>
             <AlertDialog.Footer>
-              <Button slot="close" variant="tertiary" isDisabled={deleteInProgress}>
+              <Button
+                slot="close"
+                variant="tertiary"
+                isDisabled={deleteInProgress}
+              >
                 Cancel
               </Button>
               <Button

@@ -26,10 +26,12 @@ export type CandidatePipelineTableProps = {
   onDeleteRequest: (row: CandidateRow) => void;
   page: number;
   totalPages: number;
-  setPage: (updater: number | ((p: number) => number)) => void;
+  setPage: (page: number) => void;
   startIdx: number;
   endIdx: number;
   listTotal: number;
+  pageSize: number;
+  setPageSize: (size: number) => void;
 };
 
 function CandidatePipelineTableImpl({
@@ -45,11 +47,9 @@ function CandidatePipelineTableImpl({
   startIdx,
   endIdx,
   listTotal,
+  pageSize,
+  setPageSize,
 }: CandidatePipelineTableProps) {
-  const handleSetPage = (nextPage: number) => {
-    setPage(nextPage);
-  };
-
   return (
     <div className="space-y-4 font-sans">
       <Table>
@@ -191,11 +191,13 @@ function CandidatePipelineTableImpl({
       <DataTablePagination
         page={page}
         totalPages={totalPages}
-        setPage={handleSetPage}
+        setPage={setPage}
         startIdx={startIdx}
         endIdx={endIdx}
         totalCount={listTotal}
         itemTypeLabel="candidates"
+        pageSize={pageSize}
+        setPageSize={setPageSize}
       />
     </div>
   );

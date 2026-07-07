@@ -30,15 +30,15 @@ export function CandidatePipelineDashboardLoader({
   return (
     <div className="flex flex-col gap-6 font-sans">
       <PageHeader
-        title="Active Talent Pool"
+        title="Active Candidates"
         description="Search, filter, and screen candidate resume profiles."
       />
 
       <SuspenseErrorBoundary fallback={<CandidatesErrorFallback />}>
-        <Suspense fallback={<DataTableSkeleton columnsCount={6} rowsCount={5} />}>
-          <CandidatePipelineDashboard
-            candidatesPromise={candidatesPromise}
-          />
+        <Suspense
+          fallback={<DataTableSkeleton columnsCount={6} rowsCount={5} />}
+        >
+          <CandidatePipelineDashboard candidatesPromise={candidatesPromise} />
         </Suspense>
       </SuspenseErrorBoundary>
     </div>

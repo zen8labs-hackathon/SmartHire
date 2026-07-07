@@ -49,6 +49,56 @@ describe("parseCandidatesListQuery", () => {
     const { query } = parseCandidatesListQuery(new URLSearchParams());
     expect(query.contactFieldsOnly).toBe(false);
   });
+
+  it("parses stageMappingId/subStateId/legacyStatus when all three are valid", () => {
+    const stageMappingId = "11111111-1111-4111-8111-111111111111";
+    const subStateId = "22222222-2222-4222-8222-222222222222";
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({
+        stageMappingId,
+        subStateId,
+        legacyStatus: "Interview",
+      }),
+    );
+    expect(query.stageMappingId).toBe(stageMappingId);
+    expect(query.subStateId).toBe(subStateId);
+    expect(query.legacyStatus).toBe("Interview");
+  });
+
+  it("drops subStateId/legacyStatus when stageMappingId is missing or invalid", () => {
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({
+        subStateId: "22222222-2222-4222-8222-222222222222",
+        legacyStatus: "Interview",
+      }),
+    );
+    expect(query.stageMappingId).toBeUndefined();
+    expect(query.subStateId).toBeUndefined();
+    expect(query.legacyStatus).toBeUndefined();
+  });
+
+  it("rejects a non-UUID stageMappingId/subStateId", () => {
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({
+        stageMappingId: "not-a-uuid",
+        subStateId: "also-not-a-uuid",
+      }),
+    );
+    expect(query.stageMappingId).toBeUndefined();
+    expect(query.subStateId).toBeUndefined();
+  });
+
+  it("rejects a legacyStatus value that isn't a known CandidateStatus", () => {
+    const stageMappingId = "11111111-1111-4111-8111-111111111111";
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({
+        stageMappingId,
+        subStateId: "22222222-2222-4222-8222-222222222222",
+        legacyStatus: "status),or(is_active.eq.true",
+      }),
+    );
+    expect(query.legacyStatus).toBeUndefined();
+  });
 });
 
 describe("buildCandidatesListSearchParams", () => {
@@ -80,5 +130,21 @@ describe("buildCandidatesListSearchParams", () => {
   it("omits contactFields when contactFieldsOnly is not set", () => {
     const params = buildCandidatesListSearchParams({ all: true });
     expect(params.get("contactFields")).toBeNull();
+  });
+
+  it("round-trips stageMappingId/subStateId/legacyStatus", () => {
+    const params = buildCandidatesListSearchParams({
+      all: true,
+      stageMappingId: "11111111-1111-4111-8111-111111111111",
+      subStateId: "22222222-2222-4222-8222-222222222222",
+      legacyStatus: "Interview",
+    });
+    expect(params.get("stageMappingId")).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
+    expect(params.get("subStateId")).toBe(
+      "22222222-2222-4222-8222-222222222222",
+    );
+    expect(params.get("legacyStatus")).toBe("Interview");
   });
 });

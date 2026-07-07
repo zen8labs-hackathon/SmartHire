@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Candidates | Smart Hire Admin",
-  description: "View active talent pool, CV uploads, and pipeline statuses.",
+  description: "View active candidates, CV uploads, and pipeline statuses.",
 };
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
@@ -28,7 +28,7 @@ async function getInitialCandidates(
   supabase: SupabaseServerClient,
 ): Promise<InitialCandidatesData> {
   const result = await queryDedupedCandidatesList(supabase, {
-    limit: 50,
+    limit: 10,
     offset: 0,
   });
   if (result.error) throw new Error(result.error);

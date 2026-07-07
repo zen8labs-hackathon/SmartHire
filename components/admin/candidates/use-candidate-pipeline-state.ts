@@ -36,6 +36,8 @@ import {
 } from "@/lib/candidates/pipeline-allowed-transitions";
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { createClient } from "@/lib/supabase/client";
+import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 
 type JobOpeningFilterOption = {
   id: string;
@@ -77,8 +79,12 @@ export function useCandidatePipelineState(
   const initialListTotal = options.initialListTotal;
   const deduped = options.deduped ?? false;
   const supabase = useMemo(() => createClient(), []);
-  const [page, setPage] = useState(1);
+  const [urlPage, setUrlPage] = usePageQueryParam();
+  const [localPage, setLocalPage] = useState(1);
+  const page = listMode === "page" ? urlPage : localPage;
+  const setPage = listMode === "page" ? setUrlPage : setLocalPage;
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 350);
   const [statusKey, setStatusKey] = useState<Key | null>("all");
   const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
   const [uploadDateRangeFilter, setUploadDateRangeFilter] =
@@ -111,10 +117,17 @@ export function useCandidatePipelineState(
   const [listTotal, setListTotal] = useState(
     initialListTotal ?? initialRows?.length ?? 0,
   );
+  const [listPageSize, setListPageSize] = useState(10);
+
+  const changeListPageSize = useCallback((size: number) => {
+    setListPageSize(size);
+    setPage(1);
+  }, [setPage]);
 
   const pendingRealtimeRef = useRef<CandidatesRealtimeChange[]>([]);
   const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
+  const skipInitialPageResetRef = useRef(true);
 
   const buildListQuery = useCallback((): CandidatesListQuery => {
     const uploadFrom = uploadDateRangeFilter?.start.toString();
@@ -123,7 +136,7 @@ export function useCandidatePipelineState(
       statusKey != null && statusKey !== "all" ? String(statusKey) : undefined;
     const jobOpeningId =
       jdFilterKey != null && jdFilterKey !== "all" ? String(jdFilterKey) : undefined;
-    const q = query.trim() || undefined;
+    const q = debouncedQuery.trim() || undefined;
 
     if (listMode === "all") {
       return {
@@ -137,8 +150,8 @@ export function useCandidatePipelineState(
     }
 
     return {
-      limit: CANDIDATES_LIST_DEFAULT_LIMIT,
-      offset: (page - 1) * CANDIDATES_LIST_DEFAULT_LIMIT,
+      limit: listPageSize,
+      offset: (page - 1) * listPageSize,
       status,
       jobOpeningId,
       uploadFrom,
@@ -146,12 +159,13 @@ export function useCandidatePipelineState(
       q,
     };
   }, [
+    debouncedQuery,
     jdFilterKey,
     listMode,
     page,
-    query,
     statusKey,
     uploadDateRangeFilter,
+    listPageSize,
   ]);
 
   const fetchCandidates = useCallback(async () => {
@@ -289,16 +303,21 @@ export function useCandidatePipelineState(
     () =>
       JSON.stringify({
         listMode,
-        query,
+        query: debouncedQuery,
         statusKey,
         jdFilterKey,
         uploadFrom: uploadDateRangeFilter?.start.toString() ?? null,
         uploadTo: uploadDateRangeFilter?.end.toString() ?? null,
+        listPageSize,
       }),
-    [jdFilterKey, listMode, query, statusKey, uploadDateRangeFilter],
+    [debouncedQuery, jdFilterKey, listMode, statusKey, uploadDateRangeFilter, listPageSize],
   );
 
   useEffect(() => {
+    if (skipInitialPageResetRef.current) {
+      skipInitialPageResetRef.current = false;
+      return;
+    }
     setPage(1);
   }, [listFilterKey]);
 
@@ -665,7 +684,8 @@ export function useCandidatePipelineState(
     dbLoadState,
     fetchCandidates,
     listTotal,
-    listPageSize: CANDIDATES_LIST_DEFAULT_LIMIT,
+    listPageSize,
+    changeListPageSize,
     listMode,
     tableSourceRows,
     statusFilterOptions,

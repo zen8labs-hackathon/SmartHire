@@ -89,7 +89,8 @@ function snapshotFromDb(db: CandidateDbRow): CandidateProfileFormSnapshot {
     experienceYears = Math.min(80, Math.max(0, Math.round(expRaw)));
   } else if (typeof expRaw === "string" && expRaw.trim() !== "") {
     const n = Number(expRaw);
-    if (Number.isFinite(n)) experienceYears = Math.min(80, Math.max(0, Math.round(n)));
+    if (Number.isFinite(n))
+      experienceYears = Math.min(80, Math.max(0, Math.round(n)));
   } else if (p.experienceYears != null) {
     experienceYears = Math.min(80, Math.max(0, Math.round(p.experienceYears)));
   }
@@ -257,7 +258,10 @@ export function CandidateProfileEditSection({
       const summaryTrim = changeSummary.trim();
       const patchBody: Record<string, unknown> = { ...rawPatch };
       if (summaryTrim.length > 0) {
-        patchBody.change_summary = summaryTrim.slice(0, PROFILE_CHANGE_SUMMARY_MAX);
+        patchBody.change_summary = summaryTrim.slice(
+          0,
+          PROFILE_CHANGE_SUMMARY_MAX,
+        );
       }
       const res = await fetch(`/api/admin/candidates/${candidateId}/profile`, {
         method: "PATCH",
@@ -329,7 +333,7 @@ export function CandidateProfileEditSection({
         </Card.Header>
         <Card.Content className="px-4 py-4 sm:px-6 sm:py-5">
           <p className="text-sm text-muted">
-            Close this panel, refresh the talent pool, and open the candidate
+            Close this panel, refresh the candidates, and open the candidate
             with the latest CV to update name, skills, or contact fields.
           </p>
         </Card.Content>
