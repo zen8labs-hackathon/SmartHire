@@ -14,12 +14,13 @@ import {
   Calendar,
   Clock,
   User,
-  ArrowRight
+  ArrowRight,
 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Admin Dashboard | Smart Hire Admin",
-  description: "Central workspace management, audit logs, and recruiting analytics.",
+  description:
+    "Central workspace management, audit logs, and recruiting analytics.",
 };
 
 export const dynamic = "force-dynamic";
@@ -55,12 +56,21 @@ export default async function AdminPage() {
   const supabase = await createClient();
 
   // 1. Fetch counts for statistics
-  const [candidatesCountRes, jobsCountRes, usersCountRes, pipelinesCountRes] = await Promise.all([
-    supabase.from("candidates").select("id", { count: "exact", head: true }).eq("is_active", true),
-    supabase.from("job_descriptions").select("id", { count: "exact", head: true }),
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("pipeline_stages").select("id", { count: "exact", head: true }).is("deleted_at", null)
-  ]);
+  const [candidatesCountRes, jobsCountRes, usersCountRes, pipelinesCountRes] =
+    await Promise.all([
+      supabase
+        .from("candidates")
+        .select("id", { count: "exact", head: true })
+        .eq("is_active", true),
+      supabase
+        .from("job_descriptions")
+        .select("id", { count: "exact", head: true }),
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase
+        .from("pipeline_stages")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null),
+    ]);
 
   const totalCandidates = candidatesCountRes.count ?? 0;
   const totalJobs = jobsCountRes.count ?? 0;
@@ -78,7 +88,7 @@ export default async function AdminPage() {
     id: j.id,
     position: j.position,
     status: j.status ?? "draft",
-    created_at: j.created_at
+    created_at: j.created_at,
   }));
 
   // 3. Fetch 5 recent candidates
@@ -89,13 +99,15 @@ export default async function AdminPage() {
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .limit(5);
 
-  const recentCandidates: RecentCandidate[] = (recentCandidatesRaw ?? []).map((c: any) => ({
-    id: c.id,
-    name: c.name,
-    role: c.role,
-    status: c.status,
-    cv_uploaded_at: c.cv_uploaded_at
-  }));
+  const recentCandidates: RecentCandidate[] = (recentCandidatesRaw ?? []).map(
+    (c: any) => ({
+      id: c.id,
+      name: c.name || "Candidate",
+      role: c.role,
+      status: c.status || "",
+      cv_uploaded_at: c.cv_uploaded_at,
+    }),
+  );
 
   // 4. Fetch 5 recent activities/audit events
   const { data: versionEventsRaw } = await supabase
@@ -109,13 +121,18 @@ export default async function AdminPage() {
     event_type: e.event_type,
     change_summary: e.change_summary,
     created_at: e.created_at,
-    candidate_name: e.candidates?.name
+    candidate_name: e.candidates?.name,
   }));
 
   const getEventDescription = (event: AuditEvent) => {
-    const time = new Date(event.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    const target = event.candidate_name ? `for candidate "${event.candidate_name}"` : "";
-    
+    const time = new Date(event.created_at).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const target = event.candidate_name
+      ? `for candidate "${event.candidate_name}"`
+      : "";
+
     if (event.event_type === "profile_edit") {
       return `Edited profile details ${target}: ${event.change_summary || "updated fields"}`;
     }
@@ -129,7 +146,10 @@ export default async function AdminPage() {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString([], { month: "short", day: "numeric" });
+    return new Date(dateStr).toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
   };
 
   return (
@@ -175,7 +195,10 @@ export default async function AdminPage() {
             title="Recent Jobs"
             description="Newly created or updated job openings."
             actions={
-              <Link href="/admin/jd" className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5">
+              <Link
+                href="/admin/jd"
+                className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5"
+              >
                 View all <ArrowRight className="h-3 w-3" />
               </Link>
             }
@@ -187,9 +210,15 @@ export default async function AdminPage() {
                 </div>
               ) : (
                 recentJobs.map((job) => (
-                  <div key={job.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                  <div
+                    key={job.id}
+                    className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+                  >
                     <div className="min-w-0">
-                      <Link href={`/admin/jd`} className="text-sm font-semibold text-foreground hover:text-accent truncate block">
+                      <Link
+                        href={`/admin/jd`}
+                        className="text-sm font-semibold text-foreground hover:text-accent truncate block"
+                      >
                         {job.position}
                       </Link>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted">
@@ -197,11 +226,13 @@ export default async function AdminPage() {
                         <span>{formatDate(job.created_at)}</span>
                       </div>
                     </div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                      job.status === "active"
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                        : "bg-surface-tertiary text-muted border border-divider"
-                    }`}>
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                        job.status === "active"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-surface-tertiary text-muted border border-divider"
+                      }`}
+                    >
                       {job.status}
                     </span>
                   </div>
@@ -217,7 +248,10 @@ export default async function AdminPage() {
             title="Recent Candidates"
             description="Latest applicant CV uploads and parses."
             actions={
-              <Link href="/admin/candidates" className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5">
+              <Link
+                href="/admin/candidates"
+                className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5"
+              >
                 View pool <ArrowRight className="h-3 w-3" />
               </Link>
             }
@@ -229,18 +263,25 @@ export default async function AdminPage() {
                 </div>
               ) : (
                 recentCandidates.map((cand) => (
-                  <div key={cand.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                  <div
+                    key={cand.id}
+                    className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
+                  >
                     <div className="min-w-0 flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-secondary text-xs font-bold text-foreground border border-divider shrink-0">
-                        {cand.name.slice(0, 2).toUpperCase()}
+                        {(cand?.name || "Candidate").slice(0, 2).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">{cand.name}</p>
-                        <p className="text-xs text-muted truncate mt-0.5">{cand.role || "Role unspecified"}</p>
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {cand.name}
+                        </p>
+                        <p className="text-xs text-muted truncate mt-0.5">
+                          {cand.role || "Role unspecified"}
+                        </p>
                       </div>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wide bg-accent/15 text-accent px-2 py-0.5 rounded-full shrink-0">
-                      {cand.status.replace("_", " ")}
+                      {cand.status ? cand.status.replace("_", " ") : ""}
                     </span>
                   </div>
                 ))
@@ -259,7 +300,9 @@ export default async function AdminPage() {
               {auditEvents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center text-muted gap-2">
                   <Activity className="h-8 w-8 text-muted/50" />
-                  <p className="text-sm font-medium">No recent CV edits or version changes recorded.</p>
+                  <p className="text-sm font-medium">
+                    No recent CV edits or version changes recorded.
+                  </p>
                 </div>
               ) : (
                 <div className="relative border-l-2 border-divider pl-4 ml-2 space-y-5 py-1">
@@ -267,14 +310,20 @@ export default async function AdminPage() {
                     <div key={event.id} className="relative group">
                       {/* Timeline dot */}
                       <span className="absolute -left-[21px] top-1.5 flex h-2 w-2 rounded-full bg-accent ring-4 ring-background" />
-                      
+
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                         <p className="text-sm font-semibold text-foreground">
                           {getEventDescription(event)}
                         </p>
                         <div className="flex items-center gap-1.5 text-xs text-muted shrink-0 mt-0.5 sm:mt-0 font-medium">
                           <Clock className="h-3.5 w-3.5" />
-                          <span>{formatDate(event.created_at)} at {new Date(event.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                          <span>
+                            {formatDate(event.created_at)} at{" "}
+                            {new Date(event.created_at).toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
                         </div>
                       </div>
                     </div>
