@@ -7,9 +7,19 @@ import {
   type PipelineStageRow,
 } from "@/lib/pipelines/schemas";
 
+function slugifyCode(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]+/g, "_")    // replace spaces/special chars with underscores
+    .replace(/^_+|_+$/g, "");       // trim underscores
+}
+
 type StageFormProps = {
   mode: "add" | "edit";
   initialValues: PipelineStageRow | null;
+  existingStages: PipelineStageRow[];
   onSubmit: (values: {
     code: string;
     label: string;
@@ -33,6 +43,7 @@ const PRESET_COLORS = [
 export function StageForm({
   mode,
   initialValues,
+  existingStages,
   onSubmit,
   onCancel,
   busy,
@@ -42,6 +53,13 @@ export function StageForm({
   const [desc, setDesc] = useState("");
   const [color, setColor] = useState("zinc");
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  const handleLabelChange = (val: string) => {
+    setLabel(val);
+    if (mode === "add") {
+      setCode(slugifyCode(val));
+    }
+  };
 
   // Sync initial values when editing
   useEffect(() => {
@@ -83,6 +101,16 @@ export function StageForm({
       color: trimmedColor || null,
     };
 
+    if (mode === "add") {
+      const isDuplicate = existingStages.some(
+        (s) => s.code.toLowerCase() === values.code.toLowerCase()
+      );
+      if (isDuplicate) {
+        setFieldError(`A stage with code '${values.code}' already exists.`);
+        return;
+      }
+    }
+
     // Client-side Zod validation
     const parsed = pipelineStageSchema.safeParse(values);
     if (!parsed.success) {
@@ -109,7 +137,7 @@ export function StageForm({
         isRequired
         name="label"
         value={label}
-        onChange={setLabel}
+        onChange={handleLabelChange}
         validate={(v) => (!v.trim() ? "Label is required." : null)}
         className="w-full"
       >
@@ -126,7 +154,7 @@ export function StageForm({
         name="code"
         value={code}
         onChange={setCode}
-        isDisabled={mode === "edit"}
+        isDisabled={mode === "edit" || mode === "add"}
         validate={(v) => {
           if (!v.trim()) return "Code is required.";
           if (!/^[a-z0-9_]+$/.test(v)) {
@@ -138,7 +166,7 @@ export function StageForm({
       >
         <Label className="text-xs font-semibold text-muted mb-1.5 block">Stage Code</Label>
         <Input
-          placeholder="e.g. cv_screening (no spaces)"
+          placeholder="Stage code will be auto-generated"
           className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none disabled:opacity-50"
         />
         <FieldError className="text-[10px] text-rose-500 mt-1" />

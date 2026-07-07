@@ -340,6 +340,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
               stageId={selectedStage.id}
               initialValues={editingSubStage}
               defaultSeq={nextSeq}
+              existingSubStages={subStages}
               onSubmit={handleSubStageSubmit}
               onCancel={() => setSubStageMode("list")}
               busy={busy}

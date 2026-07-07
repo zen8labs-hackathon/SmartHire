@@ -183,6 +183,7 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
           <StageForm
             mode={stageMode === "add" ? "add" : "edit"}
             initialValues={editingStage}
+            existingStages={stages}
             onSubmit={handleStageSubmit}
             onCancel={() => setStageMode("list")}
             busy={busy}

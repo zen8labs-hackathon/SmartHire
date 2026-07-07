@@ -7,11 +7,21 @@ import {
   type PipelineSubStageRow,
 } from "@/lib/pipelines/schemas";
 
+function slugifyCode(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]+/g, "_")    // replace spaces/special chars with underscores
+    .replace(/^_+|_+$/g, "");       // trim underscores
+}
+
 type SubStageFormProps = {
   mode: "add" | "edit";
   stageId: string;
   initialValues: PipelineSubStageRow | null;
   defaultSeq: number;
+  existingSubStages: PipelineSubStageRow[];
   onSubmit: (values: {
     code: string;
     label: string;
@@ -28,6 +38,7 @@ export function SubStageForm({
   stageId,
   initialValues,
   defaultSeq,
+  existingSubStages,
   onSubmit,
   onCancel,
   busy,
@@ -38,6 +49,13 @@ export function SubStageForm({
   const [isDefault, setIsDefault] = useState(false);
   const [isPassed, setIsPassed] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  const handleLabelChange = (val: string) => {
+    setLabel(val);
+    if (mode === "add") {
+      setCode(slugifyCode(val));
+    }
+  };
 
   useEffect(() => {
     if (mode === "edit" && initialValues) {
@@ -68,6 +86,16 @@ export function SubStageForm({
       is_default: isDefault,
       is_passed: isPassed,
     };
+
+    if (mode === "add") {
+      const isDuplicate = existingSubStages.some(
+        (s) => s.code.toLowerCase() === values.code.toLowerCase()
+      );
+      if (isDuplicate) {
+        setFieldError(`A sub-stage with code '${values.code}' already exists in this stage.`);
+        return;
+      }
+    }
 
     // Client-side Zod validation
     const parsed = pipelineSubStageSchema.safeParse(values);
@@ -101,7 +129,7 @@ export function SubStageForm({
         isRequired
         name="label"
         value={label}
-        onChange={setLabel}
+        onChange={handleLabelChange}
         validate={(v) => (!v.trim() ? "Label is required." : null)}
         className="w-full"
       >
@@ -118,7 +146,7 @@ export function SubStageForm({
         name="code"
         value={code}
         onChange={setCode}
-        isDisabled={mode === "edit"}
+        isDisabled={mode === "edit" || mode === "add"}
         validate={(v) => {
           if (!v.trim()) return "Code is required.";
           if (!/^[a-z0-9_]+$/.test(v)) {
