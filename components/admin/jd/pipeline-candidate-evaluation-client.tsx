@@ -22,6 +22,8 @@ type Props = {
   jobDescriptionId: number;
   jobTitle: string;
   candidate: JobPipelineCandidateRow;
+  currentUserId: string;
+  isAdmin: boolean;
 };
 
 type LatestEval = {
@@ -35,6 +37,7 @@ type InterviewNoteRow = {
   id: string;
   body: string;
   createdAt: string;
+  updatedAt: string;
   authorId: string;
   authorUsername: string | null;
 };
@@ -43,6 +46,8 @@ export function PipelineCandidateEvaluationClient({
   jobDescriptionId,
   jobTitle,
   candidate,
+  currentUserId,
+  isAdmin,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -54,6 +59,10 @@ export function PipelineCandidateEvaluationClient({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notes, setNotes] = useState<InterviewNoteRow[]>([]);
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [preInterviewNote, setPreInterviewNote] = useState("");
   const [preInterviewLoadError, setPreInterviewLoadError] = useState<
     string | null
@@ -226,6 +235,62 @@ export function PipelineCandidateEvaluationClient({
       setError("Could not save note.");
     } finally {
       setNotesBusy(false);
+    }
+  };
+
+  const startEditNote = (note: InterviewNoteRow) => {
+    setEditError(null);
+    setEditingNoteId(note.id);
+    setEditDraft(note.body);
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditDraft("");
+    setEditError(null);
+  };
+
+  const saveEditedNote = async () => {
+    if (!editingNoteId) return;
+    setEditError(null);
+    const trimmed = editDraft.trim();
+    if (trimmed.length < 2) {
+      setEditError("Enter a note with at least a couple of characters.");
+      return;
+    }
+    setEditBusy(true);
+    try {
+      const h = await authHeaders();
+      if (!h.Authorization) {
+        setEditError("Session expired. Sign in again.");
+        return;
+      }
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...h,
+          },
+          body: JSON.stringify({
+            noteId: editingNoteId,
+            body: trimmed,
+          }),
+        },
+      );
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setEditError(json.error ?? "Could not save note.");
+        return;
+      }
+      cancelEditNote();
+      await loadNotes();
+    } catch {
+      setEditError("Could not save note.");
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -560,23 +625,83 @@ export function PipelineCandidateEvaluationClient({
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3 p-0 m-0 list-none">
-                  {notes.map((n) => (
-                    <li
-                      key={n.id}
-                      className="rounded-xl border border-divider bg-surface-secondary/20 px-4 py-3 text-xs"
-                    >
-                      <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-                        {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
-                        {new Date(n.createdAt).toLocaleString(undefined, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </p>
-                      <p className="whitespace-pre-wrap text-foreground font-medium">
-                        {n.body}
-                      </p>
-                    </li>
-                  ))}
+                  {notes.map((n) => {
+                    const canEdit = isAdmin || n.authorId === currentUserId;
+                    const wasEdited =
+                      n.updatedAt &&
+                      new Date(n.updatedAt).getTime() !==
+                        new Date(n.createdAt).getTime();
+                    const isEditing = editingNoteId === n.id;
+
+                    return (
+                      <li
+                        key={n.id}
+                        className="rounded-xl border border-divider bg-surface-secondary/20 px-4 py-3 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <p className="text-[10px] font-bold text-muted uppercase tracking-wider">
+                            {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
+                            {new Date(n.createdAt).toLocaleString(undefined, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                            {wasEdited ? " · edited" : ""}
+                          </p>
+                          {canEdit && !isEditing ? (
+                            <Button
+                              variant="secondary"
+                              className="h-6 px-2 rounded-lg border border-divider text-[10px] font-bold shrink-0"
+                              onPress={() => startEditNote(n)}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
+                        </div>
+
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            {editError ? (
+                              <p
+                                className="text-xs text-rose-500 font-semibold"
+                                role="alert"
+                              >
+                                {editError}
+                              </p>
+                            ) : null}
+                            <TextField
+                              value={editDraft}
+                              onChange={setEditDraft}
+                              aria-label="Edit interview note input"
+                            >
+                              <TextArea className="min-h-[8rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent" />
+                            </TextField>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="primary"
+                                className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-bold"
+                                isDisabled={editBusy}
+                                onPress={() => void saveEditedNote()}
+                              >
+                                {editBusy ? "Saving…" : "Save"}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                                isDisabled={editBusy}
+                                onPress={cancelEditNote}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-foreground font-medium">
+                            {n.body}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

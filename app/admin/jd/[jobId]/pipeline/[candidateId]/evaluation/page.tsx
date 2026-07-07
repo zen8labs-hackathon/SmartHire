@@ -99,6 +99,8 @@ export default async function PipelineCandidateEvaluationPage({
       jobDescriptionId={Number(jd.id)}
       jobTitle={jd.position}
       candidate={candidate}
+      currentUserId={user.id}
+      isAdmin={access.isAdmin}
     />
   );
 }
