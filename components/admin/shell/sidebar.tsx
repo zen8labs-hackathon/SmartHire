@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@heroui/react";
 import { UserModal } from "./user-modal";
+import { signOut } from "@/app/auth/actions";
 import {
   LayoutDashboard,
   Users,
@@ -14,37 +15,63 @@ import {
   Compass,
   FileSpreadsheet,
   Settings,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  Loader2,
 } from "lucide-react";
+import Image from "next/image";
 
 export type SidebarProps = {
   userEmail: string;
   isHr: boolean;
   workChapter: string | null;
   chapterIds: string[];
+  collapsed?: boolean;
 };
 
-export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarProps) {
+export function Sidebar({
+  userEmail,
+  isHr,
+  workChapter,
+  chapterIds,
+  collapsed = false,
+}: SidebarProps) {
   const pathname = usePathname();
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
+  const [isPendingSignOut, startSignOutTransition] = useTransition();
+
+  const handleSignOut = () => {
+    startSignOutTransition(async () => {
+      await signOut();
+    });
+  };
 
   // Helper to check if link is active
   const isLinkActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
     if (href === "/admin") return pathname === "/admin";
-    if (href === "/admin/users") return pathname === "/admin/users" || pathname.startsWith("/admin/users/");
-    if (href === "/admin/candidates") return pathname === "/admin/candidates" || pathname.startsWith("/admin/candidates/");
-    if (href === "/admin/jd") return pathname === "/admin/jd" || pathname.startsWith("/admin/jd/");
+    if (href === "/admin/users")
+      return (
+        pathname === "/admin/users" || pathname.startsWith("/admin/users/")
+      );
+    if (href === "/admin/candidates")
+      return (
+        pathname === "/admin/candidates" ||
+        pathname.startsWith("/admin/candidates/")
+      );
+    if (href === "/admin/jd")
+      return pathname === "/admin/jd" || pathname.startsWith("/admin/jd/");
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
   const navLinkClass = (active: boolean) =>
     cn(
       "flex items-center gap-2.5 rounded-xl py-2 px-3 text-sm font-medium transition-all duration-150 cursor-pointer",
+      collapsed && "justify-center px-0",
       active
         ? "bg-accent/10 text-accent dark:bg-accent/15"
-        : "text-muted hover:bg-surface-secondary hover:text-foreground"
+        : "text-muted hover:bg-surface-secondary hover:text-foreground",
     );
 
   const roleText = isHr ? "HR" : "Recruiter";
@@ -54,57 +81,93 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
   const initials = displayName.slice(0, 2).toUpperCase();
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-divider bg-surface-primary px-4 py-5 font-sans h-full">
+    <aside
+      className={cn(
+        "flex shrink-0 flex-col border-r border-divider bg-surface-primary py-5 font-sans h-full transition-all duration-200 overflow-hidden",
+        collapsed ? "w-[68px] px-2" : "w-64 px-4",
+      )}
+    >
       {/* Header / Logo */}
       <Link
         href="/dashboard"
-        className="flex items-center gap-2.5 px-3 py-1 mb-6 focus:outline-none"
+        className={cn(
+          "flex items-center gap-2.5 py-1 mb-6 focus:outline-none",
+          collapsed ? "justify-center px-0" : "px-3",
+        )}
       >
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-accent to-indigo-500 text-white shadow-sm shadow-accent/15">
-          <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white shadow-sm shadow-accent/15">
+          <Image
+            src="/logo.svg"
+            className="h-5.5 w-5.5"
+            alt="Logo"
+            width={20}
+            height={20}
+          />
         </div>
-        <span className="text-sm font-bold tracking-tight text-foreground">
-          Smart Hire
-        </span>
+        {!collapsed && (
+          <span className="text-lg font-bold tracking-tight text-foreground whitespace-nowrap">
+            Smart Hire
+          </span>
+        )}
       </Link>
 
       {/* Main Navigation */}
-      <nav className="flex-1 flex flex-col gap-5 overflow-y-auto pr-1">
+      <nav className="flex-1 flex flex-col gap-5 overflow-y-auto overflow-x-hidden pr-1">
         {/* Recruiting Group */}
         <div className="space-y-1">
-          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2">
-            Workspace
-          </p>
-          
-          <Link href="/dashboard" className={navLinkClass(isLinkActive("/dashboard"))}>
+          {!collapsed && (
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2">
+              Workspace
+            </p>
+          )}
+
+          <Link
+            href="/dashboard"
+            className={navLinkClass(isLinkActive("/dashboard"))}
+            title={collapsed ? "Dashboard" : undefined}
+          >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span>Dashboard</span>
+            {!collapsed && <span>Dashboard</span>}
           </Link>
 
           {isHr && (
-            <Link href="/admin" className={navLinkClass(isLinkActive("/admin"))}>
+            <Link
+              href="/admin"
+              className={navLinkClass(isLinkActive("/admin"))}
+              title={collapsed ? "Admin Panel" : undefined}
+            >
               <Settings className="h-4 w-4 shrink-0" />
-              <span>Admin Panel</span>
+              {!collapsed && <span>Admin Panel</span>}
             </Link>
           )}
 
-          <Link href="/admin/jd" className={navLinkClass(isLinkActive("/admin/jd"))}>
+          <Link
+            href="/admin/jd"
+            className={navLinkClass(isLinkActive("/admin/jd"))}
+            title={collapsed ? "Jobs" : undefined}
+          >
             <Briefcase className="h-4 w-4 shrink-0" />
-            <span>Jobs</span>
+            {!collapsed && <span>Jobs</span>}
           </Link>
 
           {isHr && (
             <>
-              <Link href="/admin/candidates" className={navLinkClass(isLinkActive("/admin/candidates"))}>
+              <Link
+                href="/admin/candidates"
+                className={navLinkClass(isLinkActive("/admin/candidates"))}
+                title={collapsed ? "Candidates" : undefined}
+              >
                 <FileText className="h-4 w-4 shrink-0" />
-                <span>Candidates</span>
+                {!collapsed && <span>Candidates</span>}
               </Link>
 
-              <Link href="/admin/users" className={navLinkClass(isLinkActive("/admin/users"))}>
+              <Link
+                href="/admin/users"
+                className={navLinkClass(isLinkActive("/admin/users"))}
+                title={collapsed ? "Users" : undefined}
+              >
                 <Users className="h-4 w-4 shrink-0" />
-                <span>Users</span>
+                {!collapsed && <span>Users</span>}
               </Link>
             </>
           )}
@@ -113,31 +176,52 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
         {/* Setup Group (HR Only) */}
         {isHr && (
           <div className="space-y-1">
-            <button
-              onClick={() => setSetupOpen(!setupOpen)}
-              className="flex w-full items-center justify-between px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2 hover:text-foreground transition-colors cursor-pointer"
-            >
-              <span>Setup</span>
-              <ChevronDown
-                className={cn("h-3.5 w-3.5 transition-transform duration-200", !setupOpen && "-rotate-90")}
-              />
-            </button>
+            {collapsed ? (
+              <div className="h-px bg-divider mb-2" />
+            ) : (
+              <button
+                onClick={() => setSetupOpen(!setupOpen)}
+                className="flex w-full items-center justify-between px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2 hover:text-foreground transition-colors cursor-pointer"
+              >
+                <span>Setup</span>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform duration-200",
+                    !setupOpen && "-rotate-90",
+                  )}
+                />
+              </button>
+            )}
 
-            {setupOpen && (
+            {(collapsed || setupOpen) && (
               <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
-                <Link href="/admin/pipelines" className={navLinkClass(isLinkActive("/admin/pipelines"))}>
+                <Link
+                  href="/admin/pipelines"
+                  className={navLinkClass(isLinkActive("/admin/pipelines"))}
+                  title={collapsed ? "Pipelines" : undefined}
+                >
                   <Layers className="h-4 w-4 shrink-0" />
-                  <span>Pipelines</span>
+                  {!collapsed && <span>Pipelines</span>}
                 </Link>
 
-                <Link href="/admin/chapters" className={navLinkClass(isLinkActive("/admin/chapters"))}>
+                <Link
+                  href="/admin/chapters"
+                  className={navLinkClass(isLinkActive("/admin/chapters"))}
+                  title={collapsed ? "Chapters" : undefined}
+                >
                   <Compass className="h-4 w-4 shrink-0" />
-                  <span>Chapters</span>
+                  {!collapsed && <span>Chapters</span>}
                 </Link>
 
-                <Link href="/admin/evaluation-template" className={navLinkClass(isLinkActive("/admin/evaluation-template"))}>
+                <Link
+                  href="/admin/evaluation-template"
+                  className={navLinkClass(
+                    isLinkActive("/admin/evaluation-template"),
+                  )}
+                  title={collapsed ? "Templates" : undefined}
+                >
                   <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                  <span>Templates</span>
+                  {!collapsed && <span>Templates</span>}
                 </Link>
               </div>
             )}
@@ -147,23 +231,77 @@ export function Sidebar({ userEmail, isHr, workChapter, chapterIds }: SidebarPro
 
       {/* Bottom Profile Bar */}
       <div className="mt-auto pt-4 border-t border-divider">
-        <button
-          onClick={() => setProfileModalOpen(true)}
-          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all duration-150 hover:bg-surface-secondary/60 cursor-pointer focus:outline-none"
+        <div
+          className={cn(
+            "flex items-center gap-2.5 rounded-2xl p-2.5 bg-surface-secondary border border-divider shadow-sm",
+            collapsed && "flex-col p-2",
+          )}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary border border-divider text-xs font-bold text-foreground">
-            {initials}
+          <button
+            onClick={() => setProfileModalOpen(true)}
+            aria-label="Profile settings"
+            title={collapsed ? displayName : undefined}
+            className={cn(
+              "flex min-w-0 items-center gap-3 text-left cursor-pointer focus:outline-none",
+              collapsed ? "justify-center" : "flex-1",
+            )}
+          >
+            <div className="relative shrink-0">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-accent to-indigo-500 text-white text-xs font-bold shadow-md shadow-accent/25">
+                {initials}
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-surface-secondary" />
+            </div>
+            {!collapsed && (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-bold text-foreground tracking-tight">
+                    {displayName}
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-wider",
+                      isHr
+                        ? "bg-rose-500/20 text-rose-700 dark:text-rose-300"
+                        : "bg-accent/20 text-accent-hover",
+                    )}
+                  >
+                    {roleText}
+                  </span>
+                </div>
+                <p className="truncate text-[10px] text-foreground/75 mt-1 font-semibold">
+                  {userEmail}
+                </p>
+              </div>
+            )}
+          </button>
+          <div
+            className={cn(
+              "flex items-center gap-1 shrink-0",
+              collapsed && "flex-col mt-2",
+            )}
+          >
+            {/* <button
+              onClick={() => setProfileModalOpen(true)}
+              aria-label="Settings"
+              className="shrink-0 rounded-xl p-1.5 bg-surface-tertiary border border-divider/60 text-foreground/80 hover:bg-surface-tertiary/90 hover:text-foreground cursor-pointer focus:outline-none transition-all duration-150"
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </button> */}
+            <button
+              onClick={handleSignOut}
+              disabled={isPendingSignOut}
+              aria-label="Logout"
+              className="shrink-0 rounded-xl p-1.5 bg-danger/10 text-danger hover:bg-danger/20 cursor-pointer focus:outline-none disabled:opacity-50 transition-all duration-150"
+            >
+              {isPendingSignOut ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LogOut className="h-3.5 w-3.5" />
+              )}
+            </button>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-foreground">
-              {displayName}
-            </p>
-            <p className="mt-0.5 text-[10px] text-muted font-medium uppercase tracking-wider">
-              {roleText}
-            </p>
-          </div>
-          <Settings className="h-4 w-4 text-muted/70 shrink-0 hover:text-foreground" />
-        </button>
+        </div>
       </div>
 
       {/* User Modal */}

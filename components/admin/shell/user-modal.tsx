@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect } from "react";
 import { useOverlayTriggerState } from "react-stately";
 import { Button, Input, Modal, Label } from "@heroui/react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/admin/toast-provider";
-import { signOut } from "@/app/auth/actions";
-import { Loader2, User, KeyRound, LogOut, Shield, Compass, Mail } from "lucide-react";
+import { Loader2, User, KeyRound, Shield, Compass, Mail } from "lucide-react";
 
 export type UserModalProps = {
   open: boolean;
@@ -38,8 +37,6 @@ export function UserModal({
   // Password fields
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-
-  const [isPendingSignOut, startSignOutTransition] = useTransition();
 
   // Fetch current profile details on open
   useEffect(() => {
@@ -140,12 +137,6 @@ export function UserModal({
     } finally {
       setUpdating(false);
     }
-  };
-
-  const handleSignOut = () => {
-    startSignOutTransition(async () => {
-      await signOut();
-    });
   };
 
   // Generate initials for avatar
@@ -327,25 +318,13 @@ export function UserModal({
             </Modal.Body>
 
             {/* Modal Footer */}
-            <Modal.Footer className="border-t border-divider bg-surface-secondary/40 px-6 py-4 flex items-center justify-between">
+            <Modal.Footer className="border-t border-divider bg-surface-secondary/40 px-6 py-4 flex items-center justify-end">
               <Button
                 variant="secondary"
                 onClick={() => onOpenChange(false)}
                 className="px-4 py-2 border border-divider hover:bg-surface-tertiary rounded-xl text-xs font-medium"
               >
                 Close
-              </Button>
-              <Button
-                onClick={handleSignOut}
-                className="px-4 py-2 bg-danger/10 text-danger hover:bg-danger/20 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                isDisabled={isPendingSignOut}
-              >
-                {isPendingSignOut ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <LogOut className="h-3.5 w-3.5" />
-                )}
-                Logout
               </Button>
             </Modal.Footer>
           </Modal.Dialog>

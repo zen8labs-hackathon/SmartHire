@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 
@@ -17,6 +19,8 @@ export function DashboardLayout({
   chapterIds,
   children,
 }: DashboardLayoutProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
       {/* Sidebar navigation */}
@@ -25,12 +29,18 @@ export function DashboardLayout({
         isHr={isHr}
         workChapter={workChapter}
         chapterIds={chapterIds}
+        collapsed={sidebarCollapsed}
       />
 
       {/* Main content pane */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header bar */}
-        <Header userEmail={userEmail} isHr={isHr} />
+        <Header
+          userEmail={userEmail}
+          isHr={isHr}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+        />
 
         {/* Scrollable page body */}
         <main className="flex-1 overflow-y-auto bg-surface-secondary/20 p-6 md:p-8">
