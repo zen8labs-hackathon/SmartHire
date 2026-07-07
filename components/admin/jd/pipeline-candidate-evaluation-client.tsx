@@ -13,6 +13,7 @@ import {
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
+import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { createClient } from "@/lib/supabase/client";
@@ -454,7 +455,11 @@ export function PipelineCandidateEvaluationClient({
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Pipeline Status</span>
-                <p className="font-semibold text-foreground text-sm">{candidate.status}</p>
+                {candidate.legacyStatus ? (
+                  <PipelineStatusLabel status={candidate.legacyStatus} />
+                ) : (
+                  <p className="font-semibold text-foreground text-sm">{candidate.status}</p>
+                )}
               </div>
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Education</span>

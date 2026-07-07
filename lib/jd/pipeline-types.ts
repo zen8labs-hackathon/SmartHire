@@ -1,3 +1,5 @@
+import type { CandidateStatus } from "@/lib/candidates/types";
+
 export type JobPipelineStatus =
   | "INTERVIEWING"
   | "CV SCREENING"
@@ -20,6 +22,8 @@ export type JobPipelineCandidateRow = {
   english: string;
   relatedSkills: string;
   status: JobPipelineStatus;
+  /** Raw candidate status enum, for rendering the shared `PipelineStatusLabel` badge. Not set by mock data. */
+  legacyStatus?: CandidateStatus;
   ttf?: string | null;
   tth?: string | null;
   /** Only populated server-side when the viewer is HR/admin or a chapter head. */
