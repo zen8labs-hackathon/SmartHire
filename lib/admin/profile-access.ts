@@ -70,3 +70,24 @@ export async function isProfileStaff(
   const a = await getStaffProfileAccess(supabase, userId);
   return a?.isStaff === true;
 }
+
+/**
+ * True if the caller (via `supabase`'s own session, so RLS-scoped) is a
+ * chapter *head* of a chapter granted whole-chapter viewer access on this JD.
+ * `job_description_viewer_chapters_select_own` only lets a row be read by a
+ * profile_chapters member with role = 'head' for that chapter, so a
+ * non-empty result here already proves head status — no extra join needed.
+ * Callers should still check `isHr` separately; this only covers the
+ * chapter-head branch.
+ */
+export async function isChapterHeadOnJobDescription(
+  supabase: SupabaseClient,
+  jobDescriptionId: number,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("job_description_viewer_chapters")
+    .select("chapter_id")
+    .eq("job_description_id", jobDescriptionId)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
+}

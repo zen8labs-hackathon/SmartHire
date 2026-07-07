@@ -65,5 +65,6 @@ export function candidateDbRowToEvaluationPipelineRow(
     status: candidateStatusToPipelineStatus(t.status),
     ttf: t.ttf,
     tth: t.tth,
+    expectedSalary: r.expected_salary?.trim() || null,
   };
 }

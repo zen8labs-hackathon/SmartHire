@@ -413,6 +413,14 @@ export function PipelineCandidateEvaluationClient({
             <span className="text-muted">TTH (Time to Hire)</span>
             <p className="font-medium text-foreground">{candidate.tth || "—"}</p>
           </div>
+          {candidate.expectedSalary ? (
+            <div>
+              <span className="text-muted">Expected salary</span>
+              <p className="font-medium text-foreground">
+                {candidate.expectedSalary}
+              </p>
+            </div>
+          ) : null}
           <div className="sm:col-span-2">
             <span className="text-muted">Skills</span>
             <p className="font-medium text-foreground">

@@ -66,6 +66,8 @@ export type CandidateDbRow = {
   updated_at: string;
   /** Monotonic counter for profile edits / restores on this row. */
   cv_detail_version?: number;
+  /** HR-entered free text; only fetched/exposed to HR or a chapter head (see evaluation page). */
+  expected_salary?: string | null;
 };
 
 function positionFromJdEmbed(

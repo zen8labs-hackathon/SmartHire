@@ -22,6 +22,8 @@ export type JobPipelineCandidateRow = {
   status: JobPipelineStatus;
   ttf?: string | null;
   tth?: string | null;
+  /** Only populated server-side when the viewer is HR/admin or a chapter head. */
+  expectedSalary?: string | null;
 };
 
 export type JobPipelineViewModel = {
