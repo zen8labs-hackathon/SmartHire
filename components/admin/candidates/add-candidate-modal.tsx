@@ -188,6 +188,7 @@ export function AddCandidateModal({
     CANDIDATE_SOURCE_VALUES[0],
   );
   const [sourceOther, setSourceOther] = useState("");
+  const [expectedSalary, setExpectedSalary] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [duplicateFlow, setDuplicateFlow] = useState<DuplicateFlowState | null>(
@@ -256,6 +257,7 @@ export function AddCandidateModal({
           mimeType: file.type || null,
           source: sourceKey,
           sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
+          expectedSalary: expectedSalary.trim() || null,
         }),
       });
       const signJson = (await signRes.json()) as {
@@ -338,7 +340,14 @@ export function AddCandidateModal({
         throw e;
       }
     },
-    [sessionAuthHeaders, selectedJobId, sourceKey, sourceOther, supabase],
+    [
+      sessionAuthHeaders,
+      selectedJobId,
+      sourceKey,
+      sourceOther,
+      expectedSalary,
+      supabase,
+    ],
   );
 
   const runDuplicateUpdateWithHistory = useCallback(async () => {
@@ -810,6 +819,26 @@ export function AddCandidateModal({
                           />
                         </TextField>
                       ) : null}
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Expected salary{" "}
+                        <span className="font-normal normal-case text-muted/70">
+                          (optional)
+                        </span>
+                      </Label>
+                      <TextField className="mt-2">
+                        <Input
+                          value={expectedSalary}
+                          onChange={(e) => setExpectedSalary(e.target.value)}
+                          placeholder="e.g. 18-20 triệu, negotiable…"
+                        />
+                      </TextField>
+                      <p className="mt-1.5 text-xs text-muted">
+                        Only visible to HR and the chapter head in the
+                        evaluation view.
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
