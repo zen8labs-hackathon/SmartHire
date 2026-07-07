@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card } from "@heroui/react";
 import { UsersTableWrapper } from "@/components/admin/users-table-wrapper";
 import { DataTableSkeleton } from "@/components/admin/shell/table-system";
+import { PageHeader } from "@/components/admin/shell/page-header";
 
 export const metadata: Metadata = {
   title: "Users | Smart Hire Admin",
@@ -56,15 +57,11 @@ export default async function AdminUsersPage() {
     .order("name", { ascending: true });
 
   return (
-    <div className="flex flex-col gap-8 font-sans">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Users & Access
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">
-          Manage member logins, access permissions, and roles.
-        </p>
-      </div>
+    <div className="flex flex-col gap-4 font-sans">
+      <PageHeader
+        title="Users & Access"
+        description="Manage member logins, access permissions, and roles."
+      />
 
       <Suspense fallback={<DataTableSkeleton columnsCount={2} rowsCount={4} />}>
         <TeamAccountsSection chapters={chapters ?? []} />

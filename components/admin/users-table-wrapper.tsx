@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Table, Label, ListBox, Select, useOverlayState, Modal, Button, Input, TextField } from "@heroui/react";
 import {
   DataTableToolbar,
@@ -16,6 +16,7 @@ import type {
   UsersListCounts,
   UsersRoleFilter,
 } from "@/lib/admin/users-list-query";
+import type { ChapterMembership } from "@/lib/admin/list-org-users";
 import { Users, Shield, Compass, UserCheck, Edit2, Key, Trash2 } from "lucide-react";
 import { AddUserForm, type AddUserChapterOption } from "@/components/admin/add-user-form";
 import { EditUserForm, type EditUserData } from "@/components/admin/edit-user-form";
@@ -27,6 +28,9 @@ export type OrgUser = {
   id: string;
   email: string | null;
   accessSummary: string;
+  isAdmin?: boolean;
+  workChapter?: string | null;
+  chapterMemberships?: ChapterMembership[];
 };
 
 type Pagination = { total: number; limit: number; offset: number };
@@ -45,13 +49,59 @@ const ROLE_OPTIONS: { id: UsersRoleFilter; label: string }[] = [
   { id: "dashboard", label: "Dashboard Access" },
 ];
 
+const BADGE_BASE =
+  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
+
+function RoleBadges({ user }: { user: OrgUser }) {
+  const chapterMemberships = user.chapterMemberships ?? [];
+  const isAdmin = user.isAdmin ?? user.accessSummary.toUpperCase().includes("ADMIN");
+  const isHr =
+    user.workChapter === "HR" ||
+    (user.workChapter === undefined && user.accessSummary.toUpperCase().includes("HR"));
+
+  if (!isAdmin && !isHr && chapterMemberships.length === 0) {
+    return (
+      <span className={`${BADGE_BASE} bg-surface-tertiary text-foreground border border-divider`}>
+        Dashboard only
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {isAdmin ? (
+        <span className={`${BADGE_BASE} bg-rose-500/10 text-rose-600 dark:text-rose-400`}>
+          Admin
+        </span>
+      ) : null}
+      {isHr ? (
+        <span className={`${BADGE_BASE} bg-blue-500/10 text-blue-600 dark:text-blue-400`}>
+          HR
+        </span>
+      ) : null}
+      {chapterMemberships.map((c) => (
+        <span
+          key={c.chapterId}
+          className={`${BADGE_BASE} ${
+            c.role === "head"
+              ? "bg-emerald-500 text-white"
+              : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+          }`}
+        >
+          {c.chapterName} · {c.role === "head" ? "Head" : "Member"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function UsersTableWrapper({
   initialUsers,
   initialPagination,
   initialCounts,
   chapters,
 }: UsersTableWrapperProps) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -87,13 +137,14 @@ export function UsersTableWrapper({
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Retrieve current logged in user ID to disable self-deletion
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
         setCurrentUserId(data.user.id);
       }
     });
-  }, [supabase]);
+  }, []); // supabase is stable (memoized); intentionally omitted to run once
 
   const handlePageSizeChange = useCallback((size: number) => {
     setPageSize(size);
@@ -351,13 +402,7 @@ export function UsersTableWrapper({
                         {row.email}
                       </Table.Cell>
                       <Table.Cell className="text-sm py-3.5">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          row.accessSummary.toUpperCase().includes("HR")
-                            ? "bg-accent/10 text-accent"
-                            : "bg-surface-tertiary text-foreground border border-divider"
-                        }`}>
-                          {row.accessSummary}
-                        </span>
+                        <RoleBadges user={row} />
                       </Table.Cell>
                       <Table.Cell className="py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1">
