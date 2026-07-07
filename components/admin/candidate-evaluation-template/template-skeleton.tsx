@@ -2,10 +2,7 @@ import { SectionCard } from "@/components/admin/shell/cards";
 
 export function TemplateSkeleton() {
   return (
-    <SectionCard
-      title="Template File Configuration"
-      description="One active evaluation file at a time. Maximum file size is 10 MB. PDF format only."
-    >
+    <SectionCard>
       <div className="flex flex-col gap-4 animate-pulse">
         <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary/20 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0 flex-1">

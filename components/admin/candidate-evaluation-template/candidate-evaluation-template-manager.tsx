@@ -10,7 +10,7 @@ import {
   type DragEvent,
 } from "react";
 
-import { Alert, Button, Label } from "@heroui/react";
+import { Alert, Button } from "@heroui/react";
 import { SectionCard } from "@/components/admin/shell/cards";
 import { UploadCloud, FileText, Download, Trash2, Eye } from "lucide-react";
 
@@ -182,8 +182,7 @@ export function CandidateEvaluationTemplateManager({
       .select("storage_path")
       .eq("id", 1)
       .maybeSingle();
-    const path = (row as { storage_path: string | null } | null)
-      ?.storage_path;
+    const path = (row as { storage_path: string | null } | null)?.storage_path;
     if (!path) {
       throw new Error("No file path on record.");
     }
@@ -191,7 +190,9 @@ export function CandidateEvaluationTemplateManager({
       .from(CANDIDATE_EVAL_TEMPLATE_BUCKET)
       .createSignedUrl(path, 3600);
     if (error || !signed?.signedUrl) {
-      throw new Error(error?.message ?? "Could not create link for the template.");
+      throw new Error(
+        error?.message ?? "Could not create link for the template.",
+      );
     }
     return signed.signedUrl;
   }, [supabase]);
@@ -244,21 +245,22 @@ export function CandidateEvaluationTemplateManager({
       : null;
 
   return (
-    <SectionCard
-      title="Template File Configuration"
-      description="One active evaluation file at a time. Maximum file size is 10 MB. PDF format only."
-    >
-      <div className="flex flex-col gap-4">
+    <SectionCard>
+      <div className="flex flex-col gap-5">
         {loadError ? (
-          <p className="text-sm text-danger font-semibold" role="alert">
-            {loadError}
-          </p>
+          <Alert status="danger" className="rounded-xl">
+            <Alert.Indicator />
+            <Alert.Content>
+              <Alert.Description>{loadError}</Alert.Description>
+            </Alert.Content>
+          </Alert>
         ) : null}
 
+        {/* Current file info */}
         {info?.hasFile ? (
-          <div className="flex flex-col gap-3 rounded-xl border border-divider bg-surface-secondary/40 p-4 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/5 to-indigo-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="h-10 w-10 shrink-0 flex items-center justify-center bg-accent/10 rounded-xl text-accent border border-accent/20">
+              <div className="h-11 w-11 shrink-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-indigo-500/20 rounded-xl text-accent border border-accent/20 shadow-sm shadow-accent/10">
                 <FileText className="h-5 w-5" />
               </div>
               <div className="min-w-0">
@@ -266,27 +268,50 @@ export function CandidateEvaluationTemplateManager({
                   {info.originalFilename ?? "evaluation-template.pdf"}
                 </p>
                 {updatedLabel ? (
-                  <p className="mt-1 text-muted font-medium text-[10px]">
+                  <p className="mt-0.5 text-muted font-medium text-[10px]">
                     Last updated {updatedLabel}
                   </p>
                 ) : null}
               </div>
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-8 px-3 rounded-lg border border-divider shrink-0 text-xs font-bold"
-              isDisabled={busy}
-              onPress={() => void onPreview()}
-            >
-              <Eye className="h-3.5 w-3.5 mr-1" />
-              Preview
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 px-3 rounded-xl border border-divider text-xs font-bold"
+                isDisabled={busy}
+                onPress={() => void onPreview()}
+              >
+                <Eye className="h-3.5 w-3.5 mr-1" />
+                Preview
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-8 px-3 rounded-xl border border-divider text-xs font-bold"
+                isDisabled={busy}
+                onPress={() => void onDownload()}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" />
+                Download
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                className="h-8 px-3 rounded-xl text-xs font-bold"
+                isDisabled={busy}
+                onPress={onRemove}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Remove
+              </Button>
+            </div>
           </div>
         ) : (
-          <p className="text-xs text-muted font-medium py-3 text-center bg-surface-secondary/20 rounded-xl border border-dashed border-divider">
-            No template uploaded yet.
-          </p>
+          <div className="flex items-center gap-3 rounded-xl border border-dashed border-divider bg-surface-secondary/20 px-4 py-3 text-xs text-muted font-medium">
+            <FileText className="h-4 w-4 shrink-0 text-muted/60" />
+            No evaluation template uploaded yet.
+          </div>
         )}
 
         {actionError ? (
@@ -299,12 +324,14 @@ export function CandidateEvaluationTemplateManager({
           </Alert>
         ) : null}
 
+        {/* Upload dropzone */}
         <div
           className={
             dragOver
-              ? "rounded-xl border-2 border-dashed border-accent bg-accent/5 p-8 text-center transition-colors cursor-pointer"
-              : "rounded-xl border-2 border-dashed border-divider bg-surface-secondary/10 p-8 text-center transition-colors hover:bg-surface-secondary/20 cursor-pointer"
+              ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-indigo-500/8 p-10 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
+              : "group relative rounded-2xl border-2 border-dashed border-divider bg-surface-secondary/10 p-10 text-center transition-all duration-200 hover:border-accent/40 hover:bg-surface-secondary/25 cursor-pointer"
           }
+          onClick={() => !busy && fileInputRef.current?.click()}
           onDragOver={(e: DragEvent) => {
             if (busy) return;
             e.preventDefault();
@@ -320,59 +347,49 @@ export function CandidateEvaluationTemplateManager({
             if (f) void ingestFile(f);
           }}
         >
-          <div className="flex flex-col items-center justify-center">
-            <UploadCloud className="h-8 w-8 text-muted mb-2 animate-bounce" />
-            <Label className="text-xs font-semibold text-muted mb-1 block">
-              Drag and drop your PDF here or browse
-            </Label>
-            <p className="text-[10px] text-muted/60 mb-4 font-semibold">
-              PDF files up to 10MB
-            </p>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="sr-only"
-            accept=".pdf,application/pdf"
-            aria-hidden
-            tabIndex={-1}
-            disabled={busy}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              const f = e.target.files?.[0];
-              if (f) void ingestFile(f);
-            }}
-          />
-          <div className="flex flex-wrap justify-center gap-2">
+          {/* Ambient glow on drag */}
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-accent/5 blur-xl" />
+          )}
+          <div className="relative flex flex-col items-center justify-center gap-3">
+            <div
+              className={`flex h-14 w-14 items-center justify-center rounded-2xl border transition-all duration-200 ${
+                dragOver
+                  ? "border-accent/40 bg-accent/15 text-accent shadow-lg shadow-accent/20 scale-110"
+                  : "border-divider bg-surface-secondary text-muted group-hover:border-accent/30 group-hover:bg-accent/10 group-hover:text-accent"
+              }`}
+            >
+              <UploadCloud className={`h-6 w-6 ${dragOver ? "animate-bounce" : ""}`} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {dragOver ? "Drop to upload" : "Drag & drop your PDF here"}
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-muted">
+                PDF files only · Max 10 MB
+              </p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="sr-only"
+              accept=".pdf,application/pdf"
+              aria-hidden
+              tabIndex={-1}
+              disabled={busy}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                const f = e.target.files?.[0];
+                if (f) void ingestFile(f);
+              }}
+            />
             <Button
               variant="primary"
-              className="h-8 px-4 rounded-lg bg-accent text-white font-bold text-xs"
+              className="mt-1 h-9 px-6 rounded-xl bg-accent text-white font-bold text-xs shadow-md shadow-accent/20 hover:bg-accent/90"
               isDisabled={busy}
               onPress={() => fileInputRef.current?.click()}
             >
-              {info?.hasFile ? "Replace PDF" : "Upload PDF"}
+              {busy ? "Uploading…" : info?.hasFile ? "Replace PDF" : "Browse Files"}
             </Button>
-            {info?.hasFile ? (
-              <>
-                <Button
-                  variant="secondary"
-                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  isDisabled={busy}
-                  onPress={() => void onDownload()}
-                >
-                  <Download className="h-3.5 w-3.5 mr-1" />
-                  Download
-                </Button>
-                <Button
-                  variant="danger"
-                  className="h-8 px-3 rounded-lg border border-red-200 hover:bg-red-50 text-xs font-bold text-danger"
-                  isDisabled={busy}
-                  onPress={onRemove}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Remove
-                </Button>
-              </>
-            ) : null}
           </div>
         </div>
       </div>

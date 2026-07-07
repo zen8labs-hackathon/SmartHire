@@ -71,7 +71,7 @@ export default async function AdminEvaluationTemplatePage() {
   const templateInfoPromise = getTemplateInfo(supabase);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 font-sans">
+    <div className="flex flex-col gap-4 font-sans">
       <PageHeader
         title="Evaluation Template"
         description="Upload and manage the PDF document used as the organisation-wide candidate interview evaluation form."
