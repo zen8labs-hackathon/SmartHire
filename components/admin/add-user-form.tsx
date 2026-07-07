@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import {
   adminAddUser,
   type AdminUserFormState,
 } from "@/app/admin/actions";
+import { ChapterRolePicker, type ChapterOption } from "@/components/admin/chapter-role-picker";
 import {
   Alert,
   Button,
@@ -18,13 +19,11 @@ import {
   Select,
   TextField,
 } from "@heroui/react";
-
-import { useEffect } from "react";
 import { useToast } from "@/components/admin/toast-provider";
 
-type RecruitingAccessKey = "none" | "hr" | "chapter";
+type RecruitingAccessKey = "hr" | "chapter";
 
-export type AddUserChapterOption = { id: string; name: string };
+export type AddUserChapterOption = ChapterOption;
 
 function SubmitButton({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
@@ -62,7 +61,7 @@ export function AddUserForm({
     }
   }, [state, triggerSuccess, onSuccess]);
   const [recruitingAccess, setRecruitingAccess] =
-    useState<RecruitingAccessKey>("none");
+    useState<RecruitingAccessKey>("chapter");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [headChapterIds, setHeadChapterIds] = useState<string[]>([]);
 
@@ -148,10 +147,13 @@ export function AddUserForm({
         <Select
           value={recruitingAccess}
           onChange={(k) => {
-            const next = String(k ?? "none") as RecruitingAccessKey;
-            if (next === "none" || next === "hr" || next === "chapter") {
+            const next = String(k ?? "chapter") as RecruitingAccessKey;
+            if (next === "hr" || next === "chapter") {
               setRecruitingAccess(next);
-              if (next !== "chapter") setSelectedChapterIds([]);
+              if (next !== "chapter") {
+                setSelectedChapterIds([]);
+                setHeadChapterIds([]);
+              }
             }
           }}
         >
@@ -161,10 +163,6 @@ export function AddUserForm({
           </Select.Trigger>
           <Select.Popover>
             <ListBox>
-              <ListBox.Item id="none" textValue="Dashboard only">
-                Dashboard only
-                <ListBox.ItemIndicator />
-              </ListBox.Item>
               <ListBox.Item id="hr" textValue="HR — full recruiting">
                 HR — full recruiting
                 <ListBox.ItemIndicator />
@@ -187,57 +185,13 @@ export function AddUserForm({
           <Label className="text-sm font-medium text-foreground">
             Chapters
           </Label>
-          {chapters.length === 0 ? (
-            <p className="text-sm text-muted">
-              No chapters defined yet. Add them under Setup → Chapters first.
-            </p>
-          ) : (
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-divider p-3">
-              {chapters.map((c) => {
-                const checked = selectedChapterIds.includes(c.id);
-                const isHead = headChapterIds.includes(c.id);
-                return (
-                  <div key={c.id} className="space-y-1">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="rounded border-divider"
-                        checked={checked}
-                        onChange={() => toggleChapter(c.id)}
-                      />
-                      <span>{c.name}</span>
-                    </label>
-                    {checked ? (
-                      <div className="ml-6 flex items-center gap-3 text-xs text-muted">
-                        <label className="flex cursor-pointer items-center gap-1">
-                          <input
-                            type="radio"
-                            name={`chapter_role_${c.id}`}
-                            checked={!isHead}
-                            onChange={() =>
-                              isHead ? toggleChapterHead(c.id) : undefined
-                            }
-                          />
-                          Member
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-1">
-                          <input
-                            type="radio"
-                            name={`chapter_role_${c.id}`}
-                            checked={isHead}
-                            onChange={() =>
-                              isHead ? undefined : toggleChapterHead(c.id)
-                            }
-                          />
-                          Head (can view this chapter&apos;s JDs)
-                        </label>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <ChapterRolePicker
+            chapters={chapters}
+            selectedChapterIds={selectedChapterIds}
+            headChapterIds={headChapterIds}
+            onToggleChapter={toggleChapter}
+            onToggleHead={toggleChapterHead}
+          />
           <Description>
             Head can open JDs granted to this chapter (and everything under
             them); member keeps chapter membership but cannot.

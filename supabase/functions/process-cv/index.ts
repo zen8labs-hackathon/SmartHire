@@ -60,11 +60,14 @@ async function requireAdmin(
   }
   const { data: profile, error: profErr } = await supabase
     .from("profiles")
-    .select("is_admin")
+    .select("is_admin, work_chapter")
     .eq("id", user.id)
     .maybeSingle();
-  if (profErr || profile?.is_admin !== true) {
-    return { ok: false, status: 403, message: "Admin only" };
+  const isHr =
+    profile?.is_admin === true ||
+    (profile?.work_chapter ?? "").trim() === "HR";
+  if (profErr || !isHr) {
+    return { ok: false, status: 403, message: "HR or admin only" };
   }
   return { ok: true, userId: user.id };
 }

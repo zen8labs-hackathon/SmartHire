@@ -69,8 +69,8 @@ export interface JdDashboardContextValue {
   setActiveRow: (row: JobDescription | null) => void;
   drawerStatusCounts: Record<string, number> | null;
   drawerStatusCountsError: string | null;
-  drawerViewerDraft: string;
-  setDrawerViewerDraft: React.Dispatch<React.SetStateAction<string>>;
+  drawerViewerEmails: string[];
+  setDrawerViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
   drawerViewerChapterIds: string[];
   setDrawerViewerChapterIds: (ids: string[]) => void;
   drawerViewersLoading: boolean;
@@ -87,8 +87,8 @@ export interface JdDashboardContextValue {
   formSubmitting: boolean;
   formError: string | null;
   createFieldErrors: { start_date?: string; hiring_deadline?: string };
-  createViewerEmailsText: string;
-  setCreateViewerEmailsText: React.Dispatch<React.SetStateAction<string>>;
+  createViewerEmails: string[];
+  setCreateViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
   createViewerChapterIds: string[];
   setCreateViewerChapterIds: (ids: string[]) => void;
   jdUploadPhase: "idle" | "uploading" | "extracting" | "done" | "error";
@@ -274,8 +274,8 @@ export function JdDashboardProvider({
         setActiveRow: drawerState.setActiveRow,
         drawerStatusCounts: drawerState.drawerStatusCounts,
         drawerStatusCountsError: drawerState.drawerStatusCountsError,
-        drawerViewerDraft: drawerState.drawerViewerDraft,
-        setDrawerViewerDraft: drawerState.setDrawerViewerDraft,
+        drawerViewerEmails: drawerState.drawerViewerEmails,
+        setDrawerViewerEmails: drawerState.setDrawerViewerEmails,
         drawerViewerChapterIds: drawerState.drawerViewerChapterIds,
         setDrawerViewerChapterIds: drawerState.setDrawerViewerChapterIds,
         drawerViewersLoading: drawerState.drawerViewersLoading,
@@ -289,8 +289,8 @@ export function JdDashboardProvider({
         formSubmitting: createState.formSubmitting,
         formError: createState.formError,
         createFieldErrors: createState.createFieldErrors,
-        createViewerEmailsText: createState.createViewerEmailsText,
-        setCreateViewerEmailsText: createState.setCreateViewerEmailsText,
+        createViewerEmails: createState.createViewerEmails,
+        setCreateViewerEmails: createState.setCreateViewerEmails,
         createViewerChapterIds: createState.createViewerChapterIds,
         setCreateViewerChapterIds: createState.setCreateViewerChapterIds,
         jdUploadPhase: createState.jdUploadPhase,

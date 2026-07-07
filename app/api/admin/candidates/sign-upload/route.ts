@@ -16,9 +16,11 @@ type Body = {
   mimeType?: string | null;
   source?: string;
   sourceOther?: string | null;
+  expectedSalary?: string | null;
 };
 
 const MAX_SOURCE_OTHER_LEN = 500;
+const MAX_EXPECTED_SALARY_LEN = 200;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -91,6 +93,18 @@ export async function POST(request: Request) {
     sourceOther = detail;
   }
 
+  let expectedSalary: string | null = null;
+  if (typeof body.expectedSalary === "string") {
+    const trimmed = body.expectedSalary.trim();
+    if (trimmed.length > MAX_EXPECTED_SALARY_LEN) {
+      return Response.json(
+        { error: `Expected salary must be at most ${MAX_EXPECTED_SALARY_LEN} characters.` },
+        { status: 400 },
+      );
+    }
+    expectedSalary = trimmed || null;
+  }
+
   const { supabase } = auth;
 
   const { data: job, error: jobErr } = await supabase
@@ -139,6 +153,7 @@ export async function POST(request: Request) {
     source_other: sourceOther,
     cv_uploaded_at: uploadedAt,
     uploaded_by_email: uploadedByEmail,
+    expected_salary: expectedSalary,
   });
 
   if (insErr) {

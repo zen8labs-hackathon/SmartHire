@@ -1,9 +1,6 @@
 import React, { type DragEvent, type ChangeEvent } from "react";
-import { Modal, Card, Button, TextField, Label, Input, TextArea } from "@heroui/react";
-import {
-  appendEmailToViewerDraft,
-  JdViewerEmailSearch,
-} from "@/components/admin/jd/jd-viewer-email-search";
+import { Modal, Card, Button, TextField, Label, Input } from "@heroui/react";
+import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
@@ -22,8 +19,8 @@ export function JdCreateModal() {
     form,
     setField,
     authHeaders,
-    setCreateViewerEmailsText,
-    createViewerEmailsText,
+    setCreateViewerEmails,
+    createViewerEmails,
     createViewerChapterIds,
     setCreateViewerChapterIds,
     chapters,
@@ -206,26 +203,11 @@ export function JdCreateModal() {
                 member of a chapter. Non-HR recruiters only see jobs they are
                 given here.
               </p>
-              <JdViewerEmailSearch
+              <JdViewerEmailsField
+                emails={createViewerEmails}
+                onChange={setCreateViewerEmails}
                 getHeaders={authHeaders}
-                onPickEmail={(em) =>
-                  setCreateViewerEmailsText((d) =>
-                    appendEmailToViewerDraft(d, em),
-                  )
-                }
               />
-              <TextField
-                value={createViewerEmailsText}
-                onChange={setCreateViewerEmailsText}
-              >
-                <Label className="text-xs text-muted">Viewer emails</Label>
-                <TextArea
-                  placeholder={
-                    "chapter-lead@company.com\nrecruiter@company.com"
-                  }
-                  className="min-h-[5rem] font-mono text-xs"
-                />
-              </TextField>
               <div className="space-y-2">
                 <Label className="text-xs text-muted">
                   Viewer chapters (whole chapter)
