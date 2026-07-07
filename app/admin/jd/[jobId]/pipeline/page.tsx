@@ -107,7 +107,7 @@ export default async function JobPipelinePage({ params }: PageProps) {
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
       pipelineDataPromise={pipelineDataPromise}
       canEditPipeline={access.isHr}
-      canAddCandidates={access.isHr}
+      canAddCandidates={access.isStaff}
     />
   );
 }
