@@ -325,7 +325,7 @@ export function UsersTableWrapper({
   ];
 
   return (
-    <div className="space-y-6 font-sans">
+    <>
       {/* Dynamic Statistics Panel */}
       <DataTableStats stats={stats} />
 
@@ -618,6 +618,6 @@ export function UsersTableWrapper({
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
-    </div>
+    </>
   );
 }

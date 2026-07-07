@@ -26,6 +26,8 @@ export type DataTableToolbarProps = {
   createButtonLabel?: string;
   onCreate?: () => void;
   createButtonDisabled?: boolean;
+  /** Extra buttons rendered alongside refresh/create, e.g. page-specific actions. */
+  actions?: React.ReactNode;
 };
 
 export function DataTableToolbar({
@@ -39,6 +41,7 @@ export function DataTableToolbar({
   createButtonLabel,
   onCreate,
   createButtonDisabled = false,
+  actions,
 }: DataTableToolbarProps) {
   return (
     <div className="flex flex-col gap-3.5 pb-4.5 border-b border-divider/60 mb-3 lg:flex-row lg:items-center lg:justify-between">
@@ -70,6 +73,8 @@ export function DataTableToolbar({
       </div>
 
       <div className="flex items-center gap-2.5 shrink-0 justify-end mt-1 lg:mt-0">
+        {actions}
+
         {onRefresh && (
           <Button
             isIconOnly

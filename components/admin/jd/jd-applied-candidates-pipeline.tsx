@@ -11,7 +11,15 @@ import {
   type SetStateAction,
 } from "react";
 import Link from "next/link";
-import { Pencil, Trash2, Users as UsersIcon, Layers as LayersIcon, Calendar as CalendarIcon } from "lucide-react";
+import {
+  Pencil,
+  Trash2,
+  Users as UsersIcon,
+  Layers as LayersIcon,
+  Calendar as CalendarIcon,
+  UserPlus,
+  Download,
+} from "lucide-react";
 import {
   DataTableStats,
   DataTableToolbar,
@@ -121,6 +129,8 @@ type Props = {
   canEditPipeline?: boolean;
   stageMappings: StageMapping[];
   subStages: SubStage[];
+  canAddCandidates?: boolean;
+  onAddCandidates?: () => void;
 };
 
 /** A candidate's resolved current stage mapping + sub-stage, with the full objects for display/eligibility checks. */
@@ -243,7 +253,8 @@ function PipelineStageSubStageInlineLabel({
       style={surfaceStyle}
     >
       <span className="text-xs text-foreground">
-        {stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code}
+        {stageMapping.pipeline_stages?.label ??
+          stageMapping.pipeline_stages?.code}
       </span>
       <span className="mx-1 text-xs text-muted">·</span>
       <span className={cn("text-xs", detailClass)} style={detailStyle}>
@@ -542,9 +553,7 @@ const PipelineTableRow = memo(function PipelineTableRow({
       <Table.Cell className={offerCellClass}>
         <div className="flex items-center gap-4">
           <Avatar className="size-10 shrink-0" size="md">
-            {row.avatarUrl ? (
-              <Avatar.Image alt="" src={row.avatarUrl} />
-            ) : null}
+            {row.avatarUrl ? <Avatar.Image alt="" src={row.avatarUrl} /> : null}
             <Avatar.Fallback className="text-xs">
               {candidateDisplayInitials(row.name)}
             </Avatar.Fallback>
@@ -763,7 +772,9 @@ const PipelineTableRow = memo(function PipelineTableRow({
                     </Calendar.Header>
                     <Calendar.Grid weekdayStyle="short">
                       <Calendar.GridHeader>
-                        {(day) => <Calendar.HeaderCell>{day}</Calendar.HeaderCell>}
+                        {(day) => (
+                          <Calendar.HeaderCell>{day}</Calendar.HeaderCell>
+                        )}
                       </Calendar.GridHeader>
                       <Calendar.GridBody>
                         {(date) => (
@@ -836,7 +847,9 @@ const PipelineTableRow = memo(function PipelineTableRow({
                     </Calendar.Header>
                     <Calendar.Grid weekdayStyle="short">
                       <Calendar.GridHeader>
-                        {(day) => <Calendar.HeaderCell>{day}</Calendar.HeaderCell>}
+                        {(day) => (
+                          <Calendar.HeaderCell>{day}</Calendar.HeaderCell>
+                        )}
                       </Calendar.GridHeader>
                       <Calendar.GridBody>
                         {(date) => (
@@ -907,6 +920,8 @@ export function JdAppliedCandidatesPipeline({
   canEditPipeline = true,
   stageMappings,
   subStages,
+  canAddCandidates = false,
+  onAddCandidates,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
 
@@ -923,7 +938,8 @@ export function JdAppliedCandidatesPipeline({
 
   /** Ordered by `sequence_number`; drives both filter options and the per-stage stat cards. */
   const orderedStageMappings = useMemo(
-    () => [...stageMappings].sort((a, b) => a.sequence_number - b.sequence_number),
+    () =>
+      [...stageMappings].sort((a, b) => a.sequence_number - b.sequence_number),
     [stageMappings],
   );
 
@@ -1080,10 +1096,13 @@ export function JdAppliedCandidatesPipeline({
 
   const [pageSize, setPageSize] = useState(10);
 
-  const handlePageSizeChange = useCallback((size: number) => {
-    setPageSize(size);
-    setPage(1);
-  }, [setPage]);
+  const handlePageSizeChange = useCallback(
+    (size: number) => {
+      setPageSize(size);
+      setPage(1);
+    },
+    [setPage],
+  );
 
   useEffect(() => {
     setSelected(new Set());
@@ -1521,7 +1540,6 @@ export function JdAppliedCandidatesPipeline({
     });
   }, [dbRows]);
 
-
   const filtersElement = (
     <Select
       value={statusFilter}
@@ -1536,7 +1554,9 @@ export function JdAppliedCandidatesPipeline({
       placeholder="All statuses"
       className="w-full"
     >
-      <Label className="mb-1 block text-xs font-semibold text-muted">Status</Label>
+      <Label className="mb-1 block text-xs font-semibold text-muted">
+        Status
+      </Label>
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {statusFilter !== "all" && selectedFilterOption ? (
           selectedFilterOption.legacyStatus ? (
@@ -1560,7 +1580,11 @@ export function JdAppliedCandidatesPipeline({
       </Select.Trigger>
       <Select.Popover>
         <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl max-h-[300px] overflow-y-auto">
-          <ListBox.Item id="all" textValue="All statuses" className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+          <ListBox.Item
+            id="all"
+            textValue="All statuses"
+            className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
+          >
             All statuses
             <ListBox.ItemIndicator />
           </ListBox.Item>
@@ -1597,169 +1621,183 @@ export function JdAppliedCandidatesPipeline({
     <div className="flex flex-col gap-1.5">
       <Label className="text-xs font-semibold text-muted">Upload date</Label>
       <div className="flex items-center gap-2">
-      <DateRangePicker
-        value={uploadDateRange as any}
-        onChange={(next) => setUploadDateRange(next as any)}
-        className="w-full"
-      >
-        <DateField.Group
-          fullWidth
-          variant="primary"
-          className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-3 text-xs"
+        <DateRangePicker
+          value={uploadDateRange as any}
+          onChange={(next) => setUploadDateRange(next as any)}
+          className="w-full"
         >
-          <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-            <DateField.Input slot="start" className="outline-none">
-              {(segment) => <DateField.Segment segment={segment} />}
-            </DateField.Input>
-            <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted" />
-            <DateField.Input slot="end" className="outline-none">
-              {(segment) => <DateField.Segment segment={segment} />}
-            </DateField.Input>
-          </DateField.InputContainer>
-          <DateField.Suffix>
-            <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
-              <CalendarIcon className="h-3.5 w-3.5" />
-            </DateRangePicker.Trigger>
-          </DateField.Suffix>
-        </DateField.Group>
-        <DateRangePicker.Popover>
-          <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
-            <RangeCalendar
-              focusedValue={calendarFocusedDate as any}
-              onFocusChange={(next) => setCalendarFocusedDate(next as any)}
-            >
-              <RangeCalendar.Header className="flex items-center justify-between mb-2 gap-2">
-                <RangeCalendar.NavButton slot="previous" />
-                <div className="flex flex-1 items-center gap-1 justify-center">
-                  <select
-                    id="jd-cal-month"
-                    value={calendarFocusedDate.month}
-                    onChange={(e) =>
-                      setCalendarFocusedDate((p) =>
-                        p.set({
-                          month: Number(e.target.value),
-                          day: 1,
-                        }),
-                      )
-                    }
-                    className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
-                  >
-                    {MONTH_OPTIONS.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    id="jd-cal-year"
-                    value={calendarFocusedDate.year}
-                    onChange={(e) =>
-                      setCalendarFocusedDate((p) =>
-                        p.set({ year: Number(e.target.value), day: 1 }),
-                      )
-                    }
-                    className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
-                  >
-                    {YEAR_OPTIONS.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <RangeCalendar.NavButton slot="next" />
-              </RangeCalendar.Header>
-              <RangeCalendar.Grid weekdayStyle="short" className="border-collapse">
-                <RangeCalendar.GridHeader>
-                  {(day) => (
-                    <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">{day}</RangeCalendar.HeaderCell>
-                  )}
-                </RangeCalendar.GridHeader>
-                <RangeCalendar.GridBody>
-                  {(date) => (
-                    <RangeCalendar.Cell date={date} className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0">
-                      {({ formattedDate }) => (
-                        <>
-                          <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
-                          <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">{formattedDate}</span>
-                        </>
-                      )}
-                    </RangeCalendar.Cell>
-                  )}
-                </RangeCalendar.GridBody>
-              </RangeCalendar.Grid>
-            </RangeCalendar>
-          </Dialog>
-        </DateRangePicker.Popover>
-      </DateRangePicker>
-      {uploadDateRange && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-9 px-2.5 border border-divider rounded-xl text-xs font-semibold text-muted"
-          onPress={() => setUploadDateRange(null)}
-        >
-          Clear
-        </Button>
-      )}
+          <DateField.Group
+            fullWidth
+            variant="primary"
+            className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-3 text-xs"
+          >
+            <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+              <DateField.Input slot="start" className="outline-none">
+                {(segment) => <DateField.Segment segment={segment} />}
+              </DateField.Input>
+              <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted" />
+              <DateField.Input slot="end" className="outline-none">
+                {(segment) => <DateField.Segment segment={segment} />}
+              </DateField.Input>
+            </DateField.InputContainer>
+            <DateField.Suffix>
+              <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
+                <CalendarIcon className="h-3.5 w-3.5" />
+              </DateRangePicker.Trigger>
+            </DateField.Suffix>
+          </DateField.Group>
+          <DateRangePicker.Popover>
+            <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
+              <RangeCalendar
+                focusedValue={calendarFocusedDate as any}
+                onFocusChange={(next) => setCalendarFocusedDate(next as any)}
+              >
+                <RangeCalendar.Header className="flex items-center justify-between mb-2 gap-2">
+                  <RangeCalendar.NavButton slot="previous" />
+                  <div className="flex flex-1 items-center gap-1 justify-center">
+                    <select
+                      id="jd-cal-month"
+                      value={calendarFocusedDate.month}
+                      onChange={(e) =>
+                        setCalendarFocusedDate((p) =>
+                          p.set({
+                            month: Number(e.target.value),
+                            day: 1,
+                          }),
+                        )
+                      }
+                      className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
+                    >
+                      {MONTH_OPTIONS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      id="jd-cal-year"
+                      value={calendarFocusedDate.year}
+                      onChange={(e) =>
+                        setCalendarFocusedDate((p) =>
+                          p.set({ year: Number(e.target.value), day: 1 }),
+                        )
+                      }
+                      className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
+                    >
+                      {YEAR_OPTIONS.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <RangeCalendar.NavButton slot="next" />
+                </RangeCalendar.Header>
+                <RangeCalendar.Grid
+                  weekdayStyle="short"
+                  className="border-collapse"
+                >
+                  <RangeCalendar.GridHeader>
+                    {(day) => (
+                      <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">
+                        {day}
+                      </RangeCalendar.HeaderCell>
+                    )}
+                  </RangeCalendar.GridHeader>
+                  <RangeCalendar.GridBody>
+                    {(date) => (
+                      <RangeCalendar.Cell
+                        date={date}
+                        className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0"
+                      >
+                        {({ formattedDate }) => (
+                          <>
+                            <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
+                            <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">
+                              {formattedDate}
+                            </span>
+                          </>
+                        )}
+                      </RangeCalendar.Cell>
+                    )}
+                  </RangeCalendar.GridBody>
+                </RangeCalendar.Grid>
+              </RangeCalendar>
+            </Dialog>
+          </DateRangePicker.Popover>
+        </DateRangePicker>
+        {uploadDateRange && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 px-2.5 border border-divider rounded-xl text-xs font-semibold text-muted"
+            onPress={() => setUploadDateRange(null)}
+          >
+            Clear
+          </Button>
+        )}
       </div>
     </div>
   );
 
-  const bulkActionsElement = selected.size > 0 ? (
-    <div className="flex flex-wrap items-center gap-3 border border-accent/25 bg-accent/5 p-3 rounded-xl">
-      <span className="text-xs font-semibold text-accent">
-        {selected.size} selected candidates
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="primary"
-          className="bg-accent text-white"
-          isDisabled={!canEditPipeline || pipelineBusy || !bulkInterviewEligible}
-          onPress={() => void moveSelectedToInterview()}
-        >
-          Move to interview
-        </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          className="bg-accent text-white"
-          isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
-          onPress={openOfferModal}
-        >
-          Move to offer…
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="border border-divider bg-surface-primary"
-          isDisabled={!canEditPipeline || pipelineBusy || !bulkFailEligible}
-          onPress={() => void markSelectedFailed()}
-        >
-          Mark failed
-        </Button>
+  const bulkActionsElement =
+    selected.size > 0 ? (
+      <div className="flex flex-wrap items-center gap-3 border border-accent/25 bg-accent/5 p-3 rounded-xl">
+        <span className="text-xs font-semibold text-accent">
+          {selected.size} selected candidates
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-white"
+            isDisabled={
+              !canEditPipeline || pipelineBusy || !bulkInterviewEligible
+            }
+            onPress={() => void moveSelectedToInterview()}
+          >
+            Move to interview
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-white"
+            isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
+            onPress={openOfferModal}
+          >
+            Move to offer…
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="border border-divider bg-surface-primary"
+            isDisabled={!canEditPipeline || pipelineBusy || !bulkFailEligible}
+            onPress={() => void markSelectedFailed()}
+          >
+            Mark failed
+          </Button>
+        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
   const pipelineStats = [
     {
       label: "Total Candidates",
       value: dbRows.length,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
-      description: "Applied to opening"
+      description: "Applied to opening",
     },
     ...orderedStageMappings.map((sm) => {
-      const label = sm.pipeline_stages?.label ?? sm.pipeline_stages?.code ?? "Stage";
+      const label =
+        sm.pipeline_stages?.label ?? sm.pipeline_stages?.code ?? "Stage";
       const value = stageMappingCounts[sm.id] ?? 0;
       return {
         label,
         value,
         description: "Candidates in stage",
-        icon: <LayersIcon className="h-4.5 w-4.5" />
+        icon: <LayersIcon className="h-4.5 w-4.5" />,
       };
-    })
+    }),
   ];
 
   return (
@@ -1783,6 +1821,25 @@ export function JdAppliedCandidatesPipeline({
           void fetchPage();
         }}
         isRefreshing={loadState === "loading" || pageLoadState === "loading"}
+        actions={
+          <>
+            {canAddCandidates ? (
+              <Button
+                variant="primary"
+                size="sm"
+                className="gap-2 bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
+                onPress={onAddCandidates}
+              >
+                <UserPlus className="size-4" />
+                Add candidates
+              </Button>
+            ) : null}
+            <Button variant="secondary" size="sm" className="gap-2">
+              <Download className="size-4" />
+              Export to Excel
+            </Button>
+          </>
+        }
       />
       <DataTableFilterModal
         isOpen={filterModal.isOpen}
