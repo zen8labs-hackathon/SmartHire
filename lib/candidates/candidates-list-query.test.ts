@@ -37,6 +37,18 @@ describe("parseCandidatesListQuery", () => {
     );
     expect(query.all).toBe(true);
   });
+
+  it("parses contactFields=true into contactFieldsOnly", () => {
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({ contactFields: "true" }),
+    );
+    expect(query.contactFieldsOnly).toBe(true);
+  });
+
+  it("defaults contactFieldsOnly to false when omitted", () => {
+    const { query } = parseCandidatesListQuery(new URLSearchParams());
+    expect(query.contactFieldsOnly).toBe(false);
+  });
 });
 
 describe("buildCandidatesListSearchParams", () => {
@@ -55,5 +67,18 @@ describe("buildCandidatesListSearchParams", () => {
   it("sets all=true for full list", () => {
     const params = buildCandidatesListSearchParams({ all: true });
     expect(params.get("all")).toBe("true");
+  });
+
+  it("sets contactFields=true when contactFieldsOnly is set", () => {
+    const params = buildCandidatesListSearchParams({
+      all: true,
+      contactFieldsOnly: true,
+    });
+    expect(params.get("contactFields")).toBe("true");
+  });
+
+  it("omits contactFields when contactFieldsOnly is not set", () => {
+    const params = buildCandidatesListSearchParams({ all: true });
+    expect(params.get("contactFields")).toBeNull();
   });
 });

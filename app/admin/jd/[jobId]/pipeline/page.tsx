@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import {
@@ -36,7 +36,7 @@ async function getPipelineData(
 ): Promise<PipelineData> {
   const [candidatesResult, pipelineConfig] = await Promise.all([
     fetchCandidatesForJobDescription(supabase, jobDescriptionId, {
-      includeParsedPayload: true,
+      contactFieldsOnly: true,
     }),
     fetchJobPipelineConfig(supabase, jobOpeningId),
   ]);
@@ -54,14 +54,11 @@ export default async function JobPipelinePage({ params }: PageProps) {
   const numId = Number(jobId);
   if (!Number.isInteger(numId) || numId <= 0) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/jd");
-
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) redirect("/dashboard");
+
+  const supabase = await createClient();
 
   const [jdRes, linkedOpeningRes] = await Promise.all([
     supabase

@@ -15,12 +15,12 @@ export type FetchCandidatesForJdResult = {
 export async function fetchCandidatesForJobDescription(
   supabase: SupabaseClient,
   jobDescriptionId: number,
-  options?: { includeParsedPayload?: boolean },
+  options?: { contactFieldsOnly?: boolean },
 ): Promise<FetchCandidatesForJdResult> {
   const { candidates, error } = await queryCandidatesList(supabase, {
     jobDescriptionId,
     all: true,
-    includeParsedPayload: options?.includeParsedPayload,
+    contactFieldsOnly: options?.contactFieldsOnly,
   });
 
   return { rows: candidates, error };

@@ -9,7 +9,7 @@ import {
 } from "@/components/admin/candidate-evaluation-template/candidate-evaluation-template-manager";
 import { TemplateSkeleton } from "@/components/admin/candidate-evaluation-template/template-skeleton";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -63,13 +63,11 @@ function TemplateErrorFallback() {
 }
 
 export default async function AdminEvaluationTemplatePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/evaluation-template");
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) redirect("/admin/jd");
+
+  const supabase = await createClient();
 
   // Kick off the template-status query but don't await it here, so the
   // static title below renders immediately. The Suspense boundary only gates

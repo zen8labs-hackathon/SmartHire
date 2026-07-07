@@ -3,25 +3,21 @@ import { redirect } from "next/navigation";
 
 import { AdminSidebarNav } from "@/components/admin/admin-sidebar-nav";
 import { ToastProvider } from "@/components/admin/toast-provider";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
-import { createClient } from "@/lib/supabase/server";
-
-export const dynamic = "force-dynamic";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 
 export default async function AdminLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getRequestAuth() memoizes the getUser()/getStaffProfileAccess() work for
+  // the whole request via React's cache() -- the nested page.tsx for this
+  // route reuses the same resolved result instead of re-verifying the JWT.
+  const { user, access } = await getRequestAuth();
 
   if (!user) {
     redirect("/login?next=/admin");
   }
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isStaff) {
     redirect("/dashboard");
   }

@@ -1,11 +1,9 @@
 import { redirect } from "next/navigation";
 
 import { PipelineManager } from "@/components/admin/pipeline-manager";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
 import { createClient } from "@/lib/supabase/server";
-
-export const dynamic = "force-dynamic";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -27,19 +25,17 @@ async function getPipelineStages(
 }
 
 export default async function AdminPipelinesPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, access } = await getRequestAuth();
 
   if (!user) {
     redirect("/login?next=/admin/pipelines");
   }
 
-  const access = await getStaffProfileAccess(supabase, user.id, user);
   if (!access?.isHr) {
     redirect("/admin/jd");
   }
+
+  const supabase = await createClient();
 
   // Kick off the stages query but don't await it here, so the static header
   // below renders immediately. The Suspense boundary inside PipelineManager

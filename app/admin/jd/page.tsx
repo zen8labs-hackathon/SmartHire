@@ -1,5 +1,5 @@
 import { JdManagementDashboard } from "@/components/admin/jd/jd-management-dashboard";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import {
   queryJobDescriptionsWithEnrichment,
   type JobDescriptionListRow,
@@ -22,11 +22,8 @@ async function getJobDescriptionsList(
 }
 
 export default async function AdminJdPage() {
+  const { access } = await getRequestAuth();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const access = user ? await getStaffProfileAccess(supabase, user.id, user) : null;
 
   const [chapterRowsRes, pipelineStagesRes] = await Promise.all([
     supabase

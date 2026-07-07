@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ADMIN_CANDIDATES_LIST_SELECT, ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import {
+  ADMIN_CANDIDATES_LIST_SELECT,
+  ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT,
+  ADMIN_CANDIDATES_SELECT,
+} from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
@@ -22,6 +26,12 @@ export type CandidatesListQuery = {
   all?: boolean;
   /** When true, include the full parsed_payload object. */
   includeParsedPayload?: boolean;
+  /**
+   * When true and includeParsedPayload is false, selects lightweight
+   * parsed_payload->>email/phone fields instead of omitting contact info
+   * entirely.
+   */
+  contactFieldsOnly?: boolean;
 };
 
 export type CandidatesListPagination = {
@@ -98,6 +108,10 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
     searchParams.get("includeParsedPayload") === "true" ||
     searchParams.get("includeParsedPayload") === "1";
 
+  const contactFieldsOnly =
+    searchParams.get("contactFields") === "true" ||
+    searchParams.get("contactFields") === "1";
+
   return {
     query: {
       jobDescriptionId,
@@ -110,6 +124,7 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
       offset,
       all: all || limit == null,
       includeParsedPayload,
+      contactFieldsOnly,
     },
     error: null,
   };
@@ -129,6 +144,9 @@ export function buildCandidatesListSearchParams(
   if (query.q) params.set("q", query.q);
   if (query.includeParsedPayload) {
     params.set("includeParsedPayload", "true");
+  }
+  if (query.contactFieldsOnly) {
+    params.set("contactFields", "true");
   }
   if (query.all) {
     params.set("all", "true");
@@ -222,7 +240,11 @@ export async function queryCandidatesList(
   let query = supabase
     .from("candidates")
     .select(
-      input.includeParsedPayload ? ADMIN_CANDIDATES_SELECT : ADMIN_CANDIDATES_LIST_SELECT,
+      input.includeParsedPayload
+        ? ADMIN_CANDIDATES_SELECT
+        : input.contactFieldsOnly
+          ? ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT
+          : ADMIN_CANDIDATES_LIST_SELECT,
       paginate ? { count: "exact" } : undefined,
     )
     .eq("is_active", true)

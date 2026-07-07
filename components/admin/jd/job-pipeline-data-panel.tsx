@@ -61,7 +61,7 @@ export const JobPipelineDataPanel = forwardRef<
       try {
         const h = await getSessionAuthorizationHeaders(supabase);
         const res = await fetch(
-          `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&includeParsedPayload=true`,
+          `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&contactFields=true`,
           { credentials: "include", headers: { ...h } },
         );
         if (!res.ok) {

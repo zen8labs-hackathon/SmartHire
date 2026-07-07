@@ -32,6 +32,9 @@ export type CandidateDbRow = {
   parsing_status: ParsingStatus;
   parsing_error: string | null;
   parsed_payload: unknown;
+  /** Lightweight JSON-path-projected contact fields (see `ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT`); present instead of `parsed_payload` when only contact info is needed. */
+  parsed_contact_email?: string | null;
+  parsed_contact_phone?: string | null;
   name: string | null;
   role: string | null;
   avatar_url: string | null;
