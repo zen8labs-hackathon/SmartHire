@@ -7,6 +7,7 @@ import {
 } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
+import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 
 export const CANDIDATES_LIST_DEFAULT_LIMIT = 50;
 export const CANDIDATES_LIST_MAX_LIMIT = 200;
@@ -17,6 +18,18 @@ export type CandidatesListQuery = {
   jobDescriptionId?: number;
   jobOpeningId?: string;
   status?: string;
+  /** `job_stage_mappings.id` — filters on the candidate's current custom pipeline stage. */
+  stageMappingId?: string;
+  /** `pipeline_sub_stages.id`, paired with {@link stageMappingId}. */
+  subStateId?: string;
+  /**
+   * Legacy `candidates.status` value equivalent to the (stageMappingId,
+   * subStateId) pair above, for candidates that predate the custom-pipeline
+   * columns (`current_job_stage_mapping_id` is null on those rows). Resolved
+   * by the caller via `legacyStatusForStageSubStage` since it already has the
+   * stage/sub-stage config loaded; omit when the pair has no legacy analog.
+   */
+  legacyStatus?: string;
   uploadFrom?: string;
   uploadTo?: string;
   q?: string;
@@ -71,7 +84,7 @@ function parseDateParam(raw: string | null): string | undefined {
   return s;
 }
 
-function escapeIlikePattern(q: string): string {
+export function escapeIlikePattern(q: string): string {
   return q.replace(/[%_\\]/g, "\\$&");
 }
 
@@ -104,6 +117,21 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   const statusRaw = searchParams.get("status")?.trim();
   const status = statusRaw && statusRaw !== "all" ? statusRaw : undefined;
 
+  const stageMappingIdRaw = searchParams.get("stageMappingId")?.trim() ?? "";
+  const stageMappingId =
+    stageMappingIdRaw && UUID_RE.test(stageMappingIdRaw)
+      ? stageMappingIdRaw
+      : undefined;
+  const subStateIdRaw = searchParams.get("subStateId")?.trim() ?? "";
+  const subStateId =
+    subStateIdRaw && UUID_RE.test(subStateIdRaw) ? subStateIdRaw : undefined;
+  const legacyStatusRaw = searchParams.get("legacyStatus")?.trim() ?? "";
+  const legacyStatus = (
+    CANDIDATE_PIPELINE_STATUSES as readonly string[]
+  ).includes(legacyStatusRaw)
+    ? legacyStatusRaw
+    : undefined;
+
   const includeParsedPayload =
     searchParams.get("includeParsedPayload") === "true" ||
     searchParams.get("includeParsedPayload") === "1";
@@ -117,6 +145,9 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
       jobDescriptionId,
       jobOpeningId,
       status,
+      stageMappingId,
+      subStateId: stageMappingId ? subStateId : undefined,
+      legacyStatus: stageMappingId ? legacyStatus : undefined,
       uploadFrom: parseDateParam(searchParams.get("uploadFrom")),
       uploadTo: parseDateParam(searchParams.get("uploadTo")),
       q: searchParams.get("q")?.trim() || undefined,
@@ -139,6 +170,9 @@ export function buildCandidatesListSearchParams(
   }
   if (query.jobOpeningId) params.set("jobOpeningId", query.jobOpeningId);
   if (query.status) params.set("status", query.status);
+  if (query.stageMappingId) params.set("stageMappingId", query.stageMappingId);
+  if (query.subStateId) params.set("subStateId", query.subStateId);
+  if (query.legacyStatus) params.set("legacyStatus", query.legacyStatus);
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
@@ -257,6 +291,18 @@ export async function queryCandidatesList(
 
   if (input.status) {
     query = query.eq("status", input.status);
+  }
+
+  if (input.stageMappingId && input.subStateId) {
+    // Modern rows carry the (stageMappingId, subStateId) pair directly.
+    // Legacy rows never got backfilled (`current_job_stage_mapping_id` is
+    // null) and only imply their stage via the old `status` enum, so also
+    // match those via the caller-resolved legacy-status equivalent.
+    const stageBranch = `and(current_job_stage_mapping_id.eq.${input.stageMappingId},current_sub_state_id.eq.${input.subStateId})`;
+    const legacyBranch = input.legacyStatus
+      ? `,and(current_job_stage_mapping_id.is.null,status.eq.${input.legacyStatus})`
+      : "";
+    query = query.or(`${stageBranch}${legacyBranch}`);
   }
 
   query = applyUploadDateFilters(query, input.uploadFrom, input.uploadTo);

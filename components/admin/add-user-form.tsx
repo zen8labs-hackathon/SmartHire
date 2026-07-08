@@ -19,6 +19,7 @@ import {
   Select,
   TextField,
 } from "@heroui/react";
+import { useToast } from "@/components/admin/toast-provider";
 
 type RecruitingAccessKey = "hr" | "chapter";
 
@@ -40,23 +41,29 @@ function SubmitButton({ children }: { children: React.ReactNode }) {
 
 export function AddUserForm({
   chapters,
-  onCreated,
+  onSuccess,
 }: {
   chapters: readonly AddUserChapterOption[];
-  onCreated?: () => void;
+  onSuccess?: () => void;
 }) {
   const [state, formAction] = useActionState<AdminUserFormState, FormData>(
     adminAddUser,
     null,
   );
+  const { success: triggerSuccess } = useToast();
+
+  useEffect(() => {
+    if (state?.message) {
+      triggerSuccess(state.message);
+      if (onSuccess) {
+        onSuccess();
+      }
+    }
+  }, [state, triggerSuccess, onSuccess]);
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("chapter");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
   const [headChapterIds, setHeadChapterIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (state?.message) onCreated?.();
-  }, [state, onCreated]);
 
   function toggleChapter(id: string) {
     setSelectedChapterIds((prev) => {

@@ -1,18 +1,11 @@
-import {
-  Suspense,
-  forwardRef,
-  useCallback,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react";
+import { Suspense } from "react";
 import { Alert } from "@heroui/react";
 
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import { JdListSkeleton } from "@/components/admin/jd/jd-list-skeleton";
-import type { JobDescription } from "@/lib/jd/types";
+import type { JdListInitialData } from "./hooks/use-jd-list-state";
 
-import { JdDashboardProvider, useJdDashboard } from "./context";
+import { JdDashboardProvider } from "./context";
 import { JdHeader } from "./jd-header";
 import { JdFilters } from "./jd-filters";
 import { JdStats } from "./jd-stats";
@@ -26,14 +19,8 @@ interface JdManagementDashboardProps {
   canManageJds?: boolean;
   chapters?: readonly { id: string; name: string }[];
   allPipelineStages?: readonly { id: string; label: string; code: string; color: string }[];
-  initialRowsPromise?: Promise<JobDescription[]>;
+  initialRowsPromise?: Promise<JdListInitialData>;
 }
-
-/** What the static `JdHeader` (outside Suspense) can trigger once the
- * Suspense-gated dashboard body (inside `JdDashboardProvider`) has mounted. */
-type JdDashboardBridge = {
-  openCreateModal: () => void;
-};
 
 function JdListErrorFallback() {
   return (
@@ -49,42 +36,21 @@ function JdListErrorFallback() {
   );
 }
 
-/**
- * Renders the filters/stats/table region plus modals and drawer. Mounted
- * inside `JdDashboardProvider`, which suspends on `use(initialRowsPromise)`
- * via `useJdListState`, so this whole subtree (including the create/edit/
- * delete modals and detail drawer) is gated behind the `<Suspense>` boundary
- * in `JdManagementDashboard` below. `openCreateModal` is exposed via
- * `useImperativeHandle` so the static header's "New definition" button can
- * still open the create modal once this has mounted.
- */
-const JdDashboardBody = forwardRef<JdDashboardBridge, object>(
-  function JdDashboardBody(_props, ref) {
-    const { jdModal } = useJdDashboard();
+function JdDashboardBody() {
+  return (
+    <>
+      <JdStats />
+      <JdFilters />
+      <JdTable />
 
-    useImperativeHandle(
-      ref,
-      () => ({
-        openCreateModal: () => jdModal.open(),
-      }),
-      [jdModal],
-    );
-
-    return (
-      <>
-        <JdFilters />
-        <JdStats />
-        <JdTable />
-
-        {/* Modals & Drawer */}
-        <JdCreateModal />
-        <JdEditModal />
-        <JdDeleteModal />
-        <JdDetailDrawer />
-      </>
-    );
-  },
-);
+      {/* Modals & Drawer */}
+      <JdCreateModal />
+      <JdEditModal />
+      <JdDeleteModal />
+      <JdDetailDrawer />
+    </>
+  );
+}
 
 export function JdManagementDashboard({
   canManageJds = true,
@@ -92,20 +58,9 @@ export function JdManagementDashboard({
   allPipelineStages = [],
   initialRowsPromise,
 }: JdManagementDashboardProps) {
-  const bridgeRef = useRef<JdDashboardBridge | null>(null);
-  const [bridgeReady, setBridgeReady] = useState(false);
-  const setBridgeRef = useCallback((handle: JdDashboardBridge | null) => {
-    bridgeRef.current = handle;
-    setBridgeReady(handle !== null);
-  }, []);
-
   return (
-    <div className="flex flex-col gap-8">
-      <JdHeader
-        canManageJds={canManageJds}
-        disabled={!bridgeReady}
-        onNewDefinition={() => bridgeRef.current?.openCreateModal()}
-      />
+    <div className="flex flex-col gap-4 font-sans">
+      <JdHeader />
 
       <SuspenseErrorBoundary fallback={<JdListErrorFallback />}>
         <Suspense fallback={<JdListSkeleton />}>
@@ -115,11 +70,12 @@ export function JdManagementDashboard({
             allPipelineStages={allPipelineStages}
             initialRowsPromise={initialRowsPromise}
           >
-            <JdDashboardBody ref={setBridgeRef} />
+            <JdDashboardBody />
           </JdDashboardProvider>
         </Suspense>
       </SuspenseErrorBoundary>
     </div>
   );
 }
+
 export default JdManagementDashboard;

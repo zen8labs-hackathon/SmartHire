@@ -1,5 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Candidate Evaluation | Smart Hire Admin",
+  description: "Evaluate candidate performance and view screening details.",
+};
 
 import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipeline-candidate-evaluation-client";
 import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
@@ -93,6 +99,8 @@ export default async function PipelineCandidateEvaluationPage({
       jobDescriptionId={Number(jd.id)}
       jobTitle={jd.position}
       candidate={candidate}
+      currentUserId={user.id}
+      isAdmin={access.isAdmin}
     />
   );
 }

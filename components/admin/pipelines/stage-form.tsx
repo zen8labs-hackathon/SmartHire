@@ -7,9 +7,19 @@ import {
   type PipelineStageRow,
 } from "@/lib/pipelines/schemas";
 
+function slugifyCode(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]+/g, "_")    // replace spaces/special chars with underscores
+    .replace(/^_+|_+$/g, "");       // trim underscores
+}
+
 type StageFormProps = {
   mode: "add" | "edit";
   initialValues: PipelineStageRow | null;
+  existingStages: PipelineStageRow[];
   onSubmit: (values: {
     code: string;
     label: string;
@@ -33,6 +43,7 @@ const PRESET_COLORS = [
 export function StageForm({
   mode,
   initialValues,
+  existingStages,
   onSubmit,
   onCancel,
   busy,
@@ -42,6 +53,13 @@ export function StageForm({
   const [desc, setDesc] = useState("");
   const [color, setColor] = useState("zinc");
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  const handleLabelChange = (val: string) => {
+    setLabel(val);
+    if (mode === "add") {
+      setCode(slugifyCode(val));
+    }
+  };
 
   // Sync initial values when editing
   useEffect(() => {
@@ -83,6 +101,16 @@ export function StageForm({
       color: trimmedColor || null,
     };
 
+    if (mode === "add") {
+      const isDuplicate = existingStages.some(
+        (s) => s.code.toLowerCase() === values.code.toLowerCase()
+      );
+      if (isDuplicate) {
+        setFieldError(`A stage with code '${values.code}' already exists.`);
+        return;
+      }
+    }
+
     // Client-side Zod validation
     const parsed = pipelineStageSchema.safeParse(values);
     if (!parsed.success) {
@@ -95,24 +123,30 @@ export function StageForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-4">
-      <h3 className="font-semibold text-foreground">
+      <h3 className="font-bold text-sm text-foreground mb-2">
         {mode === "add" ? "Add New Stage" : `Edit Stage: ${initialValues?.label}`}
       </h3>
 
       {fieldError ? (
-        <p className="text-xs text-danger font-medium">{fieldError}</p>
+        <p className="text-xs text-rose-500 font-semibold bg-rose-50 dark:bg-rose-950/20 p-2.5 rounded-lg border border-rose-200">
+          {fieldError}
+        </p>
       ) : null}
 
       <TextField
         isRequired
         name="label"
         value={label}
-        onChange={setLabel}
+        onChange={handleLabelChange}
         validate={(v) => (!v.trim() ? "Label is required." : null)}
+        className="w-full"
       >
-        <Label>Stage Label</Label>
-        <Input placeholder="e.g. CV Screening" />
-        <FieldError />
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Stage Label</Label>
+        <Input
+          placeholder="e.g. CV Screening"
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
       <TextField
@@ -120,7 +154,7 @@ export function StageForm({
         name="code"
         value={code}
         onChange={setCode}
-        isDisabled={mode === "edit"} // Disable changing code on existing stage
+        isDisabled={mode === "edit" || mode === "add"}
         validate={(v) => {
           if (!v.trim()) return "Code is required.";
           if (!/^[a-z0-9_]+$/.test(v)) {
@@ -128,22 +162,29 @@ export function StageForm({
           }
           return null;
         }}
+        className="w-full"
       >
-        <Label>Stage Code</Label>
-        <Input placeholder="e.g. cv_screening (no spaces)" />
-        <FieldError />
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Stage Code</Label>
+        <Input
+          placeholder="Stage code will be auto-generated"
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none disabled:opacity-50"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
-      <TextField name="desc" value={desc} onChange={setDesc}>
-        <Label>Description (Optional)</Label>
-        <Input placeholder="Brief description of this stage" />
-        <FieldError />
+      <TextField name="desc" value={desc} onChange={setDesc} className="w-full">
+        <Label className="text-xs font-semibold text-muted mb-1.5 block">Description (Optional)</Label>
+        <Input
+          placeholder="Brief description of this stage"
+          className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/20 px-3 text-xs focus:border-accent outline-none"
+        />
+        <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
 
       {/* Color Selection UI */}
       <div className="flex flex-col gap-2">
-        <Label className="text-xs font-semibold text-foreground">Stage Color</Label>
-        <div className="flex flex-wrap items-center gap-3">
+        <Label className="text-xs font-semibold text-muted mb-1">Stage Color</Label>
+        <div className="flex flex-wrap items-center gap-3 bg-surface-secondary/10 p-3 rounded-xl border border-divider">
           {PRESET_COLORS.map((preset) => {
             const isSelected = color === preset.name;
             return (
@@ -164,7 +205,7 @@ export function StageForm({
             );
           })}
 
-          <div className="flex items-center gap-2 border border-divider rounded-lg px-2 py-1 bg-surface-secondary/40">
+          <div className="flex items-center gap-2 border border-divider rounded-lg px-2 py-1 bg-surface-primary">
             <input
               type="color"
               value={color.startsWith("#") ? color : "#71717a"}
@@ -183,11 +224,21 @@ export function StageForm({
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 mt-2">
-        <Button variant="secondary" onPress={onCancel} isDisabled={busy}>
+      <div className="flex items-center justify-end gap-3 mt-4">
+        <Button
+          variant="secondary"
+          onPress={onCancel}
+          isDisabled={busy}
+          className="h-8 px-3.5 rounded-lg border border-divider text-xs font-bold bg-surface-secondary hover:bg-surface-secondary/80"
+        >
           Cancel
         </Button>
-        <Button type="submit" variant="primary" isDisabled={busy}>
+        <Button
+          type="submit"
+          variant="primary"
+          isDisabled={busy}
+          className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold hover:bg-accent/90"
+        >
           {busy ? "Saving..." : "Save Stage"}
         </Button>
       </div>

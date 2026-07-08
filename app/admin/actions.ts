@@ -192,10 +192,71 @@ export async function adminAddUser(
   };
 }
 
+export async function adminGetUserDetails(userId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    throw new Error("Not authorized.");
+  }
+
+  const admin = createAdminClient();
+  
+  const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
+  if (authErr || !authUser?.user) {
+    throw new Error("User not found in Auth.");
+  }
+
+  const { data: profile, error: profErr } = await admin
+    .from("profiles")
+    .select("work_chapter")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profErr) {
+    throw new Error(`Failed to fetch profile: ${profErr.message}`);
+  }
+
+  const { data: pChapters, error: pcErr } = await admin
+    .from("profile_chapters")
+    .select("chapter_id, role")
+    .eq("profile_id", userId);
+
+  if (pcErr) {
+    throw new Error(`Failed to fetch chapters: ${pcErr.message}`);
+  }
+
+  const chapterIds = (pChapters ?? []).map((x) => x.chapter_id as string);
+  const chapterHeadIds = (pChapters ?? [])
+    .filter((x) => x.role === "head")
+    .map((x) => x.chapter_id as string);
+
+  let recruitingAccess: "none" | "hr" | "chapter" = "none";
+  if (profile?.work_chapter === HR_WORK_CHAPTER) {
+    recruitingAccess = "hr";
+  } else if (chapterIds.length > 0) {
+    recruitingAccess = "chapter";
+  }
+
+  return {
+    id: userId,
+    email: authUser.user.email ?? "",
+    recruitingAccess,
+    chapterIds,
+    chapterHeadIds,
+  };
+}
+
 export async function adminUpdateUserAccess(
-  _prev: AdminUserFormState,
-  formData: FormData,
-): Promise<AdminUserFormState> {
+  userId: string,
+  recruitingAccess: "none" | "hr" | "chapter",
+  chapterIds: string[],
+  chapterHeadIds: string[],
+) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -206,17 +267,6 @@ export async function adminUpdateUserAccess(
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
-
-  const targetId = String(formData.get("user_id") ?? "").trim();
-  if (!UUID_RE.test(targetId)) {
-    return { error: "Invalid user id." };
-  }
-
-  const recruitingAccess = String(
-    formData.get("recruiting_access") ?? "none",
-  ).trim();
-  const chapterIds = parseIdList(formData, "chapter_ids");
-  const chapterHeadIds = new Set(parseIdList(formData, "chapter_head_ids"));
 
   let admin: ReturnType<typeof createAdminClient>;
   try {
@@ -230,28 +280,21 @@ export async function adminUpdateUserAccess(
 
   const result = await syncRecruitingAccess(
     admin,
-    targetId,
+    userId,
     recruitingAccess,
     chapterIds,
-    chapterHeadIds,
+    new Set(chapterHeadIds),
   );
   if ("error" in result) {
     return { error: result.error };
   }
 
   revalidatePath("/admin");
-  revalidatePath("/admin/chapters");
-  return {
-    message: `Updated access. ${accessHint(result.workChapter, chapterIds.length, chapterHeadIds.size)}`,
-  };
+  revalidatePath("/admin/users");
+  return { message: "User access updated successfully." };
 }
 
-export type AdminDeleteUserState = { error?: string; message?: string } | null;
-
-export async function adminDeleteUser(
-  _prev: AdminDeleteUserState,
-  formData: FormData,
-): Promise<AdminDeleteUserState> {
+export async function adminUpdateUserPassword(userId: string, newPassword: string) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -263,12 +306,45 @@ export async function adminDeleteUser(
     return { error: "Not authorized." };
   }
 
-  const targetId = String(formData.get("user_id") ?? "").trim();
-  if (!UUID_RE.test(targetId)) {
-    return { error: "Invalid user id." };
+  if (newPassword.length < 8) {
+    return { error: "Password must be at least 8 characters." };
   }
-  if (targetId === user?.id) {
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return {
+      error:
+        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to reset passwords from the admin panel.",
+    };
+  }
+
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { message: "Password updated successfully." };
+}
+
+export async function adminDeleteUser(userId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user?.id === userId) {
     return { error: "You cannot delete your own account." };
+  }
+
+  const access =
+    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  if (!access?.isHr) {
+    return { error: "Not authorized." };
   }
 
   let admin: ReturnType<typeof createAdminClient>;
@@ -281,12 +357,12 @@ export async function adminDeleteUser(
     };
   }
 
-  const { error } = await admin.auth.admin.deleteUser(targetId);
+  const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) {
     return { error: error.message };
   }
 
   revalidatePath("/admin");
-  revalidatePath("/admin/chapters");
-  return { message: "User deleted." };
+  revalidatePath("/admin/users");
+  return { message: "User account deleted successfully." };
 }

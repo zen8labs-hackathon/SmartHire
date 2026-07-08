@@ -1,321 +1,529 @@
-<!DOCTYPE html>
+<!doctype html>
 
-<html class="light" lang="en"><head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<script id="tailwind-config">
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          "colors": {
-                  "primary-fixed-dim": "#abc9ef",
-                  "on-tertiary-fixed": "#002204",
-                  "on-error": "#ffffff",
-                  "surface-bright": "#f7f9fb",
-                  "surface-container-highest": "#e0e3e5",
-                  "on-background": "#191c1e",
-                  "inverse-primary": "#abc9ef",
-                  "tertiary-fixed-dim": "#88d982",
-                  "secondary-fixed-dim": "#8ecdff",
-                  "outline-variant": "#c3c6ce",
-                  "error-container": "#ffdad6",
-                  "error": "#ba1a1a",
-                  "inverse-surface": "#2d3133",
-                  "on-secondary-container": "#00547d",
-                  "primary": "#002542",
-                  "primary-fixed": "#d1e4ff",
-                  "primary-container": "#1b3b5a",
-                  "on-error-container": "#93000a",
-                  "surface-container-high": "#e6e8ea",
-                  "on-tertiary": "#ffffff",
-                  "on-secondary": "#ffffff",
-                  "surface-container-lowest": "#ffffff",
-                  "on-surface-variant": "#43474d",
-                  "on-primary-fixed-variant": "#2a4968",
-                  "inverse-on-surface": "#eff1f3",
-                  "tertiary-container": "#00430d",
-                  "secondary-container": "#83c8fd",
-                  "on-surface": "#191c1e",
-                  "surface-tint": "#436182",
-                  "outline": "#73777e",
-                  "on-tertiary-fixed-variant": "#005312",
-                  "surface-container": "#eceef0",
-                  "surface-dim": "#d8dadc",
-                  "on-tertiary-container": "#64b462",
-                  "secondary-fixed": "#cbe6ff",
-                  "on-primary-container": "#87a5ca",
-                  "surface-variant": "#e0e3e5",
-                  "tertiary-fixed": "#a3f69c",
-                  "surface-container-low": "#f2f4f6",
-                  "background": "#f7f9fb",
-                  "on-secondary-fixed-variant": "#004b71",
-                  "surface": "#f7f9fb",
-                  "on-primary": "#ffffff",
-                  "secondary": "#006494",
-                  "tertiary": "#002a05",
-                  "on-secondary-fixed": "#001e30",
-                  "on-primary-fixed": "#001d35"
+<html class="light" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+      rel="stylesheet"
+    />
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary-fixed-dim": "#abc9ef",
+              "on-tertiary-fixed": "#002204",
+              "on-error": "#ffffff",
+              "surface-bright": "#f7f9fb",
+              "surface-container-highest": "#e0e3e5",
+              "on-background": "#191c1e",
+              "inverse-primary": "#abc9ef",
+              "tertiary-fixed-dim": "#88d982",
+              "secondary-fixed-dim": "#8ecdff",
+              "outline-variant": "#c3c6ce",
+              "error-container": "#ffdad6",
+              error: "#ba1a1a",
+              "inverse-surface": "#2d3133",
+              "on-secondary-container": "#00547d",
+              primary: "#002542",
+              "primary-fixed": "#d1e4ff",
+              "primary-container": "#1b3b5a",
+              "on-error-container": "#93000a",
+              "surface-container-high": "#e6e8ea",
+              "on-tertiary": "#ffffff",
+              "on-secondary": "#ffffff",
+              "surface-container-lowest": "#ffffff",
+              "on-surface-variant": "#43474d",
+              "on-primary-fixed-variant": "#2a4968",
+              "inverse-on-surface": "#eff1f3",
+              "tertiary-container": "#00430d",
+              "secondary-container": "#83c8fd",
+              "on-surface": "#191c1e",
+              "surface-tint": "#436182",
+              outline: "#73777e",
+              "on-tertiary-fixed-variant": "#005312",
+              "surface-container": "#eceef0",
+              "surface-dim": "#d8dadc",
+              "on-tertiary-container": "#64b462",
+              "secondary-fixed": "#cbe6ff",
+              "on-primary-container": "#87a5ca",
+              "surface-variant": "#e0e3e5",
+              "tertiary-fixed": "#a3f69c",
+              "surface-container-low": "#f2f4f6",
+              background: "#f7f9fb",
+              "on-secondary-fixed-variant": "#004b71",
+              surface: "#f7f9fb",
+              "on-primary": "#ffffff",
+              secondary: "#006494",
+              tertiary: "#002a05",
+              "on-secondary-fixed": "#001e30",
+              "on-primary-fixed": "#001d35",
+            },
+            borderRadius: {
+              DEFAULT: "0.25rem",
+              lg: "0.5rem",
+              xl: "0.75rem",
+              full: "9999px",
+            },
+            fontFamily: {
+              headline: ["Manrope"],
+              display: ["Manrope"],
+              body: ["Inter"],
+              label: ["Inter"],
+            },
           },
-          "borderRadius": {
-                  "DEFAULT": "0.25rem",
-                  "lg": "0.5rem",
-                  "xl": "0.75rem",
-                  "full": "9999px"
-          },
-          "fontFamily": {
-                  "headline": ["Manrope"],
-                  "display": ["Manrope"],
-                  "body": ["Inter"],
-                  "label": ["Inter"]
-          }
         },
+      };
+    </script>
+    <style>
+      .material-symbols-outlined {
+        font-variation-settings:
+          "FILL" 0,
+          "wght" 400,
+          "GRAD" 0,
+          "opsz" 24;
       }
-    }
-  </script>
-<style>
-    .material-symbols-outlined {
-      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-    }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 4px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #e0e3e5;
-      border-radius: 10px;
-    }
-  </style>
-</head>
-<body class="bg-surface font-body text-on-surface">
-<!-- Main Application Wrapper (Background Content) -->
-<div class="flex h-screen w-full overflow-hidden">
-<!-- SideNavBar Integration -->
-<aside class="bg-[#f2f4f6] h-screen w-64 fixed left-0 top-0 flex flex-col py-8 px-4 border-r-0 z-30">
-<div class="mb-10 px-2">
-<h1 class="font-manrope font-bold text-[#002542] text-xl">Executive Suite</h1>
-<p class="text-xs text-on-surface-variant font-medium opacity-70">Premium Curator</p>
-</div>
-<nav class="flex-1 space-y-1">
-<a class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1" href="#">
-<span class="material-symbols-outlined">dashboard</span>
-<span class="font-inter text-sm font-medium">Dashboard</span>
-</a>
-<a class="flex items-center gap-3 px-3 py-2.5 text-[#002542] font-bold bg-[#ffffff] rounded-lg shadow-sm" href="#">
-<span class="material-symbols-outlined">groups</span>
-<span class="font-inter text-sm font-medium">Talent Pool</span>
-</a>
-<a class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1" href="#">
-<span class="material-symbols-outlined">account_tree</span>
-<span class="font-inter text-sm font-medium">Pipelines</span>
-</a>
-<a class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1" href="#">
-<span class="material-symbols-outlined">work</span>
-<span class="font-inter text-sm font-medium">Job Openings</span>
-</a>
-</nav>
-<div class="mt-auto space-y-1">
-<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-200/50 rounded-lg" href="#">
-<span class="material-symbols-outlined">contact_support</span>
-<span class="font-inter text-sm font-medium">Support</span>
-</a>
-</div>
-</aside>
-<!-- Overlay / Backdrop -->
-<div class="fixed inset-0 bg-primary/20 backdrop-blur-sm z-40"></div>
-<!-- CV Comparison Side Drawer -->
-<div class="fixed top-0 right-0 h-screen w-full max-w-5xl bg-surface-bright shadow-[0_8px_24px_rgba(25,28,30,0.06)] z-50 flex flex-col overflow-hidden">
-<!-- Drawer Header -->
-<header class="h-20 flex items-center justify-between px-8 bg-white/80 backdrop-blur-xl shrink-0">
-<div class="flex items-center gap-4">
-<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors">
-<span class="material-symbols-outlined text-primary">close</span>
-</button>
-<div>
-<h2 class="font-headline font-extrabold text-primary text-xl tracking-tighter">CV Version Comparison</h2>
-<p class="text-xs font-medium text-on-surface-variant font-body">Candidate: Alexander Vance — Senior Systems Architect</p>
-</div>
-</div>
-<div class="flex items-center gap-6">
-<div class="text-right">
-<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Total Versions</p>
-<p class="text-primary font-headline font-extrabold text-lg">04</p>
-</div>
-<div class="h-8 w-px bg-outline-variant/30"></div>
-<div class="text-right">
-<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">First Seen</p>
-<p class="text-primary font-headline font-semibold">May 2025</p>
-</div>
-<div class="h-8 w-px bg-outline-variant/30"></div>
-<div class="text-right">
-<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Latest Update</p>
-<p class="text-primary font-headline font-semibold text-secondary">April 2026</p>
-</div>
-</div>
-</header>
-<!-- Main Split Content Area -->
-<main class="flex-1 flex overflow-hidden">
-<!-- Left Side: Current Preview (Canvas) -->
-<section class="flex-1 bg-surface-container-low p-8 overflow-y-auto custom-scrollbar">
-<div class="mb-4 flex items-center justify-between">
-<span class="px-3 py-1 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">Active Version</span>
-<span class="text-on-surface-variant text-xs font-medium">Last Modified: 12 April 2026</span>
-</div>
-<!-- Mock PDF Document Visual -->
-<div class="bg-white shadow-sm min-h-[1100px] w-full p-12 flex flex-col gap-8 rounded-sm">
-<div class="flex justify-between items-start border-b-2 border-surface-container pb-8">
-<div>
-<h1 class="text-3xl font-headline font-extrabold text-primary mb-2">Alexander Vance</h1>
-<p class="text-secondary font-medium tracking-wide">Senior Systems Architect</p>
-</div>
-<div class="text-right text-xs text-on-surface-variant leading-relaxed">
-<p>alex.vance@tech-nexus.io</p>
-<p>+44 7700 900234</p>
-<p>London, UK</p>
-</div>
-</div>
-<div class="grid grid-cols-3 gap-10">
-<div class="col-span-1 space-y-8">
-<div>
-<h3 class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4">Core Stack</h3>
-<div class="flex flex-wrap gap-2">
-<span class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium">Kubernetes</span>
-<span class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium">Terraform</span>
-<span class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium">AWS</span>
-<span class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium">Go</span>
-<span class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium">Python</span>
-</div>
-</div>
-<div>
-<h3 class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4">Certifications</h3>
-<ul class="text-[11px] space-y-2 text-on-surface-variant leading-snug">
-<li>AWS Solutions Architect Pro</li>
-<li>Google Cloud Professional</li>
-<li>CKA - Kubernetes Admin</li>
-</ul>
-</div>
-</div>
-<div class="col-span-2 space-y-8">
-<div>
-<h3 class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4">Professional Summary</h3>
-<p class="text-xs text-on-surface-variant leading-relaxed">
-                    Systems architect with 12+ years of experience specializing in high-scale cloud infrastructure and distributed systems. Expert in migrating monolithic legacy systems to cloud-native microservices environments with zero downtime.
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #e0e3e5;
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body class="bg-surface font-body text-on-surface">
+    <!-- Main Application Wrapper (Background Content) -->
+    <div class="flex h-screen w-full overflow-hidden">
+      <!-- SideNavBar Integration -->
+      <aside
+        class="bg-[#f2f4f6] h-screen w-64 fixed left-0 top-0 flex flex-col py-8 px-4 border-r-0 z-30"
+      >
+        <div class="mb-10 px-2">
+          <h1 class="font-manrope font-bold text-[#002542] text-xl">
+            Executive Suite
+          </h1>
+          <p class="text-xs text-on-surface-variant font-medium opacity-70">
+            Premium Curator
+          </p>
+        </div>
+        <nav class="flex-1 space-y-1">
+          <a
+            class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1"
+            href="#"
+          >
+            <span class="material-symbols-outlined">dashboard</span>
+            <span class="font-inter text-sm font-medium">Dashboard</span>
+          </a>
+          <a
+            class="flex items-center gap-3 px-3 py-2.5 text-[#002542] font-bold bg-[#ffffff] rounded-lg shadow-sm"
+            href="#"
+          >
+            <span class="material-symbols-outlined">groups</span>
+            <span class="font-inter text-sm font-medium">Candidates</span>
+          </a>
+          <a
+            class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1"
+            href="#"
+          >
+            <span class="material-symbols-outlined">account_tree</span>
+            <span class="font-inter text-sm font-medium">Pipelines</span>
+          </a>
+          <a
+            class="flex items-center gap-3 px-3 py-2.5 text-slate-500 hover:bg-slate-200/50 rounded-lg transition-transform duration-200 hover:translate-x-1"
+            href="#"
+          >
+            <span class="material-symbols-outlined">work</span>
+            <span class="font-inter text-sm font-medium">Job Openings</span>
+          </a>
+        </nav>
+        <div class="mt-auto space-y-1">
+          <a
+            class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-200/50 rounded-lg"
+            href="#"
+          >
+            <span class="material-symbols-outlined">contact_support</span>
+            <span class="font-inter text-sm font-medium">Support</span>
+          </a>
+        </div>
+      </aside>
+      <!-- Overlay / Backdrop -->
+      <div class="fixed inset-0 bg-primary/20 backdrop-blur-sm z-40"></div>
+      <!-- CV Comparison Side Drawer -->
+      <div
+        class="fixed top-0 right-0 h-screen w-full max-w-5xl bg-surface-bright shadow-[0_8px_24px_rgba(25,28,30,0.06)] z-50 flex flex-col overflow-hidden"
+      >
+        <!-- Drawer Header -->
+        <header
+          class="h-20 flex items-center justify-between px-8 bg-white/80 backdrop-blur-xl shrink-0"
+        >
+          <div class="flex items-center gap-4">
+            <button
+              class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors"
+            >
+              <span class="material-symbols-outlined text-primary">close</span>
+            </button>
+            <div>
+              <h2
+                class="font-headline font-extrabold text-primary text-xl tracking-tighter"
+              >
+                CV Version Comparison
+              </h2>
+              <p class="text-xs font-medium text-on-surface-variant font-body">
+                Candidate: Alexander Vance — Senior Systems Architect
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-6">
+            <div class="text-right">
+              <p
+                class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold"
+              >
+                Total Versions
+              </p>
+              <p class="text-primary font-headline font-extrabold text-lg">
+                04
+              </p>
+            </div>
+            <div class="h-8 w-px bg-outline-variant/30"></div>
+            <div class="text-right">
+              <p
+                class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold"
+              >
+                First Seen
+              </p>
+              <p class="text-primary font-headline font-semibold">May 2025</p>
+            </div>
+            <div class="h-8 w-px bg-outline-variant/30"></div>
+            <div class="text-right">
+              <p
+                class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold"
+              >
+                Latest Update
+              </p>
+              <p
+                class="text-primary font-headline font-semibold text-secondary"
+              >
+                April 2026
+              </p>
+            </div>
+          </div>
+        </header>
+        <!-- Main Split Content Area -->
+        <main class="flex-1 flex overflow-hidden">
+          <!-- Left Side: Current Preview (Canvas) -->
+          <section
+            class="flex-1 bg-surface-container-low p-8 overflow-y-auto custom-scrollbar"
+          >
+            <div class="mb-4 flex items-center justify-between">
+              <span
+                class="px-3 py-1 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider"
+                >Active Version</span
+              >
+              <span class="text-on-surface-variant text-xs font-medium"
+                >Last Modified: 12 April 2026</span
+              >
+            </div>
+            <!-- Mock PDF Document Visual -->
+            <div
+              class="bg-white shadow-sm min-h-[1100px] w-full p-12 flex flex-col gap-8 rounded-sm"
+            >
+              <div
+                class="flex justify-between items-start border-b-2 border-surface-container pb-8"
+              >
+                <div>
+                  <h1
+                    class="text-3xl font-headline font-extrabold text-primary mb-2"
+                  >
+                    Alexander Vance
+                  </h1>
+                  <p class="text-secondary font-medium tracking-wide">
+                    Senior Systems Architect
                   </p>
-</div>
-<div>
-<h3 class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4">Experience</h3>
-<div class="space-y-6">
-<div>
-<div class="flex justify-between items-baseline mb-1">
-<h4 class="text-xs font-bold text-on-surface">TechNexus Solutions</h4>
-<span class="text-[10px] font-medium text-on-surface-variant">2023 — Present</span>
-</div>
-<p class="text-[11px] italic text-secondary mb-2">Lead Systems Architect</p>
-<ul class="text-[11px] text-on-surface-variant list-disc pl-4 space-y-1">
-<li>Directed the redesign of global infrastructure spanning 14 regions.</li>
-<li>Reduced operational overhead by 40% through automation.</li>
-</ul>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-</section>
-<!-- Right Side: History / Older Versions -->
-<section class="w-96 bg-surface p-6 border-l border-outline-variant/10 flex flex-col gap-6 overflow-y-auto custom-scrollbar">
-<div class="flex items-center gap-2 mb-2">
-<span class="material-symbols-outlined text-primary-container">history</span>
-<h3 class="font-headline font-bold text-primary">Version History</h3>
-</div>
-<!-- History List -->
-<div class="space-y-4">
-<!-- History Card 1 -->
-<div class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10">
-<div class="flex justify-between items-start mb-3">
-<div class="flex flex-col">
-<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Version 3</span>
-<span class="text-sm font-bold text-primary">February 2026</span>
-</div>
-<button class="p-1.5 text-on-surface-variant hover:text-primary transition-colors">
-<span class="material-symbols-outlined text-xl">download</span>
-</button>
-</div>
-<p class="text-xs text-on-surface font-medium mb-4">Role: Systems Architect II</p>
-<div class="flex gap-2">
-<button class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95">
-                  Restore this version
-                </button>
-<button class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all">
-                  View
-                </button>
-</div>
-</div>
-<!-- History Card 2 -->
-<div class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10">
-<div class="flex justify-between items-start mb-3">
-<div class="flex flex-col">
-<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Version 2</span>
-<span class="text-sm font-bold text-primary">October 2025</span>
-</div>
-<button class="p-1.5 text-on-surface-variant hover:text-primary transition-colors">
-<span class="material-symbols-outlined text-xl">download</span>
-</button>
-</div>
-<p class="text-xs text-on-surface font-medium mb-4">Role: Senior Infrastructure Engineer</p>
-<div class="flex gap-2">
-<button class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95">
-                  Restore this version
-                </button>
-<button class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all">
-                  View
-                </button>
-</div>
-</div>
-<!-- History Card 3 -->
-<div class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10">
-<div class="flex justify-between items-start mb-3">
-<div class="flex flex-col">
-<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Version 1</span>
-<span class="text-sm font-bold text-primary">May 2025</span>
-</div>
-<button class="p-1.5 text-on-surface-variant hover:text-primary transition-colors">
-<span class="material-symbols-outlined text-xl">download</span>
-</button>
-</div>
-<p class="text-xs text-on-surface font-medium mb-4">Role: Infrastructure Engineer</p>
-<div class="flex gap-2">
-<button class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95">
-                  Restore this version
-                </button>
-<button class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all">
-                  View
-                </button>
-</div>
-</div>
-</div>
-<!-- Footer Insights in Side Panel -->
-<div class="mt-auto p-4 bg-tertiary-container/10 border-t-2 border-tertiary-fixed rounded-xl">
-<h4 class="text-[11px] font-bold text-on-tertiary-fixed-variant uppercase tracking-wider mb-2">Editor Insight</h4>
-<p class="text-[11px] text-on-tertiary-fixed leading-relaxed">
-              Vance has updated their CV 3 times since initial discovery. The most significant jump occurred between Oct '25 and Feb '26, reflecting a promotion to Senior Architect.
-            </p>
-</div>
-</section>
-</main>
-<!-- Bottom Action Bar -->
-<footer class="h-16 px-8 flex items-center justify-end bg-white border-t border-outline-variant/10 shrink-0 gap-4">
-<button class="px-6 py-2.5 text-sm font-bold text-on-surface-variant hover:text-primary transition-colors">Cancel</button>
-<button class="px-8 py-2.5 bg-gradient-to-br from-primary to-primary-container text-white text-sm font-bold rounded-lg shadow-sm active:scale-95 transition-all">
-          Save Selection
-        </button>
-</footer>
-</div>
-</div>
-</body></html>
+                </div>
+                <div
+                  class="text-right text-xs text-on-surface-variant leading-relaxed"
+                >
+                  <p>alex.vance@tech-nexus.io</p>
+                  <p>+44 7700 900234</p>
+                  <p>London, UK</p>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-10">
+                <div class="col-span-1 space-y-8">
+                  <div>
+                    <h3
+                      class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4"
+                    >
+                      Core Stack
+                    </h3>
+                    <div class="flex flex-wrap gap-2">
+                      <span
+                        class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium"
+                        >Kubernetes</span
+                      >
+                      <span
+                        class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium"
+                        >Terraform</span
+                      >
+                      <span
+                        class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium"
+                        >AWS</span
+                      >
+                      <span
+                        class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium"
+                        >Go</span
+                      >
+                      <span
+                        class="px-2 py-1 bg-surface-container-high rounded text-[10px] font-medium"
+                        >Python</span
+                      >
+                    </div>
+                  </div>
+                  <div>
+                    <h3
+                      class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4"
+                    >
+                      Certifications
+                    </h3>
+                    <ul
+                      class="text-[11px] space-y-2 text-on-surface-variant leading-snug"
+                    >
+                      <li>AWS Solutions Architect Pro</li>
+                      <li>Google Cloud Professional</li>
+                      <li>CKA - Kubernetes Admin</li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-span-2 space-y-8">
+                  <div>
+                    <h3
+                      class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4"
+                    >
+                      Professional Summary
+                    </h3>
+                    <p class="text-xs text-on-surface-variant leading-relaxed">
+                      Systems architect with 12+ years of experience
+                      specializing in high-scale cloud infrastructure and
+                      distributed systems. Expert in migrating monolithic legacy
+                      systems to cloud-native microservices environments with
+                      zero downtime.
+                    </p>
+                  </div>
+                  <div>
+                    <h3
+                      class="text-[10px] font-bold text-primary uppercase tracking-widest mb-4"
+                    >
+                      Experience
+                    </h3>
+                    <div class="space-y-6">
+                      <div>
+                        <div class="flex justify-between items-baseline mb-1">
+                          <h4 class="text-xs font-bold text-on-surface">
+                            TechNexus Solutions
+                          </h4>
+                          <span
+                            class="text-[10px] font-medium text-on-surface-variant"
+                            >2023 — Present</span
+                          >
+                        </div>
+                        <p class="text-[11px] italic text-secondary mb-2">
+                          Lead Systems Architect
+                        </p>
+                        <ul
+                          class="text-[11px] text-on-surface-variant list-disc pl-4 space-y-1"
+                        >
+                          <li>
+                            Directed the redesign of global infrastructure
+                            spanning 14 regions.
+                          </li>
+                          <li>
+                            Reduced operational overhead by 40% through
+                            automation.
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <!-- Right Side: History / Older Versions -->
+          <section
+            class="w-96 bg-surface p-6 border-l border-outline-variant/10 flex flex-col gap-6 overflow-y-auto custom-scrollbar"
+          >
+            <div class="flex items-center gap-2 mb-2">
+              <span class="material-symbols-outlined text-primary-container"
+                >history</span
+              >
+              <h3 class="font-headline font-bold text-primary">
+                Version History
+              </h3>
+            </div>
+            <!-- History List -->
+            <div class="space-y-4">
+              <!-- History Card 1 -->
+              <div
+                class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10"
+              >
+                <div class="flex justify-between items-start mb-3">
+                  <div class="flex flex-col">
+                    <span
+                      class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1"
+                      >Version 3</span
+                    >
+                    <span class="text-sm font-bold text-primary"
+                      >February 2026</span
+                    >
+                  </div>
+                  <button
+                    class="p-1.5 text-on-surface-variant hover:text-primary transition-colors"
+                  >
+                    <span class="material-symbols-outlined text-xl"
+                      >download</span
+                    >
+                  </button>
+                </div>
+                <p class="text-xs text-on-surface font-medium mb-4">
+                  Role: Systems Architect II
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95"
+                  >
+                    Restore this version
+                  </button>
+                  <button
+                    class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all"
+                  >
+                    View
+                  </button>
+                </div>
+              </div>
+              <!-- History Card 2 -->
+              <div
+                class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10"
+              >
+                <div class="flex justify-between items-start mb-3">
+                  <div class="flex flex-col">
+                    <span
+                      class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1"
+                      >Version 2</span
+                    >
+                    <span class="text-sm font-bold text-primary"
+                      >October 2025</span
+                    >
+                  </div>
+                  <button
+                    class="p-1.5 text-on-surface-variant hover:text-primary transition-colors"
+                  >
+                    <span class="material-symbols-outlined text-xl"
+                      >download</span
+                    >
+                  </button>
+                </div>
+                <p class="text-xs text-on-surface font-medium mb-4">
+                  Role: Senior Infrastructure Engineer
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95"
+                  >
+                    Restore this version
+                  </button>
+                  <button
+                    class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all"
+                  >
+                    View
+                  </button>
+                </div>
+              </div>
+              <!-- History Card 3 -->
+              <div
+                class="bg-surface-container-lowest p-5 rounded-xl transition-all duration-300 hover:translate-x-1 ring-1 ring-inset ring-outline-variant/10"
+              >
+                <div class="flex justify-between items-start mb-3">
+                  <div class="flex flex-col">
+                    <span
+                      class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1"
+                      >Version 1</span
+                    >
+                    <span class="text-sm font-bold text-primary">May 2025</span>
+                  </div>
+                  <button
+                    class="p-1.5 text-on-surface-variant hover:text-primary transition-colors"
+                  >
+                    <span class="material-symbols-outlined text-xl"
+                      >download</span
+                    >
+                  </button>
+                </div>
+                <p class="text-xs text-on-surface font-medium mb-4">
+                  Role: Infrastructure Engineer
+                </p>
+                <div class="flex gap-2">
+                  <button
+                    class="flex-1 py-2 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-lg hover:opacity-90 transition-all active:scale-95"
+                  >
+                    Restore this version
+                  </button>
+                  <button
+                    class="px-3 py-2 bg-surface-container-high text-on-surface text-[11px] font-bold rounded-lg hover:bg-surface-container-highest transition-all"
+                  >
+                    View
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- Footer Insights in Side Panel -->
+            <div
+              class="mt-auto p-4 bg-tertiary-container/10 border-t-2 border-tertiary-fixed rounded-xl"
+            >
+              <h4
+                class="text-[11px] font-bold text-on-tertiary-fixed-variant uppercase tracking-wider mb-2"
+              >
+                Editor Insight
+              </h4>
+              <p class="text-[11px] text-on-tertiary-fixed leading-relaxed">
+                Vance has updated their CV 3 times since initial discovery. The
+                most significant jump occurred between Oct '25 and Feb '26,
+                reflecting a promotion to Senior Architect.
+              </p>
+            </div>
+          </section>
+        </main>
+        <!-- Bottom Action Bar -->
+        <footer
+          class="h-16 px-8 flex items-center justify-end bg-white border-t border-outline-variant/10 shrink-0 gap-4"
+        >
+          <button
+            class="px-6 py-2.5 text-sm font-bold text-on-surface-variant hover:text-primary transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            class="px-8 py-2.5 bg-gradient-to-br from-primary to-primary-container text-white text-sm font-bold rounded-lg shadow-sm active:scale-95 transition-all"
+          >
+            Save Selection
+          </button>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

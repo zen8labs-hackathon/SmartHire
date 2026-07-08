@@ -89,20 +89,39 @@ function sanitize(
   };
 }
 
+const JD_LIST_MAX_LIMIT = 100;
+
 export async function GET(request: Request) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
+  const q = url.searchParams.get("q");
+  const startFrom = url.searchParams.get("startFrom");
+  const startTo = url.searchParams.get("startTo");
 
-  const { jobDescriptions, error } = await queryJobDescriptionsWithEnrichment(
-    auth.supabase,
-    { status },
-  );
+  const limitRaw = url.searchParams.get("limit");
+  const offsetRaw = url.searchParams.get("offset");
+  const limit =
+    limitRaw != null
+      ? Math.min(Math.max(1, Number(limitRaw) || 0), JD_LIST_MAX_LIMIT)
+      : undefined;
+  const offset =
+    offsetRaw != null ? Math.max(0, Number(offsetRaw) || 0) : undefined;
+
+  const { jobDescriptions, pagination, statusCounts, error } =
+    await queryJobDescriptionsWithEnrichment(auth.supabase, {
+      status,
+      q,
+      startFrom,
+      startTo,
+      limit,
+      offset,
+    });
   if (error) return Response.json({ error }, { status: 500 });
 
-  return Response.json({ jobDescriptions });
+  return Response.json({ jobDescriptions, pagination, statusCounts });
 }
 
 export async function POST(request: Request) {

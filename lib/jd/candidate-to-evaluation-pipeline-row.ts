@@ -63,6 +63,7 @@ export function candidateDbRowToEvaluationPipelineRow(
     english: t.englishLevel ?? "-",
     relatedSkills: skills,
     status: candidateStatusToPipelineStatus(t.status),
+    legacyStatus: t.status,
     ttf: t.ttf,
     tth: t.tth,
     expectedSalary: r.expected_salary?.trim() || null,

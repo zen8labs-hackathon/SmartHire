@@ -1,4 +1,10 @@
 import { notFound, redirect } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Job Pipeline | Smart Hire Admin",
+  description: "View candidate pipeline and evaluation statuses.",
+};
 
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
 import { getRequestAuth } from "@/lib/admin/request-auth";
@@ -101,7 +107,7 @@ export default async function JobPipelinePage({ params }: PageProps) {
       linkedJobOpeningTitle={linkedOpening?.title ?? null}
       pipelineDataPromise={pipelineDataPromise}
       canEditPipeline={access.isHr}
-      canAddCandidates={access.isHr}
+      canAddCandidates={access.isStaff}
     />
   );
 }

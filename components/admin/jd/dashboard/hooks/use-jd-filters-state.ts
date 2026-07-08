@@ -1,71 +1,55 @@
-import { useState, useMemo, useEffect } from "react";
-import { today, getLocalTimeZone } from "@internationalized/date";
+import { useState, useEffect, useRef } from "react";
+import { today } from "@internationalized/date";
 import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
-import type { JobDescription } from "@/lib/jd/types";
+import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 
-const ROWS_PER_PAGE = 10;
-
+/**
+ * UTC-based "last 3 months" default, matching `defaultJdStartDateRangeIso`
+ * (`lib/jd/list-with-enrichment.ts`) used for the server-side initial fetch,
+ * so the first paint doesn't need an immediate client refetch to stay in sync.
+ */
 function defaultStartDateRange(): RangeValue<CalendarDate> {
-  const end = today(getLocalTimeZone());
+  const end = today("UTC");
   const start = end.subtract({ months: 3 });
   return { start, end };
 }
 
-export function useJdFiltersState(rows: JobDescription[]) {
-  const [page, setPage] = useState(1);
+/**
+ * Owns the JD list's search/status/date-range filter state and page number.
+ * Filtering/pagination itself now happens server-side (see
+ * `use-jd-list-state.ts`) — this hook only owns the inputs to that query.
+ */
+export function useJdFiltersState() {
+  const [page, setPage] = usePageQueryParam();
+  const skipInitialPageResetRef = useRef(true);
   const [jdListSearch, setJdListSearch] = useState("");
+  const debouncedJdListSearch = useDebouncedValue(jdListSearch, 350);
   const [jdListStatusKey, setJdListStatusKey] = useState<string>("all");
   const [jdStartDateRange, setJdStartDateRange] =
     useState<RangeValue<CalendarDate> | null>(defaultStartDateRange);
-
-  const filteredRows = useMemo(() => {
-    const q = jdListSearch.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (q && !r.position.toLowerCase().includes(q)) return false;
-      if (jdListStatusKey !== "all" && r.status !== jdListStatusKey) {
-        return false;
-      }
-      if (jdStartDateRange) {
-        const d = r.start_date;
-        if (!d) return false;
-        const from = jdStartDateRange.start.toString();
-        const to = jdStartDateRange.end.toString();
-        if (d < from || d > to) return false;
-      }
-      return true;
-    });
-  }, [rows, jdListSearch, jdListStatusKey, jdStartDateRange]);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
+    if (skipInitialPageResetRef.current) {
+      skipInitialPageResetRef.current = false;
+      return;
+    }
     setPage(1);
-  }, [jdListSearch, jdListStatusKey, jdStartDateRange]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
-  const safePage = Math.min(page, totalPages);
-
-  const paginatedRows = useMemo(() => {
-    const start = (safePage - 1) * ROWS_PER_PAGE;
-    return filteredRows.slice(start, start + ROWS_PER_PAGE);
-  }, [filteredRows, safePage]);
-
-  const startIdx = filteredRows.length === 0 ? 0 : (safePage - 1) * ROWS_PER_PAGE + 1;
-  const endIdx = Math.min(safePage * ROWS_PER_PAGE, filteredRows.length);
+  }, [debouncedJdListSearch, jdListStatusKey, jdStartDateRange, pageSize]);
 
   return {
     page,
     setPage,
     jdListSearch,
     setJdListSearch,
+    debouncedJdListSearch,
     jdListStatusKey,
     setJdListStatusKey,
     jdStartDateRange,
     setJdStartDateRange,
-    filteredRows,
-    totalPages,
-    safePage,
-    paginatedRows,
-    startIdx,
-    endIdx,
+    pageSize,
+    setPageSize,
   };
 }

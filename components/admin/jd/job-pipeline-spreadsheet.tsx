@@ -32,25 +32,6 @@ function PipelineErrorFallback() {
   );
 }
 
-function DownloadIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  );
-}
-
 function UserPlusIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -113,39 +94,20 @@ export function JobPipelineSpreadsheet({
 
   return (
     <div className="relative flex flex-col gap-6 pb-20">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <Breadcrumbs className="text-xs text-muted">
-            <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
-            <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
-          </Breadcrumbs>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            {jobTitle} pipeline
-          </h1>
-          <p className="max-w-2xl text-sm text-muted">
-            Filter and sort by CV upload time.
-            {canEditPipeline
-              ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
-              : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {canAddCandidates ? (
-            <Button
-              variant="primary"
-              size="sm"
-              className="gap-2 bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
-              onPress={() => setAddCandidatesOpen(true)}
-            >
-              <UserPlusIcon className="size-4" />
-              Add candidates
-            </Button>
-          ) : null}
-          <Button variant="secondary" size="sm" className="gap-2">
-            <DownloadIcon className="size-4" />
-            Export to Excel
-          </Button>
-        </div>
+      <header className="space-y-2">
+        <Breadcrumbs className="text-xs text-muted">
+          <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
+          <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
+        </Breadcrumbs>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          {jobTitle} pipeline
+        </h1>
+        <p className="max-w-2xl text-sm text-muted">
+          Filter and sort by CV upload time.
+          {canEditPipeline
+            ? " Use the pipeline column to change status per candidate, or bulk-move New → Interview (no date required). Set interview and onboarding times from the Schedule column when applicable."
+            : " Pipeline status and schedule are managed by HR; you can review candidates, download CVs, and add interview notes from each row."}
+        </p>
       </header>
 
       <SuspenseErrorBoundary fallback={<PipelineErrorFallback />}>
@@ -156,6 +118,8 @@ export function JobPipelineSpreadsheet({
             jobId={jobId}
             pipelineDataPromise={pipelineDataPromise}
             canEditPipeline={canEditPipeline}
+            canAddCandidates={canAddCandidates}
+            onAddCandidates={() => setAddCandidatesOpen(true)}
           />
         </Suspense>
       </SuspenseErrorBoundary>

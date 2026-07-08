@@ -31,6 +31,8 @@ type Props = {
     subStages: SubStage[];
   }>;
   canEditPipeline: boolean;
+  canAddCandidates?: boolean;
+  onAddCandidates?: () => void;
 };
 
 /**
@@ -42,7 +44,14 @@ export const JobPipelineDataPanel = forwardRef<
   JobPipelineDataPanelHandle,
   Props
 >(function JobPipelineDataPanel(
-  { jobDescriptionId, jobId, pipelineDataPromise, canEditPipeline },
+  {
+    jobDescriptionId,
+    jobId,
+    pipelineDataPromise,
+    canEditPipeline,
+    canAddCandidates,
+    onAddCandidates,
+  },
   ref,
 ) {
   const { rows, fetchFailed, stageMappings, subStages } =
@@ -98,6 +107,8 @@ export const JobPipelineDataPanel = forwardRef<
           canEditPipeline={canEditPipeline}
           stageMappings={stageMappings}
           subStages={subStages}
+          canAddCandidates={canAddCandidates}
+          onAddCandidates={onAddCandidates}
         />
       </Card.Content>
     </Card>

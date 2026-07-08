@@ -7,13 +7,13 @@ import {
   Alert,
   Breadcrumbs,
   Button,
-  Card,
-  Disclosure,
   Label,
-  Separator,
   TextArea,
   TextField,
 } from "@heroui/react";
+
+import { SectionCard } from "@/components/admin/shell/cards";
+import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +23,8 @@ type Props = {
   jobDescriptionId: number;
   jobTitle: string;
   candidate: JobPipelineCandidateRow;
+  currentUserId: string;
+  isAdmin: boolean;
 };
 
 type LatestEval = {
@@ -36,6 +38,7 @@ type InterviewNoteRow = {
   id: string;
   body: string;
   createdAt: string;
+  updatedAt: string;
   authorId: string;
   authorUsername: string | null;
 };
@@ -44,6 +47,8 @@ export function PipelineCandidateEvaluationClient({
   jobDescriptionId,
   jobTitle,
   candidate,
+  currentUserId,
+  isAdmin,
 }: Props) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -55,6 +60,10 @@ export function PipelineCandidateEvaluationClient({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notes, setNotes] = useState<InterviewNoteRow[]>([]);
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [preInterviewNote, setPreInterviewNote] = useState("");
   const [preInterviewLoadError, setPreInterviewLoadError] = useState<
     string | null
@@ -230,6 +239,62 @@ export function PipelineCandidateEvaluationClient({
     }
   };
 
+  const startEditNote = (note: InterviewNoteRow) => {
+    setEditError(null);
+    setEditingNoteId(note.id);
+    setEditDraft(note.body);
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditDraft("");
+    setEditError(null);
+  };
+
+  const saveEditedNote = async () => {
+    if (!editingNoteId) return;
+    setEditError(null);
+    const trimmed = editDraft.trim();
+    if (trimmed.length < 2) {
+      setEditError("Enter a note with at least a couple of characters.");
+      return;
+    }
+    setEditBusy(true);
+    try {
+      const h = await authHeaders();
+      if (!h.Authorization) {
+        setEditError("Session expired. Sign in again.");
+        return;
+      }
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...h,
+          },
+          body: JSON.stringify({
+            noteId: editingNoteId,
+            body: trimmed,
+          }),
+        },
+      );
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setEditError(json.error ?? "Could not save note.");
+        return;
+      }
+      cancelEditNote();
+      await loadNotes();
+    } catch {
+      setEditError("Could not save note.");
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
   const regenerateEvaluation = async () => {
     setError(null);
     setEvalBusy(true);
@@ -337,7 +402,7 @@ export function PipelineCandidateEvaluationClient({
   const cvUrl = `/api/admin/candidates/${candidate.id}/cv-download`;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 font-sans">
       <Breadcrumbs className="text-xs text-muted">
         <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
         <Breadcrumbs.Item href={`/admin/jd/${jobDescriptionId}/pipeline`}>
@@ -349,13 +414,13 @@ export function PipelineCandidateEvaluationClient({
       <div className="flex gap-6 items-start">
         {/* Left: CV viewer */}
         <div className="w-5/12 shrink-0 sticky top-6">
-          <p className="mb-2 text-xs font-medium text-muted uppercase tracking-wide">
+          <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
           </p>
           <iframe
             src={cvUrl}
             title={`CV - ${candidate.name}`}
-            className="w-full rounded-xl border border-divider bg-surface-secondary"
+            className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
             style={{ height: "calc(100vh - 120px)" }}
           />
         </div>
@@ -363,310 +428,339 @@ export function PipelineCandidateEvaluationClient({
         {/* Right: Evaluation info */}
         <div className="flex-1 min-w-0 flex flex-col gap-6">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
               {candidate.name}
             </h1>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-1 text-sm text-muted font-medium">
               Interview evaluation — {jobTitle}
             </p>
           </div>
 
-      <Card>
-        <Card.Header>
-          <Card.Title>Candidate details</Card.Title>
-        </Card.Header>
-        <Card.Content className="grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <span className="text-muted">Email</span>
-            <p className="font-medium text-foreground">{candidate.email}</p>
-          </div>
-          <div>
-            <span className="text-muted">Phone</span>
-            <p className="font-medium text-foreground">{candidate.mobile}</p>
-          </div>
-          <div>
-            <span className="text-muted">D.O.B.</span>
-            <p className="font-medium text-foreground">
-              {candidate.dateOfBirth}
-            </p>
-          </div>
-          <div>
-            <span className="text-muted">Pipeline status</span>
-            <p className="font-medium text-foreground">{candidate.status}</p>
-          </div>
-          <div className="sm:col-span-2">
-            <span className="text-muted">Education</span>
-            <p className="font-medium text-foreground">
-              {candidate.studentYears} · {candidate.majorSchool} · GPA{" "}
-              {candidate.gpa}
-            </p>
-          </div>
-          <div>
-            <span className="text-muted">English</span>
-            <p className="font-medium text-foreground">{candidate.english}</p>
-          </div>
-          <div>
-            <span className="text-muted">TTF (Time to Fill)</span>
-            <p className="font-medium text-foreground">{candidate.ttf || "—"}</p>
-          </div>
-          <div>
-            <span className="text-muted">TTH (Time to Hire)</span>
-            <p className="font-medium text-foreground">{candidate.tth || "—"}</p>
-          </div>
-          {candidate.expectedSalary ? (
-            <div>
-              <span className="text-muted">Expected salary</span>
-              <p className="font-medium text-foreground">
-                {candidate.expectedSalary}
-              </p>
-            </div>
-          ) : null}
-          <div className="sm:col-span-2">
-            <span className="text-muted">Skills</span>
-            <p className="font-medium text-foreground">
-              {candidate.relatedSkills}
-            </p>
-          </div>
-        </Card.Content>
-      </Card>
-
-      <Card>
-        <Card.Header>
-          <Card.Title id="pre-interview-note-heading">
-            Pre-interview note
-          </Card.Title>
-          <Card.Description>
-            Write questions or topics to cover with the candidate during the
-            interview. This is saved per candidate for this role and is included
-            when you generate the evaluation PDF.
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3">
-          {preInterviewLoadError ? (
-            <p className="text-sm text-danger" role="alert">
-              {preInterviewLoadError}
-            </p>
-          ) : null}
-          {preInterviewSaveSuccess ? (
-            <Alert status="success" role="status">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Title>Save success</Alert.Title>
-              </Alert.Content>
-            </Alert>
-          ) : null}
-          <TextField
-            value={preInterviewNote}
-            onChange={(v) => {
-              clearPreInterviewSuccessTimer();
-              setPreInterviewSaveSuccess(false);
-              setPreInterviewNote(v);
-            }}
-            aria-labelledby="pre-interview-note-heading"
+          <SectionCard
+            title="Candidate Details"
+            description="Personal profile, academic background, and timeline records."
           >
-            <TextArea
-              placeholder="E.g. clarify backend experience, system design at scale, salary expectations…"
-              className="min-h-[8rem] w-full"
-            />
-          </TextField>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-fit"
-            isDisabled={preInterviewSaveBusy}
-            onPress={() => void savePreInterviewNote()}
-          >
-            {preInterviewSaveBusy ? "Saving…" : "Save pre-interview note"}
-          </Button>
-        </Card.Content>
-      </Card>
-
-      {loadError ? (
-        <p className="text-sm text-danger" role="alert">
-          {loadError}
-        </p>
-      ) : null}
-
-      {latest ? (
-        <Card>
-          <Card.Header>
-            <Card.Title>Latest generated evaluation</Card.Title>
-            <Card.Description>
-              Generated{" "}
-              {new Date(latest.createdAt).toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-              . Add more interview notes below and regenerate to include them.
-            </Card.Description>
-          </Card.Header>
-          <Card.Content className="flex flex-col gap-3">
-            <div>
-              <Label className="text-xs text-muted" id="eval-share-url-label">
-                Preview link (share)
-              </Label>
-              <TextField
-                value={shareUrl}
-                isReadOnly
-                className="mt-1"
-                aria-labelledby="eval-share-url-label"
-              >
-                <TextArea className="min-h-[3rem] font-mono text-xs" />
-              </TextField>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => {
-                    if (!shareUrl) return;
-                    void navigator.clipboard.writeText(shareUrl);
-                  }}
-                >
-                  Copy link
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onPress={() => {
-                    window.open(
-                      latest.previewPath,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                  }}
-                >
-                  Open preview
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onPress={() => {
-                    window.open(
-                      latest.downloadUrl,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                  }}
-                >
-                  Download PDF
-                </Button>
+            <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Email</span>
+                <p className="font-semibold text-foreground text-sm truncate">{candidate.email}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Phone</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.mobile}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">D.O.B.</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.dateOfBirth}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Pipeline Status</span>
+                {candidate.legacyStatus ? (
+                  <PipelineStatusLabel status={candidate.legacyStatus} />
+                ) : (
+                  <p className="font-semibold text-foreground text-sm">{candidate.status}</p>
+                )}
+              </div>
+              <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Education</span>
+                <p className="font-semibold text-foreground text-sm">
+                  {candidate.studentYears} · {candidate.majorSchool} · GPA {candidate.gpa}
+                </p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">TTF (Time to Fill)</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.ttf || "—"}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">TTH (Time to Hire)</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.tth || "—"}</p>
+              </div>
+              {candidate.expectedSalary ? (
+                <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                  <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Expected Salary</span>
+                  <p className="font-semibold text-foreground text-sm">{candidate.expectedSalary}</p>
+                </div>
+              ) : null}
+              <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Skills</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.relatedSkills}</p>
               </div>
             </div>
-          </Card.Content>
-        </Card>
-      ) : null}
+          </SectionCard>
 
-      <Separator />
+          <SectionCard
+            title="Pre-interview note"
+            description="Write questions or topics to cover with the candidate during the interview. This is saved per candidate for this role and is included when you generate the evaluation PDF."
+          >
+            <div className="flex flex-col gap-3 pt-2">
+              {preInterviewLoadError ? (
+                <p className="text-xs text-rose-500 font-semibold" role="alert">
+                  {preInterviewLoadError}
+                </p>
+              ) : null}
+              {preInterviewSaveSuccess ? (
+                <Alert status="success" role="status" className="rounded-xl">
+                  <Alert.Indicator />
+                  <Alert.Content>
+                    <Alert.Title>Save success</Alert.Title>
+                  </Alert.Content>
+                </Alert>
+              ) : null}
+              <TextField
+                value={preInterviewNote}
+                onChange={(v) => {
+                  clearPreInterviewSuccessTimer();
+                  setPreInterviewSaveSuccess(false);
+                  setPreInterviewNote(v);
+                }}
+                aria-label="Pre-interview note input"
+              >
+                <TextArea
+                  placeholder="E.g. clarify backend experience, system design at scale, salary expectations…"
+                  className="min-h-[8rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent"
+                />
+              </TextField>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-fit h-8 px-4 rounded-lg bg-surface-secondary border border-divider text-xs font-bold"
+                isDisabled={preInterviewSaveBusy}
+                onPress={() => void savePreInterviewNote()}
+              >
+                {preInterviewSaveBusy ? "Saving…" : "Save pre-interview note"}
+              </Button>
+            </div>
+          </SectionCard>
 
-      <Card className="overflow-hidden p-0">
-        <Disclosure defaultExpanded={false}>
-          <Disclosure.Heading className="px-6 pt-5">
-            <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
-              <span className="min-w-0 flex-1 space-y-1">
-                <span className="block text-lg font-semibold tracking-tight text-foreground">
-                  Saved interview notes
-                  {notes.length > 0 ? (
-                    <span className="ms-2 text-sm font-normal text-muted tabular-nums">
-                      ({notes.length})
-                    </span>
-                  ) : null}
-                </span>
-                <span className="block text-sm font-normal text-muted">
-                  Everyone on the hiring team can add notes. The PDF uses the
-                  combined notes in chronological order.
-                </span>
-              </span>
-              <Disclosure.Indicator className="mt-1 size-5 shrink-0 text-muted" />
-            </Disclosure.Trigger>
-          </Disclosure.Heading>
-          <Disclosure.Content>
-            <Disclosure.Body className="flex flex-col gap-4 px-6 pb-6 pt-2">
+          {loadError ? (
+            <p className="text-xs text-rose-500 font-semibold" role="alert">
+              {loadError}
+            </p>
+          ) : null}
+
+          {latest ? (
+            <SectionCard
+              title="Latest generated evaluation"
+              description={`Generated ${new Date(latest.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}. Add more interview notes below and regenerate to include them.`}
+            >
+              <div className="flex flex-col gap-3 pt-2">
+                <div>
+                  <Label className="text-xs font-semibold text-muted mb-1.5 block" id="eval-share-url-label">
+                    Preview link (share)
+                  </Label>
+                  <TextField
+                    value={shareUrl}
+                    isReadOnly
+                    aria-labelledby="eval-share-url-label"
+                  >
+                    <TextArea className="min-h-[3rem] font-mono text-xs w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 outline-none" />
+                  </TextField>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                      onPress={() => {
+                        if (!shareUrl) return;
+                        void navigator.clipboard.writeText(shareUrl);
+                      }}
+                    >
+                      Copy link
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                      onPress={() => {
+                        window.open(
+                          latest.previewPath,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }}
+                    >
+                      Open preview
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold"
+                      onPress={() => {
+                        window.open(
+                          latest.downloadUrl,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }}
+                    >
+                      Download PDF
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+          ) : null}
+
+          <SectionCard
+            title={
+              <div className="flex items-center gap-2">
+                <span>Saved interview notes</span>
+                {notes.length > 0 ? (
+                  <span className="text-xs font-normal text-muted tabular-nums">
+                    ({notes.length})
+                  </span>
+                ) : null}
+              </div>
+            }
+            description="Everyone on the hiring team can add notes. The PDF uses the combined notes in chronological order."
+          >
+            <div className="flex flex-col gap-4 pt-2">
               {notesLoadError ? (
-                <p className="text-sm text-danger" role="alert">
+                <p className="text-xs text-rose-500 font-semibold" role="alert">
                   {notesLoadError}
                 </p>
               ) : null}
               {notes.length === 0 ? (
-                <p className="text-sm text-muted">No notes yet.</p>
+                <p className="text-xs text-muted py-4 text-center bg-surface-secondary/20 rounded-xl border border-dashed border-divider">
+                  No notes saved yet.
+                </p>
               ) : (
-                <ul className="flex flex-col gap-4">
-                  {notes.map((n) => (
-                    <li
-                      key={n.id}
-                      className="rounded-xl border border-divider bg-surface-secondary/40 px-4 py-3 text-sm"
-                    >
-                      <p className="text-xs text-muted">
-                        {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
-                        {new Date(n.createdAt).toLocaleString(undefined, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </p>
-                      <p className="mt-2 whitespace-pre-wrap text-foreground">
-                        {n.body}
-                      </p>
-                    </li>
-                  ))}
+                <ul className="flex flex-col gap-3 p-0 m-0 list-none">
+                  {notes.map((n) => {
+                    const canEdit = isAdmin || n.authorId === currentUserId;
+                    const wasEdited =
+                      n.updatedAt &&
+                      new Date(n.updatedAt).getTime() !==
+                        new Date(n.createdAt).getTime();
+                    const isEditing = editingNoteId === n.id;
+
+                    return (
+                      <li
+                        key={n.id}
+                        className="rounded-xl border border-divider bg-surface-secondary/20 px-4 py-3 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <p className="text-[10px] font-bold text-muted uppercase tracking-wider">
+                            {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
+                            {new Date(n.createdAt).toLocaleString(undefined, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                            {wasEdited ? " · edited" : ""}
+                          </p>
+                          {canEdit && !isEditing ? (
+                            <Button
+                              variant="secondary"
+                              className="h-6 px-2 rounded-lg border border-divider text-[10px] font-bold shrink-0"
+                              onPress={() => startEditNote(n)}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
+                        </div>
+
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            {editError ? (
+                              <p
+                                className="text-xs text-rose-500 font-semibold"
+                                role="alert"
+                              >
+                                {editError}
+                              </p>
+                            ) : null}
+                            <TextField
+                              value={editDraft}
+                              onChange={setEditDraft}
+                              aria-label="Edit interview note input"
+                            >
+                              <TextArea className="min-h-[8rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent" />
+                            </TextField>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="primary"
+                                className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-bold"
+                                isDisabled={editBusy}
+                                onPress={() => void saveEditedNote()}
+                              >
+                                {editBusy ? "Saving…" : "Save"}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                                isDisabled={editBusy}
+                                onPress={cancelEditNote}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-foreground font-medium">
+                            {n.body}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
-            </Disclosure.Body>
-          </Disclosure.Content>
-        </Disclosure>
-      </Card>
+            </div>
+          </SectionCard>
 
-      <Card>
-        <Card.Header>
-          <Card.Title id="eval-notes-heading">
-            Add a note after interview
-          </Card.Title>
-          <Card.Description>
-            Write in Vietnamese or English; the evaluation follows your
-            language. Save a note on its own, or type and use “Regenerate” to
-            save that text and create the PDF in one step.
-          </Card.Description>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
-          {error ? (
-            <p className="text-sm text-danger" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <TextField
-            value={draftNote}
-            onChange={setDraftNote}
-            aria-labelledby="eval-notes-heading"
+          <SectionCard
+            title="Add a note after interview"
+            description="Write in Vietnamese or English; the evaluation follows your language. Save a note on its own, or type and use “Regenerate” to save that text and create the PDF in one step."
           >
-            <TextArea
-              placeholder="Strengths, concerns, recommendation, scores, etc."
-              className="min-h-[10rem] w-full"
-            />
-          </TextField>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              isDisabled={notesBusy}
-              onPress={() => void saveNoteOnly()}
-            >
-              {notesBusy ? "Saving…" : "Save note"}
-            </Button>
-            <Button
-              variant="primary"
-              isDisabled={evalBusy}
-              onPress={() => void regenerateEvaluation()}
-            >
-              {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
-            </Button>
-            <Button
-              variant="secondary"
-              onPress={() =>
-                router.push(`/admin/jd/${jobDescriptionId}/pipeline`)
-              }
-            >
-              Back to pipeline
-            </Button>
-          </div>
-        </Card.Content>
-      </Card>
+            <div className="flex flex-col gap-3 pt-2">
+              {error ? (
+                <p className="text-xs text-rose-500 font-semibold" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <TextField
+                value={draftNote}
+                onChange={setDraftNote}
+                aria-label="New interview note input"
+              >
+                <TextArea
+                  placeholder="Strengths, concerns, recommendation, scores, etc."
+                  className="min-h-[10rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent"
+                />
+              </TextField>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                  isDisabled={notesBusy}
+                  onPress={() => void saveNoteOnly()}
+                >
+                  {notesBusy ? "Saving…" : "Save note"}
+                </Button>
+                <Button
+                  variant="primary"
+                  className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold"
+                  isDisabled={evalBusy}
+                  onPress={() => void regenerateEvaluation()}
+                >
+                  {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                  onPress={() =>
+                    router.push(`/admin/jd/${jobDescriptionId}/pipeline`)
+                  }
+                >
+                  Back to pipeline
+                </Button>
+              </div>
+            </div>
+          </SectionCard>
         </div>{/* end right panel */}
       </div>{/* end split row */}
     </div>
