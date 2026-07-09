@@ -7,7 +7,7 @@ import {
 } from "@/lib/admin/users-list-query";
 
 function parseRole(raw: string | null): UsersRoleFilter {
-  return raw === "hr" || raw === "chapter" || raw === "dashboard"
+  return raw === "admin" || raw === "hr" || raw === "chapter" || raw === "dashboard"
     ? raw
     : "all";
 }

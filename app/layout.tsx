@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/admin/toast-provider";
+import { I18nLocaleProvider } from "@/components/i18n-locale-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,10 +30,10 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <ToastProvider>
-          {children}
-        </ToastProvider>
+      <body className="min-h-full flex flex-col min-w-full">
+        <I18nLocaleProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </I18nLocaleProvider>
       </body>
     </html>
   );

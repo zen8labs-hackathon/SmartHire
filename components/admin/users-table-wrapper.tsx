@@ -1,13 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Table, Label, ListBox, Select, useOverlayState, Modal, Button, Input, TextField } from "@heroui/react";
+import { Table, Label, ListBox, Select, Modal, Button, Input, TextField } from "@heroui/react";
 import {
   DataTableToolbar,
   DataTablePagination,
   DataTableStats,
-  DataTableFilterButton,
-  DataTableFilterModal,
 } from "@/components/admin/shell/table-system";
 import { SectionCard } from "@/components/admin/shell/cards";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
@@ -44,9 +42,10 @@ export type UsersTableWrapperProps = {
 
 const ROLE_OPTIONS: { id: UsersRoleFilter; label: string }[] = [
   { id: "all", label: "All roles" },
-  { id: "hr", label: "HR Administrators" },
+  { id: "admin", label: "Admin" },
+  { id: "hr", label: "HR" },
   { id: "chapter", label: "Chapter Recruiters" },
-  { id: "dashboard", label: "Dashboard Access" },
+  { id: "dashboard", label: "Dashboard only" },
 ];
 
 const BADGE_BASE =
@@ -153,7 +152,6 @@ export function UsersTableWrapper({
 
   const skipInitialFetchRef = useRef(true);
   const skipInitialPageResetRef = useRef(true);
-  const filterModal = useOverlayState();
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -175,7 +173,7 @@ export function UsersTableWrapper({
       };
       setUsers(json.users ?? []);
       setPagination(json.pagination ?? { total: 0, limit: pageSize, offset: 0 });
-      setCounts(json.counts ?? { total: 0, hr: 0, recruiter: 0, dashboardOnly: 0 });
+      setCounts(json.counts ?? { total: 0, admin: 0, hr: 0, recruiter: 0, dashboardOnly: 0 });
     } finally {
       setLoading(false);
     }
@@ -289,8 +287,6 @@ export function UsersTableWrapper({
     }
   };
 
-  const activeFilterCount = roleFilter !== "all" ? 1 : 0;
-
   const totalCount = pagination.total;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -305,10 +301,16 @@ export function UsersTableWrapper({
       description: "Active profiles in workspace"
     },
     {
-      label: "HR Administrators",
+      label: "Admin",
+      value: counts.admin,
+      icon: <Shield className="h-4.5 w-4.5 text-rose-500" />,
+      description: "Workspace administrators"
+    },
+    {
+      label: "HR",
       value: counts.hr,
       icon: <Shield className="h-4.5 w-4.5 text-accent" />,
-      description: "Full control access"
+      description: "Full recruitment control"
     },
     {
       label: "Chapter Recruiters",
@@ -317,12 +319,37 @@ export function UsersTableWrapper({
       description: "Chapter-specific roles"
     },
     {
-      label: "Dashboard Access",
+      label: "Dashboard only",
       value: counts.dashboardOnly,
       icon: <UserCheck className="h-4.5 w-4.5" />,
       description: "Base dashboard view"
     }
   ];
+
+  const roleFilterElement = (
+    <Select
+      value={roleFilter}
+      onChange={(key) => {
+        if (typeof key === "string") setRoleFilter(key as UsersRoleFilter);
+      }}
+      className="w-48"
+    >
+      <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
+          {ROLE_OPTIONS.map((opt) => (
+            <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+              {opt.label}
+              <ListBox.ItemIndicator />
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
+  );
 
   return (
     <>
@@ -336,44 +363,10 @@ export function UsersTableWrapper({
         searchPlaceholder="Search users by email or role..."
         createButtonLabel="Invite User"
         onCreate={() => setInviteModalOpen(true)}
-        filters={
-          <DataTableFilterButton
-            onPress={filterModal.open}
-            activeCount={activeFilterCount}
-          />
-        }
+        filters={roleFilterElement}
         onRefresh={fetchUsers}
         isRefreshing={loading}
       />
-      <DataTableFilterModal
-        isOpen={filterModal.isOpen}
-        onOpenChange={filterModal.setOpen}
-        onClear={activeFilterCount > 0 ? () => setRoleFilter("all") : undefined}
-      >
-        <Select
-          value={roleFilter}
-          onChange={(key) => {
-            if (typeof key === "string") setRoleFilter(key as UsersRoleFilter);
-          }}
-          className="w-full"
-        >
-          <Label className="mb-1 block text-xs font-semibold text-muted">Role</Label>
-          <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
-            <Select.Value />
-            <Select.Indicator />
-          </Select.Trigger>
-          <Select.Popover>
-            <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
-              {ROLE_OPTIONS.map((opt) => (
-                <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
-                  {opt.label}
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
-              ))}
-            </ListBox>
-          </Select.Popover>
-        </Select>
-      </DataTableFilterModal>
 
       {/* Main Table Container */}
       <SectionCard>

@@ -3,7 +3,7 @@ import { listOrgUsersForAdminPage, type OrgUserRow } from "./list-org-users";
 export const USERS_LIST_DEFAULT_LIMIT = 10;
 export const USERS_LIST_MAX_LIMIT = 100;
 
-export type UsersRoleFilter = "all" | "hr" | "chapter" | "dashboard";
+export type UsersRoleFilter = "all" | "admin" | "hr" | "chapter" | "dashboard";
 
 export type UsersListQuery = {
   q?: string;
@@ -14,6 +14,7 @@ export type UsersListQuery = {
 
 export type UsersListCounts = {
   total: number;
+  admin: number;
   hr: number;
   recruiter: number;
   dashboardOnly: number;
@@ -25,12 +26,13 @@ export type UsersListResult = {
   counts: UsersListCounts;
 };
 
-function matchesRole(accessSummary: string, role: UsersRoleFilter): boolean {
+function matchesRole(user: OrgUserRow, role: UsersRoleFilter): boolean {
   if (role === "all") return true;
-  const upper = accessSummary.toUpperCase();
+  if (role === "admin") return user.isAdmin;
+  const upper = user.accessSummary.toUpperCase();
   if (role === "hr") return upper.includes("HR");
   if (role === "chapter") return upper.includes("CHAPTER");
-  return !upper.includes("HR") && !upper.includes("CHAPTER");
+  return !user.isAdmin && !upper.includes("HR") && !upper.includes("CHAPTER");
 }
 
 /**
@@ -51,17 +53,25 @@ export async function queryOrgUsersList(
   } = options;
   const allUsers = await listOrgUsersForAdminPage();
 
+  const adminCount = allUsers.filter((u) => u.isAdmin).length;
   const hr = allUsers.filter((u) =>
     u.accessSummary.toUpperCase().includes("HR"),
   ).length;
   const recruiter = allUsers.filter((u) =>
     u.accessSummary.toUpperCase().includes("CHAPTER"),
   ).length;
+  const dashboardOnly = allUsers.filter((u) =>
+    !u.isAdmin &&
+    !u.accessSummary.toUpperCase().includes("HR") &&
+    !u.accessSummary.toUpperCase().includes("CHAPTER"),
+  ).length;
+
   const counts: UsersListCounts = {
     total: allUsers.length,
+    admin: adminCount,
     hr,
     recruiter,
-    dashboardOnly: allUsers.length - hr - recruiter,
+    dashboardOnly,
   };
 
   const trimmedQ = q?.trim().toLowerCase();
@@ -73,7 +83,7 @@ export async function queryOrgUsersList(
         return false;
       }
     }
-    return matchesRole(u.accessSummary, role);
+    return matchesRole(u, role);
   });
 
   const total = filtered.length;

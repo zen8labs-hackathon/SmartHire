@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 const EMPTY_USERS_RESULT: UsersListResult = {
   users: [],
   pagination: { total: 0, limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 },
-  counts: { total: 0, hr: 0, recruiter: 0, dashboardOnly: 0 },
+  counts: { total: 0, admin: 0, hr: 0, recruiter: 0, dashboardOnly: 0 },
 };
 
 // Runs inside the Suspense boundary so the page shell renders immediately

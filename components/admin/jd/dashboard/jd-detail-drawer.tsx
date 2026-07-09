@@ -2,7 +2,12 @@ import React from "react";
 import { Drawer, Chip, Separator, Label, Button } from "@heroui/react";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
-import { statusChipColor, formatJdCalendarDate, formatDate, formatHireTypeDisplay } from "./helpers";
+import {
+  statusChipColor,
+  formatJdCalendarDate,
+  formatDate,
+  formatHireTypeDisplay,
+} from "./helpers";
 import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
 import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
 import { useJdDashboard } from "./context";
@@ -50,14 +55,17 @@ export function JdDetailDrawer() {
                     </Chip>
                   )}
                 </div>
-                <Drawer.Heading className="mt-2">{activeRow.position}</Drawer.Heading>
+                <Drawer.Heading className="mt-2">
+                  {activeRow.position}
+                </Drawer.Heading>
                 <div className="mt-1 flex flex-wrap gap-3 text-sm text-muted">
                   {activeRow.employment_status ? (
                     <span>JD status: {activeRow.employment_status}</span>
                   ) : null}
                   {activeRow.start_date ? (
                     <span>
-                      Hiring starts: {formatJdCalendarDate(activeRow.start_date)}
+                      Hiring starts:{" "}
+                      {formatJdCalendarDate(activeRow.start_date)}
                     </span>
                   ) : null}
                   {activeRow.end_date ? (
@@ -80,7 +88,9 @@ export function JdDetailDrawer() {
                     Applicants by pipeline status
                   </h3>
                   {drawerStatusCountsError ? (
-                    <p className="mt-2 text-sm text-danger">{drawerStatusCountsError}</p>
+                    <p className="mt-2 text-sm text-danger">
+                      {drawerStatusCountsError}
+                    </p>
                   ) : drawerStatusCounts == null ? (
                     <p className="mt-2 text-sm text-muted">Loading counts…</p>
                   ) : (
@@ -90,7 +100,9 @@ export function JdDetailDrawer() {
                           key={st}
                           className="flex items-baseline justify-between gap-2 text-sm"
                         >
-                          <dt className="text-muted">{candidateStatusUiLabel(st)}</dt>
+                          <dt className="text-muted">
+                            {candidateStatusUiLabel(st)}
+                          </dt>
                           <dd className="tabular-nums font-semibold text-foreground">
                             {drawerStatusCounts[st] ?? 0}
                           </dd>
@@ -101,99 +113,187 @@ export function JdDetailDrawer() {
                 </section>
 
                 {/* Intake fields */}
-                {(activeRow.level || activeRow.headcount != null || activeRow.hire_type || activeRow.reporting) && (
+                {(activeRow.level ||
+                  activeRow.headcount != null ||
+                  activeRow.hire_type ||
+                  activeRow.reporting) && (
                   <section className="space-y-2">
-                    <h3 className="text-sm font-semibold text-foreground">Role &amp; organisation</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Role &amp; organisation
+                    </h3>
                     <dl className="space-y-1 text-sm text-muted">
-                      {activeRow.level && <div><dt className="inline font-medium text-foreground">Level: </dt><dd className="inline">{activeRow.level}</dd></div>}
-                      {activeRow.headcount != null && <div><dt className="inline font-medium text-foreground">Headcount: </dt><dd className="inline">{activeRow.headcount}</dd></div>}
-                      {activeRow.hire_type && <div><dt className="inline font-medium text-foreground">Hire type: </dt><dd className="inline">{formatHireTypeDisplay(activeRow.hire_type)}</dd></div>}
-                      {activeRow.reporting && <div><dt className="inline font-medium text-foreground">Reports to: </dt><dd className="inline">{activeRow.reporting}</dd></div>}
+                      {activeRow.level && (
+                        <div>
+                          <dt className="inline font-medium text-foreground">
+                            Level:{" "}
+                          </dt>
+                          <dd className="inline">{activeRow.level}</dd>
+                        </div>
+                      )}
+                      {activeRow.headcount != null && (
+                        <div>
+                          <dt className="inline font-medium text-foreground">
+                            Headcount:{" "}
+                          </dt>
+                          <dd className="inline">{activeRow.headcount}</dd>
+                        </div>
+                      )}
+                      {activeRow.hire_type && (
+                        <div>
+                          <dt className="inline font-medium text-foreground">
+                            Hire type:{" "}
+                          </dt>
+                          <dd className="inline">
+                            {formatHireTypeDisplay(activeRow.hire_type)}
+                          </dd>
+                        </div>
+                      )}
+                      {activeRow.reporting && (
+                        <div>
+                          <dt className="inline font-medium text-foreground">
+                            Reports to:{" "}
+                          </dt>
+                          <dd className="inline">{activeRow.reporting}</dd>
+                        </div>
+                      )}
                     </dl>
                   </section>
                 )}
 
-                {(activeRow.project_info || activeRow.duties_and_responsibilities || activeRow.team_size) && (
+                {(activeRow.project_info ||
+                  activeRow.duties_and_responsibilities ||
+                  activeRow.team_size) && (
                   <>
                     <Separator />
                     <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">Project &amp; team</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Project &amp; team
+                      </h3>
                       {activeRow.project_info && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Project overview</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_info}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Project overview
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.project_info}
+                          </p>
                         </div>
                       )}
                       {activeRow.duties_and_responsibilities && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Responsibilities</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.duties_and_responsibilities}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Responsibilities
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.duties_and_responsibilities}
+                          </p>
                         </div>
                       )}
                       {activeRow.team_size && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Team size</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.team_size}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Team size
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.team_size}
+                          </p>
                         </div>
                       )}
                     </section>
                   </>
                 )}
 
-                {(activeRow.experience_requirements_must_have || activeRow.experience_requirements_nice_to_have || activeRow.language_requirements || activeRow.other_requirements) && (
+                {(activeRow.experience_requirements_must_have ||
+                  activeRow.experience_requirements_nice_to_have ||
+                  activeRow.language_requirements ||
+                  activeRow.other_requirements) && (
                   <>
                     <Separator />
                     <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">Candidate requirements</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Candidate requirements
+                      </h3>
                       {activeRow.experience_requirements_must_have && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Must have</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.experience_requirements_must_have}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Must have
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.experience_requirements_must_have}
+                          </p>
                         </div>
                       )}
                       {activeRow.experience_requirements_nice_to_have && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Nice to have</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.experience_requirements_nice_to_have}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Nice to have
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.experience_requirements_nice_to_have}
+                          </p>
                         </div>
                       )}
                       {activeRow.language_requirements && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Languages</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.language_requirements}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Languages
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.language_requirements}
+                          </p>
                         </div>
                       )}
                       {activeRow.other_requirements && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Other requirements</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.other_requirements}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Other requirements
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.other_requirements}
+                          </p>
                         </div>
                       )}
                     </section>
                   </>
                 )}
 
-                {(activeRow.career_development || activeRow.salary_range || activeRow.project_allowances) && (
+                {(activeRow.career_development ||
+                  activeRow.salary_range ||
+                  activeRow.project_allowances) && (
                   <>
                     <Separator />
                     <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">Growth &amp; compensation</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Growth &amp; compensation
+                      </h3>
                       {activeRow.career_development && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Growth &amp; path</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.career_development}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Growth &amp; path
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.career_development}
+                          </p>
                         </div>
                       )}
                       {activeRow.salary_range && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Salary (gross)</p>
-                          <p className="mt-1 text-sm text-muted">{activeRow.salary_range}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Salary (gross)
+                          </p>
+                          <p className="mt-1 text-sm text-muted">
+                            {activeRow.salary_range}
+                          </p>
                         </div>
                       )}
                       {activeRow.project_allowances && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Allowances / bonuses</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.project_allowances}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Allowances / bonuses
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.project_allowances}
+                          </p>
                         </div>
                       )}
                     </section>
@@ -204,17 +304,27 @@ export function JdDetailDrawer() {
                   <>
                     <Separator />
                     <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">Process &amp; timeline</h3>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Process &amp; timeline
+                      </h3>
                       {activeRow.interview_process && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Interview process</p>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">{activeRow.interview_process}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Interview process
+                          </p>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted">
+                            {activeRow.interview_process}
+                          </p>
                         </div>
                       )}
                       {activeRow.hiring_deadline && (
                         <div>
-                          <p className="text-xs font-medium uppercase tracking-wide text-muted">Hiring deadline</p>
-                          <p className="mt-1 text-sm text-muted">{formatJdCalendarDate(activeRow.hiring_deadline)}</p>
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                            Hiring deadline
+                          </p>
+                          <p className="mt-1 text-sm text-muted">
+                            {formatJdCalendarDate(activeRow.hiring_deadline)}
+                          </p>
                         </div>
                       )}
                     </section>
@@ -289,9 +399,7 @@ export function JdDetailDrawer() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        isDisabled={
-                          drawerViewersBusy || drawerViewersLoading
-                        }
+                        isDisabled={drawerViewersBusy || drawerViewersLoading}
                         onPress={() => void saveDrawerViewers()}
                       >
                         {drawerViewersBusy ? "Saving…" : "Save viewers"}

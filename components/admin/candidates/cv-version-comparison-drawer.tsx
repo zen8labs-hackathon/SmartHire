@@ -9,7 +9,7 @@ import {
   Separator,
   Spinner,
 } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
@@ -40,16 +40,6 @@ function formatDayMonthYear(iso: string | null | undefined): string {
   });
 }
 
-function jobDescriptionIdFromDbRow(dbRow: CandidateDbRow | null): number | null {
-  if (!dbRow?.job_openings) return null;
-  const jo = Array.isArray(dbRow.job_openings) ? dbRow.job_openings[0] : dbRow.job_openings;
-  if (!jo?.job_descriptions) return null;
-  const jd = Array.isArray(jo.job_descriptions) ? jo.job_descriptions[0] : jo.job_descriptions;
-  const id = jd?.id;
-  if (typeof id === "number") return id;
-  if (typeof id === "string") { const n = Number(id); return Number.isFinite(n) ? n : null; }
-  return null;
-}
 
 type CvCardModel = {
   name: string;
@@ -165,7 +155,7 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
                   </span>
                 </p>
                 {parsed.experienceYears != null &&
-                  Number.isFinite(parsed.experienceYears) ? (
+                Number.isFinite(parsed.experienceYears) ? (
                   <p className="text-muted">
                     Total experience (parsed):{" "}
                     <span className="font-medium tabular-nums text-foreground">
@@ -224,34 +214,44 @@ export function CvVersionComparisonDrawer({
   onProfileSaved = () => {},
 }: CvVersionComparisonDrawerProps) {
   const router = useRouter();
-  const [otherApplications, setOtherApplications] = useState<OtherApplicationItem[]>([]);
+  const [otherApplications, setOtherApplications] = useState<
+    OtherApplicationItem[]
+  >([]);
   const [otherAppsLoading, setOtherAppsLoading] = useState(false);
   const [otherAppsError, setOtherAppsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  const [otherAppsExpanded, setOtherAppsExpanded] = useState(false);
+  const otherAppsLoadedRef = useRef(false);
+
+  const fetchOtherApps = useCallback(() => {
+    if (otherAppsLoadedRef.current) return;
+    otherAppsLoadedRef.current = true;
     setOtherAppsLoading(true);
     setOtherAppsError(null);
     fetch(`/api/admin/candidates/${tableRow.id}/other-applications`, {
       credentials: "include",
     })
       .then((res) => res.json())
-      .then((json: { applications?: OtherApplicationItem[]; error?: string }) => {
-        if (json.error) {
-          setOtherAppsError(json.error);
-        } else {
-          setOtherApplications(json.applications ?? []);
-        }
-      })
+      .then(
+        (json: { applications?: OtherApplicationItem[]; error?: string }) => {
+          if (json.error) {
+            setOtherAppsError(json.error);
+          } else {
+            setOtherApplications(json.applications ?? []);
+          }
+        },
+      )
       .catch(() => setOtherAppsError("Could not load other applications."))
       .finally(() => setOtherAppsLoading(false));
-  }, [isOpen, tableRow.id]);
+  }, [tableRow.id]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
         setOtherApplications([]);
         setOtherAppsError(null);
+        otherAppsLoadedRef.current = false;
+        setOtherAppsExpanded(false);
       }
       onOpenChange(open);
     },
@@ -282,10 +282,7 @@ export function CvVersionComparisonDrawer({
     };
   }, [activeParsed, dbRow, tableRow.name, tableRow.role]);
 
-  const currentJobDescriptionId = useMemo(
-    () => jobDescriptionIdFromDbRow(dbRow),
-    [dbRow],
-  );
+  const currentJobDescriptionId = tableRow.jobDescriptionId;
 
   return (
     <Drawer.Backdrop isOpen={isOpen} onOpenChange={handleOpenChange}>
@@ -336,19 +333,20 @@ export function CvVersionComparisonDrawer({
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {currentJobDescriptionId != null ? (
-                      <button
-                        type="button"
-                        className="inline-flex shrink-0 items-center rounded-md border border-divider bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-accent"
-                        onClick={() =>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      isDisabled={currentJobDescriptionId == null}
+                      onPress={() => {
+                        if (currentJobDescriptionId != null) {
                           router.push(
                             `/admin/jd/${currentJobDescriptionId}/pipeline/${tableRow.id}/evaluation`,
-                          )
+                          );
                         }
-                      >
-                        View detail
-                      </button>
-                    ) : null}
+                      }}
+                    >
+                      View detail
+                    </Button>
                   </div>
                 </div>
                 <CvPreviewCard model={activeCardModel} />
@@ -357,19 +355,25 @@ export function CvVersionComparisonDrawer({
 
             <div className="mx-auto w-full max-w-[960px]">
               <Card className="overflow-hidden p-0">
-                <Disclosure defaultExpanded>
-                  <Disclosure.Heading className="px-4 pt-4 sm:px-6 sm:pt-5">
-                    <Disclosure.Trigger className="flex w-full max-w-full items-start justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
-                      <span className="min-w-0 flex-1 space-y-1">
-                        <span className="block text-lg font-semibold tracking-tight text-foreground">
+                <Disclosure
+                  isExpanded={otherAppsExpanded}
+                  onExpandedChange={(expanded) => {
+                    setOtherAppsExpanded(expanded);
+                    if (expanded) fetchOtherApps();
+                  }}
+                >
+                  <Disclosure.Heading className="px-4 pb-4 m:px-6 sm:pt-4">
+                    <Disclosure.Trigger className="flex w-full max-w-full items-center justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg font-semibold tracking-tight text-foreground">
                           Other applications
-                        </span>
-                        <span className="block text-sm font-normal text-muted">
+                        </p>
+                        <p className="text-sm font-normal text-muted">
                           Other CVs submitted by this candidate to different
                           positions.
-                        </span>
-                      </span>
-                      <Disclosure.Indicator className="mt-1 size-5 shrink-0 text-muted" />
+                        </p>
+                      </div>
+                      <Disclosure.Indicator className="size-5 shrink-0 text-muted" />
                     </Disclosure.Trigger>
                   </Disclosure.Heading>
                   <Disclosure.Content>
@@ -401,39 +405,40 @@ export function CvVersionComparisonDrawer({
                                 {app.cvUploadedAt ? (
                                   <p className="text-xs text-muted">
                                     Uploaded:{" "}
-                                    {new Date(app.cvUploadedAt).toLocaleDateString(
-                                      undefined,
-                                      {
-                                        day: "numeric",
-                                        month: "long",
-                                        year: "numeric",
-                                      },
-                                    )}
+                                    {new Date(
+                                      app.cvUploadedAt,
+                                    ).toLocaleDateString(undefined, {
+                                      day: "numeric",
+                                      month: "long",
+                                      year: "numeric",
+                                    })}
                                   </p>
                                 ) : null}
                               </div>
-                              {app.jobDescriptionId != null ? (
-                                <button
-                                  type="button"
-                                  className="inline-flex shrink-0 items-center rounded-md border border-divider bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-accent"
-                                  onClick={() =>
-                                    router.push(
-                                      `/admin/jd/${app.jobDescriptionId}/pipeline/${app.id}/evaluation`,
-                                    )
-                                  }
-                                >
-                                  View detail
-                                </button>
-                              ) : (
+                              <div className="flex shrink-0 items-center gap-2">
                                 <a
                                   href={app.cvDownloadUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex shrink-0 items-center rounded-md border border-divider bg-muted/30 px-3 py-1.5 text-xs font-semibold text-foreground outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-accent"
+                                  className="inline-flex h-8 shrink-0 items-center rounded-xl border border-divider px-3 text-xs font-semibold text-foreground transition-colors hover:bg-surface-secondary"
                                 >
-                                  View CV
+                                  Open CV
                                 </a>
-                              )}
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  isDisabled={app.jobDescriptionId == null}
+                                  onPress={() => {
+                                    if (app.jobDescriptionId != null) {
+                                      router.push(
+                                        `/admin/jd/${app.jobDescriptionId}/pipeline/${app.id}/evaluation`,
+                                      );
+                                    }
+                                  }}
+                                >
+                                  View detail
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>

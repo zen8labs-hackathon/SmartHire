@@ -3,8 +3,17 @@
 import React from "react";
 import Link from "next/link";
 import { Table, Select, ListBox, Tooltip, Button } from "@heroui/react";
-import { Eye as EyeIcon, Info as RecruitmentInfoIcon, Trash2 as TrashIcon } from "lucide-react";
-import { formatJdCalendarDate, jdStatusSelectTriggerClass, jdStatusListItemClass } from "./helpers";
+import {
+  EditIcon,
+  Eye as EyeIcon,
+  Info as RecruitmentInfoIcon,
+  Trash2 as TrashIcon,
+} from "lucide-react";
+import {
+  formatJdCalendarDate,
+  jdStatusSelectTriggerClass,
+  jdStatusListItemClass,
+} from "./helpers";
 import { useJdDashboard } from "./context";
 import { JD_STATUS_OPTIONS, type JdStatus } from "@/lib/jd/types";
 import { DataTablePagination } from "@/components/admin/shell/table-system";
@@ -48,7 +57,9 @@ export function JdTable() {
           <Table.Content aria-label="Jobs list" className="min-w-[920px]">
             <Table.Header>
               <Table.Column isRowHeader>Position</Table.Column>
-              <Table.Column className="text-center tabular-nums">Applicants</Table.Column>
+              <Table.Column className="text-center tabular-nums">
+                Applicants
+              </Table.Column>
               <Table.Column>Department</Table.Column>
               <Table.Column>Start date</Table.Column>
               <Table.Column>End date</Table.Column>
@@ -67,13 +78,19 @@ export function JdTable() {
             >
               {loading ? (
                 <Table.Row id="jd-row-loading">
-                  <Table.Cell className="py-12 text-center text-sm text-muted font-medium" colSpan={8}>
+                  <Table.Cell
+                    className="py-12 text-center text-sm text-muted font-medium"
+                    colSpan={8}
+                  >
                     Loading openings...
                   </Table.Cell>
                 </Table.Row>
               ) : paginatedRows.length === 0 ? (
                 <Table.Row id="jd-row-empty">
-                  <Table.Cell className="py-12 text-center text-sm text-muted font-medium" colSpan={8}>
+                  <Table.Cell
+                    className="py-12 text-center text-sm text-muted font-medium"
+                    colSpan={8}
+                  >
                     No jobs found.
                   </Table.Cell>
                 </Table.Row>
@@ -103,7 +120,9 @@ export function JdTable() {
                     <Table.Cell className="text-center tabular-nums font-semibold text-foreground py-3.5">
                       {row.applicant_count ?? 0}
                     </Table.Cell>
-                    <Table.Cell className="text-sm font-medium py-3.5">{row.department ?? "—"}</Table.Cell>
+                    <Table.Cell className="text-sm font-medium py-3.5">
+                      {row.department ?? "—"}
+                    </Table.Cell>
                     <Table.Cell className="whitespace-nowrap text-xs text-muted py-3.5">
                       {formatJdCalendarDate(row.start_date)}
                     </Table.Cell>
@@ -116,7 +135,9 @@ export function JdTable() {
                     <Table.Cell className="min-w-[9.5rem] py-3.5">
                       <Select
                         value={row.status}
-                        isDisabled={!canManageJds || statusUpdatingId === row.id}
+                        isDisabled={
+                          !canManageJds || statusUpdatingId === row.id
+                        }
                         onChange={(key) => {
                           if (typeof key === "string")
                             void updateJdStatus(row.id, key as JdStatus);
@@ -175,11 +196,11 @@ export function JdTable() {
                                 className="h-8 w-8 min-w-0 p-0 rounded-lg"
                                 onPress={() => openEdit(row)}
                               >
-                                <RecruitmentInfoIcon className="size-4 text-muted hover:text-foreground" />
+                                <EditIcon className="size-4 text-muted hover:text-foreground" />
                               </Button>
                               <Tooltip.Content placement="top" showArrow>
                                 <Tooltip.Arrow />
-                                <p>Hiring details</p>
+                                <p>Edit details</p>
                               </Tooltip.Content>
                             </Tooltip>
                             <Tooltip delay={0}>

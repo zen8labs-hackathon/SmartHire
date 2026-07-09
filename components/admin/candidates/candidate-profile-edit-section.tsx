@@ -390,7 +390,7 @@ export function CandidateProfileEditSection({
                     className="mt-1 text-sm"
                   />
                 </TextField>
-                <TextField className="min-w-0 md:col-span-2">
+                <TextField className="min-w-0 md:col-span-1">
                   <Label className={FIELD_LABEL}>Years of experience</Label>
                   <Input
                     inputMode="numeric"
@@ -419,22 +419,22 @@ export function CandidateProfileEditSection({
                         <Chip
                           size="sm"
                           variant="soft"
-                          color="default"
-                          className="max-w-[200px] truncate border border-divider text-xs font-medium"
+                          color="accent"
+                          className="max-w-[200px] truncate border border-accent/40 bg-accent/10 text-xs font-semibold text-accent"
                         >
                           {s}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            isIconOnly
+                            className="size-5 min-w-5 shrink-0 text-danger hover:text-danger"
+                            aria-label={`Remove ${s}`}
+                            onPress={() => removeSkill(s)}
+                          >
+                            ×
+                          </Button>
                         </Chip>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          isIconOnly
-                          className="size-7 min-w-7 shrink-0 text-muted hover:text-foreground"
-                          aria-label={`Remove ${s}`}
-                          onPress={() => removeSkill(s)}
-                        >
-                          ×
-                        </Button>
                       </span>
                     ))}
                     <Input

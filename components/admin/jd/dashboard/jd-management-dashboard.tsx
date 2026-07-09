@@ -18,7 +18,12 @@ import { JdDetailDrawer } from "./jd-detail-drawer";
 interface JdManagementDashboardProps {
   canManageJds?: boolean;
   chapters?: readonly { id: string; name: string }[];
-  allPipelineStages?: readonly { id: string; label: string; code: string; color: string }[];
+  allPipelineStages?: readonly {
+    id: string;
+    label: string;
+    code: string;
+    color: string;
+  }[];
   initialRowsPromise?: Promise<JdListInitialData>;
 }
 
