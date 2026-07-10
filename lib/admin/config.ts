@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 
@@ -19,7 +19,8 @@ export async function isProfileAdmin(
 export async function isProfileStaff(
   supabase: SupabaseClient,
   userId: string,
+  currentUser?: User | null,
 ): Promise<boolean> {
-  const a = await getStaffProfileAccess(supabase, userId);
+  const a = await getStaffProfileAccess(supabase, userId, currentUser);
   return a?.isStaff === true;
 }

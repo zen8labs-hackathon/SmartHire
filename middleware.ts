@@ -63,7 +63,7 @@ export async function middleware(request: NextRequest) {
       redirectUrl.searchParams.set("next", "/admin");
       return NextResponse.redirect(redirectUrl);
     }
-    if (!(await isProfileStaff(supabase, user.id))) {
+    if (!(await isProfileStaff(supabase, user.id, user))) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/dashboard";
       return NextResponse.redirect(redirectUrl);

@@ -35,15 +35,24 @@ export function sumApplicantCountsByJobDescriptionId(
 
 /**
  * Loads per-opening candidate counts and returns totals grouped by `job_description_id`.
+ * When `jdIds` is provided the query is scoped to only those IDs (avoids a
+ * full `job_openings` scan when enriching a paginated page of JDs).
  */
 export async function fetchApplicantCountsByJobDescriptionId(
   supabase: SupabaseClient,
+  jdIds?: number[],
 ): Promise<{ counts: Map<number, number>; error: string | null }> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("job_openings")
     .select("job_description_id, candidates(count)")
     .eq("candidates.is_active", true)
     .not("job_description_id", "is", null);
+
+  if (jdIds && jdIds.length > 0) {
+    query = query.in("job_description_id", jdIds);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return { counts: new Map(), error: error.message };

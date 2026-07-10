@@ -1,9 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { AddUserForm } from "@/components/admin/add-user-form";
 import {
   queryOrgUsersList,
   USERS_LIST_DEFAULT_LIMIT,
@@ -11,7 +9,6 @@ import {
 } from "@/lib/admin/users-list-query";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
-import { Card } from "@heroui/react";
 import { UsersTableWrapper } from "@/components/admin/users-table-wrapper";
 import { DataTableSkeleton } from "@/components/admin/shell/table-system";
 import { PageHeader } from "@/components/admin/shell/page-header";
@@ -27,20 +24,28 @@ const EMPTY_USERS_RESULT: UsersListResult = {
   counts: { total: 0, hr: 0, recruiter: 0, dashboardOnly: 0 },
 };
 
-async function TeamAccountsSection({ chapters }: { chapters: any[] }) {
-  let result = EMPTY_USERS_RESULT;
-  try {
-    result = await queryOrgUsersList({ limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 });
-  } catch {
-    result = EMPTY_USERS_RESULT;
-  }
+// Runs inside the Suspense boundary so the page shell renders immediately
+// after the auth check. Both queries run in parallel:
+//   - queryOrgUsersList: Auth Admin API + 3 DB queries
+//   - chapters: a single DB query
+// Previously chapters was awaited at the page level (before this component
+// could start), adding ~100ms of sequential latency on every page visit.
+async function TeamAccountsSection() {
+  const supabase = await createClient();
+
+  const [result, chaptersRes] = await Promise.all([
+    queryOrgUsersList({ limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 }).catch(
+      () => EMPTY_USERS_RESULT,
+    ),
+    supabase.from("chapters").select("id, name").order("name", { ascending: true }),
+  ]);
 
   return (
     <UsersTableWrapper
       initialUsers={result.users}
       initialPagination={result.pagination}
       initialCounts={result.counts}
-      chapters={chapters}
+      chapters={chaptersRes.data ?? []}
     />
   );
 }
@@ -50,12 +55,6 @@ export default async function AdminUsersPage() {
   if (!user) redirect("/login?next=/admin/users");
   if (!access?.isHr) redirect("/admin/jd");
 
-  const supabase = await createClient();
-  const { data: chapters } = await supabase
-    .from("chapters")
-    .select("id, name")
-    .order("name", { ascending: true });
-
   return (
     <div className="flex flex-col gap-4 font-sans">
       <PageHeader
@@ -64,7 +63,7 @@ export default async function AdminUsersPage() {
       />
 
       <Suspense fallback={<DataTableSkeleton columnsCount={2} rowsCount={4} />}>
-        <TeamAccountsSection chapters={chapters ?? []} />
+        <TeamAccountsSection />
       </Suspense>
     </div>
   );

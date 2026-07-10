@@ -55,51 +55,59 @@ export default async function AdminPage() {
 
   const supabase = await createClient();
 
-  // 1. Fetch counts for statistics
-  const [candidatesCountRes, jobsCountRes, usersCountRes, pipelinesCountRes] =
-    await Promise.all([
-      supabase
-        .from("candidates")
-        .select("id", { count: "exact", head: true })
-        .eq("is_active", true),
-      supabase
-        .from("job_descriptions")
-        .select("id", { count: "exact", head: true }),
-      supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase
-        .from("pipeline_stages")
-        .select("id", { count: "exact", head: true })
-        .is("deleted_at", null),
-    ]);
+  // All 7 queries run in parallel — none depends on another's result.
+  const [
+    candidatesCountRes,
+    jobsCountRes,
+    usersCountRes,
+    pipelinesCountRes,
+    recentJobsResult,
+    recentCandidatesResult,
+    versionEventsResult,
+  ] = await Promise.all([
+    supabase
+      .from("candidates")
+      .select("id", { count: "exact", head: true })
+      .eq("is_active", true),
+    supabase
+      .from("job_descriptions")
+      .select("id", { count: "exact", head: true }),
+    supabase.from("profiles").select("id", { count: "exact", head: true }),
+    supabase
+      .from("pipeline_stages")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null),
+    supabase
+      .from("job_descriptions")
+      .select("id, position, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(5),
+    supabase
+      .from("candidates")
+      .select("id, name, role, status, cv_uploaded_at")
+      .eq("is_active", true)
+      .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
+      .limit(5),
+    supabase
+      .from("candidate_cv_detail_version_events")
+      .select("id, event_type, change_summary, created_at, candidates(name)")
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
 
   const totalCandidates = candidatesCountRes.count ?? 0;
   const totalJobs = jobsCountRes.count ?? 0;
   const totalUsers = usersCountRes.count ?? 0;
   const totalPipelines = pipelinesCountRes.count ?? 0;
 
-  // 2. Fetch 5 recent jobs
-  const { data: recentJobsRaw } = await supabase
-    .from("job_descriptions")
-    .select("id, position, status, created_at")
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  const recentJobs: RecentJob[] = (recentJobsRaw ?? []).map((j: any) => ({
+  const recentJobs: RecentJob[] = (recentJobsResult.data ?? []).map((j: any) => ({
     id: j.id,
     position: j.position,
     status: j.status ?? "draft",
     created_at: j.created_at,
   }));
 
-  // 3. Fetch 5 recent candidates
-  const { data: recentCandidatesRaw } = await supabase
-    .from("candidates")
-    .select("id, name, role, status, cv_uploaded_at")
-    .eq("is_active", true)
-    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-    .limit(5);
-
-  const recentCandidates: RecentCandidate[] = (recentCandidatesRaw ?? []).map(
+  const recentCandidates: RecentCandidate[] = (recentCandidatesResult.data ?? []).map(
     (c: any) => ({
       id: c.id,
       name: c.name || "Candidate",
@@ -109,14 +117,7 @@ export default async function AdminPage() {
     }),
   );
 
-  // 4. Fetch 5 recent activities/audit events
-  const { data: versionEventsRaw } = await supabase
-    .from("candidate_cv_detail_version_events")
-    .select("id, event_type, change_summary, created_at, candidates(name)")
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  const auditEvents: AuditEvent[] = (versionEventsRaw ?? []).map((e: any) => ({
+  const auditEvents: AuditEvent[] = (versionEventsResult.data ?? []).map((e: any) => ({
     id: Number(e.id),
     event_type: e.event_type,
     change_summary: e.change_summary,

@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { parsedContactFromPayload } from "@/lib/candidates/duplicate-detection";
-import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import {
+  parsedContactFromPayload,
+  normalizeEmailFromPayload,
+  normalizePhoneFromPayload,
+} from "@/lib/candidates/duplicate-detection";
+import { ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import type { CandidatesListPagination } from "@/lib/candidates/candidates-list-query";
@@ -34,9 +38,22 @@ function maxExpYears(rows: CandidateDbRow[]): number {
 }
 
 function personKey(row: CandidateDbRow): string {
-  const contact = parsedContactFromPayload(row.parsed_payload);
-  if (contact.email) return `email:${contact.email}`;
-  if (contact.phoneVariants.length > 0) return `phone:${contact.phoneVariants[0]}`;
+  // Prefer projected contact fields (from ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT)
+  // to avoid parsing the full parsed_payload blob.
+  const email =
+    row.parsed_contact_email != null
+      ? normalizeEmailFromPayload(row.parsed_contact_email)
+      : parsedContactFromPayload(row.parsed_payload).email;
+  if (email) return `email:${email}`;
+
+  const rawPhone =
+    row.parsed_contact_phone != null
+      ? row.parsed_contact_phone
+      : parsedContactFromPayload(row.parsed_payload).phone;
+  if (rawPhone) {
+    const { variants } = normalizePhoneFromPayload(rawPhone);
+    if (variants.length > 0) return `phone:${variants[0]}`;
+  }
   return `anon:${row.id}`;
 }
 
@@ -68,7 +85,7 @@ export async function queryDedupedCandidatesList(
 
   const { data, error } = await supabase
     .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
+    .select(ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT)
     .eq("is_active", true)
     .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })

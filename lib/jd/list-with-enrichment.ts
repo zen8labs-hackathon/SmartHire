@@ -140,12 +140,16 @@ export async function queryJobDescriptionsWithEnrichment(
     };
   }
 
+  // Scope enrichment queries to only the JD IDs on this page so we never
+  // scan the entire job_openings table for a paginated list of 10 rows.
+  const jdIds = jds.map((row: Record<string, unknown>) => row.id as number);
+
   const [openingsResult, countsResult] = await Promise.all([
     supabase
       .from("job_openings")
       .select("id, job_description_id, jd_storage_path, created_at")
-      .not("job_description_id", "is", null),
-    fetchApplicantCountsByJobDescriptionId(supabase),
+      .in("job_description_id", jdIds),
+    fetchApplicantCountsByJobDescriptionId(supabase, jdIds),
   ]);
 
   const { data: openings, error: openingsError } = openingsResult;
