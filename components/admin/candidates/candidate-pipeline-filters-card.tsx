@@ -11,15 +11,10 @@ import {
   ListBox,
   RangeCalendar,
   Select,
-  useOverlayState,
 } from "@heroui/react";
 import type { RangeValue } from "react-aria-components";
 import { Dialog } from "react-aria-components";
-import {
-  DataTableFilterButton,
-  DataTableFilterModal,
-  DataTableToolbar,
-} from "@/components/admin/shell/table-system";
+import { DataTableToolbar } from "@/components/admin/shell/table-system";
 import { Calendar } from "lucide-react";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
@@ -37,7 +32,10 @@ const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 12, label: "Dec" },
 ];
 
-const YEAR_OPTIONS = Array.from({ length: 2030 - 1990 + 1 }, (_, i) => 1990 + i);
+const YEAR_OPTIONS = Array.from(
+  { length: 2030 - 1990 + 1 },
+  (_, i) => 1990 + i,
+);
 
 export type CandidatePipelineFilterOption = {
   id: string;
@@ -94,33 +92,20 @@ function CandidatePipelineFiltersCardImpl({
 }: CandidatePipelineFiltersCardProps) {
   const monthId = `candidate-calendar-month${calendarIdsSuffix}`;
   const yearId = `candidate-calendar-year${calendarIdsSuffix}`;
-  const filterModal = useOverlayState();
-
-  const activeFilterCount =
-    (statusKey != null && statusKey !== "all" ? 1 : 0) +
-    (jdFilterKey != null && jdFilterKey !== "all" ? 1 : 0) +
-    (uploadDateRangeFilter ? 1 : 0);
-
-  const clearAllFilters = () => {
-    setStatusKey?.("all");
-    setJdFilterKey?.("all");
-    setUploadDateRangeFilter(null);
-    onFiltersAdjusted?.();
-  };
 
   const filtersElement = (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex items-center gap-2">
       {statusFilterOptions && setStatusKey && (
         <Select
+          aria-label="Filter by status"
           value={statusKey ?? null}
           onChange={(key) => {
             setStatusKey(key);
             onFiltersAdjusted?.();
           }}
           placeholder="Filter by status"
-          className="w-full"
+          className="w-48"
         >
-          <Label className="mb-1 block text-xs font-semibold text-muted">Status</Label>
           <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
             <Select.Value />
             <Select.Indicator />
@@ -128,7 +113,12 @@ function CandidatePipelineFiltersCardImpl({
           <Select.Popover>
             <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
               {statusFilterOptions.map((opt) => (
-                <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+                <ListBox.Item
+                  key={opt.id}
+                  id={opt.id}
+                  textValue={opt.label}
+                  className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
+                >
                   {opt.label}
                   <ListBox.ItemIndicator />
                 </ListBox.Item>
@@ -140,15 +130,15 @@ function CandidatePipelineFiltersCardImpl({
 
       {jdFilterOptions && setJdFilterKey && (
         <Select
+          aria-label="Filter by Job"
           value={jdFilterKey ?? null}
           onChange={(key) => {
             setJdFilterKey(key);
             onFiltersAdjusted?.();
           }}
           placeholder="Filter by Job"
-          className="w-full"
+          className="w-52"
         >
-          <Label className="mb-1 block text-xs font-semibold text-muted">Job description</Label>
           <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
             <Select.Value />
             <Select.Indicator />
@@ -156,7 +146,12 @@ function CandidatePipelineFiltersCardImpl({
           <Select.Popover>
             <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
               {jdFilterOptions.map((opt) => (
-                <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+                <ListBox.Item
+                  key={opt.id}
+                  id={opt.id}
+                  textValue={opt.label}
+                  className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
+                >
                   {opt.label}
                   <ListBox.ItemIndicator />
                 </ListBox.Item>
@@ -169,10 +164,9 @@ function CandidatePipelineFiltersCardImpl({
   );
 
   const dateRangeElement = (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-xs font-semibold text-muted">Upload date</Label>
-      <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2">
       <DateRangePicker
+        aria-label="Upload date range"
         value={uploadDateRangeFilter as any}
         onChange={(next) => {
           setUploadDateRangeFilter(next as any);
@@ -254,19 +248,29 @@ function CandidatePipelineFiltersCardImpl({
                 </div>
                 <RangeCalendar.NavButton slot="next" />
               </RangeCalendar.Header>
-              <RangeCalendar.Grid weekdayStyle="short" className="border-collapse">
+              <RangeCalendar.Grid
+                weekdayStyle="short"
+                className="border-collapse"
+              >
                 <RangeCalendar.GridHeader>
                   {(day) => (
-                    <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">{day}</RangeCalendar.HeaderCell>
+                    <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">
+                      {day}
+                    </RangeCalendar.HeaderCell>
                   )}
                 </RangeCalendar.GridHeader>
                 <RangeCalendar.GridBody>
                   {(date) => (
-                    <RangeCalendar.Cell date={date} className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0">
+                    <RangeCalendar.Cell
+                      date={date}
+                      className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0"
+                    >
                       {({ formattedDate }) => (
                         <>
                           <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
-                          <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">{formattedDate}</span>
+                          <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">
+                            {formattedDate}
+                          </span>
                         </>
                       )}
                     </RangeCalendar.Cell>
@@ -291,38 +295,25 @@ function CandidatePipelineFiltersCardImpl({
           Clear
         </Button>
       ) : null}
-      </div>
     </div>
   );
 
   return (
-    <>
-      <DataTableToolbar
-        searchQuery={query}
-        onSearchChange={setQuery}
-        searchPlaceholder={searchPlaceholder}
-        filters={
-          <DataTableFilterButton
-            onPress={filterModal.open}
-            activeCount={activeFilterCount}
-          />
-        }
-        onRefresh={onRefresh}
-        isRefreshing={isRefreshing}
-        createButtonLabel={createButtonLabel}
-        onCreate={onCreate}
-        createButtonDisabled={createButtonDisabled}
-      />
-      <DataTableFilterModal
-        isOpen={filterModal.isOpen}
-        onOpenChange={filterModal.setOpen}
-        onClear={activeFilterCount > 0 ? clearAllFilters : undefined}
-      >
-        {filtersElement}
-        {dateRangeElement}
-      </DataTableFilterModal>
-    </>
+    <DataTableToolbar
+      searchQuery={query}
+      onSearchChange={setQuery}
+      searchPlaceholder={searchPlaceholder}
+      filters={filtersElement}
+      dateRange={dateRangeElement}
+      onRefresh={onRefresh}
+      isRefreshing={isRefreshing}
+      createButtonLabel={createButtonLabel}
+      onCreate={onCreate}
+      createButtonDisabled={createButtonDisabled}
+    />
   );
 }
 
-export const CandidatePipelineFiltersCard = memo(CandidatePipelineFiltersCardImpl);
+export const CandidatePipelineFiltersCard = memo(
+  CandidatePipelineFiltersCardImpl,
+);

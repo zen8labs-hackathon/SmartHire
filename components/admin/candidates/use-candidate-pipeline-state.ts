@@ -439,7 +439,31 @@ export function useCandidatePipelineState(
         const json = (await res.json()) as { candidate?: CandidateDbRow };
         const c = json.candidate;
         if (!c || ac.signal.aborted) return;
-        setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
+        setDbRows((prev) =>
+          prev.map((r) => {
+            if (r.id !== c.id) return r;
+            // The deduped list computes experience_years as the max across all
+            // CVs for a person. The single-row detail API returns the raw DB
+            // value for this specific CV, which may be lower (or null). Preserve
+            // the higher value so the table column doesn't reset after opening
+            // the drawer.
+            const existingExp =
+              r.experience_years == null || r.experience_years === ""
+                ? 0
+                : Number(r.experience_years);
+            const newExp =
+              c.experience_years == null || c.experience_years === ""
+                ? 0
+                : Number(c.experience_years);
+            return {
+              ...c,
+              experience_years:
+                Number.isFinite(existingExp) && existingExp > newExp
+                  ? existingExp
+                  : c.experience_years,
+            };
+          }),
+        );
         setActiveRow((prev) =>
           prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
         );

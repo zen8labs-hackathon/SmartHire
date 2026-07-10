@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getSupabasePublishableKey } from "./env";
+import { withQueryTiming } from "./helper";
 
 export async function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,7 +14,7 @@ export async function createClient() {
 
   const cookieStore = await cookies();
 
-  return createServerClient(url, key, {
+  const res = createServerClient(url, key, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -29,4 +30,8 @@ export async function createClient() {
       },
     },
   });
+
+  return process.env.NODE_ENV === "development"
+    ? withQueryTiming(res)
+    : res;
 }

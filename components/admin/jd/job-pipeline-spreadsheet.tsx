@@ -16,7 +16,7 @@ import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundar
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
-import { Alert, Breadcrumbs, Button } from "@heroui/react";
+import { Alert, Breadcrumbs } from "@heroui/react";
 
 function PipelineErrorFallback() {
   return (
@@ -29,26 +29,6 @@ function PipelineErrorFallback() {
         </Alert.Description>
       </Alert.Content>
     </Alert>
-  );
-}
-
-function UserPlusIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <line x1="19" y1="8" x2="19" y2="14" />
-      <line x1="22" y1="11" x2="16" y2="11" />
-    </svg>
   );
 }
 
@@ -93,7 +73,7 @@ export function JobPipelineSpreadsheet({
     }, [linkedJobOpeningId, linkedJobOpeningTitle]);
 
   return (
-    <div className="relative flex flex-col gap-6 pb-20">
+    <div className="relative flex flex-col gap-6">
       <header className="space-y-2">
         <Breadcrumbs className="text-xs text-muted">
           <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
@@ -123,18 +103,6 @@ export function JobPipelineSpreadsheet({
           />
         </Suspense>
       </SuspenseErrorBoundary>
-
-      {canAddCandidates ? (
-        <Button
-          variant="primary"
-          size="lg"
-          className="fixed bottom-8 right-8 z-20 size-14 min-w-0 rounded-full p-0 shadow-lg"
-          aria-label="Add candidates to this job"
-          onPress={() => setAddCandidatesOpen(true)}
-        >
-          <UserPlusIcon className="size-6" />
-        </Button>
-      ) : null}
 
       {canAddCandidates ? (
         <AddCandidateModal

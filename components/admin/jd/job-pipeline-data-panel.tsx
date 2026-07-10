@@ -11,7 +11,10 @@ import {
 
 import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
+import type {
+  StageMapping,
+  SubStage,
+} from "@/lib/pipelines/transition-validator";
 import { createClient } from "@/lib/supabase/client";
 import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 

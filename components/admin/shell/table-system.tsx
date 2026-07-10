@@ -7,9 +7,16 @@ import {
   Input,
   Modal,
   Pagination as HeroUIPagination,
-  Spinner
+  Spinner,
 } from "@heroui/react";
-import { Search, RotateCw, Plus, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import {
+  Search,
+  RotateCw,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  SlidersHorizontal,
+} from "lucide-react";
 
 // ==========================================
 // 1. TOOLBAR
@@ -44,62 +51,52 @@ export function DataTableToolbar({
   actions,
 }: DataTableToolbarProps) {
   return (
-    <div className="flex flex-col gap-3.5 pb-4.5 border-b border-divider/60 mb-3 lg:flex-row lg:items-center lg:justify-between">
-      <div className="flex flex-1 flex-wrap items-center gap-3">
-        {onSearchChange && (
-          <div className="relative min-w-[280px] flex-1 max-w-md">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted/70" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="w-full pl-10 pr-4 py-2 text-sm bg-surface-secondary/40 border border-divider hover:border-accent/40 focus:border-accent focus:bg-background rounded-xl outline-none transition-all placeholder:text-muted/60"
-            />
-          </div>
-        )}
-        
-        {filters && (
-          <div className="flex items-center gap-2">
-            {filters}
-          </div>
-        )}
+    <div className="flex flex-wrap items-center gap-2.5 pb-4.5 border-b border-divider/60 mb-3">
+      {onSearchChange && (
+        <div className="relative w-80 shrink-0">
+          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted/70" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full pl-9 pr-3 py-2 text-xs bg-surface-secondary/40 border border-divider hover:border-accent/40 focus:border-accent focus:bg-background rounded-xl outline-none transition-all placeholder:text-muted/60"
+          />
+        </div>
+      )}
 
-        {dateRange && (
-          <div className="flex items-center gap-2">
-            {dateRange}
-          </div>
-        )}
-      </div>
+      {filters && <div className="flex items-center gap-2">{filters}</div>}
 
-      <div className="flex items-center gap-2.5 shrink-0 justify-end mt-1 lg:mt-0">
-        {actions}
+      {dateRange && <div className="flex items-center gap-2">{dateRange}</div>}
 
-        {onRefresh && (
-          <Button
-            isIconOnly
-            variant="ghost"
-            className="h-9 w-9 rounded-xl border border-divider hover:bg-surface-secondary"
-            onPress={onRefresh}
-            aria-label="Refresh list"
-            isDisabled={isRefreshing}
-          >
-            <RotateCw className={`h-4 w-4 text-muted hover:text-foreground transition-all duration-300 ${isRefreshing ? "animate-spin text-accent" : ""}`} />
-          </Button>
-        )}
+      {onRefresh && (
+        <Button
+          isIconOnly
+          variant="ghost"
+          className="h-9 w-9 rounded-xl border border-divider hover:bg-surface-secondary shrink-0"
+          onPress={onRefresh}
+          aria-label="Refresh list"
+          isDisabled={isRefreshing}
+        >
+          <RotateCw
+            className={`h-4 w-4 text-muted hover:text-foreground transition-all duration-300 ${isRefreshing ? "animate-spin text-accent" : ""}`}
+          />
+        </Button>
+      )}
 
-        {createButtonLabel && onCreate && (
-          <Button
-            variant="primary"
-            onPress={onCreate}
-            isDisabled={createButtonDisabled}
-            className="py-2 px-4 rounded-xl bg-accent hover:bg-accent/90 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer text-xs sm:text-sm"
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span>{createButtonLabel}</span>
-          </Button>
-        )}
-      </div>
+      {actions}
+
+      {createButtonLabel && onCreate && (
+        <Button
+          variant="primary"
+          onPress={onCreate}
+          isDisabled={createButtonDisabled}
+          className="h-9 px-3.5 rounded-xl bg-accent hover:bg-accent/90 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          <span>{createButtonLabel}</span>
+        </Button>
+      )}
     </div>
   );
 }
@@ -180,7 +177,11 @@ export function DataTableFilterModal({
             ) : (
               <span />
             )}
-            <Button variant="primary" size="sm" onPress={() => onOpenChange(false)}>
+            <Button
+              variant="primary"
+              size="sm"
+              onPress={() => onOpenChange(false)}
+            >
               Done
             </Button>
           </Modal.Footer>
@@ -228,9 +229,11 @@ export function DataTablePagination({
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between py-4 border-t border-divider/60 font-sans">
       <div className="flex flex-wrap items-center gap-4">
         <p className="text-xs text-muted font-medium">
-          Showing <span className="font-semibold text-foreground">{startIdx}</span> to{" "}
+          Showing{" "}
+          <span className="font-semibold text-foreground">{startIdx}</span> to{" "}
           <span className="font-semibold text-foreground">{endIdx}</span> of{" "}
-          <span className="font-semibold text-foreground">{totalCount}</span> {itemTypeLabel}
+          <span className="font-semibold text-foreground">{totalCount}</span>{" "}
+          {itemTypeLabel}
         </p>
 
         {setPageSize && pageSize !== undefined && (
@@ -327,7 +330,9 @@ export function DataTableStats({ stats }: DataTableStatsProps) {
             <span className="text-[10px] font-bold uppercase tracking-wider">
               {stat.label}
             </span>
-            {stat.icon && <div className="shrink-0 opacity-70">{stat.icon}</div>}
+            {stat.icon && (
+              <div className="shrink-0 opacity-70">{stat.icon}</div>
+            )}
           </div>
           <p className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             {stat.value}
@@ -361,7 +366,11 @@ export function DataTableSkeleton({
       {/* Stats Skeleton */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, idx) => (
-          <Card key={idx} variant="secondary" className="border border-divider animate-pulse p-4.5 rounded-2xl">
+          <Card
+            key={idx}
+            variant="secondary"
+            className="border border-divider animate-pulse p-4.5 rounded-2xl"
+          >
             <div className="h-3 w-16 bg-default-200 rounded" />
             <div className="h-6 w-12 bg-default-300 rounded mt-3.5" />
             <div className="h-3.5 w-24 bg-default-100 rounded mt-1.5" />
@@ -376,7 +385,10 @@ export function DataTableSkeleton({
       </div>
 
       {/* Table Skeleton */}
-      <Card variant="secondary" className="border border-divider animate-pulse p-0 rounded-2xl overflow-hidden">
+      <Card
+        variant="secondary"
+        className="border border-divider animate-pulse p-0 rounded-2xl overflow-hidden"
+      >
         <div className="border-b border-divider bg-surface-secondary/40 p-4.5">
           <div className="h-4.5 w-32 bg-default-200 rounded" />
         </div>

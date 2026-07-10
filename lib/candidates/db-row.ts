@@ -199,6 +199,20 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     : null;
   const openingCreatedAt = jo?.created_at;
 
+  const jdEmbed = jo?.job_descriptions;
+  const firstJd = jdEmbed
+    ? Array.isArray(jdEmbed)
+      ? jdEmbed[0]
+      : jdEmbed
+    : null;
+  const jdId = firstJd?.id;
+  const jobDescriptionId: number | null =
+    typeof jdId === "number"
+      ? jdId
+      : typeof jdId === "string" && Number.isFinite(Number(jdId))
+        ? Number(jdId)
+        : null;
+
   const ttf = calculateDaysDifference(openingCreatedAt, r.offered_at);
   const tth = calculateDaysDifference(uploaded, r.offered_at);
 
@@ -220,6 +234,7 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     status: asCandidateStatus(r.status),
     uploadedByEmail: r.uploaded_by_email?.trim() || null,
     jobOpeningId: r.job_opening_id,
+    jobDescriptionId,
     jdCampaignLabel: jdCampaignLabelFromRow(r),
     sourceLabel,
     jdMatchScore,
