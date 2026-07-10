@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card } from "@heroui/react";
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/admin/shell/page-header";
-import { SectionCard } from "@/components/admin/shell/cards";
 import {
   Briefcase,
   Users,
@@ -13,9 +12,6 @@ import {
   Compass,
   FileSpreadsheet,
   Lock,
-  Mail,
-  ShieldCheck,
-  Building,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -162,15 +158,18 @@ function FeatureLinkCard({
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getRequestAuth() is memoized via React cache() — the layout already called
+  // it, so this resolves instantly from cache without extra network round-trips.
+  const { user, access } = await getRequestAuth();
 
   if (!user) {
     redirect("/login?next=/dashboard");
   }
 
+  const isHr = access?.isHr === true;
+
+  // Only one additional query needed: the display name from profiles.
+  const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
@@ -179,18 +178,6 @@ export default async function DashboardPage() {
 
   const displayName =
     profile?.username ?? user.email?.split("@")[0] ?? "Recruiter";
-  const staffAccess = await getStaffProfileAccess(supabase, user.id);
-  const isHr = staffAccess?.isHr === true;
-
-  // Fetch chapter names
-  const { data: chaptersData } = await supabase
-    .from("profile_chapters")
-    .select("chapters(name)")
-    .eq("profile_id", user.id);
-
-  const chapterNames = (chaptersData ?? [])
-    .map((r: any) => r.chapters?.name)
-    .filter((name): name is string => typeof name === "string");
 
   return (
     <div className="space-y-6">
