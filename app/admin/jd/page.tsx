@@ -50,6 +50,10 @@ export default async function AdminJdPage() {
   const { access } = await getRequestAuth();
   const supabase = await createClient();
 
+  // Kick off all 3 queries simultaneously so jdListPromise doesn't have to
+  // wait for the reference data (chapters, pipeline_stages) to finish first.
+  const jdListPromise = getJobDescriptionsList(supabase);
+
   const [chapterRowsRes, pipelineStagesRes] = await Promise.all([
     supabase
       .from("chapters")
@@ -64,12 +68,6 @@ export default async function AdminJdPage() {
 
   const chapterRows = chapterRowsRes.data;
   const pipelineStages = pipelineStagesRes.data;
-
-  // Kick off the JD list query but don't await it here, so the static header
-  // below renders immediately. The Suspense boundary inside
-  // JdManagementDashboard only gates the filters/stats/table region, which is
-  // the part that actually needs this data.
-  const jdListPromise = getJobDescriptionsList(supabase);
 
   return (
     <JdManagementDashboard
