@@ -20,20 +20,8 @@ export default async function LoginPage({ searchParams }: Props) {
       <div className="relative z-10 w-full max-w-[420px]">
         {/* Logo and Header */}
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-accent to-indigo-400 shadow-lg shadow-accent/15 transition-transform duration-300 hover:scale-105">
-            <svg
-              className="h-6 w-6 text-white"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
-              />
-            </svg>
+          <div className="flex h-14 w-14 items-center justify-center transition-transform duration-300 hover:scale-105">
+            <img src="/logo.svg" alt="SmartHire Logo" className="h-14 w-14" />
           </div>
           <h1 className="mt-6 text-2xl font-semibold tracking-tight text-foreground">
             Welcome back
