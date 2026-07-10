@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isProfileStaff } from "@/lib/admin/config";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = getSupabasePublishableKey();
   const path = request.nextUrl.pathname;
