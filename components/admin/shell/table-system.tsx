@@ -84,21 +84,19 @@ export function DataTableToolbar({
         </Button>
       )}
 
-      <div className="flex items-center gap-2.5 ml-auto shrink-0">
-        {actions}
+      {actions}
 
-        {createButtonLabel && onCreate && (
-          <Button
-            variant="primary"
-            onPress={onCreate}
-            isDisabled={createButtonDisabled}
-            className="h-9 px-3.5 rounded-xl bg-accent hover:bg-accent/90 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-          >
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            <span>{createButtonLabel}</span>
-          </Button>
-        )}
-      </div>
+      {createButtonLabel && onCreate && (
+        <Button
+          variant="primary"
+          onPress={onCreate}
+          isDisabled={createButtonDisabled}
+          className="h-9 px-3.5 rounded-xl bg-accent hover:bg-accent/90 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          <span>{createButtonLabel}</span>
+        </Button>
+      )}
     </div>
   );
 }
