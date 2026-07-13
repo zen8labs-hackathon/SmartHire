@@ -1,19 +1,16 @@
 "use client";
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import Link from "next/link";
 
-import {
-  AddCandidateModal,
-  type JdPipelineCampaignOption,
-} from "@/components/admin/candidates/add-candidate-modal";
+import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import {
   JobPipelineDataPanel,
   type JobPipelineDataPanelHandle,
 } from "@/components/admin/jd/job-pipeline-data-panel";
 import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skeleton";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 import { Alert, Breadcrumbs } from "@heroui/react";
@@ -33,15 +30,12 @@ function PipelineErrorFallback() {
 }
 
 type Props = {
-  jobDescriptionId: number;
   jobId: string;
   jobTitle: string;
-  linkedJobOpeningId: string | null;
-  linkedJobOpeningTitle: string | null;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
   pipelineDataPromise: Promise<{
-    rows: CandidateDbRow[];
+    rows: JdPipelineApplicationRow[];
     fetchFailed: boolean;
     stageMappings: StageMapping[];
     subStages: SubStage[];
@@ -49,11 +43,8 @@ type Props = {
 };
 
 export function JobPipelineSpreadsheet({
-  jobDescriptionId,
   jobId,
   jobTitle,
-  linkedJobOpeningId,
-  linkedJobOpeningTitle,
   canEditPipeline,
   canAddCandidates,
   pipelineDataPromise,
@@ -61,16 +52,10 @@ export function JobPipelineSpreadsheet({
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
 
-  const jdPipelineCampaign: JdPipelineCampaignOption | undefined =
-    useMemo(() => {
-      if (linkedJobOpeningId && linkedJobOpeningTitle) {
-        return {
-          jobOpeningId: linkedJobOpeningId,
-          title: linkedJobOpeningTitle,
-        };
-      }
-      return "no_opening_linked";
-    }, [linkedJobOpeningId, linkedJobOpeningTitle]);
+  // DB7X2K merged `job_openings` into `jobs` -- every job is its own single
+  // campaign now (see the JD create-flow's "no Draft status by design"
+  // decision), so there's no more "no opening linked" case to represent.
+  const jdPipelineCampaign = { jobOpeningId: jobId, title: jobTitle };
 
   return (
     <div className="relative flex flex-col gap-6">
@@ -94,7 +79,6 @@ export function JobPipelineSpreadsheet({
         <Suspense fallback={<PipelineTableSkeleton />}>
           <JobPipelineDataPanel
             ref={pipelinePanelRef}
-            jobDescriptionId={jobDescriptionId}
             jobId={jobId}
             pipelineDataPromise={pipelineDataPromise}
             canEditPipeline={canEditPipeline}

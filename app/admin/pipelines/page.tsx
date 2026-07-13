@@ -8,22 +8,22 @@ export const metadata: Metadata = {
 
 import { PipelineManager } from "@/components/admin/pipeline-manager";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import { getPool } from "@/lib/db/config/client";
+import { listPipelineStages } from "@/lib/db/pipeline-stages";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
-import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/admin/shell/page-header";
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-
-async function getPipelineStages(
-  supabase: SupabaseServerClient,
-): Promise<PipelineStageRow[]> {
-  const { data, error } = await supabase
-    .from("pipeline_stages")
-    .select("id, code, label, desc, color, created_at, updated_at")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+async function getPipelineStages(): Promise<PipelineStageRow[]> {
+  const rows = await listPipelineStages(getPool());
+  return rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    label: r.label,
+    desc: r.desc,
+    color: r.color,
+    created_at: r.created_at.toISOString(),
+    updated_at: r.updated_at.toISOString(),
+  }));
 }
 
 export default async function AdminPipelinesPage() {
@@ -37,8 +37,7 @@ export default async function AdminPipelinesPage() {
     redirect("/admin/jd");
   }
 
-  const supabase = await createClient();
-  const stagesPromise = getPipelineStages(supabase);
+  const stagesPromise = getPipelineStages();
 
   return (
     <div className="flex flex-col gap-6 font-sans">

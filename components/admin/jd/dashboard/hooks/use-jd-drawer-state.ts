@@ -1,15 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
+import { useState, useEffect, useCallback } from "react";
 import type { JobDescription } from "@/lib/jd/types";
+import type { CampaignAppliedStageCountRow } from "@/lib/db/campaign-applied-list";
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+export type StageSubStageCount = CampaignAppliedStageCountRow;
 
 export function useJdDrawerState(canManageJds: boolean) {
-  const supabase = useMemo(() => createClient(), []);
-
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
   
-  const [drawerStatusCounts, setDrawerStatusCounts] = useState<Record<string, number> | null>(null);
+  const [drawerStatusCounts, setDrawerStatusCounts] = useState<
+    StageSubStageCount[] | null
+  >(null);
   const [drawerStatusCountsError, setDrawerStatusCountsError] = useState<string | null>(null);
 
   const [drawerViewerEmails, setDrawerViewerEmails] = useState<string[]>([]);
@@ -18,10 +21,7 @@ export function useJdDrawerState(canManageJds: boolean) {
   const [drawerViewersBusy, setDrawerViewersBusy] = useState(false);
   const [drawerViewersError, setDrawerViewersError] = useState<string | null>(null);
 
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
+  const authHeaders = useCallback(async () => JSON_HEADERS, []);
 
   // Load viewers
   useEffect(() => {
@@ -37,10 +37,9 @@ export function useJdDrawerState(canManageJds: boolean) {
     setDrawerViewersError(null);
     void (async () => {
       try {
-        const h = await getSessionAuthorizationHeaders(supabase);
         const res = await fetch(
           `/api/admin/job-descriptions/${activeRow.id}`,
-          { credentials: "include", headers: { ...h } },
+          { credentials: "include" },
         );
         const json = (await res.json()) as {
           viewerEmails?: string[];
@@ -69,7 +68,7 @@ export function useJdDrawerState(canManageJds: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [drawerOpen, activeRow?.id, canManageJds, supabase]);
+  }, [drawerOpen, activeRow?.id, canManageJds]);
 
   // Load status counts
   useEffect(() => {
@@ -83,13 +82,12 @@ export function useJdDrawerState(canManageJds: boolean) {
     setDrawerStatusCountsError(null);
     void (async () => {
       try {
-        const h = await getSessionAuthorizationHeaders(supabase);
         const res = await fetch(
           `/api/admin/job-descriptions/${activeRow.id}/candidate-status-counts`,
-          { credentials: "include", headers: { ...h } },
+          { credentials: "include" },
         );
         const json = (await res.json()) as {
-          counts?: Record<string, number>;
+          counts?: StageSubStageCount[];
           error?: string;
         };
         if (cancelled) return;
@@ -109,7 +107,7 @@ export function useJdDrawerState(canManageJds: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [drawerOpen, activeRow?.id, supabase]);
+  }, [drawerOpen, activeRow?.id]);
 
   const saveDrawerViewers = useCallback(async () => {
     if (!activeRow) return;

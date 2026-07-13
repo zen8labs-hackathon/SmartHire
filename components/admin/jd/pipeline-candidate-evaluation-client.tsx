@@ -10,17 +10,21 @@ import {
   Label,
   TextArea,
   TextField,
+  cn,
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
-import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
+import {
+  getStageColorClasses,
+  getStageColorStyles,
+  getSubStageTextColorClass,
+  getSubStageTextColorStyle,
+} from "@/lib/candidates/pipeline-status-styles";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 type Props = {
-  jobDescriptionId: number;
+  jobId: string;
   jobTitle: string;
   candidate: JobPipelineCandidateRow;
   currentUserId: string;
@@ -37,21 +41,55 @@ type LatestEval = {
 type InterviewNoteRow = {
   id: string;
   body: string;
-  createdAt: string;
-  updatedAt: string;
-  authorId: string;
-  authorUsername: string | null;
+  created_at: string;
+  updated_at: string;
+  author_id: string | null;
+  author_username: string | null;
 };
 
+function PipelineStageBadge({ candidate }: { candidate: JobPipelineCandidateRow }) {
+  if (!candidate.stageLabel || !candidate.subStageLabel) {
+    return <p className="font-semibold text-foreground text-sm">Not started</p>;
+  }
+  const surfaceClass = getStageColorClasses(candidate.stageColor, "badge");
+  const surfaceStyle = getStageColorStyles(candidate.stageColor, "badge");
+  const detailClass = getSubStageTextColorClass(
+    candidate.subStageCode,
+    candidate.subStageIsPassed ?? undefined,
+    undefined,
+    candidate.stageColor,
+  );
+  const detailStyle = getSubStageTextColorStyle(
+    candidate.subStageCode,
+    candidate.subStageIsPassed ?? undefined,
+    undefined,
+    candidate.stageColor,
+  );
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        surfaceClass,
+      )}
+      style={surfaceStyle}
+    >
+      <span className="text-sm text-foreground">{candidate.stageLabel}</span>
+      <span className="mx-1 text-sm text-muted">·</span>
+      <span className={cn("text-sm", detailClass)} style={detailStyle}>
+        {candidate.subStageLabel}
+      </span>
+    </span>
+  );
+}
+
 export function PipelineCandidateEvaluationClient({
-  jobDescriptionId,
+  jobId,
   jobTitle,
   candidate,
   currentUserId,
   isAdmin,
 }: Props) {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
   const [draftNote, setDraftNote] = useState("");
   const [notesBusy, setNotesBusy] = useState(false);
   const [evalBusy, setEvalBusy] = useState(false);
@@ -86,25 +124,14 @@ export function PipelineCandidateEvaluationClient({
     [clearPreInterviewSuccessTimer],
   );
 
-  const authHeaders = useCallback(
-    () => getSessionAuthorizationHeaders(supabase),
-    [supabase],
-  );
-
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const loadLatest = useCallback(async () => {
     setLoadError(null);
     try {
-      const h = await authHeaders();
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/evaluations?pipelineCandidateId=${encodeURIComponent(candidate.id)}`,
-        {
-          credentials: "include",
-          headers: {
-            ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-          },
-        },
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/evaluations`,
+        { credentials: "include" },
       );
       const json = (await res.json()) as {
         latest: LatestEval | null;
@@ -118,20 +145,14 @@ export function PipelineCandidateEvaluationClient({
     } catch {
       setLoadError("Could not load evaluations.");
     }
-  }, [authHeaders, jobDescriptionId, candidate.id]);
+  }, [candidate.id]);
 
   const loadNotes = useCallback(async () => {
     setNotesLoadError(null);
     try {
-      const h = await authHeaders();
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes?pipelineCandidateId=${encodeURIComponent(candidate.id)}`,
-        {
-          credentials: "include",
-          headers: {
-            ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-          },
-        },
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/interview-notes`,
+        { credentials: "include" },
       );
       const json = (await res.json()) as {
         notes?: InterviewNoteRow[];
@@ -145,20 +166,14 @@ export function PipelineCandidateEvaluationClient({
     } catch {
       setNotesLoadError("Could not load interview notes.");
     }
-  }, [authHeaders, jobDescriptionId, candidate.id]);
+  }, [candidate.id]);
 
   const loadPreInterviewNote = useCallback(async () => {
     setPreInterviewLoadError(null);
     try {
-      const h = await authHeaders();
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/pre-interview-note?pipelineCandidateId=${encodeURIComponent(candidate.id)}`,
-        {
-          credentials: "include",
-          headers: {
-            ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-          },
-        },
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/pre-interview-note`,
+        { credentials: "include" },
       );
       const json = (await res.json()) as {
         preInterviewNote?: string;
@@ -174,7 +189,7 @@ export function PipelineCandidateEvaluationClient({
     } catch {
       setPreInterviewLoadError("Could not load pre-interview note.");
     }
-  }, [authHeaders, jobDescriptionId, candidate.id]);
+  }, [candidate.id]);
 
   useEffect(() => {
     void loadLatest();
@@ -187,7 +202,10 @@ export function PipelineCandidateEvaluationClient({
       Email: candidate.email,
       Mobile: candidate.mobile,
       "Date of birth": candidate.dateOfBirth,
-      Status: candidate.status,
+      Status:
+        candidate.stageLabel && candidate.subStageLabel
+          ? `${candidate.stageLabel} · ${candidate.subStageLabel}`
+          : "Not started",
       "Major / school": candidate.majorSchool,
       GPA: candidate.gpa,
       English: candidate.english,
@@ -205,24 +223,13 @@ export function PipelineCandidateEvaluationClient({
     }
     setNotesBusy(true);
     try {
-      const h = await authHeaders();
-      if (!h.Authorization) {
-        setError("Session expired. Sign in again.");
-        return;
-      }
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes`,
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/interview-notes`,
         {
           method: "POST",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            ...h,
-          },
-          body: JSON.stringify({
-            pipelineCandidateId: candidate.id,
-            body: trimmed,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: trimmed }),
         },
       );
       const json = (await res.json()) as { error?: string };
@@ -261,20 +268,12 @@ export function PipelineCandidateEvaluationClient({
     }
     setEditBusy(true);
     try {
-      const h = await authHeaders();
-      if (!h.Authorization) {
-        setEditError("Session expired. Sign in again.");
-        return;
-      }
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/interview-notes`,
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/interview-notes`,
         {
           method: "PATCH",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            ...h,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             noteId: editingNoteId,
             body: trimmed,
@@ -299,21 +298,13 @@ export function PipelineCandidateEvaluationClient({
     setError(null);
     setEvalBusy(true);
     try {
-      const h = await authHeaders();
-      if (!h.Authorization) {
-        setError("Session expired. Sign in again.");
-        return;
-      }
       const trimmedDraft = draftNote.trim();
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/evaluations`,
+        `/api/admin/job-descriptions/${jobId}/evaluations`,
         {
           method: "POST",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            ...h,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             pipelineCandidateId: candidate.id,
             candidateName: candidate.name,
@@ -330,7 +321,10 @@ export function PipelineCandidateEvaluationClient({
         downloadUrl?: string | null;
       };
       if (!res.ok) {
-        setError(json.error ?? "Generation failed.");
+        setError(
+          json.error ??
+            "Evaluation PDF generation isn't available yet on the new database — this part of the migration hasn't shipped.",
+        );
         return;
       }
       if (trimmedDraft.length >= 2) {
@@ -354,24 +348,13 @@ export function PipelineCandidateEvaluationClient({
     setPreInterviewSaveSuccess(false);
     setPreInterviewSaveBusy(true);
     try {
-      const h = await authHeaders();
-      if (!h.Authorization) {
-        setError("Session expired. Sign in again.");
-        return;
-      }
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobDescriptionId}/pre-interview-note`,
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/pre-interview-note`,
         {
           method: "PUT",
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            ...h,
-          },
-          body: JSON.stringify({
-            pipelineCandidateId: candidate.id,
-            preInterviewNote,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preInterviewNote }),
         },
       );
       const json = (await res.json()) as {
@@ -405,7 +388,7 @@ export function PipelineCandidateEvaluationClient({
     <div className="flex flex-col gap-4 font-sans">
       <Breadcrumbs className="text-xs text-muted">
         <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
-        <Breadcrumbs.Item href={`/admin/jd/${jobDescriptionId}/pipeline`}>
+        <Breadcrumbs.Item href={`/admin/jd/${jobId}/pipeline`}>
           {jobTitle}
         </Breadcrumbs.Item>
         <Breadcrumbs.Item>Evaluation</Breadcrumbs.Item>
@@ -455,11 +438,7 @@ export function PipelineCandidateEvaluationClient({
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Pipeline Status</span>
-                {candidate.legacyStatus ? (
-                  <PipelineStatusLabel status={candidate.legacyStatus} />
-                ) : (
-                  <p className="font-semibold text-foreground text-sm">{candidate.status}</p>
-                )}
+                <PipelineStageBadge candidate={candidate} />
               </div>
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Education</span>
@@ -470,14 +449,6 @@ export function PipelineCandidateEvaluationClient({
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
                 <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">TTF (Time to Fill)</span>
-                <p className="font-semibold text-foreground text-sm">{candidate.ttf || "—"}</p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">TTH (Time to Hire)</span>
-                <p className="font-semibold text-foreground text-sm">{candidate.tth || "—"}</p>
               </div>
               {candidate.expectedSalary ? (
                 <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
@@ -631,11 +602,11 @@ export function PipelineCandidateEvaluationClient({
               ) : (
                 <ul className="flex flex-col gap-3 p-0 m-0 list-none">
                   {notes.map((n) => {
-                    const canEdit = isAdmin || n.authorId === currentUserId;
+                    const canEdit = isAdmin || n.author_id === currentUserId;
                     const wasEdited =
-                      n.updatedAt &&
-                      new Date(n.updatedAt).getTime() !==
-                        new Date(n.createdAt).getTime();
+                      n.updated_at &&
+                      new Date(n.updated_at).getTime() !==
+                        new Date(n.created_at).getTime();
                     const isEditing = editingNoteId === n.id;
 
                     return (
@@ -645,8 +616,8 @@ export function PipelineCandidateEvaluationClient({
                       >
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                           <p className="text-[10px] font-bold text-muted uppercase tracking-wider">
-                            {n.authorUsername ?? n.authorId.slice(0, 8)} ·{" "}
-                            {new Date(n.createdAt).toLocaleString(undefined, {
+                            {n.author_username ?? (n.author_id ? n.author_id.slice(0, 8) : "Unknown")} ·{" "}
+                            {new Date(n.created_at).toLocaleString(undefined, {
                               dateStyle: "medium",
                               timeStyle: "short",
                             })}
@@ -752,9 +723,7 @@ export function PipelineCandidateEvaluationClient({
                 <Button
                   variant="secondary"
                   className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  onPress={() =>
-                    router.push(`/admin/jd/${jobDescriptionId}/pipeline`)
-                  }
+                  onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
                 >
                   Back to pipeline
                 </Button>

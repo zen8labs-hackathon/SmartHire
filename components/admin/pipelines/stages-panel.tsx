@@ -1,15 +1,15 @@
 "use client";
 
-import { forwardRef, use, useCallback, useImperativeHandle, useState } from "react";
+import { forwardRef, use, useImperativeHandle, useState } from "react";
 import { Card } from "@heroui/react";
 
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { useToast } from "@/components/admin/toast-provider";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
 
 import { StageList } from "./stage-list";
 import { StageForm } from "./stage-form";
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export type StagesPanelHandle = {
   /** Opens the blank "Add Stage" form, resetting out of edit mode if needed. */
@@ -52,7 +52,6 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
     ref,
   ) {
     const initialStages = use(stagesPromise);
-    const supabase = createClient();
     const toast = useToast();
 
     const [stages, setStages] = useState<PipelineStageRow[]>(initialStages);
@@ -62,11 +61,6 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
     const [editingStage, setEditingStage] = useState<PipelineStageRow | null>(
       null,
     );
-
-    const authHeaders = useCallback(async () => {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      return { "Content-Type": "application/json", ...h };
-    }, [supabase]);
 
     useImperativeHandle(
       ref,
@@ -98,11 +92,10 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
           : "/api/admin/pipelines";
         const method = isEdit ? "PATCH" : "POST";
 
-        const h = await authHeaders();
         const res = await fetch(url, {
           method,
           credentials: "include",
-          headers: h,
+          headers: JSON_HEADERS,
           body: JSON.stringify(values),
         });
 
@@ -144,11 +137,9 @@ export const StagesPanel = forwardRef<StagesPanelHandle, StagesPanelProps>(
       }
       setBusy(true);
       try {
-        const h = await authHeaders();
         const res = await fetch(`/api/admin/pipelines/${id}`, {
           method: "DELETE",
           credentials: "include",
-          headers: h,
         });
 
         if (!res.ok) {

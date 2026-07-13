@@ -28,24 +28,22 @@ import {
   today,
   getLocalTimeZone,
   type CalendarDate,
-  type CalendarDateTime,
 } from "@internationalized/date";
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
 
-import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 import { useToast } from "@/components/admin/toast-provider";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
 import {
-  OnboardingDatesModal,
+  InterviewScheduleModal,
   DeleteCandidateModal,
   EditCandidateModal,
 } from "@/components/admin/jd/jd-pipeline-modals";
 import {
-  type CandidateDbRow,
-  candidateDbRowToTableRow,
-} from "@/lib/candidates/db-row";
+  campaignAppliedAdminRowToTableRow,
+  type JdPipelineApplicationRow,
+} from "@/lib/candidates/campaign-applied-table-row";
 import { isEligibleForBulkMoveToInterview } from "@/lib/candidates/pipeline-phase";
 import {
   type StageMapping,
@@ -57,16 +55,11 @@ import {
   type PipelineStageSubStageFilterOption,
 } from "@/lib/pipelines/jd-pipeline-filter-options";
 import {
-  calendarDateTimeToIso,
   findFailSubStage,
-  isoToCalendarDateTime,
-  localDatetimeToIso,
   resolveRowPipeline,
   rowMatchesSearch,
   rowMatchesUploadDateRange,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { buildCandidatesListSearchParams } from "@/lib/candidates/candidates-list-query";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
@@ -89,9 +82,8 @@ const YEAR_OPTIONS = Array.from(
 );
 
 type Props = {
-  jobDescriptionId: number;
   jobId: string;
-  dbRows: CandidateDbRow[];
+  dbRows: JdPipelineApplicationRow[];
   loadState: "idle" | "loading" | "error" | "ok";
   onRefetch: (silent?: boolean) => void;
   /** HR may change pipeline status and schedule; chapter recruiters are view-only here. */
@@ -103,7 +95,6 @@ type Props = {
 };
 
 export function JdAppliedCandidatesPipeline({
-  jobDescriptionId,
   jobId,
   dbRows,
   loadState,
@@ -114,10 +105,8 @@ export function JdAppliedCandidatesPipeline({
   canAddCandidates = false,
   onAddCandidates,
 }: Props) {
-  const supabase = useMemo(() => createClient(), []);
-
   const resolveRow = useCallback(
-    (r: CandidateDbRow) => resolveRowPipeline(r, stageMappings, subStages),
+    (r: JdPipelineApplicationRow) => resolveRowPipeline(r, stageMappings, subStages),
     [stageMappings, subStages],
   );
 
@@ -194,7 +183,7 @@ export function JdAppliedCandidatesPipeline({
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
   const [rowPendingDelete, setRowPendingDelete] =
-    useState<CandidateDbRow | null>(null);
+    useState<JdPipelineApplicationRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -207,15 +196,31 @@ export function JdAppliedCandidatesPipeline({
     },
   });
 
-  const [rowPendingEdit, setRowPendingEdit] = useState<CandidateDbRow | null>(
-    null,
-  );
+  const [rowPendingEdit, setRowPendingEdit] =
+    useState<JdPipelineApplicationRow | null>(null);
 
   const editModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) setRowPendingEdit(null);
     },
   });
+
+  const [rowPendingSchedule, setRowPendingSchedule] =
+    useState<JdPipelineApplicationRow | null>(null);
+
+  const scheduleModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingSchedule(null);
+    },
+  });
+
+  const openSchedule = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setRowPendingSchedule(r);
+      scheduleModal.open();
+    },
+    [scheduleModal],
+  );
 
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 350);
@@ -232,23 +237,6 @@ export function JdAppliedCandidatesPipeline({
   );
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
-
-  const [onboardingDrafts, setOnboardingDrafts] = useState<
-    Record<string, string>
-  >({});
-
-  const [interviewDrafts, setInterviewDrafts] = useState<
-    Record<string, CalendarDateTime | null>
-  >({});
-
-  const offerModal = useOverlayState({
-    onOpenChange: (open) => {
-      if (!open) {
-        setOnboardingDrafts({});
-        setPipelineError(null);
-      }
-    },
-  });
 
   const [pageSize, setPageSize] = useState(10);
 
@@ -310,10 +298,10 @@ export function JdAppliedCandidatesPipeline({
     [statsSourceRows, resolveRow, stageMappings],
   );
 
-  // The rendered table is its own backend-paginated query (scoped by
-  // jobDescriptionId + the same filters, including the stage/sub-stage
-  // filter), independent of the `dbRows` full fetch used for stats above.
-  const [pageRows, setPageRows] = useState<CandidateDbRow[]>([]);
+  // The rendered table is its own backend-paginated query (scoped by jobId +
+  // the same filters, including the stage/sub-stage filter), independent of
+  // the `dbRows` full fetch used for stats above.
+  const [pageRows, setPageRows] = useState<JdPipelineApplicationRow[]>([]);
   const [pageTotal, setPageTotal] = useState(0);
   const [pageLoadState, setPageLoadState] = useState<
     "loading" | "error" | "ok"
@@ -322,9 +310,8 @@ export function JdAppliedCandidatesPipeline({
   const fetchPage = useCallback(async () => {
     setPageLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const params = buildCandidatesListSearchParams({
-        jobDescriptionId,
+        jobId,
         limit: pageSize,
         offset: (page - 1) * pageSize,
         q: debouncedQuery.trim() || undefined,
@@ -332,19 +319,16 @@ export function JdAppliedCandidatesPipeline({
         uploadTo: uploadDateRange?.end.toString(),
         stageMappingId: selectedFilterOption?.stageMapping.id,
         subStateId: selectedFilterOption?.subStage.id,
-        legacyStatus: selectedFilterOption?.legacyStatus ?? undefined,
-        contactFieldsOnly: true,
       });
       const res = await fetch(`/api/admin/candidates?${params}`, {
         credentials: "include",
-        headers: { ...h },
       });
       if (!res.ok) {
         setPageLoadState("error");
         return;
       }
       const json = (await res.json()) as {
-        candidates?: CandidateDbRow[];
+        candidates?: JdPipelineApplicationRow[];
         pagination?: { total: number };
       };
       setPageRows(json.candidates ?? []);
@@ -354,8 +338,7 @@ export function JdAppliedCandidatesPipeline({
       setPageLoadState("error");
     }
   }, [
-    supabase,
-    jobDescriptionId,
+    jobId,
     page,
     debouncedQuery,
     uploadDateRange,
@@ -372,13 +355,9 @@ export function JdAppliedCandidatesPipeline({
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch(`/api/admin/candidates/${rowPendingDelete.id}`, {
         method: "DELETE",
         credentials: "include",
-        headers: {
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
       });
       if (!res.ok) {
         const json = (await res.json()) as { error?: string };
@@ -396,7 +375,7 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setDeleteBusy(false);
     }
-  }, [rowPendingDelete, deleteModal, onRefetch, supabase, toast, fetchPage]);
+  }, [rowPendingDelete, deleteModal, onRefetch, toast, fetchPage]);
 
   const paginatedRows = pageRows;
   const totalPages = Math.max(1, Math.ceil(pageTotal / pageSize));
@@ -424,26 +403,22 @@ export function JdAppliedCandidatesPipeline({
 
   const postPipeline = useCallback(
     async (updates: unknown[]) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch("/api/admin/candidates/pipeline", {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
-        body: JSON.stringify({ jobDescriptionId, updates }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, updates }),
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Update failed.");
     },
-    [jobDescriptionId, supabase],
+    [jobId],
   );
 
   const selectedRows = useMemo(() => {
     return [...selected]
       .map((id) => dbRows.find((r) => r.id === id))
-      .filter(Boolean) as CandidateDbRow[];
+      .filter(Boolean) as JdPipelineApplicationRow[];
   }, [selected, dbRows]);
 
   const bulkInterviewEligible = useMemo(
@@ -484,64 +459,25 @@ export function JdAppliedCandidatesPipeline({
     [selectedRows, resolveRow, stageMappings, subStages],
   );
 
-  const openOfferModal = useCallback(() => {
-    const ids = selectedRows
-      .filter((r) => {
-        const { stageMapping, subStage } = resolveRow(r);
-        return (
-          (stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
-            "interview" && subStage?.is_passed === true
-        );
-      })
-      .map((r) => r.id);
-    if (ids.length === 0) return;
-    const drafts: Record<string, string> = {};
-    for (const id of ids) drafts[id] = "";
-    setOnboardingDrafts(drafts);
-    offerModal.open();
-  }, [selectedRows, offerModal, resolveRow]);
-
-  const confirmOffer = useCallback(async () => {
+  const moveSelectedToOffer = useCallback(async () => {
+    if (!bulkOfferEligible) return;
     if (!offerStageMapping || !offerDefaultSubStage) {
       setPipelineError("Offer stage is not configured for this job.");
       return;
     }
-    const entries = Object.entries(onboardingDrafts);
-    for (const [, v] of entries) {
-      if (!v?.trim()) {
-        setPipelineError(
-          "Please set onboarding date and time for every candidate.",
-        );
-        return;
-      }
-    }
-    const updates: {
-      id: string;
-      current_job_stage_mapping_id: string;
-      current_sub_state_id: string;
-      onboarding_at: string;
-    }[] = [];
-    for (const [id, local] of entries) {
-      const iso = localDatetimeToIso(local);
-      if (!iso) {
-        setPipelineError("One or more onboarding times are invalid.");
-        return;
-      }
-      updates.push({
-        id,
-        current_job_stage_mapping_id: offerStageMapping.id,
-        current_sub_state_id: offerDefaultSubStage.id,
-        onboarding_at: iso,
-      });
-    }
-    setPipelineError(null);
     setPipelineBusy(true);
+    setPipelineError(null);
     try {
-      await postPipeline(updates);
-      offerModal.close();
+      await postPipeline(
+        selectedRows.map((r) => ({
+          id: r.id,
+          current_job_stage_mapping_id: offerStageMapping.id,
+          current_sub_state_id: offerDefaultSubStage.id,
+        })),
+      );
       onRefetch(true);
       void fetchPage();
-      toast.success("Offer confirmed for selected candidates.");
+      toast.success("Selected candidates moved to Offer.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
       setPipelineError(message);
@@ -550,10 +486,10 @@ export function JdAppliedCandidatesPipeline({
       setPipelineBusy(false);
     }
   }, [
-    onboardingDrafts,
-    offerModal,
+    bulkOfferEligible,
     onRefetch,
     postPipeline,
+    selectedRows,
     offerStageMapping,
     offerDefaultSubStage,
     fetchPage,
@@ -672,91 +608,6 @@ export function JdAppliedCandidatesPipeline({
     [onRefetch, postPipeline, fetchPage, toast],
   );
 
-  const patchTimeline = useCallback(
-    async (
-      id: string,
-      body: { interview_at?: string | null; onboarding_at?: string | null },
-    ) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch(`/api/admin/candidates/${id}/timeline`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
-        body: JSON.stringify({ jobDescriptionId, ...body }),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Update failed.");
-    },
-    [jobDescriptionId, supabase],
-  );
-
-  const saveInterviewTime = useCallback(
-    async (id: string, value: CalendarDateTime | null) => {
-      setPipelineError(null);
-      setRowUpdating(id);
-      try {
-        const iso = calendarDateTimeToIso(value);
-        await patchTimeline(id, { interview_at: iso });
-        onRefetch(true);
-        void fetchPage();
-        toast.success("Interview time saved.");
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
-        toast.error(message);
-      } finally {
-        setRowUpdating(null);
-      }
-    },
-    [onRefetch, patchTimeline, fetchPage, toast],
-  );
-
-  const saveOnboardingTime = useCallback(
-    async (id: string, value: CalendarDateTime | null) => {
-      setPipelineError(null);
-      setRowUpdating(id);
-      try {
-        const iso = calendarDateTimeToIso(value);
-        await patchTimeline(id, { onboarding_at: iso });
-        onRefetch(true);
-        void fetchPage();
-        toast.success("Onboarding time saved.");
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
-        toast.error(message);
-      } finally {
-        setRowUpdating(null);
-      }
-    },
-    [onRefetch, patchTimeline, fetchPage, toast],
-  );
-
-  useEffect(() => {
-    setInterviewDrafts((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const r of dbRows) {
-        if (
-          (r.status === "Interview" || r.status === "InterviewPassed") &&
-          next[r.id] === undefined
-        ) {
-          next[r.id] = isoToCalendarDateTime(r.interview_at);
-          changed = true;
-        }
-        const obKey = `ob-${r.id}`;
-        if (r.status === "Offer" && next[obKey] === undefined) {
-          next[obKey] = isoToCalendarDateTime(r.onboarding_at);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [dbRows]);
-
   const filtersElement = (
     <Select
       value={statusFilter}
@@ -773,20 +624,10 @@ export function JdAppliedCandidatesPipeline({
     >
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {statusFilter !== "all" && selectedFilterOption ? (
-          selectedFilterOption.legacyStatus ? (
-            <PipelineStatusLabel
-              status={selectedFilterOption.legacyStatus}
-              variant="inline"
-              uppercase={false}
-              stageMappings={stageMappings}
-              subStages={subStages}
-            />
-          ) : (
-            <PipelineStageSubStageInlineLabel
-              stageMapping={selectedFilterOption.stageMapping}
-              subStage={selectedFilterOption.subStage}
-            />
-          )
+          <PipelineStageSubStageInlineLabel
+            stageMapping={selectedFilterOption.stageMapping}
+            subStage={selectedFilterOption.subStage}
+          />
         ) : (
           <Select.Value />
         )}
@@ -809,20 +650,10 @@ export function JdAppliedCandidatesPipeline({
               textValue={`${opt.stageMapping.pipeline_stages?.label ?? opt.stageMapping.pipeline_stages?.code} - ${opt.subStage.label}`}
               className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
             >
-              {opt.legacyStatus ? (
-                <PipelineStatusLabel
-                  status={opt.legacyStatus}
-                  variant="inline"
-                  uppercase={false}
-                  stageMappings={stageMappings}
-                  subStages={subStages}
-                />
-              ) : (
-                <PipelineStageSubStageInlineLabel
-                  stageMapping={opt.stageMapping}
-                  subStage={opt.subStage}
-                />
-              )}
+              <PipelineStageSubStageInlineLabel
+                stageMapping={opt.stageMapping}
+                subStage={opt.subStage}
+              />
               <ListBox.ItemIndicator />
             </ListBox.Item>
           ))}
@@ -974,9 +805,9 @@ export function JdAppliedCandidatesPipeline({
             variant="primary"
             className="bg-accent text-white"
             isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
-            onPress={openOfferModal}
+            onPress={() => void moveSelectedToOffer()}
           >
-            Move to offer…
+            Move to offer
           </Button>
           <Button
             size="sm"
@@ -1167,10 +998,7 @@ export function JdAppliedCandidatesPipeline({
                     subStages={subStages}
                     offerStageSubStateIds={offerStageSubStateIds}
                     onStatusChange={onStatusChange}
-                    interviewDrafts={interviewDrafts}
-                    setInterviewDrafts={setInterviewDrafts}
-                    saveInterviewTime={saveInterviewTime}
-                    saveOnboardingTime={saveOnboardingTime}
+                    onOpenSchedule={openSchedule}
                     setRowPendingEdit={setRowPendingEdit}
                     openEditModal={editModal.open}
                     setRowPendingDelete={setRowPendingDelete}
@@ -1203,16 +1031,16 @@ export function JdAppliedCandidatesPipeline({
         </p>
       ) : null}
 
-      <OnboardingDatesModal
-        isOpen={offerModal.isOpen}
-        onOpenChange={offerModal.setOpen}
-        onboardingDrafts={onboardingDrafts}
-        setOnboardingDrafts={setOnboardingDrafts}
-        dbRows={dbRows}
-        pipelineError={pipelineError}
-        pipelineBusy={pipelineBusy}
-        onCancel={offerModal.close}
-        onConfirm={() => void confirmOffer()}
+      <InterviewScheduleModal
+        isOpen={scheduleModal.isOpen}
+        onOpenChange={scheduleModal.setOpen}
+        row={rowPendingSchedule}
+        canEdit={canEditPipeline}
+        onSaved={() => {
+          onRefetch(true);
+          void fetchPage();
+          toast.success("Interview schedule saved.");
+        }}
       />
 
       <DeleteCandidateModal
@@ -1220,7 +1048,7 @@ export function JdAppliedCandidatesPipeline({
         onOpenChange={deleteModal.setOpen}
         candidateName={
           rowPendingDelete
-            ? candidateDbRowToTableRow(rowPendingDelete).name
+            ? campaignAppliedAdminRowToTableRow(rowPendingDelete).name
             : null
         }
         deleteError={deleteError}
@@ -1232,7 +1060,14 @@ export function JdAppliedCandidatesPipeline({
       <EditCandidateModal
         isOpen={editModal.isOpen}
         onOpenChange={editModal.setOpen}
-        row={rowPendingEdit}
+        row={
+          rowPendingEdit
+            ? {
+                id: rowPendingEdit.id,
+                name: campaignAppliedAdminRowToTableRow(rowPendingEdit).name,
+              }
+            : null
+        }
         canEdit={!!canEditPipeline}
         onSaved={() => {
           editModal.close();

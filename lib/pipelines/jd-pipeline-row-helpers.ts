@@ -7,8 +7,7 @@ import {
 } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 
-import { type CandidateDbRow } from "@/lib/candidates/db-row";
-import { displayFromParsedPayload } from "@/lib/candidates/parsed-contact";
+import { type JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import { isFailSubStageCode } from "@/lib/candidates/pipeline-phase";
 import {
   isCustomTransitionAllowed,
@@ -28,7 +27,7 @@ export type ResolvedRowPipeline = {
 };
 
 export function resolveRowPipeline(
-  r: CandidateDbRow,
+  r: JdPipelineApplicationRow,
   stageMappings: StageMapping[],
   subStages: SubStage[],
 ): ResolvedRowPipeline {
@@ -140,58 +139,25 @@ function cvDay(iso: string | null | undefined): string {
 }
 
 export function rowMatchesUploadDateRange(
-  r: CandidateDbRow,
+  r: JdPipelineApplicationRow,
   range: RangeValue<CalendarDate> | null,
 ): boolean {
   if (!range) return true;
-  const day = cvDay(r.cv_uploaded_at ?? r.created_at);
+  const day = cvDay(r.cv_created_at ?? r.created_at);
   if (!day) return false;
   if (day < range.start.toString()) return false;
   if (day > range.end.toString()) return false;
   return true;
 }
 
-/**
- * Resolves email/phone for search matching, preferring the lightweight
- * `parsed_contact_email` / `parsed_contact_phone` projections (used by the JD
- * pipeline fetch, which omits the full `parsed_payload` blob) and falling
- * back to `displayFromParsedPayload(r.parsed_payload)` for callers/paths that
- * still provide the full payload. `displayFromParsedPayload` returns the
- * literal placeholder "—" when a value is absent, so that case is normalized
- * to "" here to avoid accidentally matching a search for "—".
- */
-function resolveContactForSearch(r: CandidateDbRow): {
-  email: string;
-  phone: string;
-} {
-  const hasLightweightEmail = r.parsed_contact_email !== undefined;
-  const hasLightweightPhone = r.parsed_contact_phone !== undefined;
-  const fallback =
-    hasLightweightEmail && hasLightweightPhone
-      ? null
-      : displayFromParsedPayload(r.parsed_payload);
-  const email = hasLightweightEmail
-    ? (r.parsed_contact_email ?? "")
-    : fallback!.email === "—"
-      ? ""
-      : fallback!.email;
-  const phone = hasLightweightPhone
-    ? (r.parsed_contact_phone ?? "")
-    : fallback!.phone === "—"
-      ? ""
-      : fallback!.phone;
-  return { email, phone };
-}
-
-export function rowMatchesSearch(r: CandidateDbRow, q: string): boolean {
+export function rowMatchesSearch(r: JdPipelineApplicationRow, q: string): boolean {
   if (!q.trim()) return true;
   const lower = q.trim().toLowerCase();
-  const c = resolveContactForSearch(r);
   return (
-    (r.name?.toLowerCase().includes(lower) ?? false) ||
-    (r.role?.toLowerCase().includes(lower) ?? false) ||
-    (r.skills?.some((s) => s.toLowerCase().includes(lower)) ?? false) ||
-    c.email.toLowerCase().includes(lower) ||
-    c.phone.toLowerCase().includes(lower)
+    (r.candidate_name?.toLowerCase().includes(lower) ?? false) ||
+    (r.candidate_role?.toLowerCase().includes(lower) ?? false) ||
+    (r.candidate_skills?.some((s) => s.toLowerCase().includes(lower)) ?? false) ||
+    (r.candidate_email?.toLowerCase().includes(lower) ?? false) ||
+    (r.candidate_phone?.toLowerCase().includes(lower) ?? false)
   );
 }

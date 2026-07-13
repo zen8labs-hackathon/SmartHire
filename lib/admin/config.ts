@@ -1,26 +1,10 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-
+import type { QueryExecutor } from "@/lib/db/config/client";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 
 export async function isProfileAdmin(
-  supabase: SupabaseClient,
+  db: QueryExecutor,
   userId: string,
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("is_admin")
-    .eq("id", userId)
-    .maybeSingle();
-  if (error) return false;
-  return data?.is_admin === true;
-}
-
-/** Recruiter app access: HR `work_chapter`, `profile_chapters`, or legacy admin. */
-export async function isProfileStaff(
-  supabase: SupabaseClient,
-  userId: string,
-  currentUser?: User | null,
-): Promise<boolean> {
-  const a = await getStaffProfileAccess(supabase, userId, currentUser);
-  return a?.isStaff === true;
+  const access = await getStaffProfileAccess(db, userId);
+  return access?.isAdmin === true;
 }

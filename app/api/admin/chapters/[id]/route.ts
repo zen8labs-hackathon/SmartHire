@@ -1,4 +1,7 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { deleteChapter, updateChapterName } from "@/lib/db/chapters";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,27 +35,22 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const { data, error } = await auth.supabase
-    .from("chapters")
-    .update({ name })
-    .eq("id", id)
-    .select("id, name")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const chapter = await updateChapterName(getPool(), id, name);
+    if (!chapter) {
+      return Response.json({ error: "Chapter not found." }, { status: 404 });
+    }
+    return Response.json({ chapter });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: "A chapter with this name already exists." },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not update chapter.";
+    return Response.json({ error: message }, { status: 500 });
   }
-  if (!data) {
-    return Response.json({ error: "Chapter not found." }, { status: 404 });
-  }
-
-  return Response.json({ chapter: data });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
@@ -64,10 +62,11 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid chapter id." }, { status: 400 });
   }
 
-  const { error } = await auth.supabase.from("chapters").delete().eq("id", id);
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+  try {
+    await deleteChapter(getPool(), id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not delete chapter.";
+    return Response.json({ error: message }, { status: 500 });
   }
 
   return new Response(null, { status: 204 });

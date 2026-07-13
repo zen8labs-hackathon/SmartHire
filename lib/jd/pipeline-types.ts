@@ -1,18 +1,7 @@
-import type { CandidateStatus } from "@/lib/candidates/types";
-
-export type JobPipelineStatus =
-  | "INTERVIEWING"
-  | "CV SCREENING"
-  | "REJECTED"
-  | "OFFER"
-  | "MATCHED"
-  | "NEW";
-
 export type JobPipelineCandidateRow = {
-  /** UUID: deterministic per JD + row index (mock) or `candidates.id` when wired to DB */
+  /** `campaign_applied.id` (an application, not a person). */
   id: string;
   name: string;
-  verified?: boolean;
   dateOfBirth: string;
   mobile: string;
   email: string;
@@ -21,19 +10,12 @@ export type JobPipelineCandidateRow = {
   gpa: string;
   english: string;
   relatedSkills: string;
-  status: JobPipelineStatus;
-  /** Raw candidate status enum, for rendering the shared `PipelineStatusLabel` badge. Not set by mock data. */
-  legacyStatus?: CandidateStatus;
-  ttf?: string | null;
-  tth?: string | null;
+  /** Current pipeline position, for the badge on the candidate-details card. `null` when the application has no stage assigned yet. */
+  stageLabel: string | null;
+  stageColor: string | null;
+  subStageLabel: string | null;
+  subStageCode: string | null;
+  subStageIsPassed: boolean | null;
   /** Only populated server-side when the viewer is HR/admin or a chapter head. */
-  expectedSalary?: string | null;
-};
-
-export type JobPipelineViewModel = {
-  jobId: string;
-  jobTitle: string;
-  totalCandidates: number;
-  activeOffers: number;
-  rows: JobPipelineCandidateRow[];
+  expectedSalary: string | null;
 };

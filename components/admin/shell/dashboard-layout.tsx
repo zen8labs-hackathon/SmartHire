@@ -7,7 +7,6 @@ import { Header } from "./header";
 export type DashboardLayoutProps = {
   userEmail: string;
   isHr: boolean;
-  workChapter: string | null;
   chapterIds: string[];
   children: React.ReactNode;
 };
@@ -15,7 +14,6 @@ export type DashboardLayoutProps = {
 export function DashboardLayout({
   userEmail,
   isHr,
-  workChapter,
   chapterIds,
   children,
 }: DashboardLayoutProps) {
@@ -27,7 +25,6 @@ export function DashboardLayout({
       <Sidebar
         userEmail={userEmail}
         isHr={isHr}
-        workChapter={workChapter}
         chapterIds={chapterIds}
         collapsed={sidebarCollapsed}
       />

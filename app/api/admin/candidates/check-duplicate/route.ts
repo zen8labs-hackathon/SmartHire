@@ -4,7 +4,15 @@ import {
   shouldQueryForPrecheck,
   type PrecheckSignals,
 } from "@/lib/candidates/check-duplicate-precheck";
-import type { CandidateDedupeRow } from "@/lib/candidates/duplicate-detection";
+import {
+  normalizePhoneFromPayload,
+  type CandidateDedupeRow,
+} from "@/lib/candidates/duplicate-detection";
+import {
+  dedupeMatchStatusLabel,
+  findCandidatesByDedupeSignals,
+} from "@/lib/db/candidates-dedupe";
+import { getPool } from "@/lib/db/config/client";
 
 type Body = {
   jobOpeningId?: string | null;
@@ -14,27 +22,6 @@ type Body = {
   phone?: string | null;
 };
 
-function candidateRowToDedupe(row: Record<string, unknown>): CandidateDedupeRow {
-  const jo = row.job_openings as { title?: string } | null;
-  return {
-    id: String(row.id),
-    name: (row.name as string | null) ?? null,
-    status: (row.status as string | null) ?? null,
-    job_opening_id: (row.job_opening_id as string | null) ?? null,
-    job_opening_title: jo?.title ?? null,
-    cv_uploaded_at: (row.cv_uploaded_at as string | null) ?? null,
-    created_at: (row.created_at as string | null) ?? null,
-    parsed_payload: row.parsed_payload,
-    cv_file_sha256: (row.cv_file_sha256 as string | null) ?? null,
-    cv_content_sha256: (row.cv_content_sha256 as string | null) ?? null,
-  };
-}
-
-/**
- * Pre-upload duplicate check: runs the same dedupe matcher as `/process`,
- * but against client-computed hashes/contact before the file is stored in
- * Supabase or parsed by the AI. No DB writes, no Storage access.
- */
 export async function POST(request: Request) {
   const auth = await requireAdminForRequest(request);
   if (!auth.ok) return auth.response;
@@ -67,20 +54,38 @@ export async function POST(request: Request) {
     return Response.json({ duplicateCandidates: [], duplicateNewUpload: null });
   }
 
-  const { data: others, error: othersErr } = await auth.supabase
-    .from("candidates")
-    .select(
-      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
-    )
-    .eq("is_active", true);
-  if (othersErr) {
-    return Response.json({ error: othersErr.message }, { status: 500 });
+  const db = getPool();
+  const phoneNorm = signals.phone ? normalizePhoneFromPayload(signals.phone) : null;
+
+  try {
+    const matches = await findCandidatesByDedupeSignals(db, {
+      email: signals.email,
+      phoneVariants: phoneNorm?.variants ?? [],
+      cvFileSha256: signals.cvFileSha256,
+      cvContentSha256: signals.cvContentSha256,
+    });
+
+    const others: CandidateDedupeRow[] = matches.map((m) => ({
+      id: m.campaign_applied_id,
+      name: m.candidate_name,
+      status: dedupeMatchStatusLabel(m),
+      job_opening_id: m.job_id,
+      job_opening_title: m.job_position,
+      cv_uploaded_at: m.cv_created_at ? m.cv_created_at.toISOString() : m.created_at.toISOString(),
+      created_at: m.created_at.toISOString(),
+      parsed_payload: { email: m.candidate_email, phone: m.candidate_phone, role: m.cv_role },
+      cv_file_sha256: m.cv_file_sha256,
+      cv_content_sha256: m.cv_content_sha256,
+    }));
+
+    const { duplicateCandidates, duplicateNewUpload } = evaluateDuplicatePrecheck(
+      signals,
+      others,
+    );
+
+    return Response.json({ duplicateCandidates, duplicateNewUpload });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Deduplication error";
+    return Response.json({ error: msg }, { status: 500 });
   }
-
-  const { duplicateCandidates, duplicateNewUpload } = evaluateDuplicatePrecheck(
-    signals,
-    (others as Record<string, unknown>[]).map(candidateRowToDedupe),
-  );
-
-  return Response.json({ duplicateCandidates, duplicateNewUpload });
 }

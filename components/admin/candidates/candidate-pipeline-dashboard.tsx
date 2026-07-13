@@ -61,8 +61,8 @@ export const CandidatePipelineDashboard = forwardRef<
     deleteInProgress,
     deleteError,
     setDeleteError,
-    statusUpdateBusy,
-    statusUpdateError,
+    stageUpdateBusy,
+    stageUpdateError,
     cvHistoryRows,
     cvVersions,
     cvHistoryLoading,
@@ -78,8 +78,9 @@ export const CandidatePipelineDashboard = forwardRef<
     activeDbRow,
     noResultsForUploadDate,
     openRow,
-    drawerStatusOptions,
-    patchCandidateStatus,
+    resolvedActivePipeline,
+    drawerStageOptions,
+    patchCandidateStage,
     confirmDeleteCandidate,
   } = useCandidatePipelineState(initialRows, {
     listMode: "page",
@@ -249,13 +250,14 @@ export const CandidatePipelineDashboard = forwardRef<
           cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
-          drawerStatusOptions={drawerStatusOptions}
-          statusUpdateBusy={statusUpdateBusy}
-          statusUpdateError={statusUpdateError}
+          resolvedStage={resolvedActivePipeline}
+          stageOptions={drawerStageOptions}
+          stageUpdateBusy={stageUpdateBusy}
+          stageUpdateError={stageUpdateError}
           dbLoadState={dbLoadState}
-          onStatusChange={(next) => {
+          onStageChange={(target) => {
             if (!activeRow) return;
-            void patchCandidateStatus(activeRow.id, next);
+            void patchCandidateStage(activeRow.id, target);
           }}
           onProfileSaved={(c) => {
             setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));

@@ -1,6 +1,5 @@
 import { resolveMimeType } from "@/lib/jd/detect-buffer-mime";
-import { JD_BUCKET } from "@/lib/jd/upload-constants";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { downloadObject } from "@/lib/storage/s3";
 
 /** Infer MIME type from storage object path extension. */
 export function mimeTypeFromStoragePath(storagePath: string): string {
@@ -13,15 +12,14 @@ export function mimeTypeFromStoragePath(storagePath: string): string {
 }
 
 export async function downloadJdFromStorage(
-  admin: SupabaseClient,
   storagePath: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | { error: string }> {
   const mimeTypeHint = mimeTypeFromStoragePath(storagePath);
-  const { data, error } = await admin.storage.from(JD_BUCKET).download(storagePath);
-  if (error || !data) {
-    return { error: error?.message ?? "Failed to download JD file." };
+  try {
+    const buffer = await downloadObject(storagePath);
+    const mimeType = resolveMimeType(buffer, mimeTypeHint);
+    return { buffer, mimeType };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to download JD file." };
   }
-  const buffer = Buffer.from(await data.arrayBuffer());
-  const mimeType = resolveMimeType(buffer, mimeTypeHint);
-  return { buffer, mimeType };
 }

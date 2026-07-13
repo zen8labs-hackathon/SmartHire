@@ -24,85 +24,14 @@ const postBodySchema = z.object({
   newInterviewNote: z.string().max(32_000).optional(),
 });
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ id: string }> },
-) {
-  const auth = await requireStaffForRequest(request);
-  if (!auth.ok) return auth.response;
-
-  const { id: jdParam } = await context.params;
-  const jdId = Number(jdParam);
-  if (!Number.isInteger(jdId) || jdId <= 0) {
-    return Response.json({ error: "Invalid job description id." }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const rawPc = url.searchParams.get("pipelineCandidateId")?.trim() ?? "";
-  const pcParsed = z.string().uuid().safeParse(rawPc);
-  if (!pcParsed.success) {
-    return Response.json(
-      { error: "Missing or invalid pipelineCandidateId (expected UUID)." },
-      { status: 400 },
-    );
-  }
-  const pipelineCandidateId = pcParsed.data;
-
-  const { data: row, error } = await auth.supabase
-    .from("candidate_evaluation_reviews")
-    .select("id, created_at, preview_token, filled_pdf_storage_path")
-    .eq("job_description_id", jdId)
-    .eq("pipeline_candidate_id", pipelineCandidateId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  if (!row) {
-    return Response.json({ latest: null });
-  }
-
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      { error: "Server missing service role key." },
-      { status: 500 },
-    );
-  }
-
-  const path = row.filled_pdf_storage_path as string;
-  const { data: signed, error: signErr } = await admin.storage
-    .from(CANDIDATE_EVAL_FILLED_BUCKET)
-    .createSignedUrl(path, 3600);
-
-  if (signErr || !signed?.signedUrl) {
-    return Response.json(
-      { error: signErr?.message ?? "Could not sign download URL." },
-      { status: 500 },
-    );
-  }
-
-  const r = row as {
-    id: string;
-    created_at: string;
-    preview_token: string;
-    filled_pdf_storage_path: string;
-  };
-
-  return Response.json({
-    latest: {
-      id: r.id,
-      createdAt: r.created_at,
-      previewPath: `/evaluation-preview/${r.preview_token}`,
-      downloadUrl: signed.signedUrl,
-    },
-  });
-}
+// GET (latest-eval lookup) removed -- superseded by
+// `GET /api/admin/candidates/[id]/evaluations` (keyed by `campaign_applied.id`,
+// see DB7X2K evaluation-domain read-path log). This file's POST (PDF
+// fill/render/upload) has no such replacement yet -- it's kept below,
+// unmigrated, as reference: it still reads/writes via `auth.supabase`
+// (removed) and the `candidate_evaluation_template` singleton table, which
+// the DB7X2K schema no longer has an equivalent for (see the
+// evaluation-template scoping note in the candidates-dashboard log).
 
 export async function POST(
   request: Request,

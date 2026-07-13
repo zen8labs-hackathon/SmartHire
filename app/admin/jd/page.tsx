@@ -14,9 +14,9 @@ import {
   type JobDescriptionsListPagination,
 } from "@/lib/jd/list-with-enrichment";
 import type { JdStatus } from "@/lib/jd/types";
-import { createClient } from "@/lib/supabase/server";
-
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+import { listChapters } from "@/lib/db/chapters";
+import { getPool } from "@/lib/db/config/client";
+import { listPipelineStages } from "@/lib/db/pipeline-stages";
 
 export type JdListInitialData = {
   jobDescriptions: JobDescriptionListRow[];
@@ -24,56 +24,45 @@ export type JdListInitialData = {
   statusCounts: Record<JdStatus, number>;
 };
 
-// `queryJobDescriptionsWithEnrichment` resolves to `{ jobDescriptions, error }`
-// rather than throwing (Supabase queries never reject on their own), so this
-// helper throws explicitly. That gives `use()` a real rejection to propagate
-// to the `SuspenseErrorBoundary` inside `JdManagementDashboard` instead of the
-// list silently rendering empty. Matches the default client-side filter state
-// (page 1, no search/status filter, last-3-months start-date range) so the
-// first paint doesn't need an immediate client refetch to stay in sync.
-async function getJobDescriptionsList(
-  supabase: SupabaseServerClient,
-): Promise<JdListInitialData> {
+// Matches the default client-side filter state (page 1, no search/status
+// filter, last-3-months start-date range) so the first paint doesn't need an
+// immediate client refetch to stay in sync.
+async function getJobDescriptionsList(): Promise<JdListInitialData> {
   const { from, to } = defaultJdStartDateRangeIso();
-  const { jobDescriptions, pagination, statusCounts, error } =
-    await queryJobDescriptionsWithEnrichment(supabase, {
+  const { jobDescriptions, pagination, statusCounts } =
+    await queryJobDescriptionsWithEnrichment(getPool(), {
       startFrom: from,
       startTo: to,
       limit: JD_LIST_PAGE_SIZE,
       offset: 0,
     });
-  if (error) throw new Error(error);
   return { jobDescriptions, pagination: pagination!, statusCounts };
 }
 
 export default async function AdminJdPage() {
   const { access } = await getRequestAuth();
-  const supabase = await createClient();
 
   // Kick off all 3 queries simultaneously so jdListPromise doesn't have to
   // wait for the reference data (chapters, pipeline_stages) to finish first.
-  const jdListPromise = getJobDescriptionsList(supabase);
+  const jdListPromise = getJobDescriptionsList();
 
-  const [chapterRowsRes, pipelineStagesRes] = await Promise.all([
-    supabase
-      .from("chapters")
-      .select("id, name")
-      .order("name", { ascending: true }),
-    supabase
-      .from("pipeline_stages")
-      .select("id, label, code, color")
-      .is("deleted_at", null)
-      .order("label", { ascending: true }),
+  const db = getPool();
+  const [chapterRows, pipelineStageRows] = await Promise.all([
+    listChapters(db),
+    listPipelineStages(db),
   ]);
-
-  const chapterRows = chapterRowsRes.data;
-  const pipelineStages = pipelineStagesRes.data;
+  const pipelineStages = pipelineStageRows.map((s) => ({
+    id: s.id,
+    label: s.label,
+    code: s.code,
+    color: s.color ?? "zinc",
+  }));
 
   return (
     <JdManagementDashboard
       canManageJds={access?.isHr === true}
-      chapters={chapterRows ?? []}
-      allPipelineStages={pipelineStages ?? []}
+      chapters={chapterRows}
+      allPipelineStages={pipelineStages}
       initialRowsPromise={jdListPromise}
     />
   );

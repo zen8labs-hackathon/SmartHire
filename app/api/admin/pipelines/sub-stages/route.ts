@@ -1,4 +1,7 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { createPipelineSubStage, listPipelineSubStages } from "@/lib/db/pipeline-stages";
 import { pipelineSubStageSchema } from "@/lib/pipelines/schemas";
 
 const UUID_RE =
@@ -14,19 +17,8 @@ export async function GET(request: Request) {
     return Response.json({ error: "Invalid or missing stageId parameter." }, { status: 400 });
   }
 
-  const { data, error } = await auth.supabase
-    .from("pipeline_sub_stages")
-    .select("id, pipeline_stage_id, code, label, sequence_number, is_default, is_passed, created_at")
-    .eq("pipeline_stage_id", stageId)
-    .is("deleted_at", null)
-    .order("sequence_number", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  return Response.json({ subStages: data });
+  const subStages = await listPipelineSubStages(getPool(), stageId);
+  return Response.json({ subStages });
 }
 
 export async function POST(request: Request) {
@@ -50,22 +42,24 @@ export async function POST(request: Request) {
 
   const { pipeline_stage_id, code, label, sequence_number, is_default, is_passed } = parsed.data;
 
-  // Insert the sub-stage
-  const { data, error } = await auth.supabase
-    .from("pipeline_sub_stages")
-    .insert({ pipeline_stage_id, code, label, sequence_number, is_default, is_passed })
-    .select("id, pipeline_stage_id, code, label, sequence_number, is_default, is_passed, created_at")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const subStage = await createPipelineSubStage(getPool(), {
+      pipelineStageId: pipeline_stage_id,
+      code,
+      label,
+      sequenceNumber: sequence_number,
+      isDefault: is_default,
+      isPassed: is_passed,
+    });
+    return Response.json({ subStage }, { status: 201 });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: `A sub-stage with code '${code}' already exists in this stage.` },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not create sub-stage.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  return Response.json({ subStage: data }, { status: 201 });
 }

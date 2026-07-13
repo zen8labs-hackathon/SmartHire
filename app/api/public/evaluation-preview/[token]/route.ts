@@ -1,5 +1,6 @@
-import { CANDIDATE_EVAL_FILLED_BUCKET } from "@/lib/evaluation/filled-pdf-bucket";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getCandidateEvaluationReviewByToken } from "@/lib/db/candidate-evaluation-reviews";
+import { getPool } from "@/lib/db/config/client";
+import { downloadObject } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
@@ -10,35 +11,19 @@ export async function GET(_request: Request, context: RouteContext) {
     return new Response("Not found", { status: 404 });
   }
 
-  let admin;
+  const review = await getCandidateEvaluationReviewByToken(getPool(), clean);
+  if (!review || review.revoked_at || review.expires_at.getTime() < Date.now()) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  let buf: Buffer;
   try {
-    admin = createAdminClient();
+    buf = await downloadObject(review.filled_pdf_storage_path);
   } catch {
-    return new Response("Server configuration error", { status: 500 });
-  }
-
-  const { data: row, error } = await admin
-    .from("candidate_evaluation_reviews")
-    .select("filled_pdf_storage_path")
-    .eq("preview_token", clean)
-    .maybeSingle();
-
-  if (error || !row) {
     return new Response("Not found", { status: 404 });
   }
 
-  const path = (row as { filled_pdf_storage_path: string }).filled_pdf_storage_path;
-  const { data: blob, error: dlErr } = await admin.storage
-    .from(CANDIDATE_EVAL_FILLED_BUCKET)
-    .download(path);
-
-  if (dlErr || !blob) {
-    return new Response("Not found", { status: 404 });
-  }
-
-  const buf = Buffer.from(await blob.arrayBuffer());
-
-  return new Response(buf, {
+  return new Response(new Uint8Array(buf), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

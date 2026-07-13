@@ -1,83 +1,129 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isProfileStaff } from "@/lib/admin/config";
-import { getSupabasePublishableKey } from "@/lib/supabase/env";
+import { verifyAccessToken } from "@/lib/auth/jwt";
+import {
+  ACCESS_TOKEN_COOKIE,
+  buildAccessTokenCookie,
+  buildRefreshTokenCookie,
+  refreshSession,
+  REFRESH_TOKEN_COOKIE,
+  type SessionCookie,
+} from "@/lib/auth/session";
+import type { ProfileRole } from "@/lib/db/users";
+import { getPool } from "@/lib/db/config/client";
 
-export async function proxy(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = getSupabasePublishableKey();
-  const path = request.nextUrl.pathname;
+type AuthedUser = { id: string; role: ProfileRole };
 
-  if (!url || !key) {
-    return NextResponse.next({ request });
+/**
+ * Resolves the caller from the access-token cookie (signature+expiry check
+ * only, no DB hit -- the fast path for most requests). On an expired/missing
+ * access token, falls back to the refresh token (one DB round trip); a
+ * successful refresh queues new cookies in `pendingCookies` for the caller to
+ * apply to whatever response it ultimately returns, including a redirect --
+ * losing the rotated refresh token on a redirect would silently invalidate
+ * the session (the old token was already revoked as part of rotation).
+ */
+async function resolveUser(
+  request: NextRequest,
+  pendingCookies: SessionCookie[],
+): Promise<AuthedUser | null> {
+  const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  if (accessToken) {
+    const claims = verifyAccessToken(accessToken);
+    if (claims) return { id: claims.sub, role: claims.role };
   }
 
-  let supabaseResponse = NextResponse.next({ request });
+  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (!refreshToken) return null;
 
-  const supabase = createServerClient(url, key, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value),
-        );
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
-      },
-    },
+  const result = await refreshSession(getPool(), refreshToken, {
+    userAgent: request.headers.get("user-agent"),
+    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
   });
+  if (!result.ok) return null;
 
+  pendingCookies.push(
+    buildAccessTokenCookie(result.session.accessToken),
+    buildRefreshTokenCookie(result.session.refreshToken),
+  );
+  return { id: result.session.user.id, role: result.session.user.role };
+}
+
+function applyCookies(
+  response: NextResponse,
+  pendingCookies: SessionCookie[],
+): NextResponse {
+  for (const cookie of pendingCookies) {
+    response.cookies.set(cookie);
+  }
+  return response;
+}
+
+function redirectTo(
+  request: NextRequest,
+  pathname: string,
+  params?: Record<string, string>,
+): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+  }
+  return NextResponse.redirect(url);
+}
+
+export async function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname;
   const needsAuthCheck =
-    path === "/signup" || path.startsWith("/admin") || path.startsWith("/dashboard");
+    path === "/signup" ||
+    path.startsWith("/admin") ||
+    path.startsWith("/dashboard");
 
   // Avoid a network call on public routes to keep local dev responsive.
   if (!needsAuthCheck) {
-    return supabaseResponse;
+    return NextResponse.next({ request });
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const pendingCookies: SessionCookie[] = [];
+  const user = await resolveUser(request, pendingCookies);
 
   if (path === "/signup") {
     if (user) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/dashboard";
-      return NextResponse.redirect(redirectUrl);
+      return applyCookies(redirectTo(request, "/dashboard"), pendingCookies);
     }
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("reason", "no-signup");
-    return NextResponse.redirect(redirectUrl);
+    return applyCookies(
+      redirectTo(request, "/login", { reason: "no-signup" }),
+      pendingCookies,
+    );
   }
 
   if (path.startsWith("/admin")) {
     if (!user) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/login";
-      redirectUrl.searchParams.set("next", "/admin");
-      return NextResponse.redirect(redirectUrl);
+      return applyCookies(
+        redirectTo(request, "/login", { next: "/admin" }),
+        pendingCookies,
+      );
     }
-    if (!(await isProfileStaff(supabase, user.id, user))) {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/dashboard";
-      return NextResponse.redirect(redirectUrl);
+    // Coarse gate only (role from the JWT, no DB hit): `role === 'none'` can
+    // never be staff. The precise check -- including `profile_chapters`
+    // membership -- runs deeper via `getStaffProfileAccess` (app/admin/layout.tsx),
+    // which is the actual authority for RBAC scoping.
+    if (user.role === "none") {
+      return applyCookies(redirectTo(request, "/dashboard"), pendingCookies);
     }
   }
 
   if (path.startsWith("/dashboard") && !user) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", path);
-    return NextResponse.redirect(redirectUrl);
+    return applyCookies(
+      redirectTo(request, "/login", { next: path }),
+      pendingCookies,
+    );
   }
 
-  return supabaseResponse;
+  return applyCookies(NextResponse.next({ request }), pendingCookies);
 }
 
 export const config = {

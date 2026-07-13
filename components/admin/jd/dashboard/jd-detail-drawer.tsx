@@ -8,8 +8,6 @@ import {
   formatDate,
   formatHireTypeDisplay,
 } from "./helpers";
-import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
-import { candidateStatusUiLabel } from "@/lib/candidates/pipeline-phase";
 import { useJdDashboard } from "./context";
 
 export function JdDetailDrawer() {
@@ -93,18 +91,22 @@ export function JdDetailDrawer() {
                     </p>
                   ) : drawerStatusCounts == null ? (
                     <p className="mt-2 text-sm text-muted">Loading counts…</p>
+                  ) : drawerStatusCounts.length === 0 ? (
+                    <p className="mt-2 text-sm text-muted">
+                      No pipeline stages configured for this job yet.
+                    </p>
                   ) : (
                     <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                      {ALL_PIPELINE_STATUSES.map((st) => (
+                      {drawerStatusCounts.map((c) => (
                         <div
-                          key={st}
+                          key={`${c.stage_code}:${c.sub_stage_code}`}
                           className="flex items-baseline justify-between gap-2 text-sm"
                         >
                           <dt className="text-muted">
-                            {candidateStatusUiLabel(st)}
+                            {c.stage_label} · {c.sub_stage_label}
                           </dt>
                           <dd className="tabular-nums font-semibold text-foreground">
-                            {drawerStatusCounts[st] ?? 0}
+                            {c.count}
                           </dd>
                         </div>
                       ))}

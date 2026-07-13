@@ -1,17 +1,18 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import { isCandidateSource } from "@/lib/candidates/source-constants";
 import {
-  CV_BUCKET,
   extensionFromFilename,
   isAllowedCvFilename,
   MAX_CV_BYTES,
 } from "@/lib/candidates/upload-constants";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { sanitizeFolderName } from "@/lib/candidates/cv-path-utils";
+import { createCandidate } from "@/lib/db/candidates";
+import { createApplicationWithInitialCv } from "@/lib/db/campaign-applied";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { getJobById } from "@/lib/db/jobs";
+import { createSignedUploadUrl } from "@/lib/storage/s3";
 
 type Body = {
-  jobOpeningId?: string | null;
+  jobId?: string | null;
   filename?: string;
   mimeType?: string | null;
   source?: string;
@@ -25,10 +26,15 @@ const MAX_EXPECTED_SALARY_LEN = 200;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function isUuid(s: string) {
-  return UUID_RE.test(s);
-}
+const CV_KEY_PREFIX = "cv/";
 
+/**
+ * Creates the person (`candidates`), application (`campaign_applied`), and
+ * initial CV version (`cv_detail_versions`) rows, then returns a presigned S3
+ * PUT URL for the actual file -- signed URL is issued last so a DB failure
+ * never leaves an orphaned upload target (unlike the old code's
+ * insert-then-compensating-delete dance).
+ */
 export async function POST(request: Request) {
   const auth = await requireAdminForRequest(request);
   if (!auth.ok) return auth.response;
@@ -49,24 +55,20 @@ export async function POST(request: Request) {
   }
 
   const ext = extensionFromFilename(filename)!;
-  const jobOpeningId =
-    typeof body.jobOpeningId === "string" && body.jobOpeningId.length > 0
-      ? body.jobOpeningId
-      : null;
+  const jobId =
+    typeof body.jobId === "string" && body.jobId.length > 0 ? body.jobId : null;
 
-  if (!jobOpeningId) {
+  if (!jobId) {
     return Response.json(
       { error: "Select a target campaign before uploading." },
       { status: 400 },
     );
   }
-
-  if (!isUuid(jobOpeningId)) {
-    return Response.json({ error: "Invalid job opening id." }, { status: 400 });
+  if (!UUID_RE.test(jobId)) {
+    return Response.json({ error: "Invalid job id." }, { status: 400 });
   }
 
-  const sourceRaw =
-    typeof body.source === "string" ? body.source.trim() : "";
+  const sourceRaw = typeof body.source === "string" ? body.source.trim() : "";
   if (!sourceRaw || !isCandidateSource(sourceRaw)) {
     return Response.json(
       { error: "Select a valid candidate source." },
@@ -105,78 +107,49 @@ export async function POST(request: Request) {
     expectedSalary = trimmed || null;
   }
 
-  const { supabase } = auth;
-
-  const { data: job, error: jobErr } = await supabase
-    .from("job_openings")
-    .select("id, title")
-    .eq("id", jobOpeningId)
-    .maybeSingle();
-  if (jobErr || !job) {
-    return Response.json({ error: "Job opening not found." }, { status: 400 });
+  const job = await getJobById(getPool(), jobId);
+  if (!job) {
+    return Response.json({ error: "Job not found." }, { status: 400 });
   }
 
-  let admin;
+  const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
+  const storagePath = `${CV_KEY_PREFIX}${crypto.randomUUID()}${ext}`;
+
+  let application;
   try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      {
-        error:
-          "Server missing service role key; cannot create signed upload URL.",
-      },
-      { status: 500 },
-    );
+    ({ application } = await withTransaction(async (db) => {
+      const candidate = await createCandidate(db, {});
+      return createApplicationWithInitialCv(db, {
+        candidateId: candidate.id,
+        jobId,
+        source: sourceRaw,
+        sourceOther,
+        expectedSalary,
+        cv: {
+          sourceEvent: "initial_upload",
+          cvStoragePath: storagePath,
+          originalFilename: filename,
+          mimeType,
+          parsingStatus: "pending",
+          createdBy: auth.userId,
+        },
+      });
+    }));
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not create candidate record.";
+    return Response.json({ error: message }, { status: 500 });
   }
 
-  const candidateId = crypto.randomUUID();
-  const jobTitle = job?.title || "Job_Opening";
-  const sanitizedJobTitle = sanitizeFolderName(jobTitle);
-  const jobFolder = `${sanitizedJobTitle}_${jobOpeningId}`;
-  const storagePath = `${jobFolder}/temp-${candidateId}${ext}`;
-
-  const uploadedAt = new Date().toISOString();
-  const rawUploader = auth.userEmail?.trim() ?? "";
-  const uploadedByEmail =
-    rawUploader && isValidEmail(normalizeEmail(rawUploader))
-      ? normalizeEmail(rawUploader)
-      : null;
-
-  const { error: insErr } = await supabase.from("candidates").insert({
-    id: candidateId,
-    job_opening_id: jobOpeningId,
-    cv_storage_path: storagePath,
-    original_filename: filename,
-    mime_type: typeof body.mimeType === "string" ? body.mimeType : null,
-    parsing_status: "pending",
-    source: sourceRaw,
-    source_other: sourceOther,
-    cv_uploaded_at: uploadedAt,
-    uploaded_by_email: uploadedByEmail,
-    expected_salary: expectedSalary,
-  });
-
-  if (insErr) {
-    return Response.json({ error: insErr.message }, { status: 500 });
+  try {
+    const signedUrl = await createSignedUploadUrl(storagePath, mimeType);
+    return Response.json({
+      candidateId: application.id,
+      path: storagePath,
+      signedUrl,
+      maxBytes: MAX_CV_BYTES,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not create signed upload URL.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  const { data: signed, error: signErr } = await admin.storage
-    .from(CV_BUCKET)
-    .createSignedUploadUrl(storagePath);
-
-  if (signErr || !signed) {
-    await admin.from("candidates").delete().eq("id", candidateId);
-    return Response.json(
-      { error: signErr?.message ?? "Could not create signed upload URL" },
-      { status: 500 },
-    );
-  }
-
-  return Response.json({
-    candidateId,
-    path: signed.path,
-    token: signed.token,
-    signedUrl: signed.signedUrl,
-    maxBytes: MAX_CV_BYTES,
-  });
 }

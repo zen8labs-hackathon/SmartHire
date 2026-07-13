@@ -2,42 +2,31 @@ import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import type { CandidateStatus } from "@/lib/candidates/types";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
-/* TODO: LEGACY CODE - To be removed when migrating old features */
-import { isPipelineTransitionAllowed } from "@/lib/candidates/pipeline-allowed-transitions";
-import { zCandidatePipelineStatus } from "@/lib/candidates/pipeline-zod";
-import { buildCandidatePipelinePatch } from "@/lib/candidates/pipeline-transition";
-import { CV_BUCKET } from "@/lib/candidates/upload-constants";
+import {
+  getCampaignAppliedAdminRowById,
+} from "@/lib/db/campaign-applied-list";
+import {
+  getCampaignAppliedById,
+  softDeleteCampaignApplied,
+  updateCampaignApplied,
+} from "@/lib/db/campaign-applied";
+import { getPool } from "@/lib/db/config/client";
 import {
   fetchJobPipelineConfig,
-  resolveCandidatePipelineIds,
-  isCustomTransitionAllowed,
-  buildNewPipelineCandidatePatch,
+  validateAndBuildPipelineTransition,
 } from "@/lib/pipelines/transition-validator";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const isoDateTime = z.string().refine(
-  (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
-  "Invalid ISO datetime",
-);
-
 const patchBodySchema = z.object({
-  /* TODO: LEGACY CODE - To be removed when migrating old features */
-  status: zCandidatePipelineStatus.optional(),
-  current_job_stage_mapping_id: z.string().uuid().optional(),
-  current_sub_state_id: z.string().uuid().optional(),
-  interview_at: z.union([isoDateTime, z.null()]).optional(),
-  onboarding_at: z.union([isoDateTime, z.null()]).optional(),
+  current_job_stage_mapping_id: z.string().uuid(),
+  current_sub_state_id: z.string().uuid(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** Full candidate row (incl. `parsed_payload`) for drawer / detail hydration. */
+/** Full application row (candidate + active CV + pipeline position) for drawer / detail hydration. */
 export async function GET(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
@@ -47,38 +36,17 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const { data: row, error } = await auth.supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
+  const row = await getCampaignAppliedAdminRowById(getPool(), candidateId);
   if (!row) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const [enriched] = await enrichCandidatesWithJobOpenings(auth.supabase, [
-    row as unknown as CandidateDbRow,
-  ]);
-
-  return Response.json({ candidate: enriched });
-}
-
-function formatCandidateStatusConstraintError(message: string): string {
-  if (!message.includes("candidates_status_check")) return message;
-  return (
-    "Database status constraint is outdated. Run migration " +
-    "`supabase/migrations/20260506180000_candidate_status_three_phases.sql` " +
-    "to allow current pipeline statuses."
-  );
+  return Response.json({ candidate: row });
 }
 
 /**
- * Updates pipeline status (and optional interview/onboarding times) with the same
- * transition rules as POST /api/admin/candidates/pipeline.
+ * Updates the application's pipeline stage/sub-stage, with the same
+ * transition rules as PATCH /api/admin/candidates/pipeline.
  */
 export async function PATCH(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
@@ -103,163 +71,61 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       { status: 400 },
     );
   }
+  const { current_job_stage_mapping_id, current_sub_state_id } = parsed.data;
 
-  const u = parsed.data;
+  const db = getPool();
 
-  const { data: existing, error: loadError } = await auth.supabase
-    .from("candidates")
-    .select("id, job_opening_id, status, interview_at, onboarding_at, offered_at, current_job_stage_mapping_id, current_sub_state_id, pipeline_status, is_active")
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (loadError) {
-    return Response.json({ error: loadError.message }, { status: 500 });
-  }
+  const existing = await getCampaignAppliedById(db, candidateId);
   if (!existing) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
-  if (!existing.is_active) {
-    return Response.json({ error: "Archived candidate cannot be updated." }, { status: 409 });
-  }
 
-  const isNewPipelineUpdate = !!(u.current_job_stage_mapping_id && u.current_sub_state_id);
-  let patch: Record<string, any>;
-
-  if (isNewPipelineUpdate) {
-    const jo = existing.job_opening_id as string | null;
-    if (!jo) {
-      return Response.json(
-        { error: "Candidate is not linked to any job opening." },
-        { status: 400 }
-      );
-    }
-
-    const { stageMappings, subStages, error: configError } = await fetchJobPipelineConfig(
-      auth.supabase,
-      jo
-    );
-    if (configError || stageMappings.length === 0) {
-      return Response.json(
-        { error: `Could not load pipeline configuration: ${configError ?? "No stages"}` },
-        { status: 400 }
-      );
-    }
-
-    const prevRow = {
-      status: String(existing.status),
-      interview_at: (existing.interview_at as string | null) ?? null,
-      onboarding_at: (existing.onboarding_at as string | null) ?? null,
-      offered_at: (existing.offered_at as string | null) ?? null,
-      current_job_stage_mapping_id: (existing.current_job_stage_mapping_id as string | null) ?? null,
-      current_sub_state_id: (existing.current_sub_state_id as string | null) ?? null,
-      pipeline_status: (existing.pipeline_status as string | null) ?? null,
-    };
-
-    const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } = resolveCandidatePipelineIds(
-      prevRow,
-      stageMappings,
-      subStages
-    );
-
-    if (!fromStageMappingId || !fromSubStateId) {
-      return Response.json(
-        { error: "Could not resolve candidate's current stage." },
-        { status: 400 }
-      );
-    }
-
-    const allowed = isCustomTransitionAllowed(
-      stageMappings,
-      subStages,
-      fromStageMappingId,
-      fromSubStateId,
-      u.current_job_stage_mapping_id!,
-      u.current_sub_state_id!
-    );
-
-    if (!allowed) {
-      return Response.json(
-        { error: "Invalid status transition for this job's custom pipeline." },
-        { status: 400 }
-      );
-    }
-
-    try {
-      patch = buildNewPipelineCandidatePatch(
-        prevRow,
-        {
-          toStageMappingId: u.current_job_stage_mapping_id!,
-          toSubStateId: u.current_sub_state_id!,
-          interview_at: u.interview_at,
-          onboarding_at: u.onboarding_at,
-        },
-        stageMappings,
-        subStages
-      );
-    } catch (e) {
-      return Response.json(
-        { error: e instanceof Error ? e.message : "Error building patch." },
-        { status: 400 }
-      );
-    }
-  } else {
-    /* TODO: LEGACY CODE - To be removed when migrating old features */
-    // Legacy status transition check
-    const prev = {
-      status: String(existing.status),
-      interview_at: (existing.interview_at as string | null) ?? null,
-      onboarding_at: (existing.onboarding_at as string | null) ?? null,
-    };
-    const targetStatus = u.status ?? prev.status;
-    if (!isPipelineTransitionAllowed(prev.status, targetStatus)) {
-      return Response.json(
-        {
-          error: `Invalid status transition: ${prev.status} → ${targetStatus}.`,
-        },
-        { status: 400 },
-      );
-    }
-
-    patch = buildCandidatePipelinePatch(prev, {
-      ...u,
-      status: targetStatus as CandidateStatus,
-    });
-  }
-
-  const { error: upErr } = await auth.supabase
-    .from("candidates")
-    .update(patch)
-    .eq("id", candidateId);
-
-  if (upErr) {
+  const { stageMappings, subStages } = await fetchJobPipelineConfig(
+    db,
+    existing.job_id,
+  );
+  if (stageMappings.length === 0) {
     return Response.json(
-      { error: formatCandidateStatusConstraintError(upErr.message) },
+      { error: "Could not load pipeline configuration for this job." },
+      { status: 400 },
+    );
+  }
+
+  const result = validateAndBuildPipelineTransition(
+    existing,
+    {
+      toStageMappingId: current_job_stage_mapping_id,
+      toSubStateId: current_sub_state_id,
+    },
+    stageMappings,
+    subStages,
+  );
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: 400 });
+  }
+
+  await updateCampaignApplied(db, candidateId, {
+    currentJobStageMappingId: result.patch.currentJobStageMappingId,
+    currentSubStateId: result.patch.currentSubStateId,
+    hiredAt: result.patch.hiredAt,
+  });
+
+  const row = await getCampaignAppliedAdminRowById(db, candidateId);
+  if (!row) {
+    return Response.json(
+      { error: "Could not load updated candidate." },
       { status: 500 },
     );
   }
 
-  const { data: row, error: selErr } = await auth.supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (selErr || !row) {
-    return Response.json(
-      { error: selErr?.message ?? "Could not load updated candidate." },
-      { status: 500 },
-    );
-  }
-
-  const [enriched] = await enrichCandidatesWithJobOpenings(auth.supabase, [
-    row as unknown as CandidateDbRow,
-  ]);
-
-  return Response.json({ candidate: enriched });
+  return Response.json({ candidate: row });
 }
 
 /**
- * Deletes the candidate row and removes the CV file from storage when present.
+ * Soft-deletes the application. Unlike the old hard-delete, this does not
+ * remove the CV file from storage -- `cv_detail_versions` rows (and their
+ * storage paths) are kept for history, matching the rest of this schema's
+ * soft-delete design (`deleted_at` everywhere, no destructive deletes).
  */
 export async function DELETE(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
@@ -270,42 +136,9 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const { data: row, error: fetchErr } = await auth.supabase
-    .from("candidates")
-    .select("cv_storage_path, is_active")
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (fetchErr) {
-    return Response.json({ error: fetchErr.message }, { status: 500 });
-  }
-  if (!row) {
+  const deleted = await softDeleteCampaignApplied(getPool(), candidateId);
+  if (!deleted) {
     return Response.json({ error: "Not found." }, { status: 404 });
-  }
-  if (!row.is_active) {
-    return Response.json({ error: "Archived candidate cannot be deleted." }, { status: 409 });
-  }
-
-  const path = (row.cv_storage_path as string | null | undefined)?.trim();
-  if (path) {
-    const { error: storageErr } = await auth.supabase.storage
-      .from(CV_BUCKET)
-      .remove([path]);
-    if (storageErr) {
-      return Response.json(
-        { error: storageErr.message ?? "Could not remove CV file from storage." },
-        { status: 500 },
-      );
-    }
-  }
-
-  const { error: delErr } = await auth.supabase
-    .from("candidates")
-    .delete()
-    .eq("id", candidateId);
-
-  if (delErr) {
-    return Response.json({ error: delErr.message }, { status: 500 });
   }
 
   return new Response(null, { status: 204 });

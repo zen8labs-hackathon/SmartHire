@@ -1,9 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import { useOverlayState } from "@heroui/react";
 import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { coerceJdStatus, type JobDescription, type JdStatus } from "@/lib/jd/types";
 import {
   JD_LIST_PAGE_SIZE,
@@ -67,20 +65,20 @@ function buildJdListSearchParams(filters: JdListFilters): URLSearchParams {
   return params;
 }
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export function useJdListState(
   filters: JdListFilters,
   initialDataPromise?: Promise<JdListInitialData>,
 ) {
-  const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
 
-  // Supabase queries never reject on their own (they resolve with `{ error }`
-  // populated), so the promise passed in here is expected to come from a
-  // helper that throws explicitly on error (see app/admin/jd/page.tsx). That
-  // gives `use()` a real rejection to propagate to the `SuspenseErrorBoundary`
-  // wrapping this hook's caller. `use()` may be called conditionally (unlike
-  // other hooks), so callers that don't have a promise yet (e.g. tests) still
-  // work via the client-fetch fallback below.
+  // The GET route throws on error rather than resolving with `{ error }`
+  // populated (see app/admin/jd/page.tsx), so this gives `use()` a real
+  // rejection to propagate to the `SuspenseErrorBoundary` wrapping this
+  // hook's caller. `use()` may be called conditionally (unlike other hooks),
+  // so callers that don't have a promise yet (e.g. tests) still work via the
+  // client-fetch fallback below.
   const initialData = initialDataPromise ? use(initialDataPromise) : undefined;
 
   const [rows, setRows] = useState<JobDescription[]>(() =>
@@ -97,8 +95,8 @@ export function useJdListState(
   const [loading, setLoading] = useState(!initialData);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
-  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const skipInitialFetchRef = useRef(Boolean(initialData));
 
@@ -116,21 +114,16 @@ export function useJdListState(
     },
   });
 
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
+  const authHeaders = useCallback(async () => JSON_HEADERS, []);
 
   const loadDescriptions = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setFetchError(null);
     setStatusUpdateError(null);
     try {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const params = buildJdListSearchParams(filtersRef.current);
       const res = await fetch(`/api/admin/job-descriptions?${params}`, {
         credentials: "include",
-        headers: { ...h },
       });
       const json = (await res.json()) as {
         jobDescriptions?: JobDescription[];
@@ -147,7 +140,7 @@ export function useJdListState(
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     if (skipInitialFetchRef.current) {
@@ -165,7 +158,7 @@ export function useJdListState(
   ]);
 
   const updateJdStatus = useCallback(
-    async (id: number, next: JdStatus, onUpdateActiveRow?: (normalized: JobDescription) => void) => {
+    async (id: string, next: JdStatus, onUpdateActiveRow?: (normalized: JobDescription) => void) => {
       let prevStatus: JdStatus | null = null;
       let prevEndDate: string | null = null;
       setRows((rs) => {

@@ -1,21 +1,15 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { createPipelineStage, listPipelineStages } from "@/lib/db/pipeline-stages";
 import { pipelineStageSchema } from "@/lib/pipelines/schemas";
 
 export async function GET(request: Request) {
   const auth = await requireHrForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { data, error } = await auth.supabase
-    .from("pipeline_stages")
-    .select("id, code, label, desc, color, created_at, updated_at")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  return Response.json({ stages: data });
+  const stages = await listPipelineStages(getPool());
+  return Response.json({ stages });
 }
 
 export async function POST(request: Request) {
@@ -39,22 +33,17 @@ export async function POST(request: Request) {
 
   const { code, label, desc, color } = parsed.data;
 
-  // Insert the stage. We handle unique constraint conflict on code (active ones).
-  const { data, error } = await auth.supabase
-    .from("pipeline_stages")
-    .insert({ code, label, desc, color })
-    .select("id, code, label, desc, color, created_at, updated_at")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const stage = await createPipelineStage(getPool(), { code, label, desc, color });
+    return Response.json({ stage }, { status: 201 });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: `A stage with code '${code}' already exists.` },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not create stage.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  return Response.json({ stage: data }, { status: 201 });
 }

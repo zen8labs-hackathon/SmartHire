@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  resolveCandidatePipelineIds,
-  wasCandidateStageOrphaned,
+  fetchJobPipelineConfig,
   isCustomTransitionAllowed,
-  buildNewPipelineCandidatePatch,
-  legacyStatusForStageSubStage,
+  resolveCandidatePipelineIds,
+  validateAndBuildPipelineTransition,
+  wasCandidateStageOrphaned,
   type StageMapping,
   type SubStage,
 } from "./transition-validator";
@@ -113,64 +113,42 @@ describe("resolveCandidatePipelineIds", () => {
     // Ids must be "live" (i.e. present in stageMappings) to be trusted as-is;
     // see the "recovers stage mapping id via sub-state" test below for the
     // stale-id case.
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "mapping-interview",
       current_sub_state_id: "sub-int-interview",
     };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    const result = resolveCandidatePipelineIds(application, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-interview");
     expect(result.subStateId).toBe("sub-int-interview");
   });
 
-  it("falls back to first stage default sub-stage if IDs and status are null", () => {
-    const candidate = {
+  it("falls back to first stage default sub-stage if IDs are null", () => {
+    const application = {
       current_job_stage_mapping_id: null,
       current_sub_state_id: null,
     };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    const result = resolveCandidatePipelineIds(application, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-cv-scan");
     expect(result.subStateId).toBe("sub-cv-new");
   });
 
-  it("resolves correct stage and sub-stage from legacy candidate status string", () => {
-    const candidate = {
-      current_job_stage_mapping_id: null,
-      current_sub_state_id: null,
-      status: "Interview",
-    };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
-    expect(result.stageMappingId).toBe("mapping-interview");
-    expect(result.subStateId).toBe("sub-int-interview");
-  });
-
   it("recovers stage mapping id via sub-state when stored stageMappingId is stale", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "stale-mapping-id-not-in-list",
       current_sub_state_id: "sub-int-interview",
     };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    const result = resolveCandidatePipelineIds(application, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-interview");
     expect(result.stageMappingId).not.toBe("stale-mapping-id-not-in-list");
     expect(result.subStateId).toBe("sub-int-interview");
   });
 
-  it("falls back to legacy status when both ids are stale/unresolvable", () => {
-    const candidate = {
-      current_job_stage_mapping_id: "stale-mapping-id",
-      current_sub_state_id: "stale-sub-state-id",
-      status: "Interview",
-    };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
-    expect(result.stageMappingId).toBe("mapping-interview");
-    expect(result.subStateId).toBe("sub-int-interview");
-  });
-
-  it("falls back to first-stage default when stageMappingId is stale and no status set", () => {
-    const candidate = {
+  it("falls back to first-stage default when both ids are stale/unresolvable", () => {
+    const application = {
       current_job_stage_mapping_id: "stale-mapping-id",
       current_sub_state_id: "stale-sub-state-id",
     };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    const result = resolveCandidatePipelineIds(application, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-cv-scan");
     expect(result.subStateId).toBe("sub-cv-new");
   });
@@ -179,55 +157,65 @@ describe("resolveCandidatePipelineIds", () => {
     // stageMappingId is live but subStateId was deleted independently via
     // Pipeline Manager (e.g. sub-stage delete), which never touches
     // job_stage_mappings.
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "mapping-interview",
       current_sub_state_id: "deleted-sub-state-id",
     };
-    const result = resolveCandidatePipelineIds(candidate, mockStageMappings, mockSubStages);
+    const result = resolveCandidatePipelineIds(application, mockStageMappings, mockSubStages);
     expect(result.stageMappingId).toBe("mapping-interview");
     expect(result.subStateId).toBe("sub-int-interview");
+  });
+
+  it("returns nulls when there are no stage mappings at all", () => {
+    const application = {
+      current_job_stage_mapping_id: null,
+      current_sub_state_id: null,
+    };
+    const result = resolveCandidatePipelineIds(application, [], []);
+    expect(result.stageMappingId).toBeNull();
+    expect(result.subStateId).toBeNull();
   });
 });
 
 describe("wasCandidateStageOrphaned", () => {
   it("returns false when ids are both null (never assigned)", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: null,
       current_sub_state_id: null,
     };
-    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+    expect(wasCandidateStageOrphaned(application, mockStageMappings, mockSubStages)).toBe(false);
   });
 
   it("returns false when the stored stageMappingId is live", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "mapping-interview",
       current_sub_state_id: "sub-int-interview",
     };
-    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+    expect(wasCandidateStageOrphaned(application, mockStageMappings, mockSubStages)).toBe(false);
   });
 
   it("returns false when stale but recoverable via sub-state's pipeline_stage_id", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "stale-mapping-id-not-in-list",
       current_sub_state_id: "sub-int-interview",
     };
-    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+    expect(wasCandidateStageOrphaned(application, mockStageMappings, mockSubStages)).toBe(false);
   });
 
   it("returns true when stale and not recoverable (stage genuinely removed)", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "stale-mapping-id",
       current_sub_state_id: "stale-sub-state-id",
     };
-    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(true);
+    expect(wasCandidateStageOrphaned(application, mockStageMappings, mockSubStages)).toBe(true);
   });
 
   it("returns false when only the sub-stage was soft-deleted but the stage has a default to recover to", () => {
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "mapping-interview",
       current_sub_state_id: "deleted-sub-state-id",
     };
-    expect(wasCandidateStageOrphaned(candidate, mockStageMappings, mockSubStages)).toBe(false);
+    expect(wasCandidateStageOrphaned(application, mockStageMappings, mockSubStages)).toBe(false);
   });
 
   it("returns true when the sub-stage was soft-deleted and its stage has no default sub-stage to recover to", () => {
@@ -256,12 +244,12 @@ describe("wasCandidateStageOrphaned", () => {
         is_passed: false,
       },
     ];
-    const candidate = {
+    const application = {
       current_job_stage_mapping_id: "mapping-no-default",
       current_sub_state_id: "deleted-sub-state-id",
     };
     expect(
-      wasCandidateStageOrphaned(candidate, stageMappingsNoDefault, subStagesNoDefault),
+      wasCandidateStageOrphaned(application, stageMappingsNoDefault, subStagesNoDefault),
     ).toBe(true);
   });
 });
@@ -340,100 +328,226 @@ describe("isCustomTransitionAllowed", () => {
   });
 });
 
-describe("buildNewPipelineCandidatePatch", () => {
-  it("builds correct database patch and dual-writes the closest legacy status", () => {
-    const prev = {
+describe("validateAndBuildPipelineTransition", () => {
+  it("builds the patch for an allowed forward transition", () => {
+    const current = {
+      current_job_stage_mapping_id: "mapping-cv-scan",
+      current_sub_state_id: "sub-cv-passed",
+    };
+    const result = validateAndBuildPipelineTransition(
+      current,
+      { toStageMappingId: "mapping-interview", toSubStateId: "sub-int-interview" },
+      mockStageMappings,
+      mockSubStages,
+    );
+    expect(result).toEqual({
+      ok: true,
+      patch: {
+        currentJobStageMappingId: "mapping-interview",
+        currentSubStateId: "sub-int-interview",
+      },
+    });
+  });
+
+  it("rejects a disallowed transition", () => {
+    const current = {
       current_job_stage_mapping_id: "mapping-cv-scan",
       current_sub_state_id: "sub-cv-new",
-      interview_at: null,
-      onboarding_at: null,
     };
-    const update = {
-      toStageMappingId: "mapping-interview",
-      toSubStateId: "sub-int-interview",
-    };
-    const patch = buildNewPipelineCandidatePatch(prev, update, mockStageMappings, mockSubStages);
-    expect(patch.current_job_stage_mapping_id).toBe("mapping-interview");
-    expect(patch.current_sub_state_id).toBe("sub-int-interview");
-    expect(patch.pipeline_status).toBe("interview:interview");
-    // Dual-write: legacy `status` is kept in sync in the same atomic patch so
-    // consumers still reading `status` directly don't go stale.
-    expect(patch.status).toBe("Interview");
-    expect(patch.interview_at).toBeTruthy(); // interview_at auto-initialized
+    const result = validateAndBuildPipelineTransition(
+      current,
+      { toStageMappingId: "mapping-interview", toSubStateId: "sub-int-interview" },
+      mockStageMappings,
+      mockSubStages,
+    );
+    expect(result.ok).toBe(false);
   });
 
-  it("sets offered_at but keeps onboarding_at null when entering default offer sub-stage", () => {
-    const prev = {
-      current_job_stage_mapping_id: "mapping-interview",
-      current_sub_state_id: "sub-int-passed",
-      offered_at: null,
-      onboarding_at: null,
+  it("rejects an unknown target stage/sub-stage id", () => {
+    const current = {
+      current_job_stage_mapping_id: "mapping-cv-scan",
+      current_sub_state_id: "sub-cv-passed",
     };
-    const update = {
-      toStageMappingId: "mapping-offer",
-      toSubStateId: "sub-offer-default",
-    };
-    const patch = buildNewPipelineCandidatePatch(prev, update, mockStageMappings, mockSubStages);
-    expect(patch.offered_at).toBeTruthy();
-    expect(patch.onboarding_at).toBeNull();
+    const result = validateAndBuildPipelineTransition(
+      current,
+      { toStageMappingId: "unknown-mapping", toSubStateId: "sub-int-interview" },
+      mockStageMappings,
+      mockSubStages,
+    );
+    expect(result).toEqual({ ok: false, error: expect.any(String) });
   });
 
-  it("sets offered_at and onboarding_at when entering passed offer sub-stage", () => {
-    const prev = {
-      current_job_stage_mapping_id: "mapping-interview",
-      current_sub_state_id: "sub-int-passed",
-      offered_at: null,
-      onboarding_at: null,
+  it("recovers a stale current position before validating", () => {
+    const current = {
+      current_job_stage_mapping_id: "stale-mapping-id",
+      current_sub_state_id: "sub-cv-passed",
     };
-    const update = {
-      toStageMappingId: "mapping-offer",
-      toSubStateId: "sub-offer-passed",
-    };
-    const patch = buildNewPipelineCandidatePatch(prev, update, mockStageMappings, mockSubStages);
-    expect(patch.offered_at).toBeTruthy();
-    expect(patch.onboarding_at).toBeTruthy();
+    // recovers to mapping-cv-scan (via sub-state), then forward transition is allowed
+    const result = validateAndBuildPipelineTransition(
+      current,
+      { toStageMappingId: "mapping-interview", toSubStateId: "sub-int-interview" },
+      mockStageMappings,
+      mockSubStages,
+    );
+    expect(result.ok).toBe(true);
   });
 
-  it("clears onboarding_at when rolling back from passed offer to default offer sub-stage", () => {
-    const prev = {
-      current_job_stage_mapping_id: "mapping-offer",
-      current_sub_state_id: "sub-offer-passed",
-      offered_at: "2026-06-10T00:00:00Z",
-      onboarding_at: "2026-06-10T01:00:00Z",
-    };
-    const update = {
-      toStageMappingId: "mapping-offer",
-      toSubStateId: "sub-offer-default",
-    };
-    const patch = buildNewPipelineCandidatePatch(prev, update, mockStageMappings, mockSubStages);
-    expect(patch.offered_at).toBe("2026-06-10T00:00:00Z");
-    expect(patch.onboarding_at).toBeNull();
+  describe("hired_at rule", () => {
+    it("sets hiredAt when entering the is_passed sub-stage of the pipeline's last stage", () => {
+      const current = {
+        current_job_stage_mapping_id: "mapping-offer",
+        current_sub_state_id: "sub-offer-default",
+        hired_at: null,
+      };
+      const result = validateAndBuildPipelineTransition(
+        current,
+        { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
+        mockStageMappings,
+        mockSubStages,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.patch.hiredAt).toEqual(expect.any(String));
+        expect(Number.isNaN(Date.parse(result.patch.hiredAt!))).toBe(false);
+      }
+    });
+
+    it("does not set hiredAt when hired_at is already set (no overwrite)", () => {
+      const current = {
+        current_job_stage_mapping_id: "mapping-offer",
+        current_sub_state_id: "sub-offer-default",
+        hired_at: "2026-01-01T00:00:00Z",
+      };
+      const result = validateAndBuildPipelineTransition(
+        current,
+        { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
+        mockStageMappings,
+        mockSubStages,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.patch.hiredAt).toBeUndefined();
+      }
+    });
+
+    it("does not set hiredAt when the target sub-stage is not is_passed", () => {
+      const current = {
+        current_job_stage_mapping_id: "mapping-interview",
+        current_sub_state_id: "sub-int-passed",
+        hired_at: null,
+      };
+      const result = validateAndBuildPipelineTransition(
+        current,
+        { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-default" },
+        mockStageMappings,
+        mockSubStages,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.patch.hiredAt).toBeUndefined();
+      }
+    });
+
+    it("does not set hiredAt when the target stage is not the pipeline's last stage, even if is_passed", () => {
+      const current = {
+        current_job_stage_mapping_id: "mapping-cv-scan",
+        current_sub_state_id: "sub-cv-new",
+        hired_at: null,
+      };
+      const result = validateAndBuildPipelineTransition(
+        current,
+        { toStageMappingId: "mapping-cv-scan", toSubStateId: "sub-cv-passed" },
+        mockStageMappings,
+        mockSubStages,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.patch.hiredAt).toBeUndefined();
+      }
+    });
   });
 });
 
-describe("legacyStatusForStageSubStage", () => {
-  it("maps every seeded stage:sub-stage combination to its closest legacy status", () => {
-    expect(legacyStatusForStageSubStage("cv_scan", "new")).toBe("New");
-    expect(legacyStatusForStageSubStage("cv_scan", "consider")).toBe("Consider");
-    expect(legacyStatusForStageSubStage("cv_scan", "passed")).toBe("CvPassed");
-    expect(legacyStatusForStageSubStage("cv_scan", "failed")).toBe("CvFailed");
-    expect(legacyStatusForStageSubStage("interview", "interview")).toBe("Interview");
-    expect(legacyStatusForStageSubStage("interview", "consider")).toBe("InterviewConsider");
-    expect(legacyStatusForStageSubStage("interview", "canceled")).toBe("InterviewCanceled");
-    expect(legacyStatusForStageSubStage("interview", "passed")).toBe("InterviewPassed");
-    expect(legacyStatusForStageSubStage("interview", "failed")).toBe("InterviewFailed");
-    expect(legacyStatusForStageSubStage("offer", "offer")).toBe("Offer");
-    expect(legacyStatusForStageSubStage("offer", "matched")).toBe("Matched");
-    expect(legacyStatusForStageSubStage("offer", "rejected")).toBe("Rejected");
+function fakeDb(queuedRows: unknown[][]) {
+  const query = vi.fn();
+  for (const rows of queuedRows) {
+    query.mockResolvedValueOnce({ rows });
+  }
+  return { query };
+}
+
+describe("fetchJobPipelineConfig", () => {
+  it("uses the job's own stage mappings when present", async () => {
+    const allStages = [
+      { id: "stage-cv-scan", code: "cv_scan", label: "CV Scan", desc: null, color: "sky" },
+      { id: "stage-interview", code: "interview", label: "Interview", desc: null, color: "violet" },
+    ];
+    const jobMappings = [
+      { id: "mapping-1", job_id: "job-1", pipeline_stage_id: "stage-cv-scan", sequence_number: 1 },
+    ];
+    const subStageRows = [
+      {
+        id: "sub-1",
+        pipeline_stage_id: "stage-cv-scan",
+        code: "new",
+        label: "New",
+        sequence_number: 1,
+        is_default: true,
+        is_passed: false,
+      },
+    ];
+    const db = fakeDb([allStages, jobMappings, subStageRows]);
+
+    const { stageMappings, subStages } = await fetchJobPipelineConfig(db, "job-1");
+
+    expect(stageMappings).toEqual([
+      {
+        id: "mapping-1",
+        sequence_number: 1,
+        pipeline_stage_id: "stage-cv-scan",
+        pipeline_stages: allStages[0],
+      },
+    ]);
+    expect(subStages).toEqual([
+      {
+        id: "sub-1",
+        pipeline_stage_id: "stage-cv-scan",
+        code: "new",
+        label: "New",
+        sequence_number: 1,
+        is_default: true,
+        is_passed: false,
+      },
+    ]);
   });
 
-  it("is case-insensitive", () => {
-    expect(legacyStatusForStageSubStage("CV_SCAN", "New")).toBe("New");
-    expect(legacyStatusForStageSubStage("Offer", "MATCHED")).toBe("Matched");
+  it("falls back to every default pipeline stage when the job has no mappings", async () => {
+    const allStages = [
+      { id: "stage-cv-scan", code: "cv_scan", label: "CV Scan", desc: null, color: "sky" },
+    ];
+    const db = fakeDb([allStages, [], []]);
+
+    const { stageMappings } = await fetchJobPipelineConfig(db, "job-1");
+
+    expect(stageMappings).toEqual([
+      {
+        id: "stage-cv-scan",
+        sequence_number: 1,
+        pipeline_stage_id: "stage-cv-scan",
+        pipeline_stages: allStages[0],
+      },
+    ]);
   });
 
-  it("returns null for stage/sub-stage codes with no legacy analog", () => {
-    expect(legacyStatusForStageSubStage("custom_stage", "custom_sub")).toBeNull();
-    expect(legacyStatusForStageSubStage("offer", "on_hold")).toBeNull();
+  it("falls back to default stages when jobId is null", async () => {
+    const allStages = [
+      { id: "stage-cv-scan", code: "cv_scan", label: "CV Scan", desc: null, color: "sky" },
+    ];
+    const db = fakeDb([allStages, []]);
+
+    const { stageMappings } = await fetchJobPipelineConfig(db, null);
+
+    expect(db.query).toHaveBeenCalledTimes(2);
+    expect(stageMappings[0].pipeline_stage_id).toBe("stage-cv-scan");
   });
 });

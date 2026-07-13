@@ -1,4 +1,7 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { createChapter } from "@/lib/db/chapters";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 export async function POST(request: Request) {
   const auth = await requireHrForRequest(request);
@@ -22,21 +25,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data, error } = await auth.supabase
-    .from("chapters")
-    .insert({ name })
-    .select("id, name, created_at")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const chapter = await createChapter(getPool(), name);
+    return Response.json({ chapter }, { status: 201 });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: "A chapter with this name already exists." },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not create chapter.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  return Response.json({ chapter: data }, { status: 201 });
 }

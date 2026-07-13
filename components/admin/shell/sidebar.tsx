@@ -24,7 +24,6 @@ import Image from "next/image";
 export type SidebarProps = {
   userEmail: string;
   isHr: boolean;
-  workChapter: string | null;
   chapterIds: string[];
   collapsed?: boolean;
 };
@@ -32,7 +31,6 @@ export type SidebarProps = {
 export function Sidebar({
   userEmail,
   isHr,
-  workChapter,
   chapterIds,
   collapsed = false,
 }: SidebarProps) {

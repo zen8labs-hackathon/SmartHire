@@ -1,135 +1,56 @@
-import {
-  createClient as createSupabaseJsClient,
-  FunctionsFetchError,
-  FunctionsHttpError,
-  FunctionsRelayError,
-} from "@supabase/supabase-js";
-
+import { cookies } from "next/headers";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import {
   duplicateNewUploadPreviewFromRow,
   findDuplicateCandidateHits,
   shouldFetchCandidatesForDedupe,
+  parsedContactFromPayload,
   type CandidateDedupeRow,
   type DuplicateCandidateHit,
   type DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { getSupabasePublishableKey } from "@/lib/supabase/env";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
+import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { getCvDetailVersionById } from "@/lib/db/cv-detail-versions";
+import {
+  dedupeMatchStatusLabel,
+  findCandidatesByDedupeSignals,
+} from "@/lib/db/candidates-dedupe";
+import { getPool } from "@/lib/db/config/client";
+import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-function candidateRowToDedupe(row: Record<string, unknown>): CandidateDedupeRow {
-  const jo = row.job_openings as { title?: string } | null;
-  return {
-    id: String(row.id),
-    name: (row.name as string | null) ?? null,
-    status: (row.status as string | null) ?? null,
-    job_opening_id: (row.job_opening_id as string | null) ?? null,
-    job_opening_title: jo?.title ?? null,
-    cv_uploaded_at: (row.cv_uploaded_at as string | null) ?? null,
-    created_at: (row.created_at as string | null) ?? null,
-    parsed_payload: row.parsed_payload,
-    cv_file_sha256: (row.cv_file_sha256 as string | null) ?? null,
-    cv_content_sha256: (row.cv_content_sha256 as string | null) ?? null,
-  };
-}
-
-async function messageFromInvokeError(error: unknown): Promise<{
-  message: string;
-  upstreamStatus?: number;
-}> {
-  if (error instanceof FunctionsHttpError) {
-    const ctx = error.context;
-    if (ctx instanceof Response) {
-      const upstreamStatus = ctx.status;
-      const raw = await ctx.text();
-      try {
-        const parsed = JSON.parse(raw) as {
-          error?: string;
-          message?: string;
-        };
-        const msg = parsed.error ?? parsed.message;
-        if (msg) return { message: msg, upstreamStatus };
-      } catch {
-        /* not JSON */
-      }
-      if (raw?.trim()) {
-        return {
-          message: `${upstreamStatus}: ${raw.slice(0, 800)}`,
-          upstreamStatus,
-        };
-      }
-      return {
-        message:
-          upstreamStatus === 401
-            ? "Edge Function rejected the session (401). Sign in again, or check that NEXT_PUBLIC_SUPABASE_URL and keys match the project where process-cv is deployed."
-            : error.message,
-        upstreamStatus,
-      };
-    }
-  }
-  if (error instanceof FunctionsRelayError) {
-    const ctx = error.context;
-    if (ctx instanceof Response) {
-      const upstreamStatus = ctx.status;
-      const raw = await ctx.text();
-      return {
-        message: raw?.trim()
-          ? `Relay ${upstreamStatus}: ${raw.slice(0, 800)}`
-          : error.message,
-        upstreamStatus,
-      };
-    }
-  }
-  if (error instanceof FunctionsFetchError) {
-    const ctx = error.context as { message?: string } | undefined;
-    return {
-      message: ctx?.message ?? error.message,
-    };
-  }
-  if (error instanceof Error) {
-    return { message: error.message };
-  }
-  return { message: String(error) };
-}
-
 export async function POST(request: Request, { params }: RouteParams) {
-  const { id: candidateId } = await params;
-  if (!candidateId) {
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId) {
     return Response.json({ error: "Missing candidate id" }, { status: 400 });
   }
 
   const auth = await requireAdminForRequest(request);
-  if (!auth.ok) return auth.response;
+  if (!auth.ok) {
+    return auth.response;
+  }
 
   const bearerHeader = request.headers.get("Authorization");
   const bearer =
     bearerHeader?.startsWith("Bearer ") ? bearerHeader.slice(7).trim() : "";
 
-  let accessToken: string;
-  if (bearer) {
-    accessToken = bearer;
-  } else {
-    let {
-      data: { session },
-    } = await auth.supabase.auth.getSession();
-    if (!session?.access_token) {
-      await auth.supabase.auth.refreshSession();
-      ({
-        data: { session },
-      } = await auth.supabase.auth.getSession());
-    }
-    if (!session?.access_token) {
-      return Response.json(
-        {
-          error:
-            "Missing access token for Edge Function. Send Authorization: Bearer from the client (getSession().access_token).",
-        },
-        { status: 401 },
-      );
-    }
-    accessToken = session.access_token;
+  let accessToken: string = bearer;
+  if (!accessToken) {
+    const cookieStore = await cookies();
+    accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ?? "";
+  }
+
+  if (!accessToken) {
+    return Response.json(
+      {
+        error:
+          "Missing access token for Edge Function. Send Authorization: Bearer from the client (getSession().access_token) or authenticate via cookie.",
+      },
+      { status: 401 },
+    );
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -141,31 +62,45 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  const functionsClient = createSupabaseJsClient(url, key, {
-    global: {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  let data: any = null;
+  let invokeErrorMsg: string | null = null;
+  let upstreamStatus = 502;
 
-  const { data, error } = await functionsClient.functions.invoke("process-cv", {
-    body: { candidateId },
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  try {
+    const res = await fetch(`${url}/functions/v1/process-cv`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: key as string,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ candidateId: campaignAppliedId }),
+    });
 
-  if (error) {
-    const { message, upstreamStatus } = await messageFromInvokeError(error);
+    upstreamStatus = res.status;
+
+    if (!res.ok) {
+      const text = await res.text();
+      try {
+        const parsed = JSON.parse(text);
+        invokeErrorMsg = parsed.error ?? parsed.message ?? `${res.status} error`;
+      } catch {
+        invokeErrorMsg = text || `${res.status} error`;
+      }
+    } else {
+      data = await res.json();
+    }
+  } catch (err) {
+    invokeErrorMsg = err instanceof Error ? err.message : String(err);
+  }
+
+  if (invokeErrorMsg) {
     if (process.env.NODE_ENV === "development") {
-      console.error("[process-cv invoke]", error.name, message, { upstreamStatus });
+      console.error("[process-cv invoke]", invokeErrorMsg, { upstreamStatus });
     }
     const status =
       upstreamStatus === 401 || upstreamStatus === 403 ? upstreamStatus : 502;
-    return Response.json({ error: message }, { status });
+    return Response.json({ error: invokeErrorMsg }, { status });
   }
 
   if (
@@ -178,39 +113,59 @@ export async function POST(request: Request, { params }: RouteParams) {
     return Response.json({ error: msg }, { status: 500 });
   }
 
-  const jdMatch = await runJdMatchForCandidate(auth.supabase, candidateId);
+  const jdMatch = await runJdMatchForCandidate(campaignAppliedId);
   if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
-    console.warn("[jd-match]", candidateId, jdMatch);
+    console.warn("[jd-match]", campaignAppliedId, jdMatch);
   }
 
   let duplicateCandidates: DuplicateCandidateHit[] = [];
   let duplicateNewUpload: DuplicateNewUploadPreview | null = null;
-  const { data: currentRow, error: currentErr } = await auth.supabase
-    .from("candidates")
-    .select(
-      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
-    )
-    .eq("id", candidateId)
-    .maybeSingle();
-  if (!currentErr && currentRow) {
-    const currentDedupe = candidateRowToDedupe(
-      currentRow as Record<string, unknown>,
-    );
+
+  const db = getPool();
+  const currentRow = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
+
+  if (currentRow) {
+    const activeVersion = currentRow.active_cv_version_id
+      ? await getCvDetailVersionById(db, currentRow.active_cv_version_id)
+      : null;
+    const currentDedupe: CandidateDedupeRow = {
+      id: campaignAppliedId,
+      name: currentRow.candidate_name,
+      status: dedupeMatchStatusLabel(currentRow),
+      job_opening_id: currentRow.job_id,
+      job_opening_title: currentRow.job_position,
+      cv_uploaded_at: activeVersion?.created_at.toISOString() ?? currentRow.created_at.toISOString(),
+      created_at: currentRow.created_at.toISOString(),
+      parsed_payload: activeVersion?.parsed_payload ?? {},
+      cv_file_sha256: activeVersion?.cv_file_sha256 ?? null,
+      cv_content_sha256: activeVersion?.cv_content_sha256 ?? null,
+    };
+
     if (shouldFetchCandidatesForDedupe(currentDedupe)) {
-      const { data: others, error: othersErr } = await auth.supabase
-        .from("candidates")
-        .select(
-          "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
-        )
-        .eq("is_active", true)
-        .neq("id", candidateId);
-      if (!othersErr && others) {
-        duplicateCandidates = findDuplicateCandidateHits(
-          currentDedupe,
-          (others as Record<string, unknown>[]).map(candidateRowToDedupe),
-        );
-      }
+      const contact = parsedContactFromPayload(currentDedupe.parsed_payload);
+      const matches = await findCandidatesByDedupeSignals(db, {
+        email: contact.email,
+        phoneVariants: contact.phoneVariants,
+        cvFileSha256: currentDedupe.cv_file_sha256,
+        cvContentSha256: currentDedupe.cv_content_sha256,
+      }, campaignAppliedId);
+
+      const others: CandidateDedupeRow[] = matches.map((m) => ({
+        id: m.campaign_applied_id,
+        name: m.candidate_name,
+        status: dedupeMatchStatusLabel(m),
+        job_opening_id: m.job_id,
+        job_opening_title: m.job_position,
+        cv_uploaded_at: m.cv_created_at ? m.cv_created_at.toISOString() : m.created_at.toISOString(),
+        created_at: m.created_at.toISOString(),
+        parsed_payload: { email: m.candidate_email, phone: m.candidate_phone, role: m.cv_role },
+        cv_file_sha256: m.cv_file_sha256,
+        cv_content_sha256: m.cv_content_sha256,
+      }));
+
+      duplicateCandidates = findDuplicateCandidateHits(currentDedupe, others);
     }
+
     if (duplicateCandidates.length > 0) {
       duplicateNewUpload = duplicateNewUploadPreviewFromRow(currentDedupe);
     }
@@ -220,6 +175,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     data && typeof data === "object" && !Array.isArray(data)
       ? (data as Record<string, unknown>)
       : { ok: true };
+
   return Response.json({
     ...base,
     duplicateCandidates,

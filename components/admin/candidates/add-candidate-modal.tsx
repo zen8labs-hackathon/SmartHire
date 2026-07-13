@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOverlayTriggerState } from "react-stately";
 
 import {
@@ -23,14 +23,11 @@ import type {
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
 import {
-  CV_BUCKET,
   MAX_CV_BYTES,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
 import { DuplicateCandidateModal } from "@/components/admin/candidates/duplicate-candidate-modal";
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 type JobOpening = {
   id: string;
@@ -169,9 +166,9 @@ export function AddCandidateModal({
   onDuplicateMergedToExisting,
   jdPipelineCampaign,
 }: Props) {
-  const supabase = useMemo(() => createClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queueIdsRef = useRef<Set<string>>(new Set());
+  const queueRef = useRef<QueueRow[]>([]);
   const duplicateResolveRef = useRef<
     ((outcome: "skip" | "replaced") => void) | null
   >(null);
@@ -214,11 +211,6 @@ export function AddCandidateModal({
   const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
   const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
 
-  const sessionAuthHeaders = useCallback(
-    () => getSessionAuthorizationHeaders(supabase),
-    [supabase],
-  );
-
   /** Unmounts the duplicate modal right away so the upload queue/progress
    * underneath becomes visible while the merge/discard keeps running. */
   const closeDuplicateModal = useCallback(() => {
@@ -243,14 +235,10 @@ export function AddCandidateModal({
    */
   const commitUploadAndProcess = useCallback(
     async (file: File): Promise<CommitUploadResult> => {
-      const auth = await sessionAuthHeaders();
-      if (!auth.Authorization) {
-        throw new Error("Session expired. Sign in again.");
-      }
       const signRes = await fetch("/api/admin/candidates/sign-upload", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json", ...auth },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jobOpeningId: selectedJobId,
           filename: file.name,
@@ -264,13 +252,13 @@ export function AddCandidateModal({
         error?: string;
         candidateId?: string;
         path?: string;
-        token?: string;
+        signedUrl?: string;
       };
       if (
         !signRes.ok ||
         !signJson.candidateId ||
         !signJson.path ||
-        !signJson.token
+        !signJson.signedUrl
       ) {
         throw new Error(signJson.error ?? "Could not start upload");
       }
@@ -290,12 +278,14 @@ export function AddCandidateModal({
       ]);
 
       try {
-        const { error: upErr } = await supabase.storage
-          .from(CV_BUCKET)
-          .uploadToSignedUrl(signJson.path, signJson.token, file, {
-            contentType: file.type || undefined,
-          });
-        if (upErr) throw new Error(upErr.message);
+        const putRes = await fetch(signJson.signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: file.type ? { "Content-Type": file.type } : undefined,
+        });
+        if (!putRes.ok) {
+          throw new Error("Could not upload file to storage.");
+        }
 
         setQueue((q) =>
           q.map((r) =>
@@ -305,13 +295,11 @@ export function AddCandidateModal({
           ),
         );
 
-        const procAuth = await sessionAuthHeaders();
         const procRes = await fetch(
           `/api/admin/candidates/${candidateId}/process`,
           {
             method: "POST",
             credentials: "include",
-            headers: { ...procAuth },
           },
         );
         const procJson = (await procRes.json()) as {
@@ -340,14 +328,7 @@ export function AddCandidateModal({
         throw e;
       }
     },
-    [
-      sessionAuthHeaders,
-      selectedJobId,
-      sourceKey,
-      sourceOther,
-      expectedSalary,
-      supabase,
-    ],
+    [selectedJobId, sourceKey, sourceOther, expectedSalary],
   );
 
   const runDuplicateUpdateWithHistory = useCallback(async () => {
@@ -385,13 +366,12 @@ export function AddCandidateModal({
       }
 
       duplicateMergeIdsRef.current.add(newCandidateId);
-      const procAuth = await sessionAuthHeaders();
       const repRes = await fetch(
         `/api/admin/candidates/${sameJobHit.id}/update-with-history`,
         {
           method: "PUT",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...procAuth },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             newCandidateId,
             matchedOn: sameJobHit.matchedOn,
@@ -427,7 +407,6 @@ export function AddCandidateModal({
       setDuplicateSubmitting(false);
     }
   }, [
-    sessionAuthHeaders,
     closeDuplicateModal,
     resolveDuplicateFlow,
     onCandidatesChanged,
@@ -447,13 +426,11 @@ export function AddCandidateModal({
     closeDuplicateModal();
     setDuplicateSubmitting(true);
     try {
-      const procAuth = await sessionAuthHeaders();
       const delRes = await fetch(
         `/api/admin/candidates/${payload.newCandidateId}`,
         {
           method: "DELETE",
           credentials: "include",
-          headers: { ...procAuth },
         },
       );
       if (!delRes.ok) {
@@ -481,20 +458,11 @@ export function AddCandidateModal({
     } finally {
       setDuplicateSubmitting(false);
     }
-  }, [
-    sessionAuthHeaders,
-    closeDuplicateModal,
-    resolveDuplicateFlow,
-    onCandidatesChanged,
-  ]);
+  }, [closeDuplicateModal, resolveDuplicateFlow, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
-    const auth = await sessionAuthHeaders();
     const res = await fetch("/api/admin/job-openings", {
       credentials: "include",
-      headers: {
-        ...(auth.Authorization ? { Authorization: auth.Authorization } : {}),
-      },
     });
     if (!res.ok) return;
     const json = (await res.json()) as { jobOpenings?: JobOpening[] };
@@ -505,7 +473,7 @@ export function AddCandidateModal({
         displayTitle: j.displayTitle ?? j.title,
       })),
     );
-  }, [sessionAuthHeaders]);
+  }, []);
 
   useEffect(() => {
     if (open && !isCampaignLocked) void loadJobs();
@@ -519,49 +487,76 @@ export function AddCandidateModal({
   }, [open, isCampaignLocked, jdPipelineCampaign]);
 
   useEffect(() => {
-    if (!open) return;
+    queueRef.current = queue;
+  }, [queue]);
 
-    const channel = supabase
-      .channel("candidates-admin-modal")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "candidates" },
-        (payload) => {
-          const id =
-            (payload.new as { id?: string } | null)?.id ??
-            (payload.old as { id?: string } | null)?.id;
-          if (!id || !queueIdsRef.current.has(id)) return;
-          const next = payload.new as Record<string, unknown> | null;
-          if (!next) return;
-          setQueue((prev) =>
-            prev.map((r) =>
-              r.candidateId !== id
-                ? r
-                : {
-                    ...r,
-                    parsing_status:
-                      (next.parsing_status as ParsingStatus) ??
-                      r.parsing_status,
-                    parsing_error:
-                      (next.parsing_error as string | null) ?? r.parsing_error,
-                  },
-            ),
-          );
-          if (
-            (next.parsing_status === "completed" ||
-              next.parsing_status === "failed") &&
-            !duplicateMergeIdsRef.current.has(id)
-          ) {
-            onCandidatesChanged?.();
+  /**
+   * Polls parsing status for queue rows still in flight. No realtime
+   * push channel is available post-Supabase, so this fills that gap;
+   * 3s is frequent enough to feel live without hammering the API.
+   */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const pendingIds = queueRef.current
+        .filter(
+          (r) =>
+            r.parsing_status === "pending" || r.parsing_status === "processing",
+        )
+        .map((r) => r.candidateId);
+      if (pendingIds.length === 0) return;
+
+      await Promise.all(
+        pendingIds.map(async (id) => {
+          try {
+            const res = await fetch(`/api/admin/candidates/${id}`, {
+              credentials: "include",
+            });
+            if (!res.ok || cancelled) return;
+            const json = (await res.json()) as {
+              candidate?: {
+                cv_parsing_status?: ParsingStatus;
+                cv_parsing_error?: string | null;
+              };
+            };
+            const next = json.candidate;
+            if (!next || cancelled) return;
+            setQueue((prev) =>
+              prev.map((r) =>
+                r.candidateId !== id
+                  ? r
+                  : {
+                      ...r,
+                      parsing_status: next.cv_parsing_status ?? r.parsing_status,
+                      parsing_error:
+                        next.cv_parsing_error ?? r.parsing_error,
+                    },
+              ),
+            );
+            if (
+              (next.cv_parsing_status === "completed" ||
+                next.cv_parsing_status === "failed") &&
+              !duplicateMergeIdsRef.current.has(id)
+            ) {
+              onCandidatesChanged?.();
+            }
+          } catch {
+            // best-effort; retried on next tick
           }
-        },
-      )
-      .subscribe();
+        }),
+      );
+    };
+
+    const interval = setInterval(() => void poll(), 3000);
+    void poll();
 
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      clearInterval(interval);
     };
-  }, [open, supabase, onCandidatesChanged]);
+  }, [open, onCandidatesChanged]);
 
   const ingestFile = async (file: File) => {
     if (isCampaignBlocked) {
@@ -595,28 +590,25 @@ export function AddCandidateModal({
     let preCheckNewUpload: DuplicateNewUploadPreview | null = null;
     try {
       const signals = await extractCvSignalsClientSide(file);
-      const auth = await sessionAuthHeaders();
-      if (auth.Authorization) {
-        const preRes = await fetch("/api/admin/candidates/check-duplicate", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", ...auth },
-          body: JSON.stringify({
-            jobOpeningId: selectedJobId,
-            cvFileSha256: signals.cvFileSha256,
-            cvContentSha256: signals.cvContentSha256,
-            email: signals.email,
-            phone: signals.phone,
-          }),
-        });
-        if (preRes.ok) {
-          const preJson = (await preRes.json()) as {
-            duplicateCandidates?: DuplicateCandidateHit[];
-            duplicateNewUpload?: DuplicateNewUploadPreview | null;
-          };
-          preCheckHits = preJson.duplicateCandidates ?? [];
-          preCheckNewUpload = preJson.duplicateNewUpload ?? null;
-        }
+      const preRes = await fetch("/api/admin/candidates/check-duplicate", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobOpeningId: selectedJobId,
+          cvFileSha256: signals.cvFileSha256,
+          cvContentSha256: signals.cvContentSha256,
+          email: signals.email,
+          phone: signals.phone,
+        }),
+      });
+      if (preRes.ok) {
+        const preJson = (await preRes.json()) as {
+          duplicateCandidates?: DuplicateCandidateHit[];
+          duplicateNewUpload?: DuplicateNewUploadPreview | null;
+        };
+        preCheckHits = preJson.duplicateCandidates ?? [];
+        preCheckNewUpload = preJson.duplicateNewUpload ?? null;
       }
     } catch {
       preCheckHits = [];

@@ -199,19 +199,10 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     : null;
   const openingCreatedAt = jo?.created_at;
 
-  const jdEmbed = jo?.job_descriptions;
-  const firstJd = jdEmbed
-    ? Array.isArray(jdEmbed)
-      ? jdEmbed[0]
-      : jdEmbed
-    : null;
-  const jdId = firstJd?.id;
-  const jobDescriptionId: number | null =
-    typeof jdId === "number"
-      ? jdId
-      : typeof jdId === "string" && Number.isFinite(Number(jdId))
-        ? Number(jdId)
-        : null;
+  // `job_opening_id` is `jobs.id` (a uuid) under DB7X2K's merged jobs table
+  // (job_openings + job_descriptions) -- the same id the evaluation page's
+  // route already expects, so no separate JD-embed id lookup is needed.
+  const jobDescriptionId = r.job_opening_id;
 
   const ttf = calculateDaysDifference(openingCreatedAt, r.offered_at);
   const tth = calculateDaysDifference(uploaded, r.offered_at);

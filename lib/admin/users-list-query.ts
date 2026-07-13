@@ -28,16 +28,14 @@ export type UsersListResult = {
 
 function matchesRole(user: OrgUserRow, role: UsersRoleFilter): boolean {
   if (role === "all") return true;
-  if (role === "admin") return user.isAdmin;
-  const upper = user.accessSummary.toUpperCase();
-  if (role === "hr") return upper.includes("HR");
-  if (role === "chapter") return upper.includes("CHAPTER");
-  return !user.isAdmin && !upper.includes("HR") && !upper.includes("CHAPTER");
+  if (role === "admin") return user.role === "admin";
+  if (role === "hr") return user.role === "hr";
+  if (role === "chapter") return user.role === "recruiter";
+  return user.role === "none";
 }
 
 /**
- * The Supabase Auth Admin API has no server-side search, so this always
- * lists every user first, then applies search/role filtering and pagination
+ * Lists every user first, then applies search/role filtering and pagination
  * in-process. `counts` are always computed over the full unfiltered set so
  * the stats cards stay accurate independent of the current search/role
  * filter or page.
@@ -53,25 +51,12 @@ export async function queryOrgUsersList(
   } = options;
   const allUsers = await listOrgUsersForAdminPage();
 
-  const adminCount = allUsers.filter((u) => u.isAdmin).length;
-  const hr = allUsers.filter((u) =>
-    u.accessSummary.toUpperCase().includes("HR"),
-  ).length;
-  const recruiter = allUsers.filter((u) =>
-    u.accessSummary.toUpperCase().includes("CHAPTER"),
-  ).length;
-  const dashboardOnly = allUsers.filter((u) =>
-    !u.isAdmin &&
-    !u.accessSummary.toUpperCase().includes("HR") &&
-    !u.accessSummary.toUpperCase().includes("CHAPTER"),
-  ).length;
-
   const counts: UsersListCounts = {
     total: allUsers.length,
-    admin: adminCount,
-    hr,
-    recruiter,
-    dashboardOnly,
+    admin: allUsers.filter((u) => u.role === "admin").length,
+    hr: allUsers.filter((u) => u.role === "hr").length,
+    recruiter: allUsers.filter((u) => u.role === "recruiter").length,
+    dashboardOnly: allUsers.filter((u) => u.role === "none").length,
   };
 
   const trimmedQ = q?.trim().toLowerCase();

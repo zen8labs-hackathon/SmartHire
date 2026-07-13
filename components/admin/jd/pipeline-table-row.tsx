@@ -4,17 +4,11 @@ import { Pencil, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
-  Calendar,
   Chip,
-  DateField,
-  DatePicker,
-  Label,
   ListBox,
   Select,
   Table,
 } from "@heroui/react";
-import type { CalendarDateTime } from "@internationalized/date";
-import { Dialog } from "react-aria-components";
 
 import {
   candidateDisplayInitials,
@@ -25,10 +19,10 @@ import {
   isCandidateInOfferStage,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
-  type CandidateDbRow,
-  candidateDbRowToTableRow,
-} from "@/lib/candidates/db-row";
-import type { CandidateRow } from "@/lib/candidates/types";
+  campaignAppliedAdminRowToTableRow,
+  type JdPipelineApplicationRow,
+  type JdPipelineTableRow,
+} from "@/lib/candidates/campaign-applied-table-row";
 import type {
   StageMapping,
   SubStage,
@@ -51,13 +45,13 @@ import {
 const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
 
 export type PipelineTableRowProps = {
-  r: CandidateDbRow;
+  r: JdPipelineApplicationRow;
   jobId: string;
   canEditPipeline: boolean;
   selected: Set<string>;
   toggleSelect: (id: string) => void;
   rowUpdating: string | null;
-  resolveRow: (r: CandidateDbRow) => ResolvedRowPipeline;
+  resolveRow: (r: JdPipelineApplicationRow) => ResolvedRowPipeline;
   stageMappings: StageMapping[];
   subStages: SubStage[];
   offerStageSubStateIds: Set<string> | null;
@@ -65,25 +59,15 @@ export type PipelineTableRowProps = {
     id: string,
     next: { toStageMappingId: string; toSubStateId: string },
   ) => Promise<void>;
-  interviewDrafts: Record<string, CalendarDateTime | null>;
-  setInterviewDrafts: Dispatch<
-    SetStateAction<Record<string, CalendarDateTime | null>>
-  >;
-  saveInterviewTime: (
-    id: string,
-    value: CalendarDateTime | null,
-  ) => Promise<void>;
-  saveOnboardingTime: (
-    id: string,
-    value: CalendarDateTime | null,
-  ) => Promise<void>;
-  setRowPendingEdit: Dispatch<SetStateAction<CandidateDbRow | null>>;
+  /** Opens the interview-schedule modal (round label/date/duration/location + history) for this row. */
+  onOpenSchedule: (r: JdPipelineApplicationRow) => void;
+  setRowPendingEdit: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
   /** `editModal.open` — only `.open()` is called from within a row, so we pass
    * just that (stable, `useCallback`-wrapped) function rather than the whole
    * `useOverlayState()` object, which is a fresh literal on every render and
    * would defeat memoization below. */
   openEditModal: () => void;
-  setRowPendingDelete: Dispatch<SetStateAction<CandidateDbRow | null>>;
+  setRowPendingDelete: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
   /** `deleteModal.open` — see {@link openEditModal}. */
   openDeleteModal: () => void;
 };
@@ -96,8 +80,6 @@ export type PipelineTableRowProps = {
  *   / string on every toggle or status change — comparing them by reference
  *   would force every row to re-render whenever any single row's selection
  *   or busy state changes.
- * - `interviewDrafts` is compared only for this row's two possible keys
- *   (`r.id` and `ob-${r.id}`), for the same reason.
  * - Everything else (including `r` itself) is compared by reference, which
  *   is safe here: `stageMappings`/`subStages`/`offerStageSubStateIds` come
  *   from `useMemo`, and the various callbacks come from `useCallback` /
@@ -120,13 +102,7 @@ function pipelineTableRowPropsAreEqual(
     prev.subStages === next.subStages &&
     prev.offerStageSubStateIds === next.offerStageSubStateIds &&
     prev.onStatusChange === next.onStatusChange &&
-    (prev.interviewDrafts[prev.r.id] ?? null) ===
-      (next.interviewDrafts[next.r.id] ?? null) &&
-    (prev.interviewDrafts[`ob-${prev.r.id}`] ?? null) ===
-      (next.interviewDrafts[`ob-${next.r.id}`] ?? null) &&
-    prev.setInterviewDrafts === next.setInterviewDrafts &&
-    prev.saveInterviewTime === next.saveInterviewTime &&
-    prev.saveOnboardingTime === next.saveOnboardingTime &&
+    prev.onOpenSchedule === next.onOpenSchedule &&
     prev.setRowPendingEdit === next.setRowPendingEdit &&
     prev.openEditModal === next.openEditModal &&
     prev.setRowPendingDelete === next.setRowPendingDelete &&
@@ -152,24 +128,17 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   subStages,
   offerStageSubStateIds,
   onStatusChange,
-  interviewDrafts,
-  setInterviewDrafts,
-  saveInterviewTime,
-  saveOnboardingTime,
+  onOpenSchedule,
   setRowPendingEdit,
   openEditModal,
   setRowPendingDelete,
   openDeleteModal,
 }: PipelineTableRowProps) {
-  const row: CandidateRow = candidateDbRowToTableRow(r);
+  const row: JdPipelineTableRow = campaignAppliedAdminRowToTableRow(r);
   const busy = rowUpdating === r.id;
   const resolved = resolveRow(r);
   const inOfferStage = isCandidateInOfferStage(
-    {
-      currentSubStateId: r.current_sub_state_id,
-      pipelineStatus: r.pipeline_status,
-      status: r.status,
-    },
+    { currentSubStateId: r.current_sub_state_id },
     offerStageSubStateIds,
   );
   const offerCellClass = inOfferStage ? OFFER_ROW_CELL_CLASS : "";
@@ -327,156 +296,19 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         </Select>
       </Table.Cell>
       <Table.Cell className={`text-xs text-foreground ${offerCellClass}`}>
-        {formatSchedule(r.cv_uploaded_at ?? r.created_at) ?? "—"}
+        {formatSchedule(r.cv_created_at ?? r.created_at) ?? "—"}
       </Table.Cell>
-      <Table.Cell className={`align-middle ${offerCellClass}`}>
-        {r.status === "Interview" || r.status === "InterviewPassed" ? (
-          <div className="flex flex-col items-center gap-1">
-            <Label className="text-xs font-medium text-muted">
-              Interview date
-            </Label>
-            <DatePicker
-              value={interviewDrafts[r.id] ?? null}
-              granularity="minute"
-              hourCycle={24}
-              shouldCloseOnSelect={false}
-              isDisabled={!canEditPipeline || busy}
-              onChange={(value) => {
-                setInterviewDrafts((d) => ({
-                  ...d,
-                  [r.id]: value,
-                }));
-              }}
-              onBlur={() => {
-                void saveInterviewTime(r.id, interviewDrafts[r.id] ?? null);
-              }}
-              className="w-full min-w-[9rem]"
-            >
-              <DateField.Group
-                fullWidth
-                variant="primary"
-                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
-              >
-                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-                  <DateField.Input>
-                    {(segment) => <DateField.Segment segment={segment} />}
-                  </DateField.Input>
-                </DateField.InputContainer>
-                <DateField.Suffix>
-                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
-                    <DatePicker.TriggerIndicator />
-                  </DatePicker.Trigger>
-                </DateField.Suffix>
-              </DateField.Group>
-              <DatePicker.Popover>
-                <Dialog className="outline-none">
-                  <Calendar>
-                    <Calendar.Header className="flex items-center gap-2">
-                      <Calendar.NavButton slot="previous" />
-                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
-                      <Calendar.NavButton slot="next" />
-                    </Calendar.Header>
-                    <Calendar.Grid weekdayStyle="short">
-                      <Calendar.GridHeader>
-                        {(day) => (
-                          <Calendar.HeaderCell>{day}</Calendar.HeaderCell>
-                        )}
-                      </Calendar.GridHeader>
-                      <Calendar.GridBody>
-                        {(date) => (
-                          <Calendar.Cell date={date}>
-                            {({ formattedDate }) => (
-                              <>
-                                <Calendar.CellIndicator />
-                                <span className="relative z-[1]">
-                                  {formattedDate}
-                                </span>
-                              </>
-                            )}
-                          </Calendar.Cell>
-                        )}
-                      </Calendar.GridBody>
-                    </Calendar.Grid>
-                  </Calendar>
-                </Dialog>
-              </DatePicker.Popover>
-            </DatePicker>
-          </div>
-        ) : r.status === "Offer" ? (
-          <div className="flex flex-col items-center gap-1">
-            <Label className="text-xs font-medium text-muted">
-              Onboarding date
-            </Label>
-            <DatePicker
-              value={interviewDrafts[`ob-${r.id}`] ?? null}
-              granularity="minute"
-              hourCycle={24}
-              shouldCloseOnSelect={false}
-              isDisabled={!canEditPipeline || busy}
-              onChange={(value) => {
-                setInterviewDrafts((d) => ({
-                  ...d,
-                  [`ob-${r.id}`]: value,
-                }));
-              }}
-              onBlur={() => {
-                void saveOnboardingTime(
-                  r.id,
-                  interviewDrafts[`ob-${r.id}`] ?? null,
-                );
-              }}
-              className="w-full min-w-[9rem]"
-            >
-              <DateField.Group
-                fullWidth
-                variant="primary"
-                className="border-neutral-200 bg-white text-neutral-950 shadow-sm dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-50"
-              >
-                <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-                  <DateField.Input>
-                    {(segment) => <DateField.Segment segment={segment} />}
-                  </DateField.Input>
-                </DateField.InputContainer>
-                <DateField.Suffix>
-                  <DatePicker.Trigger className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-neutral-700 outline-none hover:bg-neutral-100 pressed:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 dark:pressed:bg-white/10">
-                    <DatePicker.TriggerIndicator />
-                  </DatePicker.Trigger>
-                </DateField.Suffix>
-              </DateField.Group>
-              <DatePicker.Popover>
-                <Dialog className="outline-none">
-                  <Calendar>
-                    <Calendar.Header className="flex items-center gap-2">
-                      <Calendar.NavButton slot="previous" />
-                      <Calendar.Heading className="flex-1 text-center text-sm font-medium" />
-                      <Calendar.NavButton slot="next" />
-                    </Calendar.Header>
-                    <Calendar.Grid weekdayStyle="short">
-                      <Calendar.GridHeader>
-                        {(day) => (
-                          <Calendar.HeaderCell>{day}</Calendar.HeaderCell>
-                        )}
-                      </Calendar.GridHeader>
-                      <Calendar.GridBody>
-                        {(date) => (
-                          <Calendar.Cell date={date}>
-                            {({ formattedDate }) => (
-                              <>
-                                <Calendar.CellIndicator />
-                                <span className="relative z-[1]">
-                                  {formattedDate}
-                                </span>
-                              </>
-                            )}
-                          </Calendar.Cell>
-                        )}
-                      </Calendar.GridBody>
-                    </Calendar.Grid>
-                  </Calendar>
-                </Dialog>
-              </DatePicker.Popover>
-            </DatePicker>
-          </div>
+      <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
+        {(resolved.stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
+        "interview" ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            isDisabled={busy}
+            onPress={() => onOpenSchedule(r)}
+          >
+            Schedule
+          </Button>
         ) : (
           <span className="text-xs text-muted">—</span>
         )}

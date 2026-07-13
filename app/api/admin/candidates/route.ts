@@ -3,6 +3,7 @@ import {
   parseCandidatesListQuery,
   queryCandidatesList,
 } from "@/lib/candidates/candidates-list-query";
+import { getPool } from "@/lib/db/config/client";
 
 export async function GET(request: Request) {
   const auth = await requireStaffForRequest(request);
@@ -14,15 +15,15 @@ export async function GET(request: Request) {
     return Response.json({ error: parseError }, { status: 400 });
   }
 
-  const jdParam = url.searchParams.get("jobDescriptionId");
-  if ((jdParam == null || jdParam === "") && !auth.access.isHr) {
+  const jobIdParam = url.searchParams.get("jobId");
+  if ((jobIdParam == null || jobIdParam === "") && !auth.access.isHr) {
     return Response.json(
-      { error: "jobDescriptionId is required for this account." },
+      { error: "jobId is required for this account." },
       { status: 400 },
     );
   }
 
-  const result = await queryCandidatesList(auth.supabase, query);
+  const result = await queryCandidatesList(getPool(), query);
 
   if (result.error) {
     return Response.json({ error: result.error }, { status: 500 });

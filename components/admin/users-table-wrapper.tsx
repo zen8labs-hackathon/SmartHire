@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Table, Label, ListBox, Select, Modal, Button, Input, TextField } from "@heroui/react";
 import {
   DataTableToolbar,
@@ -20,14 +20,13 @@ import { AddUserForm, type AddUserChapterOption } from "@/components/admin/add-u
 import { EditUserForm, type EditUserData } from "@/components/admin/edit-user-form";
 import { adminDeleteUser, adminGetUserDetails, adminUpdateUserPassword } from "@/app/admin/actions";
 import { useToast } from "@/components/admin/toast-provider";
-import { createClient } from "@/lib/supabase/client";
+import type { ProfileRole } from "@/lib/db/users";
 
 export type OrgUser = {
   id: string;
   email: string | null;
   accessSummary: string;
-  isAdmin?: boolean;
-  workChapter?: string | null;
+  role: ProfileRole;
   chapterMemberships?: ChapterMembership[];
 };
 
@@ -38,6 +37,8 @@ export type UsersTableWrapperProps = {
   initialPagination: Pagination;
   initialCounts: UsersListCounts;
   chapters: readonly AddUserChapterOption[];
+  /** The signed-in HR/admin viewing this page -- disables self-deletion in the table. */
+  currentUserId: string;
 };
 
 const ROLE_OPTIONS: { id: UsersRoleFilter; label: string }[] = [
@@ -53,10 +54,8 @@ const BADGE_BASE =
 
 function RoleBadges({ user }: { user: OrgUser }) {
   const chapterMemberships = user.chapterMemberships ?? [];
-  const isAdmin = user.isAdmin ?? user.accessSummary.toUpperCase().includes("ADMIN");
-  const isHr =
-    user.workChapter === "HR" ||
-    (user.workChapter === undefined && user.accessSummary.toUpperCase().includes("HR"));
+  const isAdmin = user.role === "admin";
+  const isHr = user.role === "hr";
 
   if (!isAdmin && !isHr && chapterMemberships.length === 0) {
     return (
@@ -99,8 +98,8 @@ export function UsersTableWrapper({
   initialPagination,
   initialCounts,
   chapters,
+  currentUserId,
 }: UsersTableWrapperProps) {
-  const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -132,18 +131,6 @@ export function UsersTableWrapper({
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
   const [deleteUserEmail, setDeleteUserEmail] = useState<string | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
-
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-
-  // Retrieve current logged in user ID to disable self-deletion
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        setCurrentUserId(data.user.id);
-      }
-    });
-  }, []); // supabase is stable (memoized); intentionally omitted to run once
 
   const handlePageSizeChange = useCallback((size: number) => {
     setPageSize(size);

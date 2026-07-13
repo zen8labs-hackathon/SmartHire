@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card } from "@heroui/react";
-import { getRequestAuth } from "@/lib/admin/request-auth";
-import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/admin/shell/page-header";
 import {
   Briefcase,
@@ -13,14 +11,30 @@ import {
   FileSpreadsheet,
   Lock,
 } from "lucide-react";
+import { getRequestAuth } from "@/lib/admin/request-auth";
+import { getPool } from "@/lib/db/config/client";
+import { getPublicUserById } from "@/lib/db/users";
 
 export const dynamic = "force-dynamic";
 
-type FeatureColor = "accent" | "blue" | "purple" | "warning" | "cyan" | "success";
+type FeatureColor =
+  | "accent"
+  | "blue"
+  | "purple"
+  | "warning"
+  | "cyan"
+  | "success";
 
 const COLOR_STYLES: Record<
   FeatureColor,
-  { iconBg: string; iconText: string; iconHover: string; badge: string; border: string; link: string }
+  {
+    iconBg: string;
+    iconText: string;
+    iconHover: string;
+    badge: string;
+    border: string;
+    link: string;
+  }
 > = {
   accent: {
     iconBg: "bg-accent/10",
@@ -168,13 +182,8 @@ export default async function DashboardPage() {
 
   const isHr = access?.isHr === true;
 
-  // Only one additional query needed: the display name from profiles.
-  const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("id", user.id)
-    .maybeSingle();
+  // Only one additional query needed: the display name from the user row.
+  const profile = await getPublicUserById(getPool(), user.id);
 
   const displayName =
     profile?.username ?? user.email?.split("@")[0] ?? "Recruiter";

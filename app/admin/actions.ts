@@ -2,13 +2,26 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  getStaffProfileAccess,
-  HR_WORK_CHAPTER,
-} from "@/lib/admin/profile-access";
+import { getRequestAuth } from "@/lib/admin/request-auth";
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { hashPassword } from "@/lib/auth/password";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { findExistingChapterIds } from "@/lib/db/chapters";
+import {
+  listMembershipsForUser,
+  replaceMembershipsForUser,
+  type ChapterMemberRole,
+} from "@/lib/db/profile-chapters";
+import { revokeAllRefreshTokensForUser } from "@/lib/db/refresh-tokens";
+import {
+  createUser,
+  getPublicUserByEmail,
+  getPublicUserById,
+  softDeleteUser,
+  updateUser,
+  usernameExists,
+  type ProfileRole,
+} from "@/lib/db/users";
 
 export type AdminUserFormState = { error?: string; message?: string } | null;
 
@@ -24,95 +37,106 @@ function parseIdList(formData: FormData, field: string): string[] {
   return [...set];
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === "23505"
+  );
+}
+
+/** `users.username` requires `^[a-z0-9_]{3,30}$` -- same email-local-part fallback the old Supabase `handle_new_user` trigger used. */
+function deriveUsernameCandidate(email: string): string {
+  const local = email.split("@")[0]?.toLowerCase() ?? "";
+  const sanitized = local.replace(/[^a-z0-9_]/g, "");
+  const base =
+    sanitized.length >= 3 ? sanitized : (sanitized + "user").slice(0, 3);
+  return base.slice(0, 30);
+}
+
+async function generateUniqueUsername(email: string): Promise<string> {
+  const base = deriveUsernameCandidate(email);
+  for (let suffix = 1; suffix <= 1000; suffix += 1) {
+    const candidate =
+      suffix === 1
+        ? base
+        : `${base.slice(0, Math.max(1, 30 - String(suffix).length))}${suffix}`;
+    if (!(await usernameExists(getPool(), candidate))) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    "Could not generate a unique username -- too many collisions.",
+  );
+}
+
+function accessHint(
+  role: ProfileRole,
+  chapterCount: number,
+  headCount: number,
+): string {
+  if (role === "none") return "Dashboard only.";
+  if (role === "hr" || role === "admin") return "Full HR recruiting access.";
+  return `Chapter recruiter (${chapterCount} chapter${chapterCount === 1 ? "" : "s"}, ${headCount} as head).`;
+}
+
 /**
- * Validates the recruiting-access selection and (re)writes profiles.work_chapter +
- * profile_chapters (with per-chapter head/member role) for an existing profile.
- * Shared by adminAddUser (after the auth user is created) and adminUpdateUserAccess.
+ * Validates the recruiting-access selection and (re)writes `users.role` +
+ * `profile_chapters` (with per-chapter head/member role) for an existing user.
+ * Shared by adminAddUser (after the user row is created) and adminUpdateUserAccess.
+ * Never assigns `role = 'admin'` -- this form has no such option, same as before
+ * (`is_admin` was never settable through this UI either).
  */
 async function syncRecruitingAccess(
-  admin: ReturnType<typeof createAdminClient>,
-  profileId: string,
+  userId: string,
   recruitingAccess: string,
   chapterIds: string[],
   chapterHeadIds: Set<string>,
-): Promise<{ error: string } | { workChapter: string | null }> {
-  let workChapter: string | null = null;
+): Promise<{ error: string } | { role: ProfileRole }> {
+  let role: ProfileRole;
   if (recruitingAccess === "hr") {
-    workChapter = HR_WORK_CHAPTER;
+    role = "hr";
   } else if (recruitingAccess === "chapter") {
     if (chapterIds.length === 0) {
       return { error: "Select at least one chapter for a chapter recruiter." };
     }
-  } else if (recruitingAccess !== "none") {
+    role = "recruiter";
+  } else if (recruitingAccess === "none") {
+    role = "none";
+  } else {
     return { error: "Invalid recruiting access selection." };
   }
 
-  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
-    const { data: found, error: chErr } = await admin
-      .from("chapters")
-      .select("id")
-      .in("id", chapterIds);
-    if (chErr) {
-      return { error: `Could not validate chapters: ${chErr.message}` };
-    }
-    if ((found?.length ?? 0) !== chapterIds.length) {
+  if (role === "recruiter") {
+    const found = await findExistingChapterIds(getPool(), chapterIds);
+    if (found.length !== chapterIds.length) {
       return { error: "One or more selected chapters are invalid." };
     }
   }
 
-  const { error: delPcErr } = await admin
-    .from("profile_chapters")
-    .delete()
-    .eq("profile_id", profileId);
-  if (delPcErr) {
-    return { error: `Chapter membership could not be reset: ${delPcErr.message}` };
-  }
+  const memberships =
+    role === "recruiter"
+      ? chapterIds.map((chapterId) => ({
+          chapterId,
+          role: (chapterHeadIds.has(chapterId)
+            ? "head"
+            : "member") as ChapterMemberRole,
+        }))
+      : [];
 
-  const { error: profileErr } = await admin
-    .from("profiles")
-    .update({ work_chapter: workChapter })
-    .eq("id", profileId);
-  if (profileErr) {
-    return { error: `Recruiting access could not be saved: ${profileErr.message}` };
-  }
+  await withTransaction(async (client) => {
+    await updateUser(client, userId, { role });
+    await replaceMembershipsForUser(client, userId, memberships);
+  });
 
-  if (recruitingAccess === "chapter" && chapterIds.length > 0) {
-    const { error: insPcErr } = await admin.from("profile_chapters").insert(
-      chapterIds.map((chapter_id) => ({
-        profile_id: profileId,
-        chapter_id,
-        role: chapterHeadIds.has(chapter_id) ? "head" : "member",
-      })),
-    );
-    if (insPcErr) {
-      return { error: `Chapter membership could not be saved: ${insPcErr.message}` };
-    }
-  }
-
-  return { workChapter };
-}
-
-function accessHint(
-  workChapter: string | null,
-  chapterCount: number,
-  headCount: number,
-): string {
-  if (workChapter == null && chapterCount === 0) return "Dashboard only.";
-  if (workChapter === HR_WORK_CHAPTER) return "Full HR recruiting access.";
-  return `Chapter recruiter (${chapterCount} chapter${chapterCount === 1 ? "" : "s"}, ${headCount} as head).`;
+  return { role };
 }
 
 export async function adminAddUser(
   _prev: AdminUserFormState,
   formData: FormData,
 ): Promise<AdminUserFormState> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const access =
-    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  const { access } = await getRequestAuth();
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
@@ -140,111 +164,69 @@ export async function adminAddUser(
     return { error: "Select at least one chapter for a chapter recruiter." };
   }
 
-  let admin: ReturnType<typeof createAdminClient>;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return {
-      error:
-        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to create users from the admin panel.",
-    };
+  if (await getPublicUserByEmail(getPool(), email)) {
+    return { error: "A user with this email already exists." };
   }
 
-  const { data: created, error } = await admin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  const username = await generateUniqueUsername(email);
+  const passwordHash = await hashPassword(password);
 
-  if (error) {
-    const msg = error.message.toLowerCase();
-    if (
-      msg.includes("already registered") ||
-      msg.includes("already been registered")
-    ) {
+  let user;
+  try {
+    user = await createUser(getPool(), { email, username, passwordHash });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return { error: "A user with this email already exists." };
     }
-    return { error: error.message };
-  }
-
-  const newId = created.user?.id;
-  if (!newId) {
-    return {
-      error: "User was created but no user id was returned. Check Supabase logs.",
-    };
+    throw err;
   }
 
   const result = await syncRecruitingAccess(
-    admin,
-    newId,
+    user.id,
     recruitingAccess,
     chapterIds,
     chapterHeadIds,
   );
   if ("error" in result) {
-    return { error: `Account was created but ${result.error.charAt(0).toLowerCase()}${result.error.slice(1)}` };
+    return {
+      error: `Account was created but ${result.error.charAt(0).toLowerCase()}${result.error.slice(1)}`,
+    };
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/chapters");
   return {
-    message: `Created account for ${email}. ${accessHint(result.workChapter, chapterIds.length, chapterHeadIds.size)} They can sign in with this email and password.`,
+    message: `Created account for ${email}. ${accessHint(result.role, chapterIds.length, chapterHeadIds.size)} They can sign in with this email and password.`,
   };
 }
 
 export async function adminGetUserDetails(userId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const access =
-    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  const { access } = await getRequestAuth();
   if (!access?.isHr) {
     throw new Error("Not authorized.");
   }
 
-  const admin = createAdminClient();
-  
-  const { data: authUser, error: authErr } = await admin.auth.admin.getUserById(userId);
-  if (authErr || !authUser?.user) {
-    throw new Error("User not found in Auth.");
+  const user = await getPublicUserById(getPool(), userId);
+  if (!user) {
+    throw new Error("User not found.");
   }
 
-  const { data: profile, error: profErr } = await admin
-    .from("profiles")
-    .select("work_chapter")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (profErr) {
-    throw new Error(`Failed to fetch profile: ${profErr.message}`);
-  }
-
-  const { data: pChapters, error: pcErr } = await admin
-    .from("profile_chapters")
-    .select("chapter_id, role")
-    .eq("profile_id", userId);
-
-  if (pcErr) {
-    throw new Error(`Failed to fetch chapters: ${pcErr.message}`);
-  }
-
-  const chapterIds = (pChapters ?? []).map((x) => x.chapter_id as string);
-  const chapterHeadIds = (pChapters ?? [])
-    .filter((x) => x.role === "head")
-    .map((x) => x.chapter_id as string);
+  const memberships = await listMembershipsForUser(getPool(), userId);
+  const chapterIds = memberships.map((m) => m.chapterId);
+  const chapterHeadIds = memberships
+    .filter((m) => m.role === "head")
+    .map((m) => m.chapterId);
 
   let recruitingAccess: "none" | "hr" | "chapter" = "none";
-  if (profile?.work_chapter === HR_WORK_CHAPTER) {
+  if (user.role === "hr" || user.role === "admin") {
     recruitingAccess = "hr";
-  } else if (chapterIds.length > 0) {
+  } else if (user.role === "recruiter") {
     recruitingAccess = "chapter";
   }
 
   return {
     id: userId,
-    email: authUser.user.email ?? "",
+    email: user.email,
     recruitingAccess,
     chapterIds,
     chapterHeadIds,
@@ -257,29 +239,12 @@ export async function adminUpdateUserAccess(
   chapterIds: string[],
   chapterHeadIds: string[],
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const access =
-    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+  const { access } = await getRequestAuth();
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
 
-  let admin: ReturnType<typeof createAdminClient>;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return {
-      error:
-        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to edit users from the admin panel.",
-    };
-  }
-
   const result = await syncRecruitingAccess(
-    admin,
     userId,
     recruitingAccess,
     chapterIds,
@@ -289,19 +254,22 @@ export async function adminUpdateUserAccess(
     return { error: result.error };
   }
 
+  // Access just changed -- revoke outstanding refresh tokens so the user's
+  // *next* token refresh picks up the new role rather than riding out their
+  // old refresh token's full lifetime. Their current access token (if any)
+  // still rides out its own short TTL regardless; see ACCESS_TOKEN_TTL_SECONDS.
+  await revokeAllRefreshTokensForUser(getPool(), userId);
+
   revalidatePath("/admin");
   revalidatePath("/admin/users");
   return { message: "User access updated successfully." };
 }
 
-export async function adminUpdateUserPassword(userId: string, newPassword: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const access =
-    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
+export async function adminUpdateUserPassword(
+  userId: string,
+  newPassword: string,
+) {
+  const { access } = await getRequestAuth();
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
@@ -310,57 +278,32 @@ export async function adminUpdateUserPassword(userId: string, newPassword: strin
     return { error: "Password must be at least 8 characters." };
   }
 
-  let admin: ReturnType<typeof createAdminClient>;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return {
-      error:
-        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to reset passwords from the admin panel.",
-    };
+  const passwordHash = await hashPassword(newPassword);
+  const updated = await updateUser(getPool(), userId, { passwordHash });
+  if (!updated) {
+    return { error: "User not found." };
   }
 
-  const { error } = await admin.auth.admin.updateUserById(userId, {
-    password: newPassword,
-  });
-
-  if (error) {
-    return { error: error.message };
-  }
+  await revokeAllRefreshTokensForUser(getPool(), userId);
 
   return { message: "Password updated successfully." };
 }
 
 export async function adminDeleteUser(userId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { user, access } = await getRequestAuth();
   if (user?.id === userId) {
     return { error: "You cannot delete your own account." };
   }
-
-  const access =
-    user?.id != null ? await getStaffProfileAccess(supabase, user.id) : null;
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
 
-  let admin: ReturnType<typeof createAdminClient>;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return {
-      error:
-        "Server is missing SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY). Add it to delete users from the admin panel.",
-    };
+  const deleted = await softDeleteUser(getPool(), userId);
+  if (!deleted) {
+    return { error: "User not found." };
   }
 
-  const { error } = await admin.auth.admin.deleteUser(userId);
-  if (error) {
-    return { error: error.message };
-  }
+  await revokeAllRefreshTokensForUser(getPool(), userId);
 
   revalidatePath("/admin");
   revalidatePath("/admin/users");

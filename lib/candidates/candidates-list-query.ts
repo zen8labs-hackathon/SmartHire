@@ -1,13 +1,8 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import {
-  ADMIN_CANDIDATES_LIST_SELECT,
-  ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT,
-  ADMIN_CANDIDATES_SELECT,
-} from "@/lib/candidates/admin-select";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
-import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
+  listCampaignAppliedForAdmin,
+  type CampaignAppliedAdminRow,
+} from "@/lib/db/campaign-applied-list";
+import type { QueryExecutor } from "@/lib/db/config/client";
 
 export const CANDIDATES_LIST_DEFAULT_LIMIT = 50;
 export const CANDIDATES_LIST_MAX_LIMIT = 200;
@@ -15,21 +10,12 @@ export const CANDIDATES_LIST_MAX_LIMIT = 200;
 export const CANDIDATES_LIST_MAX_ALL = 2000;
 
 export type CandidatesListQuery = {
-  jobDescriptionId?: number;
-  jobOpeningId?: string;
-  status?: string;
-  /** `job_stage_mappings.id` — filters on the candidate's current custom pipeline stage. */
+  /** `jobs.id` -- DB7X2K merged job_openings + job_descriptions, so there's a single id now. */
+  jobId?: string;
+  /** `job_stage_mappings.id` — filters on the application's current custom pipeline stage. */
   stageMappingId?: string;
   /** `pipeline_sub_stages.id`, paired with {@link stageMappingId}. */
   subStateId?: string;
-  /**
-   * Legacy `candidates.status` value equivalent to the (stageMappingId,
-   * subStateId) pair above, for candidates that predate the custom-pipeline
-   * columns (`current_job_stage_mapping_id` is null on those rows). Resolved
-   * by the caller via `legacyStatusForStageSubStage` since it already has the
-   * stage/sub-stage config loaded; omit when the pair has no legacy analog.
-   */
-  legacyStatus?: string;
   uploadFrom?: string;
   uploadTo?: string;
   q?: string;
@@ -37,14 +23,6 @@ export type CandidatesListQuery = {
   offset?: number;
   /** When true, return up to {@link CANDIDATES_LIST_MAX_ALL} rows (no offset). */
   all?: boolean;
-  /** When true, include the full parsed_payload object. */
-  includeParsedPayload?: boolean;
-  /**
-   * When true and includeParsedPayload is false, selects lightweight
-   * parsed_payload->>email/phone fields instead of omitting contact info
-   * entirely.
-   */
-  contactFieldsOnly?: boolean;
 };
 
 export type CandidatesListPagination = {
@@ -55,7 +33,7 @@ export type CandidatesListPagination = {
 };
 
 export type CandidatesListResult = {
-  candidates: CandidateDbRow[];
+  candidates: CampaignAppliedAdminRow[];
   pagination: CandidatesListPagination | null;
   error: string | null;
 };
@@ -70,13 +48,6 @@ function parsePositiveInt(raw: string | null): number | undefined {
   return n;
 }
 
-function parseJobDescriptionId(raw: string | null): number | undefined {
-  if (raw == null || raw === "") return undefined;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) return undefined;
-  return n;
-}
-
 function parseDateParam(raw: string | null): string | undefined {
   if (raw == null || raw === "") return undefined;
   const s = raw.trim();
@@ -84,22 +55,12 @@ function parseDateParam(raw: string | null): string | undefined {
   return s;
 }
 
-export function escapeIlikePattern(q: string): string {
-  return q.replace(/[%_\\]/g, "\\$&");
-}
-
 export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   query: CandidatesListQuery;
   error: string | null;
 } {
-  const jobDescriptionId = parseJobDescriptionId(
-    searchParams.get("jobDescriptionId"),
-  );
-  const jobOpeningIdRaw = searchParams.get("jobOpeningId")?.trim() ?? "";
-  const jobOpeningId =
-    jobOpeningIdRaw && UUID_RE.test(jobOpeningIdRaw)
-      ? jobOpeningIdRaw
-      : undefined;
+  const jobIdRaw = searchParams.get("jobId")?.trim() ?? "";
+  const jobId = jobIdRaw && UUID_RE.test(jobIdRaw) ? jobIdRaw : undefined;
 
   const all =
     searchParams.get("all") === "true" || searchParams.get("all") === "1";
@@ -114,9 +75,6 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
     limit = Math.min(Math.max(1, limit), CANDIDATES_LIST_MAX_LIMIT);
   }
 
-  const statusRaw = searchParams.get("status")?.trim();
-  const status = statusRaw && statusRaw !== "all" ? statusRaw : undefined;
-
   const stageMappingIdRaw = searchParams.get("stageMappingId")?.trim() ?? "";
   const stageMappingId =
     stageMappingIdRaw && UUID_RE.test(stageMappingIdRaw)
@@ -125,37 +83,18 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   const subStateIdRaw = searchParams.get("subStateId")?.trim() ?? "";
   const subStateId =
     subStateIdRaw && UUID_RE.test(subStateIdRaw) ? subStateIdRaw : undefined;
-  const legacyStatusRaw = searchParams.get("legacyStatus")?.trim() ?? "";
-  const legacyStatus = (
-    CANDIDATE_PIPELINE_STATUSES as readonly string[]
-  ).includes(legacyStatusRaw)
-    ? legacyStatusRaw
-    : undefined;
-
-  const includeParsedPayload =
-    searchParams.get("includeParsedPayload") === "true" ||
-    searchParams.get("includeParsedPayload") === "1";
-
-  const contactFieldsOnly =
-    searchParams.get("contactFields") === "true" ||
-    searchParams.get("contactFields") === "1";
 
   return {
     query: {
-      jobDescriptionId,
-      jobOpeningId,
-      status,
+      jobId,
       stageMappingId,
       subStateId: stageMappingId ? subStateId : undefined,
-      legacyStatus: stageMappingId ? legacyStatus : undefined,
       uploadFrom: parseDateParam(searchParams.get("uploadFrom")),
       uploadTo: parseDateParam(searchParams.get("uploadTo")),
       q: searchParams.get("q")?.trim() || undefined,
       limit,
       offset,
       all: all || limit == null,
-      includeParsedPayload,
-      contactFieldsOnly,
     },
     error: null,
   };
@@ -165,23 +104,12 @@ export function buildCandidatesListSearchParams(
   query: CandidatesListQuery,
 ): URLSearchParams {
   const params = new URLSearchParams();
-  if (query.jobDescriptionId != null) {
-    params.set("jobDescriptionId", String(query.jobDescriptionId));
-  }
-  if (query.jobOpeningId) params.set("jobOpeningId", query.jobOpeningId);
-  if (query.status) params.set("status", query.status);
+  if (query.jobId) params.set("jobId", query.jobId);
   if (query.stageMappingId) params.set("stageMappingId", query.stageMappingId);
   if (query.subStateId) params.set("subStateId", query.subStateId);
-  if (query.legacyStatus) params.set("legacyStatus", query.legacyStatus);
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
-  if (query.includeParsedPayload) {
-    params.set("includeParsedPayload", "true");
-  }
-  if (query.contactFieldsOnly) {
-    params.set("contactFields", "true");
-  }
   if (query.all) {
     params.set("all", "true");
   } else {
@@ -193,75 +121,16 @@ export function buildCandidatesListSearchParams(
   return params;
 }
 
-async function resolveOpeningIds(
-  supabase: SupabaseClient,
-  jobDescriptionId: number,
-): Promise<{ openingIds: string[] | null; error: string | null }> {
-  const { data: openings, error } = await supabase
-    .from("job_openings")
-    .select("id")
-    .eq("job_description_id", jobDescriptionId);
-
-  if (error) return { openingIds: null, error: error.message };
-
-  const openingIds = (openings ?? [])
-    .map((o) => o.id as string)
-    .filter(Boolean);
-  return { openingIds, error: null };
-}
-
-type UploadDateFilterable = {
-  gte(column: string, value: string): UploadDateFilterable;
-  lt(column: string, value: string): UploadDateFilterable;
-};
-
-function applyUploadDateFilters<Q extends UploadDateFilterable>(
-  query: Q,
-  uploadFrom?: string,
-  uploadTo?: string,
-): Q {
-  let q = query;
-  if (uploadFrom) {
-    q = q.gte("cv_uploaded_at", `${uploadFrom}T00:00:00.000Z`) as Q;
-  }
-  if (uploadTo) {
-    const end = new Date(`${uploadTo}T00:00:00.000Z`);
-    end.setUTCDate(end.getUTCDate() + 1);
-    q = q.lt("cv_uploaded_at", end.toISOString()) as Q;
-  }
-  return q;
-}
-
 /**
- * Loads candidates for admin list / pipeline with optional pagination and filters.
+ * Loads applications for the admin list / pipeline with optional pagination
+ * and filters. Replaces the old Supabase-embed + hand-built `.or()` filter
+ * version with a single SQL join (see `lib/db/campaign-applied-list.ts`) —
+ * no legacy-status branch, DB7X2K is a green-field migration.
  */
 export async function queryCandidatesList(
-  supabase: SupabaseClient,
+  db: QueryExecutor,
   input: CandidatesListQuery,
 ): Promise<CandidatesListResult> {
-  let openingIds: string[] | null = null;
-
-  if (input.jobOpeningId) {
-    openingIds = [input.jobOpeningId];
-  } else if (input.jobDescriptionId != null) {
-    const resolved = await resolveOpeningIds(supabase, input.jobDescriptionId);
-    if (resolved.error) {
-      return { candidates: [], pagination: null, error: resolved.error };
-    }
-    openingIds = resolved.openingIds ?? [];
-    if (openingIds.length === 0) {
-      const emptyPage = input.all
-        ? null
-        : {
-            limit: input.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT,
-            offset: input.offset ?? 0,
-            total: 0,
-            hasMore: false,
-          };
-      return { candidates: [], pagination: emptyPage, error: null };
-    }
-  }
-
   const paginate = !input.all;
   const limit = paginate
     ? Math.min(
@@ -271,79 +140,25 @@ export async function queryCandidatesList(
     : CANDIDATES_LIST_MAX_ALL;
   const offset = paginate ? (input.offset ?? 0) : 0;
 
-  let query = supabase
-    .from("candidates")
-    .select(
-      input.includeParsedPayload
-        ? ADMIN_CANDIDATES_SELECT
-        : input.contactFieldsOnly
-          ? ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT
-          : ADMIN_CANDIDATES_LIST_SELECT,
-      paginate ? { count: "exact" } : undefined,
-    )
-    .eq("is_active", true)
-    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  try {
+    const { rows, total } = await listCampaignAppliedForAdmin(db, {
+      jobId: input.jobId,
+      stageMappingId: input.stageMappingId,
+      subStateId: input.subStateId,
+      q: input.q,
+      uploadFrom: input.uploadFrom,
+      uploadTo: input.uploadTo,
+      limit,
+      offset,
+    });
 
-  if (openingIds) {
-    query = query.in("job_opening_id", openingIds);
+    const pagination: CandidatesListPagination | null = paginate
+      ? { limit, offset, total, hasMore: offset + rows.length < total }
+      : null;
+
+    return { candidates: rows, pagination, error: null };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to load candidates.";
+    return { candidates: [], pagination: null, error: message };
   }
-
-  if (input.status) {
-    query = query.eq("status", input.status);
-  }
-
-  if (input.stageMappingId && input.subStateId) {
-    // Modern rows carry the (stageMappingId, subStateId) pair directly.
-    // Legacy rows never got backfilled (`current_job_stage_mapping_id` is
-    // null) and only imply their stage via the old `status` enum, so also
-    // match those via the caller-resolved legacy-status equivalent.
-    const stageBranch = `and(current_job_stage_mapping_id.eq.${input.stageMappingId},current_sub_state_id.eq.${input.subStateId})`;
-    const legacyBranch = input.legacyStatus
-      ? `,and(current_job_stage_mapping_id.is.null,status.eq.${input.legacyStatus})`
-      : "";
-    query = query.or(`${stageBranch}${legacyBranch}`);
-  }
-
-  query = applyUploadDateFilters(query, input.uploadFrom, input.uploadTo);
-
-  if (input.q) {
-    const pattern = `%${escapeIlikePattern(input.q)}%`;
-    query = query.or(
-      [
-        `name.ilike.${pattern}`,
-        `role.ilike.${pattern}`,
-        `original_filename.ilike.${pattern}`,
-        `school.ilike.${pattern}`,
-        `degree.ilike.${pattern}`,
-      ].join(","),
-    );
-  }
-
-  if (paginate) {
-    query = query.range(offset, offset + limit - 1);
-  } else {
-    query = query.limit(limit);
-  }
-
-  const { data, error, count } = await query;
-
-  if (error) {
-    return { candidates: [], pagination: null, error: error.message };
-  }
-
-  const raw = (data ?? []) as unknown as CandidateDbRow[];
-  const candidates = await enrichCandidatesWithJobOpenings(supabase, raw);
-
-  const total = paginate ? (count ?? candidates.length) : candidates.length;
-  const pagination: CandidatesListPagination | null = paginate
-    ? {
-        limit,
-        offset,
-        total,
-        hasMore: offset + candidates.length < total,
-      }
-    : null;
-
-  return { candidates, pagination, error: null };
 }

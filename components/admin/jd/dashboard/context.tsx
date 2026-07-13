@@ -16,7 +16,10 @@ import { useJdFiltersState } from "./hooks/use-jd-filters-state";
 import { JD_LIST_PAGE_SIZE } from "@/lib/jd/list-with-enrichment";
 import { useJdCreateState } from "./hooks/use-jd-create-state";
 import { useJdEditState } from "./hooks/use-jd-edit-state";
-import { useJdDrawerState } from "./hooks/use-jd-drawer-state";
+import {
+  useJdDrawerState,
+  type StageSubStageCount,
+} from "./hooks/use-jd-drawer-state";
 
 export interface JdDashboardContextValue {
   canManageJds: boolean;
@@ -33,10 +36,10 @@ export interface JdDashboardContextValue {
   loading: boolean;
   fetchError: string | null;
   statusUpdateError: string | null;
-  statusUpdatingId: number | null;
-  deletingId: number | null;
+  statusUpdatingId: string | null;
+  deletingId: string | null;
   deleteError: string | null;
-  setDeletingId: (id: number | null) => void;
+  setDeletingId: (id: string | null) => void;
 
   // Filtering & Pagination
   page: number;
@@ -67,7 +70,7 @@ export interface JdDashboardContextValue {
   setDrawerOpen: (open: boolean) => void;
   activeRow: JobDescription | null;
   setActiveRow: (row: JobDescription | null) => void;
-  drawerStatusCounts: Record<string, number> | null;
+  drawerStatusCounts: StageSubStageCount[] | null;
   drawerStatusCountsError: string | null;
   drawerViewerEmails: string[];
   setDrawerViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
@@ -127,7 +130,7 @@ export interface JdDashboardContextValue {
 
   // API Helpers
   loadDescriptions: () => Promise<void>;
-  updateJdStatus: (id: number, next: JdStatus) => Promise<void>;
+  updateJdStatus: (id: string, next: JdStatus) => Promise<void>;
   confirmDelete: () => Promise<void>;
   authHeaders: () => Promise<Record<string, string>>;
 }
@@ -193,7 +196,7 @@ export function JdDashboardProvider({
 
   // Gluing status updates to active drawer item
   const updateJdStatus = useCallback(
-    async (id: number, next: JdStatus) => {
+    async (id: string, next: JdStatus) => {
       await listState.updateJdStatus(id, next, (normalized) => {
         if (drawerState.activeRow?.id === id) {
           drawerState.setActiveRow((ar) =>
