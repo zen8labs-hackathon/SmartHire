@@ -200,7 +200,15 @@ export const CandidatePipelineDashboard = forwardRef<
 
       <AddCandidateModal
         open={addModalOpen}
-        onOpenChange={setAddModalOpen}
+        onOpenChange={(open) => {
+          setAddModalOpen(open);
+          // Uploads still "processing" when the modal is closed stop being
+          // polled (AddCandidateModal's status poll only runs while open),
+          // so without this the list can go stale until a manual page
+          // refresh -- always resync on close, not just on the in-modal
+          // completion callbacks below.
+          if (!open) void fetchCandidates();
+        }}
         onCandidatesChanged={fetchCandidates}
         onDuplicateMergedToExisting={handleDuplicateMergedToExisting}
       />

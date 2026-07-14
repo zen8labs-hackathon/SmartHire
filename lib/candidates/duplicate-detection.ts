@@ -19,6 +19,8 @@ export type ParsedContact = {
 
 export type CandidateDedupeRow = {
   id: string;
+  /** Real `candidates.id` for this row's person, when known (absent for the synthetic pre-upload "current" row). */
+  candidate_id?: string | null;
   name: string | null;
   status: string | null;
   job_opening_id: string | null;
@@ -32,6 +34,8 @@ export type CandidateDedupeRow = {
 
 export type DuplicateCandidateHit = {
   id: string;
+  /** Real `candidates.id` for the matched (existing) person -- lets callers reuse this identity for a new application instead of creating a colliding one. */
+  candidateId: string | null;
   name: string;
   status: string;
   jobOpeningId: string | null;
@@ -195,6 +199,7 @@ export function findDuplicateCandidateHits(
 
       return {
         id: String(row.id),
+        candidateId: row.candidate_id != null ? String(row.candidate_id) : null,
         name: String(row.name ?? "Unknown"),
         status: String(row.status ?? "New"),
         jobOpeningId: (row.job_opening_id as string | null) ?? null,

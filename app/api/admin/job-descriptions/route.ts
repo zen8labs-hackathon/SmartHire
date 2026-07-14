@@ -63,6 +63,7 @@ function sanitizeCreate(body: Partial<JobDescriptionFormData>): CreateJobInput {
       body.experience_requirements_nice_to_have,
     ),
     whatWeOffer: optionalToDb(body.what_we_offer),
+    criteria: optionalToDb(body.criteria),
     startDate: optionalDateToDb(body.start_date),
     endDate,
     hiringDeadline: optionalDateToDb(body.hiring_deadline),

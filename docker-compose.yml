@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: smart_hire
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d smart_hire"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # AWS emulator (S3) matching AWS_ENDPOINT_URL in .env.example.
+  # Credentials default to test/test; create the bucket once via:
+  #   aws --endpoint-url=http://localhost:4566 s3 mb s3://smart-hire-bucket
+  floci:
+    image: floci/floci:latest
+    restart: unless-stopped
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_STORAGE_MODE: persistent
+    ports:
+      - "4566:4566"
+    volumes:
+      - floci_data:/app/data
+
+volumes:
+  postgres_data:
+  floci_data:

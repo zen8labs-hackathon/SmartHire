@@ -67,6 +67,7 @@ export async function POST(request: Request) {
 
     const others: CandidateDedupeRow[] = matches.map((m) => ({
       id: m.campaign_applied_id,
+      candidate_id: m.candidate_id,
       name: m.candidate_name,
       status: dedupeMatchStatusLabel(m),
       job_opening_id: m.job_id,

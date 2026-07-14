@@ -32,10 +32,19 @@ function getClient(): S3Client {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
 
+  // AWS_ENDPOINT_URL is unset in production, so this still targets real AWS S3
+  // there (IN9X4Q decision 3) with the SDK deriving the regional endpoint from
+  // `region` on its own. When set (local dev against floci), force path-style
+  // addressing -- virtual-hosted-style bucket subdomains (e.g.
+  // `smart-hire-bucket.localhost:4566`) don't resolve reliably on Windows and
+  // are a different origin than the app, so the browser's direct presigned-URL
+  // PUT gets blocked by CORS.
+  const endpoint = process.env.AWS_ENDPOINT_URL;
+
   client = new S3Client({
     region,
-    // No `endpoint` override -- this targets real AWS S3 (IN9X4Q decision 3),
-    // so the SDK derives the regional endpoint from `region` on its own.
+    endpoint,
+    forcePathStyle: !!endpoint,
     // Omit credentials entirely when unset so the SDK falls back to its
     // default provider chain (EC2 IAM instance role in production).
     credentials:

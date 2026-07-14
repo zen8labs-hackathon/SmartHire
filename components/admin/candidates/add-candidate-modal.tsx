@@ -353,6 +353,27 @@ export function AddCandidateModal({
       );
 
       if (!sameJobHit) {
+        // Cross-job duplicate: keep this application (it's for a different
+        // job), but repoint it onto the existing person instead of leaving
+        // it under the throwaway blank candidate `sign-upload` created.
+        const existingCandidateId = payload.hits[0]?.candidateId;
+        if (existingCandidateId) {
+          const linkRes = await fetch(
+            `/api/admin/candidates/${newCandidateId}/link-to-candidate`,
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ existingCandidateId }),
+            },
+          );
+          if (!linkRes.ok) {
+            const linkJson = (await linkRes.json()) as { error?: string };
+            throw new Error(
+              linkJson.error ?? "Failed to link candidate profile",
+            );
+          }
+        }
         resolveDuplicateFlow("replaced");
         setQueue((q) =>
           q.map((r) =>
@@ -427,7 +448,7 @@ export function AddCandidateModal({
     setDuplicateSubmitting(true);
     try {
       const delRes = await fetch(
-        `/api/admin/candidates/${payload.newCandidateId}`,
+        `/api/admin/candidates/${payload.newCandidateId}/discard-duplicate`,
         {
           method: "DELETE",
           credentials: "include",

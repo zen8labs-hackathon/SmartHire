@@ -103,6 +103,28 @@ async function runCvParsing(
         ? parsed.dateOfBirth
         : null;
 
+    // Check for a conflicting *different* person before writing the parsed
+    // email/phone onto this candidate's aggregate row -- `candidates(email)`/
+    // `candidates(phone)` are unique, so syncing unconditionally would throw
+    // and roll back the whole transaction (losing the parse result) whenever
+    // this CV belongs to someone who already has a profile under another
+    // application. Detecting it here lets the parse result persist and the
+    // duplicate-candidate flow below surface it instead of a raw DB error.
+    const contact = parsedContactFromPayload(parsed);
+    const conflictMatches = await findCandidatesByDedupeSignals(
+      db,
+      {
+        email: contact.email,
+        phoneVariants: contact.phoneVariants,
+        cvFileSha256,
+        cvContentSha256,
+      },
+      campaignAppliedId,
+    );
+    const hasConflictingCandidate = conflictMatches.some(
+      (m) => m.candidate_id !== campaignApplied.candidate_id,
+    );
+
     await withTransaction(async (tx) => {
       await updateCvDetailVersionParsingResult(tx, cvVersion.id, {
         parsingStatus: "completed",
@@ -120,7 +142,9 @@ async function runCvParsing(
         cvFileSha256,
         cvContentSha256,
       });
-      await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+      if (!hasConflictingCandidate) {
+        await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+      }
     });
 
     return { ok: true, skipped: false };
@@ -193,6 +217,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       const others: CandidateDedupeRow[] = matches.map((m) => ({
         id: m.campaign_applied_id,
+        candidate_id: m.candidate_id,
         name: m.candidate_name,
         status: dedupeMatchStatusLabel(m),
         job_opening_id: m.job_id,

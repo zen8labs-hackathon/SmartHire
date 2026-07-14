@@ -18,6 +18,7 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   experience_requirements_must_have: "",
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
+  criteria: "",
   start_date: "",
   hiring_deadline: "",
 };
