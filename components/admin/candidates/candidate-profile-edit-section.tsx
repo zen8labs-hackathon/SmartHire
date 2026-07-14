@@ -411,9 +411,9 @@ export function CandidateProfileEditSection({
                     lists to add several at once.
                   </p>
                   <div className="mt-2 flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-divider bg-muted/15 px-2 py-1.5 dark:bg-muted/25">
-                    {draft.skills.map((s) => (
+                    {draft.skills.map((s, idx) => (
                       <span
-                        key={s}
+                        key={`${s}-${idx}`}
                         className="inline-flex max-w-full items-center gap-0.5"
                       >
                         <Chip

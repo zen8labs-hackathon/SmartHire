@@ -110,9 +110,9 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
                       {sec.label}
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {sec.skills.map((s) => (
+                      {sec.skills.map((s, idx) => (
                         <Chip
-                          key={`${sec.id}-${s}`}
+                          key={`${sec.id}-${s}-${idx}`}
                           size="sm"
                           variant="soft"
                           color="default"
