@@ -10,7 +10,8 @@ import {
   softDeleteCampaignApplied,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
-import { getPool } from "@/lib/db/config/client";
+import { softDeleteCandidate } from "@/lib/db/candidates";
+import { getPool, withTransaction } from "@/lib/db/config/client";
 import {
   fetchJobPipelineConfig,
   validateAndBuildPipelineTransition,
@@ -126,6 +127,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
  * remove the CV file from storage -- `cv_detail_versions` rows (and their
  * storage paths) are kept for history, matching the rest of this schema's
  * soft-delete design (`deleted_at` everywhere, no destructive deletes).
+ *
+ * Also soft-deletes the person (`candidates`) row when this was their last
+ * live application. Otherwise the person row lingers with `deleted_at NULL`,
+ * invisible to dedupe lookups (which only join through live applications)
+ * but still occupying `candidates_email_unique_idx` / `_phone_unique_idx` --
+ * any future upload reusing that email/phone then fails the unique
+ * constraint instead of surfacing the duplicate-candidate flow.
  */
 export async function DELETE(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
@@ -136,7 +144,19 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const deleted = await softDeleteCampaignApplied(getPool(), candidateId);
+  const deleted = await withTransaction(async (tx) => {
+    const row = await softDeleteCampaignApplied(tx, candidateId);
+    if (!row) return null;
+
+    const { rows: remaining } = await tx.query<{ count: string }>(
+      `SELECT count(*)::int AS count FROM campaign_applied WHERE candidate_id = $1 AND deleted_at IS NULL`,
+      [row.candidate_id],
+    );
+    if (Number(remaining[0]?.count ?? 0) === 0) {
+      await softDeleteCandidate(tx, row.candidate_id);
+    }
+    return row;
+  });
   if (!deleted) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }

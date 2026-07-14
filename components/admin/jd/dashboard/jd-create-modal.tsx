@@ -1,5 +1,5 @@
 import React, { type DragEvent, type ChangeEvent } from "react";
-import { Modal, Card, Button, TextField, Label, Input } from "@heroui/react";
+import { Modal, Card, Button, TextField, Label, Input, TextArea } from "@heroui/react";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
@@ -194,6 +194,21 @@ export function JdCreateModal() {
                   )}
                 </div>
               </div>
+
+              <TextField
+                value={form.criteria}
+                onChange={(v) => setField("criteria", v)}
+              >
+                <Label>Criteria</Label>
+                <TextArea
+                  className="min-h-[5rem]"
+                  placeholder="e.g. Minimum 4 years of experience, English IELTS 7.0+…"
+                />
+                <p className="text-xs text-muted">
+                  Free text. Used later to guide AI candidate matching for
+                  this JD.
+                </p>
+              </TextField>
             </div>
 
             <div className="space-y-3">

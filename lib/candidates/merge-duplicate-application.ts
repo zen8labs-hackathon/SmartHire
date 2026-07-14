@@ -102,3 +102,67 @@ export async function mergeDuplicateApplicationIntoExisting(
 
   return { ok: true };
 }
+
+/**
+ * Repoints a freshly-uploaded, already-parsed application onto an existing
+ * person instead of the blank `candidates` row `sign-upload` created for it --
+ * used when a CV upload turns out to be a duplicate of someone who already
+ * applied to a *different* job. Unlike {@link mergeDuplicateApplicationIntoExisting},
+ * the new application is kept (it's a legitimate new job application), only
+ * its person identity changes; the throwaway blank candidate row is deleted
+ * once nothing references it anymore.
+ */
+export async function linkApplicationToExistingCandidate(
+  newCampaignAppliedId: string,
+  existingCandidateId: string,
+): Promise<MergeDuplicateApplicationResult> {
+  const db = getPool();
+
+  const application = await getCampaignAppliedById(db, newCampaignAppliedId);
+  if (!application) {
+    return { ok: false, error: "Application not found.", status: 404 };
+  }
+  if (application.candidate_id === existingCandidateId) {
+    return { ok: true };
+  }
+
+  const orphanCandidateId = application.candidate_id;
+
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `UPDATE campaign_applied SET candidate_id = $2, updated_at = now() WHERE id = $1`,
+      [newCampaignAppliedId, existingCandidateId],
+    );
+    await tx.query("DELETE FROM candidates WHERE id = $1", [orphanCandidateId]);
+    await syncCandidateAggregateFields(tx, existingCandidateId);
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Hard-deletes a throwaway duplicate-upload application and its blank
+ * `candidates` row together -- used only when discarding a CV upload that
+ * the duplicate-candidate modal flagged (a fresh, single-application
+ * candidate created by `sign-upload`, same invariant as the merge/link
+ * helpers above). Distinct from `softDeleteCampaignApplied`, which is the
+ * general-purpose "remove an application" action and must never touch the
+ * person row (a real candidate may have other live applications).
+ */
+export async function discardDuplicateApplication(
+  campaignAppliedId: string,
+): Promise<MergeDuplicateApplicationResult> {
+  const db = getPool();
+
+  const application = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!application) {
+    return { ok: false, error: "Application not found.", status: 404 };
+  }
+
+  await withTransaction(async (tx) => {
+    await tx.query("DELETE FROM campaign_applied WHERE id = $1", [campaignAppliedId]);
+    await tx.query("DELETE FROM candidates WHERE id = $1", [application.candidate_id]);
+  });
+
+  return { ok: true };
+}

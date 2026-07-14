@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   app:
     build: .
@@ -10,6 +12,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      floci:
+        condition: service_started
     restart: unless-stopped
 
   db:
@@ -18,7 +22,7 @@ services:
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: smart-hire
+      POSTGRES_DB: smart_hire
     ports:
       - "5432:5432"
     volumes:
@@ -29,6 +33,21 @@ services:
       timeout: 3s
       retries: 10
     restart: unless-stopped
+
+  # --- HỆ THỐNG GIẢ LẬP AWS S3 (FLOCI) ---
+  floci:
+    image: floci/floci:latest
+    container_name: floci_local
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    environment:
+      - DEBUG=1
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${TMPDIR:-/tmp}/floci:/tmp/floci"
+      # Ánh xạ thư mục chứa script khởi tạo (init-s3.sh) vào bên trong container
+      - "./.floci-init:/etc/floci/init.d"
 
 volumes:
   pgdata:

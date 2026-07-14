@@ -101,6 +101,7 @@ describe("findDuplicateCandidateHits", () => {
     const hits = findDuplicateCandidateHits(baseCurrent, [
       {
         id: "old-1",
+        candidate_id: "cand-old-1",
         name: "Old",
         status: "CvPassed",
         job_opening_id: "jo",
@@ -115,8 +116,24 @@ describe("findDuplicateCandidateHits", () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]?.matchedOn).toBe("email");
     expect(hits[0]?.id).toBe("old-1");
+    expect(hits[0]?.candidateId).toBe("cand-old-1");
     expect(hits[0]?.email).toBe("same@example.com");
     expect(hits[0]?.parsedRole).toBe("UX Designer");
+  });
+
+  it("defaults candidateId to null when the row has no candidate_id", () => {
+    const hits = findDuplicateCandidateHits(baseCurrent, [
+      {
+        id: "old-1",
+        name: "Old",
+        status: "CvPassed",
+        job_opening_id: "jo",
+        cv_uploaded_at: null,
+        created_at: "2025-12-01",
+        parsed_payload: { email: "same@example.com" },
+      },
+    ]);
+    expect(hits[0]?.candidateId).toBeNull();
   });
 
   it("populates jobOpeningTitle when present", () => {

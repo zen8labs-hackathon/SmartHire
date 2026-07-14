@@ -91,7 +91,15 @@ export function JobPipelineSpreadsheet({
       {canAddCandidates ? (
         <AddCandidateModal
           open={addCandidatesOpen}
-          onOpenChange={setAddCandidatesOpen}
+          onOpenChange={(open) => {
+            setAddCandidatesOpen(open);
+            // Uploads still "processing" when the modal is closed stop being
+            // polled (AddCandidateModal's status poll only runs while open),
+            // so without this the pipeline table can go stale until a manual
+            // page refresh -- always resync on close, not just on the
+            // in-modal completion callbacks below.
+            if (!open) pipelinePanelRef.current?.refetch(true);
+          }}
           jdPipelineCampaign={jdPipelineCampaign}
           onCandidatesChanged={() => pipelinePanelRef.current?.refetch(true)}
           onDuplicateMergedToExisting={() =>
