@@ -51,7 +51,6 @@ export async function signIn(
   cookieStore.set(buildAccessTokenCookie(result.session.accessToken));
   cookieStore.set(buildRefreshTokenCookie(result.session.refreshToken));
 
-  revalidatePath("/", "layout");
   redirect(safeNextPath(nextRaw));
 }
 
