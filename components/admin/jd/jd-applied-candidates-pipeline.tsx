@@ -344,6 +344,7 @@ export function JdAppliedCandidatesPipeline({
     uploadDateRange,
     selectedFilterOption,
     pageSize,
+    dbRows,
   ]);
 
   useEffect(() => {

@@ -30,10 +30,26 @@ export type SessionCookie = {
   maxAge: number;
 };
 
+/**
+ * Cookies are `Secure` by default in production. Browsers silently refuse to
+ * store a `Secure` cookie over a plain-HTTP connection (the `localhost`
+ * exception aside), so a deployment served without TLS in front of it (e.g.
+ * a bare cloud VM IP with no reverse proxy/cert yet) would otherwise never
+ * persist the session -- login appears to work (the redirect renders from
+ * the same response) but the very next request has no cookie and bounces to
+ * `/login`. `COOKIE_SECURE=false` is an explicit, temporary opt-out for that
+ * case; the real fix for such a deployment is to put TLS in front of it.
+ */
+function isSecureCookieEnv(): boolean {
+  if (process.env.COOKIE_SECURE === "false") return false;
+  if (process.env.COOKIE_SECURE === "true") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 function cookieOptions() {
   return {
     httpOnly: true as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureCookieEnv(),
     sameSite: "lax" as const,
     path: "/" as const,
   };
