@@ -15,8 +15,6 @@ import { getRequestAuth } from "@/lib/admin/request-auth";
 import { getPool } from "@/lib/db/config/client";
 import { getPublicUserById } from "@/lib/db/users";
 
-export const dynamic = "force-dynamic";
-
 type FeatureColor =
   | "accent"
   | "blue"

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  use,
   useCallback,
   useEffect,
   useRef,
@@ -33,10 +34,11 @@ export type TemplateInfo = {
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export function CandidateEvaluationTemplateManager({
-  jobs,
+  jobsPromise,
 }: {
-  jobs: EvaluationTemplateJobOption[];
+  jobsPromise: Promise<EvaluationTemplateJobOption[]>;
 }) {
+  const jobs = use(jobsPromise);
   const [jobId, setJobId] = useState<string | null>(jobs[0]?.id ?? null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [info, setInfo] = useState<TemplateInfo | null>(null);

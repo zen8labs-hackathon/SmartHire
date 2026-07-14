@@ -31,11 +31,17 @@ export default async function PipelineCandidateEvaluationPage({
   if (!access?.isStaff) redirect("/dashboard");
 
   const db = getPool();
-  const row = await getCampaignAppliedAdminRowById(db, candidateId);
+  // Both queries only depend on jobId/candidateId/user.id (already known), not on each
+  // other's result, so they can run concurrently instead of waterfalling. Only fire the
+  // chapter-head check when it can actually affect the outcome (access.isHr already grants
+  // canViewSalary), matching the original short-circuit.
+  const [row, isChapterHead] = await Promise.all([
+    getCampaignAppliedAdminRowById(db, candidateId),
+    access.isHr ? Promise.resolve(false) : isChapterHeadOnJob(db, user.id, jobId),
+  ]);
   if (!row || row.job_id !== jobId) notFound();
 
-  const canViewSalary =
-    access.isHr || (await isChapterHeadOnJob(db, user.id, jobId));
+  const canViewSalary = access.isHr || isChapterHead;
 
   const candidate = campaignAppliedAdminRowToEvaluationRow(row, { canViewSalary });
 

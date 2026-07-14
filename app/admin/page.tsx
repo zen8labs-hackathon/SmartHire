@@ -29,8 +29,6 @@ export const metadata: Metadata = {
     "Central workspace management, audit logs, and recruiting analytics.",
 };
 
-export const dynamic = "force-dynamic";
-
 // ─── Skeleton fallbacks ───────────────────────────────────────────────────────
 
 function StatsGridSkeleton() {
