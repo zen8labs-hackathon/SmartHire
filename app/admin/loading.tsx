@@ -1,25 +1,68 @@
-import { Card } from "@heroui/react";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+
+import { PageHeader } from "@/components/admin/shell/page-header";
+import { SectionCard } from "@/components/admin/shell/cards";
+import {
+  StatsGridSkeleton,
+  SectionListSkeleton,
+  TimelineSkeleton,
+} from "./dashboard-skeletons";
 
 export default function Loading() {
   return (
-    <div className="flex flex-col gap-8">
-      <div className="animate-pulse">
-        <div className="h-7 w-40 rounded bg-default-200" />
-        <div className="mt-2 h-4 w-96 max-w-full rounded bg-default-100" />
-      </div>
+    <div className="space-y-8 font-sans">
+      <PageHeader
+        title="Admin Control Panel"
+        description="Monitor system metrics, active pipelines, recent uploads, and account changes."
+      />
 
-      <Card variant="secondary" className="border-divider animate-pulse">
-        <Card.Header className="border-b border-divider px-5 py-4">
-          <div className="h-5 w-32 rounded bg-default-200" />
-          <div className="mt-1.5 h-4 w-48 rounded bg-default-100" />
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-3 p-6">
-          <div className="h-4 w-full rounded bg-default-100" />
-          <div className="h-4 w-11/12 rounded bg-default-100" />
-          <div className="h-4 w-3/4 rounded bg-default-100" />
-          <div className="h-4 w-5/6 rounded bg-default-100" />
-        </Card.Content>
-      </Card>
+      <StatsGridSkeleton />
+
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-6">
+          <SectionCard
+            title="Recent Jobs"
+            description="Newly created or updated job openings."
+            actions={
+              <Link
+                href="/admin/jd"
+                className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5"
+              >
+                View all <ArrowRight className="h-3 w-3" />
+              </Link>
+            }
+          >
+            <SectionListSkeleton rows={5} />
+          </SectionCard>
+        </div>
+
+        <div className="lg:col-span-6">
+          <SectionCard
+            title="Recent Candidates"
+            description="Latest applicant CV uploads and parses."
+            actions={
+              <Link
+                href="/admin/candidates"
+                className="text-xs font-semibold text-accent hover:underline flex items-center gap-0.5"
+              >
+                View pool <ArrowRight className="h-3 w-3" />
+              </Link>
+            }
+          >
+            <SectionListSkeleton rows={5} />
+          </SectionCard>
+        </div>
+
+        <div className="lg:col-span-12">
+          <SectionCard
+            title="Recent Activities"
+            description="Audit events recorded for candidate CV updates and restorations."
+          >
+            <TimelineSkeleton />
+          </SectionCard>
+        </div>
+      </div>
     </div>
   );
 }

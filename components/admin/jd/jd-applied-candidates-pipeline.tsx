@@ -39,6 +39,7 @@ import {
   InterviewScheduleModal,
   DeleteCandidateModal,
   EditCandidateModal,
+  RationaleModal,
 } from "@/components/admin/jd/jd-pipeline-modals";
 import {
   campaignAppliedAdminRowToTableRow,
@@ -220,6 +221,23 @@ export function JdAppliedCandidatesPipeline({
       scheduleModal.open();
     },
     [scheduleModal],
+  );
+
+  const [rowPendingRationale, setRowPendingRationale] =
+    useState<JdPipelineApplicationRow | null>(null);
+
+  const rationaleModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingRationale(null);
+    },
+  });
+
+  const openRationale = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setRowPendingRationale(r);
+      rationaleModal.open();
+    },
+    [rationaleModal],
   );
 
   const [query, setQuery] = useState("");
@@ -1000,6 +1018,7 @@ export function JdAppliedCandidatesPipeline({
                     offerStageSubStateIds={offerStageSubStateIds}
                     onStatusChange={onStatusChange}
                     onOpenSchedule={openSchedule}
+                    onOpenRationale={openRationale}
                     setRowPendingEdit={setRowPendingEdit}
                     openEditModal={editModal.open}
                     setRowPendingDelete={setRowPendingDelete}
@@ -1031,6 +1050,12 @@ export function JdAppliedCandidatesPipeline({
           No candidates match the current filters.
         </p>
       ) : null}
+
+      <RationaleModal
+        isOpen={rationaleModal.isOpen}
+        onOpenChange={rationaleModal.setOpen}
+        row={rowPendingRationale}
+      />
 
       <InterviewScheduleModal
         isOpen={scheduleModal.isOpen}

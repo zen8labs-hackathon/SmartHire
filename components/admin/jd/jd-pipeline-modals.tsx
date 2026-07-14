@@ -235,6 +235,68 @@ export function InterviewScheduleModal({
   );
 }
 
+type RationaleModalProps = {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  row: JdPipelineApplicationRow | null;
+};
+
+/**
+ * Read-only view of the AI's JD-match rationale for a candidate's active CV
+ * version (`campaign_applied.jd_match_rationale`), alongside the numeric
+ * score it explains.
+ */
+export function RationaleModal({
+  isOpen,
+  onOpenChange,
+  row,
+}: RationaleModalProps) {
+  const score =
+    row?.jd_match_status === "completed" && row.jd_match_score != null
+      ? Math.round(row.jd_match_score)
+      : null;
+
+  return (
+    <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
+      <Modal.Container>
+        <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
+          <Modal.CloseTrigger />
+          <Modal.Header className="border-b border-divider px-5 py-4">
+            <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-foreground">
+              JD match reasoning
+              {score != null ? (
+                <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-sm font-bold tabular-nums text-accent">
+                  {score}
+                </span>
+              ) : null}
+            </Modal.Heading>
+          </Modal.Header>
+          <Modal.Body className="max-h-[60vh] overflow-y-auto px-5 py-4">
+            {row?.jd_match_status === "failed" ? (
+              <p className="text-sm text-danger">
+                {row.jd_match_error ?? "Scoring failed."}
+              </p>
+            ) : row?.jd_match_rationale ? (
+              <p className="whitespace-pre-wrap text-sm text-foreground">
+                {row.jd_match_rationale}
+              </p>
+            ) : (
+              <p className="text-sm text-muted">
+                No reasoning available for this candidate yet.
+              </p>
+            )}
+          </Modal.Body>
+          <Modal.Footer className="justify-end border-t border-divider px-5 py-4">
+            <Button variant="secondary" onPress={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+  );
+}
+
 type DeleteCandidateModalProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;

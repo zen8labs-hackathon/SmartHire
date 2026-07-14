@@ -1,6 +1,6 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
+import { Info, Pencil, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
@@ -61,6 +61,8 @@ export type PipelineTableRowProps = {
   ) => Promise<void>;
   /** Opens the interview-schedule modal (round label/date/duration/location + history) for this row. */
   onOpenSchedule: (r: JdPipelineApplicationRow) => void;
+  /** Opens the JD-match reasoning modal (AI rationale behind the score) for this row. */
+  onOpenRationale: (r: JdPipelineApplicationRow) => void;
   setRowPendingEdit: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
   /** `editModal.open` — only `.open()` is called from within a row, so we pass
    * just that (stable, `useCallback`-wrapped) function rather than the whole
@@ -103,6 +105,7 @@ function pipelineTableRowPropsAreEqual(
     prev.offerStageSubStateIds === next.offerStageSubStateIds &&
     prev.onStatusChange === next.onStatusChange &&
     prev.onOpenSchedule === next.onOpenSchedule &&
+    prev.onOpenRationale === next.onOpenRationale &&
     prev.setRowPendingEdit === next.setRowPendingEdit &&
     prev.openEditModal === next.openEditModal &&
     prev.setRowPendingDelete === next.setRowPendingDelete &&
@@ -129,6 +132,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   offerStageSubStateIds,
   onStatusChange,
   onOpenSchedule,
+  onOpenRationale,
   setRowPendingEdit,
   openEditModal,
   setRowPendingDelete,
@@ -203,14 +207,27 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         </p>
       </Table.Cell>
       <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
-        <Chip
-          size="sm"
-          variant="soft"
-          color={jdMatchChipColor(row)}
-          className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
-        >
-          {row.jdMatchLabel}
-        </Chip>
+        <div className="flex items-center justify-center gap-1.5">
+          <Chip
+            size="sm"
+            variant="soft"
+            color={jdMatchChipColor(row)}
+            className="min-w-[3.25rem] justify-center text-xs font-bold tabular-nums"
+          >
+            {row.jdMatchLabel}
+          </Chip>
+          {r.jd_match_status === "completed" || r.jd_match_status === "failed" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="min-w-0 shrink-0 p-1.5"
+              onPress={() => onOpenRationale(r)}
+              aria-label={`View JD match reasoning for ${row.name}`}
+            >
+              <Info className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </Table.Cell>
       <Table.Cell
         className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${offerCellClass}`}

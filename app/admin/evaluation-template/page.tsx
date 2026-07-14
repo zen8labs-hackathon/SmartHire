@@ -11,19 +11,11 @@ import {
   CandidateEvaluationTemplateManager,
   type EvaluationTemplateJobOption,
 } from "@/components/admin/candidate-evaluation-template/candidate-evaluation-template-manager";
+import { TemplateSkeleton } from "@/components/admin/candidate-evaluation-template/template-skeleton";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import { getPool } from "@/lib/db/config/client";
 import { listJobs } from "@/lib/db/jobs";
 import { PageHeader } from "@/components/admin/shell/page-header";
-
-function TemplateManagerSkeleton() {
-  return (
-    <div className="rounded-2xl border border-divider/60 p-6 animate-pulse space-y-4">
-      <div className="h-9 w-64 rounded-lg bg-default-200" />
-      <div className="h-40 rounded-xl bg-default-100" />
-    </div>
-  );
-}
 
 async function getEvaluationTemplateJobs(): Promise<EvaluationTemplateJobOption[]> {
   const { rows: jobs } = await listJobs(getPool(), { limit: 200 });
@@ -47,7 +39,7 @@ export default async function AdminEvaluationTemplatePage() {
         description="Upload and manage the PDF document used as each job's candidate interview evaluation form."
       />
 
-      <Suspense fallback={<TemplateManagerSkeleton />}>
+      <Suspense fallback={<TemplateSkeleton />}>
         <CandidateEvaluationTemplateManager jobsPromise={jobsPromise} />
       </Suspense>
     </div>
