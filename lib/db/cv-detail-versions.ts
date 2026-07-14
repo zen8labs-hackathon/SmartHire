@@ -153,6 +153,27 @@ export async function getNextCvVersionNumber(
   return rows[0]?.next_version ?? 1;
 }
 
+/**
+ * Atomic CAS lock for the async CV-parsing step, mirroring
+ * `lockCampaignAppliedForJdMatch`'s pattern: only transitions rows currently
+ * in one of `fromStatuses`, so two concurrent process calls for the same
+ * version can't both proceed.
+ */
+export async function lockCvDetailVersionForParsing(
+  db: QueryExecutor,
+  id: string,
+  fromStatuses: string[],
+): Promise<CvDetailVersionRow | null> {
+  const { rows } = await db.query<CvDetailVersionRow>(
+    `UPDATE cv_detail_versions
+     SET parsing_status = 'processing', parsing_error = NULL
+     WHERE id = $1 AND parsing_status = ANY($2::text[])
+     RETURNING *`,
+    [id, fromStatuses],
+  );
+  return rows[0] ?? null;
+}
+
 export type UpdateCvParsingResultInput = {
   parsingStatus?: string | null;
   parsingError?: string | null;
@@ -167,6 +188,9 @@ export type UpdateCvParsingResultInput = {
   dateOfBirth?: string | null;
   studentYears?: string | null;
   matchedOn?: CvMatchedOn | null;
+  /** Only known once the file is downloaded for parsing -- not set at upload time. */
+  cvFileSha256?: string | null;
+  cvContentSha256?: string | null;
 };
 
 export type UpdateCvJdMatchResultInput = {
@@ -211,6 +235,8 @@ export async function updateCvDetailVersionParsingResult(
       date_of_birth: patch.dateOfBirth,
       student_years: patch.studentYears,
       matched_on: patch.matchedOn,
+      cv_file_sha256: patch.cvFileSha256,
+      cv_content_sha256: patch.cvContentSha256,
     },
     2,
   );
@@ -269,7 +295,7 @@ export async function createCvDetailVersion(
        student_years, matched_on, change_summary, created_by
      )
      VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, '{}'),
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::text[], '{}'),
        $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
      )
      RETURNING *`,

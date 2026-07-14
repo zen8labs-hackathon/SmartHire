@@ -70,7 +70,7 @@ export async function createCandidateEvaluationReview(
        campaign_applied_id, candidate_name, reviewer_notes, filled_pdf_storage_path,
        expires_at, ai_field_mapping, created_by
      )
-     VALUES ($1, $2, $3, $4, COALESCE($5, now() + interval '30 days'), COALESCE($6, '{}'), $7)
+     VALUES ($1, $2, $3, $4, COALESCE($5, now() + interval '30 days'), COALESCE($6::jsonb, '{}'), $7)
      RETURNING *`,
     [
       input.campaignAppliedId,

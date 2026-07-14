@@ -11,12 +11,14 @@ import {
 import { getPool } from "@/lib/db/config/client";
 
 /**
- * Client-triggered refresh for `/api/admin/**` calls: those routes aren't
- * covered by `proxy.ts` (matcher only covers page routes, matching this
- * repo's existing pattern -- see `lib/admin/require-*`), so a caller whose
- * access-token cookie has expired hits this once and retries its original
- * request. `proxy.ts` does its own inline refresh for page navigations and
- * does not call this route.
+ * Manual refresh fallback. `proxy.ts` now runs the same inline
+ * refresh-on-expiry logic for `/api/admin/**` as it does for page
+ * navigations (both go through `resolveUser()`), so a cookie-based caller's
+ * expired access token is transparently refreshed before the request ever
+ * reaches a route handler -- this endpoint is not on that path. It remains
+ * for callers that need an explicit refresh outside of a request the
+ * middleware would otherwise intercept (e.g. proactively refreshing before
+ * the access token expires, rather than reacting to a 401).
  */
 export async function POST() {
   const cookieStore = await cookies();

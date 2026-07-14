@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import {
   duplicateNewUploadPreviewFromRow,
@@ -9,18 +8,135 @@ import {
   type DuplicateCandidateHit,
   type DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
-import { getSupabasePublishableKey } from "@/lib/supabase/env";
+import { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
+import { cvContentSha256Hex, cvFileSha256Hex } from "@/lib/candidates/cv-hash";
+import { parseResumeWithAI } from "@/lib/ai/parse-resume";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
-import { getCvDetailVersionById } from "@/lib/db/cv-detail-versions";
+import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
+import {
+  getCvDetailVersionById,
+  lockCvDetailVersionForParsing,
+  updateCvDetailVersionParsingResult,
+} from "@/lib/db/cv-detail-versions";
+import { syncCandidateAggregateFields } from "@/lib/db/candidates";
 import {
   dedupeMatchStatusLabel,
   findCandidatesByDedupeSignals,
 } from "@/lib/db/candidates-dedupe";
-import { getPool } from "@/lib/db/config/client";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { downloadObject } from "@/lib/storage/s3";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+/**
+ * Runs CV text extraction + AI parsing for this application's active CV
+ * version and persists the result. Replaces the old `process-cv` Supabase
+ * Edge Function (`supabase/functions/process-cv`), which read/wrote the
+ * pre-DB7X2K single-table `candidates` schema and downloaded from Supabase
+ * Storage -- both gone. No storage-path "prettifying" rename step (the old
+ * function moved the file into a `{job}/{name}_{timestamp}_{uuid}/` folder
+ * for human Storage-browser convenience); the new S3 layout is a flat
+ * `cv/{uuid}{ext}` key assigned once at upload time and nothing reads
+ * structure out of it, so there's nothing to preserve by renaming.
+ */
+async function runCvParsing(
+  campaignAppliedId: string,
+): Promise<{ ok: true; skipped: true; reason: string } | { ok: true; skipped: false } | { ok: false; error: string }> {
+  const db = getPool();
+
+  const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!campaignApplied) {
+    return { ok: false, error: "Candidate application not found" };
+  }
+  if (!campaignApplied.active_cv_version_id) {
+    return { ok: false, error: "No CV file on record for this application" };
+  }
+
+  const cvVersion = await getCvDetailVersionById(
+    db,
+    campaignApplied.active_cv_version_id,
+  );
+  if (!cvVersion) {
+    return { ok: false, error: "Active CV version not found" };
+  }
+
+  if (cvVersion.parsing_status === "completed") {
+    return { ok: true, skipped: true, reason: "already_completed" };
+  }
+  if (cvVersion.parsing_status === "processing") {
+    return { ok: true, skipped: true, reason: "already_processing" };
+  }
+
+  const locked = await lockCvDetailVersionForParsing(db, cvVersion.id, [
+    "pending",
+    "failed",
+  ]);
+  if (!locked) {
+    return { ok: true, skipped: true, reason: "race_or_state" };
+  }
+
+  try {
+    if (!cvVersion.cv_storage_path) {
+      throw new Error("No CV file path on record for this version");
+    }
+
+    const bytes = await downloadObject(cvVersion.cv_storage_path);
+    const cvFileSha256 = cvFileSha256Hex(bytes);
+
+    const plainText = await extractTextFromBuffer(
+      bytes,
+      cvVersion.mime_type || "application/octet-stream",
+    );
+    if (!plainText || plainText.length < 20) {
+      throw new Error("Could not extract enough text from the document");
+    }
+
+    const cvContentSha256 = cvContentSha256Hex(plainText);
+    const parsed = await parseResumeWithAI(plainText);
+    // The model is asked for ISO YYYY-MM-DD but isn't guaranteed to comply --
+    // `date_of_birth` is a real `date` column, so an off-format value would
+    // otherwise fail the whole write rather than just this one field.
+    const dateOfBirth =
+      parsed.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateOfBirth)
+        ? parsed.dateOfBirth
+        : null;
+
+    await withTransaction(async (tx) => {
+      await updateCvDetailVersionParsingResult(tx, cvVersion.id, {
+        parsingStatus: "completed",
+        parsingError: null,
+        parsedPayload: parsed,
+        skills: parsed.skills,
+        role: parsed.role,
+        degree: parsed.degree,
+        education: parsed.school,
+        experienceYears: parsed.experienceYears,
+        gpa: parsed.gpa,
+        englishLevel: parsed.englishLevel,
+        dateOfBirth,
+        studentYears: parsed.studentYears,
+        cvFileSha256,
+        cvContentSha256,
+      });
+      await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+    });
+
+    return { ok: true, skipped: false };
+  } catch (e) {
+    const msg = isUniqueViolation(e)
+      ? "Another candidate profile already uses this email or phone number. Check for duplicates before retrying."
+      : e instanceof Error
+        ? e.message
+        : String(e);
+    await updateCvDetailVersionParsingResult(db, cvVersion.id, {
+      parsingStatus: "failed",
+      parsingError: msg,
+    });
+    return { ok: false, error: msg };
+  }
+}
 
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: campaignAppliedId } = await params;
@@ -33,84 +149,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     return auth.response;
   }
 
-  const bearerHeader = request.headers.get("Authorization");
-  const bearer =
-    bearerHeader?.startsWith("Bearer ") ? bearerHeader.slice(7).trim() : "";
-
-  let accessToken: string = bearer;
-  if (!accessToken) {
-    const cookieStore = await cookies();
-    accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ?? "";
-  }
-
-  if (!accessToken) {
-    return Response.json(
-      {
-        error:
-          "Missing access token for Edge Function. Send Authorization: Bearer from the client (getSession().access_token) or authenticate via cookie.",
-      },
-      { status: 401 },
-    );
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = getSupabasePublishableKey();
-  if (!url || !key) {
-    return Response.json(
-      { error: "Missing Supabase configuration." },
-      { status: 500 },
-    );
-  }
-
-  let data: any = null;
-  let invokeErrorMsg: string | null = null;
-  let upstreamStatus = 502;
-
-  try {
-    const res = await fetch(`${url}/functions/v1/process-cv`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: key as string,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ candidateId: campaignAppliedId }),
-    });
-
-    upstreamStatus = res.status;
-
-    if (!res.ok) {
-      const text = await res.text();
-      try {
-        const parsed = JSON.parse(text);
-        invokeErrorMsg = parsed.error ?? parsed.message ?? `${res.status} error`;
-      } catch {
-        invokeErrorMsg = text || `${res.status} error`;
-      }
-    } else {
-      data = await res.json();
-    }
-  } catch (err) {
-    invokeErrorMsg = err instanceof Error ? err.message : String(err);
-  }
-
-  if (invokeErrorMsg) {
-    if (process.env.NODE_ENV === "development") {
-      console.error("[process-cv invoke]", invokeErrorMsg, { upstreamStatus });
-    }
-    const status =
-      upstreamStatus === 401 || upstreamStatus === 403 ? upstreamStatus : 502;
-    return Response.json({ error: invokeErrorMsg }, { status });
-  }
-
-  if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    !("ok" in data)
-  ) {
-    const msg = String((data as { error: unknown }).error);
-    return Response.json({ error: msg }, { status: 500 });
+  const parseResult = await runCvParsing(campaignAppliedId);
+  if (!parseResult.ok) {
+    return Response.json({ error: parseResult.error }, { status: 500 });
   }
 
   const jdMatch = await runJdMatchForCandidate(campaignAppliedId);
@@ -171,10 +212,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   }
 
-  const base =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : { ok: true };
+  const base = parseResult.skipped
+    ? { ok: true, skipped: true, reason: parseResult.reason }
+    : { ok: true };
 
   return Response.json({
     ...base,

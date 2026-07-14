@@ -69,7 +69,7 @@ describe("createCandidateEvaluationReview", () => {
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE($5, now() + interval '30 days')");
-    expect(sql).toContain("COALESCE($6, '{}')");
+    expect(sql).toContain("COALESCE($6::jsonb, '{}')");
     expect(values).toEqual([
       "app-1",
       "Ada Lovelace",

@@ -24,16 +24,34 @@ function getClient(): S3Client {
 
   const region = process.env.AWS_REGION;
   if (!region) {
-    throw new Error("Missing AWS_REGION environment variable (required for S3 storage)");
+    throw new Error(
+      "Missing AWS_REGION environment variable (required for S3 storage)",
+    );
   }
-  client = new S3Client({ region });
+
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+
+  client = new S3Client({
+    region,
+    // No `endpoint` override -- this targets real AWS S3 (IN9X4Q decision 3),
+    // so the SDK derives the regional endpoint from `region` on its own.
+    // Omit credentials entirely when unset so the SDK falls back to its
+    // default provider chain (EC2 IAM instance role in production).
+    credentials:
+      accessKeyId && secretAccessKey
+        ? { accessKeyId, secretAccessKey }
+        : undefined,
+  });
   return client;
 }
 
 function getBucket(): string {
   const bucket = process.env.S3_BUCKET;
   if (!bucket) {
-    throw new Error("Missing S3_BUCKET environment variable (required for S3 storage)");
+    throw new Error(
+      "Missing S3_BUCKET environment variable (required for S3 storage)",
+    );
   }
   return bucket;
 }
@@ -71,6 +89,22 @@ export async function downloadObject(key: string): Promise<Buffer> {
   }
   const bytes = await result.Body.transformToByteArray();
   return Buffer.from(bytes);
+}
+
+/** Uploads a buffer directly server-side (e.g. a generated PDF) -- no presigned round-trip needed since the server already holds the bytes. */
+export async function uploadObject(
+  key: string,
+  body: Buffer,
+  contentType?: string | null,
+): Promise<void> {
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: getBucket(),
+      Key: key,
+      Body: body,
+      ContentType: contentType || undefined,
+    }),
+  );
 }
 
 export async function deleteObject(key: string): Promise<void> {

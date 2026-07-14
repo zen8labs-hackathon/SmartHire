@@ -10,6 +10,7 @@ import { createApplicationWithInitialCv } from "@/lib/db/campaign-applied";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { createSignedUploadUrl } from "@/lib/storage/s3";
+import { buildStorageFilename } from "@/lib/storage/storage-key";
 
 type Body = {
   jobId?: string | null;
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
   }
 
   const ext = extensionFromFilename(filename)!;
+  const baseName = filename.slice(0, filename.length - ext.length);
   const jobId =
     typeof body.jobId === "string" && body.jobId.length > 0 ? body.jobId : null;
 
@@ -113,11 +115,10 @@ export async function POST(request: Request) {
   }
 
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
-  const storagePath = `${CV_KEY_PREFIX}${crypto.randomUUID()}${ext}`;
 
-  let application;
+  let application, cvVersion;
   try {
-    ({ application } = await withTransaction(async (db) => {
+    ({ application, cvVersion } = await withTransaction(async (db) => {
       const candidate = await createCandidate(db, {});
       return createApplicationWithInitialCv(db, {
         candidateId: candidate.id,
@@ -127,7 +128,10 @@ export async function POST(request: Request) {
         expectedSalary,
         cv: {
           sourceEvent: "initial_upload",
-          cvStoragePath: storagePath,
+          // Folder per candidate, per job application, mirroring the
+          // candidates -> campaign_applied -> cv_detail_versions hierarchy.
+          buildCvStoragePath: (applicationId) =>
+            `${CV_KEY_PREFIX}${candidate.id}/${applicationId}/${buildStorageFilename(baseName, ext)}`,
           originalFilename: filename,
           mimeType,
           parsingStatus: "pending",
@@ -139,6 +143,9 @@ export async function POST(request: Request) {
     const message = e instanceof Error ? e.message : "Could not create candidate record.";
     return Response.json({ error: message }, { status: 500 });
   }
+
+  // Always set by buildCvStoragePath above -- never left null by this flow.
+  const storagePath = cvVersion.cv_storage_path!;
 
   try {
     const signedUrl = await createSignedUploadUrl(storagePath, mimeType);

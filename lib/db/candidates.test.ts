@@ -231,4 +231,41 @@ describe("syncCandidateAggregateFields", () => {
     const [, updateValues] = db.query.mock.calls[1];
     expect(updateValues[2]).toBeNull();
   });
+
+  it("derives name/email/phone from the latest version's parsed_payload (the only place they're stored pre-aggregate)", async () => {
+    const db = fakeSequentialDb([
+      [
+        {
+          skills: [],
+          experience_years: null,
+          role: null,
+          degree: null,
+          education: null,
+          parsed_payload: { name: "Ada Lovelace", email: "Ada@Example.com", phone: "0901234567" },
+        },
+      ],
+      [],
+    ]);
+
+    await syncCandidateAggregateFields(db, "c1");
+
+    const [, updateValues] = db.query.mock.calls[1];
+    expect(updateValues[6]).toBe("Ada Lovelace");
+    expect(updateValues[7]).toBe("Ada@Example.com");
+    expect(updateValues[8]).toBe("0901234567");
+  });
+
+  it("sets name/email/phone to null when the latest version has no parsed_payload yet", async () => {
+    const db = fakeSequentialDb([
+      [{ skills: [], experience_years: null, role: null, degree: null, education: null, parsed_payload: null }],
+      [],
+    ]);
+
+    await syncCandidateAggregateFields(db, "c1");
+
+    const [, updateValues] = db.query.mock.calls[1];
+    expect(updateValues[6]).toBeNull();
+    expect(updateValues[7]).toBeNull();
+    expect(updateValues[8]).toBeNull();
+  });
 });

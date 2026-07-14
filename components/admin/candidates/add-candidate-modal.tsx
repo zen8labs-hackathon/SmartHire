@@ -240,7 +240,7 @@ export function AddCandidateModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          jobOpeningId: selectedJobId,
+          jobId: selectedJobId,
           filename: file.name,
           mimeType: file.type || null,
           source: sourceKey,

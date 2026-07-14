@@ -4,6 +4,7 @@ import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign
 import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
 import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 import {
   candidateProfilePatchSchema,
   mergeProfileIntoParsedPayload,
@@ -148,6 +149,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
     return Response.json({ candidate: enriched });
   } catch (err) {
+    if (isUniqueViolation(err)) {
+      return Response.json(
+        {
+          error:
+            "Another candidate already uses this email or phone number. Use the duplicate-merge flow instead of editing this profile directly.",
+        },
+        { status: 409 },
+      );
+    }
     const msg = err instanceof Error ? err.message : "Failed to update profile.";
     return Response.json({ error: msg }, { status: 500 });
   }

@@ -56,9 +56,7 @@ export function StageForm({
 
   const handleLabelChange = (val: string) => {
     setLabel(val);
-    if (mode === "add") {
-      setCode(slugifyCode(val));
-    }
+    setCode(slugifyCode(val));
   };
 
   // Sync initial values when editing

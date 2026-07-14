@@ -7,10 +7,12 @@ import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
  * Resolves access-token claims for an API route handler: prefers an explicit
  * `Authorization: Bearer <token>` header (a caller with no browser cookie
  * jar), falling back to the `sh_access_token` cookie. Both are verified the
- * same way (HS256 signature + expiry) -- this does not attempt a refresh;
- * callers that get `null` should return 401 and let the client hit
- * `/api/auth/refresh` before retrying, matching how `require-*-request.ts`
- * behaved with Supabase (no auto-refresh at the API-auth layer either).
+ * same way (HS256 signature + expiry) -- this does not attempt a refresh.
+ * Cookie-based callers under `/api/admin/**` already had their expired
+ * access token refreshed by `proxy.ts` before reaching here, so a `null`
+ * here means the refresh token was also missing/expired/revoked (or the
+ * caller used a Bearer token, which `proxy.ts` doesn't refresh) -- callers
+ * that get `null` should just return 401.
  */
 export async function resolveAccessClaims(
   request: Request,

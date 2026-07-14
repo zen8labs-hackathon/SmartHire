@@ -300,14 +300,12 @@ export function PipelineCandidateEvaluationClient({
     try {
       const trimmedDraft = draftNote.trim();
       const res = await fetch(
-        `/api/admin/job-descriptions/${jobId}/evaluations`,
+        `/api/admin/candidates/${encodeURIComponent(candidate.id)}/evaluations`,
         {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            pipelineCandidateId: candidate.id,
-            candidateName: candidate.name,
             candidateSnapshot: snapshot,
             ...(trimmedDraft.length >= 2
               ? { newInterviewNote: trimmedDraft }

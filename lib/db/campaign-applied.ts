@@ -272,7 +272,15 @@ export type CreateApplicationWithInitialCvInput = {
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;
-  cv: Omit<CreateCvDetailVersionInput, "campaignAppliedId" | "versionNumber">;
+  cv: Omit<CreateCvDetailVersionInput, "campaignAppliedId" | "versionNumber" | "cvStoragePath"> & {
+    /**
+     * The S3 key nests under `{candidateId}/{applicationId}/...` for
+     * readability, but the application id only exists once the
+     * `campaign_applied` insert below runs — so the caller supplies a
+     * builder instead of a precomputed path.
+     */
+    buildCvStoragePath: (applicationId: string) => string;
+  };
 };
 
 /**
@@ -324,8 +332,10 @@ export async function createApplicationWithInitialCv(
     expectedSalary: input.expectedSalary,
   });
 
+  const { buildCvStoragePath, ...cvInput } = input.cv;
   const cvVersion = await createCvDetailVersion(db, {
-    ...input.cv,
+    ...cvInput,
+    cvStoragePath: buildCvStoragePath(application.id),
     campaignAppliedId: application.id,
     versionNumber: 1,
   });

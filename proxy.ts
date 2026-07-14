@@ -80,7 +80,8 @@ export async function proxy(request: NextRequest) {
   const needsAuthCheck =
     path === "/signup" ||
     path.startsWith("/admin") ||
-    path.startsWith("/dashboard");
+    path.startsWith("/dashboard") ||
+    path.startsWith("/api/admin");
 
   // Avoid a network call on public routes to keep local dev responsive.
   if (!needsAuthCheck) {
@@ -123,7 +124,28 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  return applyCookies(NextResponse.next({ request }), pendingCookies);
+  let response: NextResponse;
+  if (pendingCookies.length > 0) {
+    for (const cookie of pendingCookies) {
+      request.cookies.set(cookie.name, cookie.value);
+    }
+    const requestHeaders = new Headers(request.headers);
+    const cookieString = request.cookies
+      .getAll()
+      .map((c) => `${c.name}=${c.value}`)
+      .join("; ");
+    requestHeaders.set("cookie", cookieString);
+
+    response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+  } else {
+    response = NextResponse.next({ request });
+  }
+
+  return applyCookies(response, pendingCookies);
 }
 
 export const config = {

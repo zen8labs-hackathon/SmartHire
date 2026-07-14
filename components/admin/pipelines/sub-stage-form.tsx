@@ -52,9 +52,7 @@ export function SubStageForm({
 
   const handleLabelChange = (val: string) => {
     setLabel(val);
-    if (mode === "add") {
-      setCode(slugifyCode(val));
-    }
+    setCode(slugifyCode(val));
   };
 
   useEffect(() => {

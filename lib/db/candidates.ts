@@ -6,6 +6,7 @@ import {
   clampOffset,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
+import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 
 /** Person-level record. Aggregate skills/role/etc. are a pool-search snapshot only — AI matching always reads `cv_detail_versions` instead. */
 export type CandidateRow = {
@@ -114,7 +115,7 @@ export async function createCandidate(
 ): Promise<CandidateRow> {
   const { rows } = await db.query<CandidateRow>(
     `INSERT INTO candidates (name, email, phone, degree, education, role, experience_years, skills)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'))
+     VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::text[], '{}'))
      RETURNING *`,
     [
       input.name ?? null,
@@ -185,8 +186,9 @@ export async function syncCandidateAggregateFields(
     role: string | null;
     degree: string | null;
     education: string | null;
+    parsed_payload: unknown;
   }>(
-    `SELECT cv.skills, cv.experience_years, cv.role, cv.degree, cv.education
+    `SELECT cv.skills, cv.experience_years, cv.role, cv.degree, cv.education, cv.parsed_payload
      FROM cv_detail_versions cv
      JOIN campaign_applied ca ON ca.active_cv_version_id = cv.id
      WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
@@ -216,6 +218,12 @@ export async function syncCandidateAggregateFields(
   }
 
   const latest = cvRows[0];
+  // Identity fields (name/email/phone) live only in `parsed_payload` at the
+  // CV-version level -- `normalizeParsedResume` is the same helper the
+  // AI-parse write path and the manual-edit merge both keep in sync with, so
+  // deriving from it here (rather than duplicating extraction logic) stays
+  // consistent with both call sites.
+  const latestParsed = normalizeParsedResume(latest.parsed_payload);
 
   await db.query(
     `UPDATE candidates
@@ -224,6 +232,9 @@ export async function syncCandidateAggregateFields(
          role = $4,
          degree = $5,
          education = $6,
+         name = $7,
+         email = $8,
+         phone = $9,
          updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL`,
     [
@@ -233,6 +244,9 @@ export async function syncCandidateAggregateFields(
       latest.role ?? null,
       latest.degree ?? null,
       latest.education ?? null,
+      latestParsed.name,
+      latestParsed.email,
+      latestParsed.phone,
     ],
   );
 }

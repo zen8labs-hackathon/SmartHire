@@ -10,11 +10,12 @@ export function isAllowedCandidateEvalTemplateFilename(filename: string): boolea
 }
 
 /**
- * `evaluation-template/{jobId}/{fileId}.pdf` -- one template per job
- * (DB7X2K item 8 replaced the old system-wide singleton with
- * `job_evaluate_templates`, one row per job). Validated against the
- * specific job the request is scoped to, not just the general shape, so a
- * caller can't commit/delete a path that belongs to a different job.
+ * `evaluation-template/{jobId}/{sanitized-original-name}_{shortId}.pdf` --
+ * one template per job (DB7X2K item 8 replaced the old system-wide
+ * singleton with `job_evaluate_templates`, one row per job). Validated
+ * against the specific job the request is scoped to, not just the general
+ * shape, so a caller can't commit/delete a path that belongs to a different
+ * job.
  */
 export function isValidCandidateEvalTemplateStoragePath(
   path: string,
@@ -22,7 +23,7 @@ export function isValidCandidateEvalTemplateStoragePath(
 ): boolean {
   const escapedJobId = jobId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(
-    `^evaluation-template/${escapedJobId}/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.pdf$`,
+    `^evaluation-template/${escapedJobId}/[\\w.-]+_[0-9a-f]{8}\\.pdf$`,
     "i",
   );
   return re.test(path);

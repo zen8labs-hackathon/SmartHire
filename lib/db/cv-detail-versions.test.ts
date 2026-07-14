@@ -6,6 +6,7 @@ import {
   getNextCvVersionNumber,
   listCvDetailVersionsByCampaignApplied,
   listRecentCvDetailVersionsForAdmin,
+  lockCvDetailVersionForParsing,
   updateCvDetailVersionJdMatchResult,
   updateCvDetailVersionParsingResult,
 } from "@/lib/db/cv-detail-versions";
@@ -130,6 +131,51 @@ describe("updateCvDetailVersionParsingResult", () => {
       `SELECT * FROM cv_detail_versions WHERE id = $1`,
       ["1"],
     );
+  });
+
+  it("includes the file/content hash columns, only known once the file is downloaded for parsing", async () => {
+    const row = { id: "1" };
+    const db = fakeDb([row]);
+
+    await updateCvDetailVersionParsingResult(db, "1", {
+      parsingStatus: "completed",
+      cvFileSha256: "file-hash",
+      cvContentSha256: "content-hash",
+    });
+
+    expect(db.query).toHaveBeenCalledWith(
+      `UPDATE cv_detail_versions SET parsing_status = $2, cv_file_sha256 = $3, cv_content_sha256 = $4 WHERE id = $1 RETURNING *`,
+      ["1", "completed", "file-hash", "content-hash"],
+    );
+  });
+});
+
+describe("lockCvDetailVersionForParsing", () => {
+  it("transitions to processing only from an allowed status, clearing any prior error", async () => {
+    const row = { id: "1", parsing_status: "processing" };
+    const db = fakeDb([row]);
+
+    const result = await lockCvDetailVersionForParsing(db, "1", [
+      "pending",
+      "failed",
+    ]);
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(
+      `UPDATE cv_detail_versions
+     SET parsing_status = 'processing', parsing_error = NULL
+     WHERE id = $1 AND parsing_status = ANY($2::text[])
+     RETURNING *`,
+      ["1", ["pending", "failed"]],
+    );
+  });
+
+  it("returns null when no row matches (already processing/completed, or race lost)", async () => {
+    const db = fakeDb([]);
+
+    const result = await lockCvDetailVersionForParsing(db, "1", ["pending"]);
+
+    expect(result).toBeNull();
   });
 });
 

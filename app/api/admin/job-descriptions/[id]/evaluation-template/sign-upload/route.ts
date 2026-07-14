@@ -6,6 +6,7 @@ import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { createSignedUploadUrl } from "@/lib/storage/s3";
+import { buildStorageFilename } from "@/lib/storage/storage-key";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -45,7 +46,8 @@ export async function POST(request: Request, { params }: RouteContext) {
     );
   }
 
-  const storagePath = `${CANDIDATE_EVAL_TEMPLATE_KEY_PREFIX}${jobId}/${crypto.randomUUID()}.pdf`;
+  const baseName = filename.slice(0, filename.length - ".pdf".length);
+  const storagePath = `${CANDIDATE_EVAL_TEMPLATE_KEY_PREFIX}${jobId}/${buildStorageFilename(baseName, ".pdf")}`;
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
 
   try {

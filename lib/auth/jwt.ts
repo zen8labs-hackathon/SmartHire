@@ -96,13 +96,18 @@ export function verifyAccessToken(token: string): AccessTokenClaims | null {
   } catch {
     return null;
   }
-  if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+  if (
+    expected.length !== provided.length ||
+    !timingSafeEqual(expected, provided)
+  ) {
     return null;
   }
 
   let claims: AccessTokenClaims;
   try {
-    claims = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    claims = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    );
   } catch {
     return null;
   }

@@ -5,6 +5,7 @@ import {
   MAX_JD_BYTES,
 } from "@/lib/jd/upload-constants";
 import { createSignedUploadUrl, deleteObject } from "@/lib/storage/s3";
+import { buildStorageFilename } from "@/lib/storage/storage-key";
 
 type PostBody = {
   filename?: string;
@@ -60,7 +61,8 @@ export async function POST(request: Request) {
     }
   }
 
-  const storagePath = `${JD_KEY_PREFIX}${crypto.randomUUID()}${ext}`;
+  const baseName = filename.slice(0, filename.length - ext.length);
+  const storagePath = `${JD_KEY_PREFIX}${buildStorageFilename(baseName, ext)}`;
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
 
   try {

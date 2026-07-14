@@ -254,12 +254,13 @@ describe("createApplicationWithInitialCv", () => {
     const updatedApplication = { id: "app-1", active_cv_version_id: "cv-1" };
     const db = fakeDb([[application], [cvVersion], [updatedApplication]]);
 
+    const buildCvStoragePath = vi.fn((applicationId: string) => `cv/cand-1/${applicationId}/foo_abc12345.pdf`);
     const result = await createApplicationWithInitialCv(db, {
       candidateId: "cand-1",
       jobId: "job-1",
       cv: {
         sourceEvent: "initial_upload",
-        cvStoragePath: "cvs/foo.pdf",
+        buildCvStoragePath,
       },
     });
 
@@ -273,11 +274,14 @@ describe("createApplicationWithInitialCv", () => {
     expect(insertAppSql).toContain("INSERT INTO campaign_applied");
     expect(insertAppValues).toEqual(["cand-1", "job-1", null, null, null]);
 
+    expect(buildCvStoragePath).toHaveBeenCalledWith("app-1");
+
     const [insertCvSql, insertCvValues] = db.query.mock.calls[1];
     expect(insertCvSql).toContain("INSERT INTO cv_detail_versions");
     expect(insertCvValues[0]).toBe("app-1");
     expect(insertCvValues[1]).toBe(1);
     expect(insertCvValues[2]).toBe("initial_upload");
+    expect(insertCvValues[3]).toBe("cv/cand-1/app-1/foo_abc12345.pdf");
 
     const [setActiveSql, setActiveValues] = db.query.mock.calls[2];
     expect(setActiveSql).toContain("SET active_cv_version_id = $2");
@@ -292,7 +296,7 @@ describe("createApplicationWithInitialCv", () => {
     const result = await createApplicationWithInitialCv(db, {
       candidateId: "cand-1",
       jobId: "job-1",
-      cv: { sourceEvent: "initial_upload" },
+      cv: { sourceEvent: "initial_upload", buildCvStoragePath: () => "cv/cand-1/app-1/foo_abc12345.pdf" },
     });
 
     expect(result.application).toEqual(application);

@@ -97,7 +97,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
     } else {
       setSubStages([]);
     }
-  }, [selectedStage, loadSubStages]);
+  }, [selectedStage?.id, loadSubStages]);
 
   // Stage Handlers
   const handleSelectStage = (stage: PipelineStageRow) => {
