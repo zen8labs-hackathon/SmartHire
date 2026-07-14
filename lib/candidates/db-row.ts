@@ -2,6 +2,7 @@ import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
 import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 import { displayFromParsedPayload } from "./parsed-contact";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 
 export type ParsingStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -237,3 +238,57 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     tth,
   };
 }
+
+function toIsoString(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString();
+  return d;
+}
+
+export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): CandidateDbRow {
+  return {
+    id: r.id,
+    job_opening_id: r.job_id,
+    job_openings: {
+      id: r.job_id,
+      title: r.job_position,
+      job_descriptions: { position: r.job_position },
+    },
+    cv_storage_path: r.cv_storage_path ?? "",
+    original_filename: r.cv_original_filename ?? "",
+    mime_type: r.cv_mime_type,
+    parsing_status: (r.cv_parsing_status ?? "pending") as ParsingStatus,
+    parsing_error: r.cv_parsing_error,
+    parsed_payload: {
+      email: r.candidate_email,
+      phone: r.candidate_phone,
+      gpa: r.cv_gpa,
+      englishLevel: r.cv_english_level,
+    },
+    parsed_contact_email: r.candidate_email,
+    parsed_contact_phone: r.candidate_phone,
+    name: r.candidate_name,
+    role: r.candidate_role,
+    avatar_url: null,
+    experience_years: r.candidate_experience_years,
+    skills: r.candidate_skills,
+    degree: r.candidate_degree,
+    school: r.candidate_education,
+    status: r.stage_label
+      ? (r.sub_stage_label ? `${r.stage_label} · ${r.sub_stage_label}` : r.stage_label)
+      : "New",
+    source: r.source ?? "Other",
+    source_other: r.source_other,
+    jd_match_score: r.jd_match_score,
+    jd_match_status: r.jd_match_status,
+    jd_match_error: r.jd_match_error,
+    jd_match_rationale: r.jd_match_rationale,
+    cv_uploaded_at: toIsoString(r.cv_created_at),
+    current_job_stage_mapping_id: r.current_job_stage_mapping_id,
+    current_sub_state_id: r.current_sub_state_id,
+    created_at: toIsoString(r.created_at) ?? new Date().toISOString(),
+    updated_at: toIsoString(r.updated_at) ?? new Date().toISOString(),
+    expected_salary: r.expected_salary,
+  };
+}
+

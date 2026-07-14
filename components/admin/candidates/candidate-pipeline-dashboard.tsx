@@ -20,6 +20,7 @@ import {
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
+  campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
 import type { CandidateRow } from "@/lib/candidates/types";
 
@@ -259,7 +260,10 @@ export const CandidatePipelineDashboard = forwardRef<
             if (!activeRow) return;
             void patchCandidateStage(activeRow.id, target);
           }}
-          onProfileSaved={(c) => {
+          onProfileSaved={(rawC) => {
+            const c = "candidate_id" in rawC
+              ? campaignAppliedToCandidateDbRow(rawC as any)
+              : (rawC as CandidateDbRow);
             setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
             setActiveRow((prev) =>
               prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,

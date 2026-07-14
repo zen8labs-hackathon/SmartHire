@@ -10,6 +10,7 @@ import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
+  campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
@@ -161,10 +162,17 @@ export function useCandidatePipelineState(
         return;
       }
       const json = (await res.json()) as {
-        candidates?: CandidateDbRow[];
+        candidates?: any[];
         pagination?: { total: number };
       };
-      setDbRows(json.candidates ?? []);
+      const rawCandidates = json.candidates ?? [];
+      const mapped = rawCandidates.map((c) => {
+        if (c && "candidate_id" in c) {
+          return campaignAppliedToCandidateDbRow(c);
+        }
+        return c;
+      });
+      setDbRows(mapped);
       setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
       setDbLoadState("ok");
     } catch {
@@ -312,9 +320,12 @@ export function useCandidatePipelineState(
           signal: ac.signal,
         });
         if (!res.ok) return;
-        const json = (await res.json()) as { candidate?: CandidateDbRow };
-        const c = json.candidate;
-        if (!c || ac.signal.aborted) return;
+        const json = (await res.json()) as { candidate?: any };
+        const rawCandidate = json.candidate;
+        if (!rawCandidate || ac.signal.aborted) return;
+        const c = "candidate_id" in rawCandidate
+          ? campaignAppliedToCandidateDbRow(rawCandidate)
+          : (rawCandidate as CandidateDbRow);
         setDbRows((prev) =>
           prev.map((r) => {
             if (r.id !== c.id) return r;

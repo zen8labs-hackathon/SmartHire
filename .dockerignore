@@ -13,7 +13,6 @@ docker-compose*.yml
 .playwright-mcp
 .specstory
 docs
-.next
 tsconfig.tsbuildinfo
 pnpm-lock.yaml
 pnpm-workspace.yaml
