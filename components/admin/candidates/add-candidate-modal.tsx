@@ -601,6 +601,37 @@ export function AddCandidateModal({
   }, [queue]);
 
   /**
+   * A row leaves "awaiting-review" (confirmed via the per-row button, via the
+   * Review sub-modal, discarded, errored, merged as a duplicate...) from
+   * several different code paths. Pruning `selectedRowIds` here in one place
+   * -- rather than at each of those call sites -- keeps the bulk "Confirm &
+   * Start AI Check" button in sync: without this, confirming one bulk-checked
+   * row individually via the Review sub-modal left its id in the set, so the
+   * button kept showing a stale count, enabled, with no spinner, for a row
+   * that was already being processed.
+   */
+  useEffect(() => {
+    setSelectedRowIds((prev) => {
+      if (prev.size === 0) return prev;
+      const stillSelectable = new Set(
+        queue
+          .filter((r) => r.uploadPhase === "awaiting-review")
+          .map((r) => r.rowId),
+      );
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (stillSelectable.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [queue]);
+
+  /**
    * Scrolls a newly-added row into view as soon as it appears in the queue --
    * ref callbacks run before effects in the same commit, so by the time this
    * runs the row's `<tr>` is already mounted. Diffing against

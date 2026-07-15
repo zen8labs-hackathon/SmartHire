@@ -325,7 +325,21 @@ export function JdAppliedCandidatesPipeline({
     "loading" | "error" | "ok"
   >("loading");
 
+  /**
+   * Every mutation handler below already calls `fetchPage()` directly after
+   * its own `onRefetch(...)` -- so a `dbRows` dependency here (to re-fire via
+   * the effect below once the parent's full-list refetch resolves) was pure
+   * redundancy: two unsequenced requests per mutation, no `AbortController`,
+   * so whichever response happened to land last won, sometimes clobbering a
+   * fresher page with a stale one (the likely source of transient/duplicate
+   * rows in the table). `fetchPageSeqRef` guards what's left of that race --
+   * concurrent calls from fast repeated clicks -- by dropping any response
+   * that isn't from the most recently *issued* request.
+   */
+  const fetchPageSeqRef = useRef(0);
+
   const fetchPage = useCallback(async () => {
+    const seq = ++fetchPageSeqRef.current;
     setPageLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
       const params = buildCandidatesListSearchParams({
@@ -341,6 +355,7 @@ export function JdAppliedCandidatesPipeline({
       const res = await fetch(`/api/admin/candidates?${params}`, {
         credentials: "include",
       });
+      if (seq !== fetchPageSeqRef.current) return;
       if (!res.ok) {
         setPageLoadState("error");
         return;
@@ -349,11 +364,12 @@ export function JdAppliedCandidatesPipeline({
         candidates?: JdPipelineApplicationRow[];
         pagination?: { total: number };
       };
+      if (seq !== fetchPageSeqRef.current) return;
       setPageRows(json.candidates ?? []);
       setPageTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
       setPageLoadState("ok");
     } catch {
-      setPageLoadState("error");
+      if (seq === fetchPageSeqRef.current) setPageLoadState("error");
     }
   }, [
     jobId,
@@ -362,7 +378,6 @@ export function JdAppliedCandidatesPipeline({
     uploadDateRange,
     selectedFilterOption,
     pageSize,
-    dbRows,
   ]);
 
   useEffect(() => {

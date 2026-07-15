@@ -138,7 +138,7 @@ function jdMatchLabelFromRow(r: CandidateDbRow): {
   if (st === "processing") return { score: null, label: "Scoring…" };
   if (st === "failed") return { score: null, label: "Error" };
   if (st === "skipped") return { score: null, label: "N/A" };
-  return { score: null, label: "Pending" };
+  return { score: null, label: "Not started" };
 }
 
 function calculateDaysDifference(

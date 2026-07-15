@@ -67,7 +67,7 @@ function jdMatchLabelFromRow(r: JdPipelineApplicationRow): {
   if (status === "processing") return { score: null, label: "Scoring…" };
   if (status === "failed") return { score: null, label: "Error" };
   if (status === "skipped") return { score: null, label: "N/A" };
-  return { score: null, label: "Pending" };
+  return { score: null, label: "Not started" };
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import {
@@ -47,20 +47,19 @@ export function AddUserForm({
   chapters: readonly AddUserChapterOption[];
   onSuccess?: () => void;
 }) {
-  const [state, formAction] = useActionState<AdminUserFormState, FormData>(
-    adminAddUser,
-    null,
-  );
+  const [state, setState] = useState<AdminUserFormState>(null);
   const { success: triggerSuccess } = useToast();
 
-  useEffect(() => {
-    if (state?.message) {
-      triggerSuccess(state.message);
+  const handleAction = async (formData: FormData) => {
+    const res = await adminAddUser(null, formData);
+    setState(res);
+    if (res?.message) {
+      triggerSuccess(res.message);
       if (onSuccess) {
         onSuccess();
       }
     }
-  }, [state, triggerSuccess, onSuccess]);
+  };
   const [ssoOnly, setSsoOnly] = useState(false);
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("chapter");
@@ -84,7 +83,7 @@ export function AddUserForm({
   }
 
   return (
-    <form action={formAction} className="flex w-full flex-col gap-4">
+    <form action={handleAction} className="flex w-full flex-col gap-4">
       <input type="hidden" name="sso_only" value={ssoOnly ? "true" : "false"} />
       <input type="hidden" name="recruiting_access" value={recruitingAccess} />
       {selectedChapterIds.map((id) => (

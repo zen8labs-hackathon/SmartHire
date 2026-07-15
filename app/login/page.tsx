@@ -6,34 +6,37 @@ type Props = {
   searchParams: Promise<{ next?: string; reason?: string }>;
 };
 
-const REASON_MESSAGES: Record<string, { title: string; description: string }> = {
-  "no-signup": {
-    title: "Sign-up is invite-only",
-    description:
-      "Contact your HR administrator to request an account. Once set up, log in with your credentials.",
-  },
-  "sso-cancelled": {
-    title: "Microsoft sign-in was cancelled",
-    description: "You can try again, or sign in with your email and password instead.",
-  },
-  "sso-expired": {
-    title: "Sign-in request expired",
-    description: "The Microsoft sign-in link timed out. Please try again.",
-  },
-  "sso-invalid-state": {
-    title: "Sign-in request could not be verified",
-    description: "Please try signing in with Microsoft again.",
-  },
-  "sso-not-invited": {
-    title: "Account not linked",
-    description:
-      "This Microsoft account isn't linked to a SmartHire user. Contact your HR administrator.",
-  },
-  "sso-failed": {
-    title: "Microsoft sign-in failed",
-    description: "Something went wrong. Please try again or use your email and password.",
-  },
-};
+const REASON_MESSAGES: Record<string, { title: string; description: string }> =
+  {
+    "no-signup": {
+      title: "Sign-up is invite-only",
+      description:
+        "Contact your HR administrator to request an account. Once set up, log in with your credentials.",
+    },
+    "sso-cancelled": {
+      title: "Microsoft sign-in was cancelled",
+      description:
+        "You can try again, or sign in with your email and password instead.",
+    },
+    "sso-expired": {
+      title: "Sign-in request expired",
+      description: "The Microsoft sign-in link timed out. Please try again.",
+    },
+    "sso-invalid-state": {
+      title: "Sign-in request could not be verified",
+      description: "Please try signing in with Microsoft again.",
+    },
+    "sso-not-invited": {
+      title: "Account not linked",
+      description:
+        "This Microsoft account isn't linked to a SmartHire user. Contact your HR administrator.",
+    },
+    "sso-failed": {
+      title: "Microsoft sign-in failed",
+      description:
+        "Something went wrong. Please try again or use your email and password.",
+    },
+  };
 
 export default async function LoginPage({ searchParams }: Props) {
   const { next, reason } = await searchParams;
@@ -66,10 +69,15 @@ export default async function LoginPage({ searchParams }: Props) {
         <Card className="glass-panel w-full border border-divider shadow-2xl rounded-2xl p-6">
           <Card.Content className="flex flex-col gap-5 p-0">
             {reasonMessage ? (
-              <Alert status="warning" className="rounded-xl border border-warning/10 bg-warning/5 text-warning p-3">
+              <Alert
+                status="warning"
+                className="rounded-xl border border-warning/10 bg-warning/5 text-warning p-3"
+              >
                 <Alert.Indicator />
                 <Alert.Content>
-                  <Alert.Title className="text-xs font-semibold">{reasonMessage.title}</Alert.Title>
+                  <Alert.Title className="text-xs font-semibold">
+                    {reasonMessage.title}
+                  </Alert.Title>
                   <Alert.Description className="text-xs text-warning opacity-90 mt-1 leading-normal">
                     {reasonMessage.description}
                   </Alert.Description>
@@ -77,7 +85,7 @@ export default async function LoginPage({ searchParams }: Props) {
               </Alert>
             ) : null}
 
-            <MicrosoftSignInButton next={nextPath} />
+            <LoginForm nextPath={nextPath} />
 
             <div className="flex items-center gap-3 text-xs text-muted">
               <div className="h-px flex-1 bg-divider" />
@@ -85,13 +93,14 @@ export default async function LoginPage({ searchParams }: Props) {
               <div className="h-px flex-1 bg-divider" />
             </div>
 
-            <LoginForm nextPath={nextPath} />
+            <MicrosoftSignInButton next={nextPath} />
           </Card.Content>
         </Card>
 
         {/* Footer info */}
         <p className="mt-8 text-center text-xs text-muted leading-relaxed">
-          Smart Hire is used internally by authorized HR teams.<br />
+          Smart Hire is used internally by authorized HR teams.
+          <br />
           Protected by role-based workspace security.
         </p>
       </div>
