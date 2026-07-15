@@ -40,7 +40,7 @@ export type SessionCookie = {
  * `/login`. `COOKIE_SECURE=false` is an explicit, temporary opt-out for that
  * case; the real fix for such a deployment is to put TLS in front of it.
  */
-function isSecureCookieEnv(): boolean {
+export function isSecureCookieEnv(): boolean {
   if (process.env.COOKIE_SECURE === "false") return false;
   if (process.env.COOKIE_SECURE === "true") return true;
   return process.env.NODE_ENV === "production";
@@ -89,7 +89,7 @@ export type SessionTokens = {
 
 export type SessionMeta = { userAgent?: string | null; ip?: string | null };
 
-async function issueSession(
+export async function issueSession(
   db: QueryExecutor,
   user: PublicUserRow,
   meta: SessionMeta = {},

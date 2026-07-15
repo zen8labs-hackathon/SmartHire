@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
+import { safeNextPath } from "@/lib/auth/next-path";
 import { getRequestMeta } from "@/lib/auth/request-meta";
 import {
   buildAccessTokenCookie,
@@ -17,13 +18,6 @@ import {
 import { getPool } from "@/lib/db/config/client";
 
 export type AuthFormState = { error?: string; message?: string } | null;
-
-function safeNextPath(raw: string): string {
-  if (raw.startsWith("/") && !raw.startsWith("//") && !raw.includes("://")) {
-    return raw;
-  }
-  return "/dashboard";
-}
 
 export async function signIn(
   _prev: AuthFormState,
