@@ -225,16 +225,24 @@ export async function syncCandidateAggregateFields(
   // consistent with both call sites.
   const latestParsed = normalizeParsedResume(latest.parsed_payload);
 
+  // `COALESCE` on every identity field: the latest CV version is the
+  // authoritative *source*, but a version that genuinely has nothing for a
+  // field (bad OCR, no embedded text, an AI reparse that found nothing) must
+  // never blank out a value this candidate already had -- these fields can
+  // now come from manual HR input at confirm time (the review sub-modal), not
+  // just AI parsing. See CV9X7R vault notes -- reachable both from a plain AI
+  // reparse and from `mergeDuplicateApplicationIntoExisting` carrying over a
+  // sparser duplicate CV.
   await db.query(
     `UPDATE candidates
      SET skills = $2,
          experience_years = $3,
-         role = $4,
-         degree = $5,
-         education = $6,
-         name = $7,
-         email = $8,
-         phone = $9,
+         role = COALESCE($4, role),
+         degree = COALESCE($5, degree),
+         education = COALESCE($6, education),
+         name = COALESCE($7, name),
+         email = COALESCE($8, email),
+         phone = COALESCE($9, phone),
          updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL`,
     [

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Input, Label, Modal } from "@heroui/react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
+import {
+  type CandidateDbRow,
+  campaignAppliedToCandidateDbRow,
+} from "@/lib/candidates/db-row";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
@@ -371,15 +375,13 @@ export function DeleteCandidateModal({
 type EditCandidateModalProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Only the id/name are needed here -- `CandidateProfileEditSection` still
-   * requires a full pre-DB7X2K `CandidateDbRow`, which this JD-pipeline table
-   * no longer has (it's `CampaignAppliedAdminRow`-shaped now). Passes
-   * `dbRow={null}` below, so the edit form itself stays non-functional until
-   * the separately-deferred candidate-profile-dashboard slice rewires that
-   * component onto the new schema -- not a regression introduced here, this
-   * button was already broken (Supabase-based) before this slice.
-   */
+  /** Only the id/name are needed from the caller -- the full `CandidateDbRow`
+   * `CandidateProfileEditSection` requires is fetched below, mirroring the
+   * same `/api/admin/candidates/[id]` + `campaignAppliedToCandidateDbRow`
+   * pattern the global candidates dashboard's drawer already uses (see
+   * `use-candidate-pipeline-state.ts`). This JD-pipeline table only has the
+   * lighter `CampaignAppliedAdminRow` shape, so it can't be passed straight
+   * through. */
   row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
@@ -392,6 +394,48 @@ export function EditCandidateModal({
   canEdit,
   onSaved,
 }: EditCandidateModalProps) {
+  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    "loading",
+  );
+
+  useEffect(() => {
+    if (!isOpen || !row) {
+      setDbRow(null);
+      setDbLoadState("loading");
+      return;
+    }
+    const ac = new AbortController();
+    setDbRow(null);
+    setDbLoadState("loading");
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${row.id}`, {
+          credentials: "include",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const json = (await res.json()) as { candidate?: unknown };
+        if (ac.signal.aborted || !json.candidate) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const c =
+          json.candidate && typeof json.candidate === "object" && "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(json.candidate as any)
+            : (json.candidate as CandidateDbRow);
+        setDbRow(c);
+        setDbLoadState("ok");
+      } catch {
+        if (!ac.signal.aborted) setDbLoadState("error");
+      }
+    })();
+    return () => ac.abort();
+  }, [isOpen, row]);
+
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
@@ -404,15 +448,21 @@ export function EditCandidateModal({
           </Modal.Header>
           <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
             {row ? (
-              <CandidateProfileEditSection
-                candidateId={row.id}
-                dbRow={null}
-                canEdit={canEdit}
-                isPreview={false}
-                dbLoadState="ok"
-                startInEditMode
-                onSaved={onSaved}
-              />
+              dbLoadState === "error" ? (
+                <p className="px-5 py-4 text-sm text-danger">
+                  Could not load this candidate's details. Close and try again.
+                </p>
+              ) : (
+                <CandidateProfileEditSection
+                  candidateId={row.id}
+                  dbRow={dbRow}
+                  canEdit={canEdit}
+                  isPreview={false}
+                  dbLoadState={dbLoadState}
+                  startInEditMode
+                  onSaved={onSaved}
+                />
+              )
             ) : null}
           </Modal.Body>
         </Modal.Dialog>

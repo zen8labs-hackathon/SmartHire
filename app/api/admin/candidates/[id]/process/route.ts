@@ -94,7 +94,43 @@ async function runCvParsing(
     }
 
     const cvContentSha256 = cvContentSha256Hex(plainText);
-    const parsed = await parseResumeWithAI(plainText);
+    const parsedRaw = await parseResumeWithAI(plainText);
+    // The basic-info fields on this version's existing record were set at
+    // confirm time -- but only actually locked in if `basicInfoReviewed` is
+    // true, meaning the user went through the review sub-modal (even if they
+    // left the prefilled values unchanged). A row confirmed via the
+    // skip-review bulk/quick-confirm path only ever has the unverified
+    // heuristic guess in `parsed_payload`, so it must NOT block the AI's own
+    // (generally more accurate) extraction -- that path hands basic-info
+    // fully over to AI by design. role/degree/school/gpa/englishLevel are
+    // also top-level `cv_detail_versions` columns (the canonical source used
+    // by `syncCandidateAggregateFields` elsewhere), so those are read from
+    // there, and aren't heuristic-derived in the first place (quick-confirm
+    // never sends them), so no reviewed-gate is needed for them.
+    const priorPayload =
+      cvVersion.parsed_payload && typeof cvVersion.parsed_payload === "object"
+        ? (cvVersion.parsed_payload as Record<string, unknown>)
+        : {};
+    const basicInfoReviewed = priorPayload.basicInfoReviewed === true;
+    const confirmedEmail =
+      basicInfoReviewed && typeof priorPayload.email === "string" ? priorPayload.email : null;
+    const confirmedPhone =
+      basicInfoReviewed && typeof priorPayload.phone === "string" ? priorPayload.phone : null;
+    const confirmedName =
+      basicInfoReviewed && typeof priorPayload.name === "string" ? priorPayload.name : null;
+    const parsed = {
+      ...parsedRaw,
+      email: confirmedEmail ?? parsedRaw.email,
+      phone: confirmedPhone ?? parsedRaw.phone,
+      name: confirmedName ?? parsedRaw.name,
+      role: cvVersion.role ?? parsedRaw.role,
+      degree: cvVersion.degree ?? parsedRaw.degree,
+      school: cvVersion.education ?? parsedRaw.school,
+      gpa: cvVersion.gpa ?? parsedRaw.gpa,
+      englishLevel: cvVersion.english_level ?? parsedRaw.englishLevel,
+      // Carried forward so a hypothetical future re-parse still honors it.
+      basicInfoReviewed,
+    };
     // The model is asked for ISO YYYY-MM-DD but isn't guaranteed to comply --
     // `date_of_birth` is a real `date` column, so an off-format value would
     // otherwise fail the whole write rather than just this one field.
@@ -162,6 +198,14 @@ async function runCvParsing(
   }
 }
 
+type ProcessRequestBody = {
+  /** Opt-in (CV9X7R Phase 5): JD-match scoring is a second, separate LLM
+   * call from resume parsing above and no longer runs automatically -- the
+   * caller (review sub-modal checkbox, or a later bulk trigger) must ask for
+   * it explicitly. Missing/invalid body just means "not requested". */
+  runJdMatch?: boolean;
+};
+
 export async function POST(request: Request, { params }: RouteParams) {
   const { id: campaignAppliedId } = await params;
   if (!campaignAppliedId) {
@@ -173,12 +217,22 @@ export async function POST(request: Request, { params }: RouteParams) {
     return auth.response;
   }
 
+  let body: ProcessRequestBody = {};
+  try {
+    body = (await request.json()) as ProcessRequestBody;
+  } catch {
+    // No/invalid JSON body -- treat as runJdMatch: false (existing callers
+    // that send no body at all keep working, just without JD-match).
+  }
+
   const parseResult = await runCvParsing(campaignAppliedId);
   if (!parseResult.ok) {
     return Response.json({ error: parseResult.error }, { status: 500 });
   }
 
-  const jdMatch = await runJdMatchForCandidate(campaignAppliedId);
+  const jdMatch = body.runJdMatch
+    ? await runJdMatchForCandidate(campaignAppliedId)
+    : ({ ok: true, skipped: true, reason: "not_requested" } as const);
   if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
     console.warn("[jd-match]", campaignAppliedId, jdMatch);
   }

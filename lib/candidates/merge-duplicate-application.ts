@@ -16,10 +16,10 @@ export type MergeDuplicateApplicationResult =
  * Merges a throwaway "duplicate upload" application into an existing one:
  * copies the duplicate's active CV file into a new `file_replaced` version on
  * the existing application, then deletes the duplicate's `campaign_applied`
- * and `candidates` rows. Safe because `sign-upload` always creates a brand
- * new, single-application `candidates` row per upload (see
- * app/api/admin/candidates/sign-upload/route.ts) -- the duplicate person row
- * being deleted here never has any other application to orphan.
+ * and `candidates` rows. Safe because `POST .../temp-upload/confirm` always
+ * creates a brand new, single-application `candidates` row per upload (see
+ * app/api/admin/candidates/temp-upload/confirm/route.ts) -- the duplicate
+ * person row being deleted here never has any other application to orphan.
  *
  * Shared by `POST /api/admin/candidates/[id]/replace` (HR intentionally
  * re-uploads a CV for a known candidate) and
@@ -105,8 +105,8 @@ export async function mergeDuplicateApplicationIntoExisting(
 
 /**
  * Repoints a freshly-uploaded, already-parsed application onto an existing
- * person instead of the blank `candidates` row `sign-upload` created for it --
- * used when a CV upload turns out to be a duplicate of someone who already
+ * person instead of the blank `candidates` row `temp-upload/confirm` created
+ * for it -- used when a CV upload turns out to be a duplicate of someone who already
  * applied to a *different* job. Unlike {@link mergeDuplicateApplicationIntoExisting},
  * the new application is kept (it's a legitimate new job application), only
  * its person identity changes; the throwaway blank candidate row is deleted
@@ -144,7 +144,7 @@ export async function linkApplicationToExistingCandidate(
  * Hard-deletes a throwaway duplicate-upload application and its blank
  * `candidates` row together -- used only when discarding a CV upload that
  * the duplicate-candidate modal flagged (a fresh, single-application
- * candidate created by `sign-upload`, same invariant as the merge/link
+ * candidate created by `temp-upload/confirm`, same invariant as the merge/link
  * helpers above). Distinct from `softDeleteCampaignApplied`, which is the
  * general-purpose "remove an application" action and must never touch the
  * person row (a real candidate may have other live applications).

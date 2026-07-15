@@ -15,6 +15,7 @@ vi.mock("@aws-sdk/client-s3", () => {
     PutObjectCommand: class extends FakeCommand {},
     GetObjectCommand: class extends FakeCommand {},
     DeleteObjectCommand: class extends FakeCommand {},
+    CopyObjectCommand: class extends FakeCommand {},
   };
 });
 
@@ -85,6 +86,26 @@ describe("lib/storage/s3", () => {
     await expect(downloadObject("jd/missing.pdf")).rejects.toThrow(
       "Object body empty",
     );
+  });
+
+  it("moveObject copies to the dest key then deletes the source key", async () => {
+    sendMock.mockResolvedValue({});
+    const { moveObject } = await import("@/lib/storage/s3");
+
+    await moveObject("cv-temp/abc.pdf", "cv/candidate-1/app-1/abc.pdf");
+
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    const [copyCommand] = sendMock.mock.calls[0];
+    expect(copyCommand.input).toEqual({
+      Bucket: "test-bucket",
+      CopySource: "/test-bucket/cv-temp%2Fabc.pdf",
+      Key: "cv/candidate-1/app-1/abc.pdf",
+    });
+    const [deleteCommand] = sendMock.mock.calls[1];
+    expect(deleteCommand.input).toEqual({
+      Bucket: "test-bucket",
+      Key: "cv-temp/abc.pdf",
+    });
   });
 
   it("deleteObject sends a DeleteObjectCommand for the key", async () => {

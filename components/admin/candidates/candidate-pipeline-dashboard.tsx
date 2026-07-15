@@ -103,19 +103,29 @@ export const CandidatePipelineDashboard = forwardRef<
       stagedNewId?: string,
     ) => {
       if (updated) {
+        // `PUT update-with-history` actually responds with a
+        // `CampaignAppliedAdminRow` (has `candidate_id`/`stage_label`, no
+        // `status`), not a `CandidateDbRow` despite the prop's declared type
+        // -- same shape ambiguity `onProfileSaved` below already guards
+        // against. Passing the raw row straight into `candidateDbRowToTableRow`
+        // reads `.status` as undefined and throws, taking down this whole
+        // dashboard until reload.
+        const c = "candidate_id" in updated
+          ? campaignAppliedToCandidateDbRow(updated as any)
+          : updated;
         setDbRows((prev) => {
           const withoutStaging = stagedNewId
             ? prev.filter((r) => r.id !== stagedNewId)
             : prev;
-          const i = withoutStaging.findIndex((r) => r.id === updated.id);
+          const i = withoutStaging.findIndex((r) => r.id === c.id);
           if (i >= 0) {
             const copy = [...withoutStaging];
-            copy[i] = updated;
+            copy[i] = c;
             return copy;
           }
-          return [updated, ...withoutStaging];
+          return [c, ...withoutStaging];
         });
-        openRow(candidateDbRowToTableRow(updated));
+        openRow(candidateDbRowToTableRow(c));
         void refreshCvHistoryForCandidate(existingId);
       }
       await fetchCandidates();

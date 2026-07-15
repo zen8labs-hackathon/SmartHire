@@ -102,7 +102,7 @@ export interface JdDashboardContextValue {
   jdFileInputRef: React.RefObject<HTMLInputElement | null>;
   ingestJdFile: (file: File) => Promise<void>;
   discardJdDraft: () => Promise<void>;
-  handleSave: (asDraft: boolean) => Promise<void>;
+  handleSave: () => Promise<void>;
   selectedStageIds: string[];
   setSelectedStageIds: (ids: string[]) => void;
 

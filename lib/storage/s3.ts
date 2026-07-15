@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   PutObjectCommand,
@@ -47,6 +48,8 @@ function getClient(): S3Client {
     forcePathStyle: !!endpoint,
     // Omit credentials entirely when unset so the SDK falls back to its
     // default provider chain (EC2 IAM instance role in production).
+    // requestChecksumCalculation: "WHEN_REQUIRED",
+    // responseChecksumValidation: "WHEN_REQUIRED",
     credentials:
       accessKeyId && secretAccessKey
         ? { accessKeyId, secretAccessKey }
@@ -113,6 +116,28 @@ export async function uploadObject(
       Body: body,
       ContentType: contentType || undefined,
     }),
+  );
+}
+
+/**
+ * Copies an object to `destKey` then deletes `sourceKey` -- copy-before-delete
+ * so a failed delete just leaves a harmless duplicate at the source key
+ * instead of losing the object if the copy step were to fail after a delete.
+ */
+export async function moveObject(
+  sourceKey: string,
+  destKey: string,
+): Promise<void> {
+  const bucket = getBucket();
+  await getClient().send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      CopySource: `/${bucket}/${encodeURIComponent(sourceKey)}`,
+      Key: destKey,
+    }),
+  );
+  await getClient().send(
+    new DeleteObjectCommand({ Bucket: bucket, Key: sourceKey }),
   );
 }
 

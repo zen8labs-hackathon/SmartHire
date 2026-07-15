@@ -107,7 +107,8 @@ export function JdAppliedCandidatesPipeline({
   onAddCandidates,
 }: Props) {
   const resolveRow = useCallback(
-    (r: JdPipelineApplicationRow) => resolveRowPipeline(r, stageMappings, subStages),
+    (r: JdPipelineApplicationRow) =>
+      resolveRowPipeline(r, stageMappings, subStages),
     [stageMappings, subStages],
   );
 
@@ -180,7 +181,6 @@ export function JdAppliedCandidatesPipeline({
   const toast = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pipelineBusy, setPipelineBusy] = useState(false);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
   const [rowPendingDelete, setRowPendingDelete] =
@@ -481,11 +481,10 @@ export function JdAppliedCandidatesPipeline({
   const moveSelectedToOffer = useCallback(async () => {
     if (!bulkOfferEligible) return;
     if (!offerStageMapping || !offerDefaultSubStage) {
-      setPipelineError("Offer stage is not configured for this job.");
+      toast.error("Offer stage is not configured for this job.");
       return;
     }
     setPipelineBusy(true);
-    setPipelineError(null);
     try {
       await postPipeline(
         selectedRows.map((r) => ({
@@ -499,7 +498,6 @@ export function JdAppliedCandidatesPipeline({
       toast.success("Selected candidates moved to Offer.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
@@ -518,11 +516,10 @@ export function JdAppliedCandidatesPipeline({
   const moveSelectedToInterview = useCallback(async () => {
     if (!bulkInterviewEligible) return;
     if (!interviewStageMapping || !interviewDefaultSubStage) {
-      setPipelineError("Interview stage is not configured for this job.");
+      toast.error("Interview stage is not configured for this job.");
       return;
     }
     setPipelineBusy(true);
-    setPipelineError(null);
     try {
       await postPipeline(
         selectedRows.map((r) => ({
@@ -536,7 +533,6 @@ export function JdAppliedCandidatesPipeline({
       toast.success("Selected candidates moved to Interview.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
@@ -555,7 +551,6 @@ export function JdAppliedCandidatesPipeline({
   const markSelectedFailed = useCallback(async () => {
     if (!bulkFailEligible) return;
     setPipelineBusy(true);
-    setPipelineError(null);
     try {
       const updates = selectedRows.map((r) => {
         const { stageMappingId } = resolveRow(r);
@@ -581,7 +576,6 @@ export function JdAppliedCandidatesPipeline({
       toast.success("Selected candidates marked as failed.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
@@ -598,13 +592,57 @@ export function JdAppliedCandidatesPipeline({
     fetchPage,
   ]);
 
+  /**
+   * `runJdMatchForCandidate` (called per id server-side) already self-guards
+   * via its own CAS lock -- no client-side eligibility filter is needed here
+   * the way `bulkFailEligible`/`bulkOfferEligible` gate the other actions;
+   * an ineligible row (parsing not done, already scored, etc.) just comes
+   * back as a `skipped` result instead of an error.
+   */
+  const runJdMatchForSelected = useCallback(async () => {
+    if (selectedRows.length === 0) return;
+    setPipelineBusy(true);
+    try {
+      const res = await fetch("/api/admin/candidates/jd-match/bulk", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRows.map((r) => r.id) }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        results?: {
+          id: string;
+          ok: boolean;
+          skipped?: boolean;
+          score?: number;
+        }[];
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "AI JD-match run failed.");
+      }
+      const results = json.results ?? [];
+      const scored = results.filter((r) => r.ok && !r.skipped).length;
+      const skipped = results.filter((r) => r.ok && r.skipped).length;
+      const failed = results.filter((r) => !r.ok).length;
+      onRefetch(true);
+      void fetchPage();
+      toast.success(`${scored} scored, ${skipped} skipped, ${failed} failed.`);
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "AI JD-match run failed.";
+      toast.error(message);
+    } finally {
+      setPipelineBusy(false);
+    }
+  }, [selectedRows, onRefetch, fetchPage, toast]);
+
   const onStatusChange = useCallback(
     async (
       id: string,
       next: { toStageMappingId: string; toSubStateId: string },
     ) => {
       setRowUpdating(id);
-      setPipelineError(null);
       try {
         await postPipeline([
           {
@@ -618,7 +656,6 @@ export function JdAppliedCandidatesPipeline({
         toast.success("Candidate status updated.");
       } catch (e) {
         const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
         toast.error(message);
       } finally {
         setRowUpdating(null);
@@ -837,6 +874,15 @@ export function JdAppliedCandidatesPipeline({
           >
             Mark failed
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="border border-divider bg-surface-primary"
+            isDisabled={!canEditPipeline || pipelineBusy}
+            onPress={() => void runJdMatchForSelected()}
+          >
+            Run AI JD Match
+          </Button>
         </div>
       </div>
     ) : null;
@@ -863,9 +909,8 @@ export function JdAppliedCandidatesPipeline({
 
   return (
     <div className="mt-3 flex flex-col gap-4">
-      {pipelineError ? (
-        <p className="text-sm text-danger">{pipelineError}</p>
-      ) : null}
+
+      <DataTableStats stats={pipelineStats} />
 
       <DataTableToolbar
         searchQuery={query}
@@ -892,8 +937,6 @@ export function JdAppliedCandidatesPipeline({
       />
 
       {bulkActionsElement}
-
-      <DataTableStats stats={pipelineStats} />
 
       <Table>
         <Table.ScrollContainer>
