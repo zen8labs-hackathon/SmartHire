@@ -87,9 +87,20 @@ export async function mergeDuplicateApplicationIntoExisting(
       createdBy,
     });
 
-    // 2. Point the existing application's active CV at the new version
+    // 2. Point the existing application's active CV at the new version.
+    // Also clear the cached JD-match result: it was computed against the
+    // *previous* CV, and leaving `jd_match_status: "completed"` in place
+    // would both show a stale score for the new CV and make
+    // `runJdMatchForCandidate`'s "already_scored" guard silently skip any
+    // future re-score attempt. JD-match itself stays opt-in (not re-run
+    // here) -- HR re-triggers it explicitly via "Run AI JD Match", same as
+    // for a brand-new upload.
     await updateCampaignApplied(tx, existingCampaignAppliedId, {
       activeCvVersionId: mergedCvVersion.id,
+      jdMatchStatus: "pending",
+      jdMatchScore: null,
+      jdMatchError: null,
+      jdMatchRationale: null,
     });
 
     // 3. Delete the throwaway duplicate application + its person row
