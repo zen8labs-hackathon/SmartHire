@@ -59,7 +59,7 @@ export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   /** Paired with {@link subStateId} -- both required together to filter by pipeline position. */
   stageMappingId?: string;
   subStateId?: string;
-  /** Case-insensitive substring match against candidate name/email/role/degree and the CV's original filename. */
+  /** Case-insensitive substring match against candidate name and school (education). */
   q?: string;
   /** Inclusive lower/upper bound (YYYY-MM-DD) on the active CV version's upload time (falls back to the application's created_at when there's no active version yet). */
   uploadFrom?: string;
@@ -221,9 +221,7 @@ export async function listCampaignAppliedForAdmin(
   if (filters.q) {
     values.push(`%${filters.q}%`);
     const i = values.length;
-    conditions.push(
-      `(c.name ILIKE $${i} OR c.email ILIKE $${i} OR c.role ILIKE $${i} OR c.degree ILIKE $${i} OR cv.original_filename ILIKE $${i})`,
-    );
+    conditions.push(`(c.name ILIKE $${i} OR c.education ILIKE $${i})`);
   }
 
   values.push(limit);

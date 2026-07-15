@@ -402,8 +402,8 @@ export function UsersTableWrapper({
       <DataTableToolbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search users by email or role..."
-        createButtonLabel="Invite User"
+        searchPlaceholder="Search users by email or username..."
+        createButtonLabel="Create User"
         onCreate={() => setInviteModalOpen(true)}
         filters={roleFilterElement}
         onRefresh={fetchUsers}

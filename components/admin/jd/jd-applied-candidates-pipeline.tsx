@@ -974,7 +974,7 @@ export function JdAppliedCandidatesPipeline({
       <DataTableToolbar
         searchQuery={query}
         onSearchChange={setQuery}
-        searchPlaceholder="Search by name, role, school, or degree…"
+        searchPlaceholder="Search by name or school…"
         filters={filtersElement}
         dateRange={dateRangeElement}
         onRefresh={() => {

@@ -38,7 +38,7 @@ function matchesRole(user: OrgUserRow, role: UsersRoleFilter): boolean {
  * Lists every user first, then applies search/role filtering and pagination
  * in-process. `counts` are always computed over the full unfiltered set so
  * the stats cards stay accurate independent of the current search/role
- * filter or page.
+ * filter or page. `q` matches against email and username only.
  */
 export async function queryOrgUsersList(
   options: UsersListQuery = {},
@@ -63,8 +63,8 @@ export async function queryOrgUsersList(
   const filtered = allUsers.filter((u) => {
     if (trimmedQ) {
       const email = u.email.toLowerCase();
-      const summary = u.accessSummary.toLowerCase();
-      if (!email.includes(trimmedQ) && !summary.includes(trimmedQ)) {
+      const username = u.username.toLowerCase();
+      if (!email.includes(trimmedQ) && !username.includes(trimmedQ)) {
         return false;
       }
     }

@@ -16,6 +16,7 @@ export type ChapterMembership = {
 export type OrgUserRow = {
   id: string;
   email: string;
+  username: string;
   role: ProfileRole;
   chapterMemberships: ChapterMembership[];
   accessSummary: string;
@@ -65,6 +66,7 @@ export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
     return {
       id: u.id,
       email: u.email,
+      username: u.username,
       role: u.role,
       chapterMemberships,
       accessSummary: accessSummaryFor(u.role, chapterMemberships),

@@ -93,14 +93,14 @@ describe("listCampaignAppliedForAdmin", () => {
     expect(db.query.mock.calls[0][0]).toContain("ca.current_sub_state_id = $2");
   });
 
-  it("builds an ILIKE OR clause across candidate and CV fields for q", async () => {
+  it("builds an ILIKE OR clause across name and school for q", async () => {
     const db = fakeDb([]);
 
     await listCampaignAppliedForAdmin(db, { q: "engineer" });
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("c.name ILIKE $1");
-    expect(sql).toContain("cv.original_filename ILIKE $1");
+    expect(sql).toContain("c.education ILIKE $1");
     expect(values[0]).toBe("%engineer%");
   });
 

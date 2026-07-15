@@ -158,7 +158,7 @@ describe("listDedupedCandidatesForAdmin", () => {
     expect(sql).toContain("pss.label AS sub_stage_label");
   });
 
-  it("builds an ILIKE OR clause across candidate and CV fields for q", async () => {
+  it("builds an ILIKE OR clause across candidate, CV, job position, and skill fields for q", async () => {
     const db = fakeDb([]);
 
     await listDedupedCandidatesForAdmin(db, { q: "engineer" });
@@ -166,6 +166,8 @@ describe("listDedupedCandidatesForAdmin", () => {
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("c.name ILIKE $1");
     expect(sql).toContain("cv.original_filename ILIKE $1");
+    expect(sql).toContain("j.position ILIKE $1");
+    expect(sql).toContain("array_to_string(c.skills, ' ') ILIKE $1");
     expect(values[0]).toBe("%engineer%");
   });
 
