@@ -1,6 +1,7 @@
 import { countActiveApplicationsByJobIds } from "@/lib/db/campaign-applied";
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { countJobsByStatus, listJobs, type JobRow } from "@/lib/db/jobs";
+import { dbDateToIso } from "@/lib/db/query-helpers";
 import type { JdStatus } from "@/lib/jd/types";
 
 export const JD_LIST_PAGE_SIZE = 10;
@@ -29,10 +30,6 @@ export type JobDescriptionListRow = Omit<
   applicant_count: number;
   has_jd_source_file: boolean;
 };
-
-function dateOnlyToIso(d: Date | null): string | null {
-  return d == null ? null : d.toISOString().slice(0, 10);
-}
 
 export type JobDescriptionsListPagination = {
   total: number;
@@ -117,9 +114,9 @@ export async function queryJobDescriptionsWithEnrichment(
   const jobDescriptions = jobs.map(
     (job): JobDescriptionListRow => ({
       ...job,
-      start_date: dateOnlyToIso(job.start_date),
-      end_date: dateOnlyToIso(job.end_date),
-      hiring_deadline: dateOnlyToIso(job.hiring_deadline),
+      start_date: dbDateToIso(job.start_date),
+      end_date: dbDateToIso(job.end_date),
+      hiring_deadline: dbDateToIso(job.hiring_deadline),
       created_at: job.created_at.toISOString(),
       updated_at: job.updated_at.toISOString(),
       applicant_count: applicantCountByJob.get(job.id) ?? 0,

@@ -5,6 +5,7 @@ import {
   buildSetClause,
   clampLimit,
   clampOffset,
+  dbDateToIso,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
 
@@ -69,6 +70,26 @@ describe("buildSetClause", () => {
     const { clause, values } = buildSetClause({ name: undefined });
     expect(clause).toBe("");
     expect(values).toEqual([]);
+  });
+});
+
+describe("dbDateToIso", () => {
+  it("returns null for null/undefined", () => {
+    expect(dbDateToIso(null)).toBeNull();
+    expect(dbDateToIso(undefined)).toBeNull();
+  });
+
+  it("formats a `pg`-style local-midnight Date without shifting the day", () => {
+    // Mirrors exactly what `postgres-date` (pg's default `date` column parser)
+    // constructs for a DB value of "2026-07-10": `new Date(year, month, day)`,
+    // i.e. local midnight, not UTC. `.toISOString()` would roll this back to
+    // "2026-07-09" in any positive-UTC-offset timezone (e.g. Vietnam, +7) --
+    // the exact bug this function fixes.
+    expect(dbDateToIso(new Date(2026, 6, 10))).toBe("2026-07-10");
+  });
+
+  it("pads single-digit month/day", () => {
+    expect(dbDateToIso(new Date(2026, 0, 5))).toBe("2026-01-05");
   });
 });
 

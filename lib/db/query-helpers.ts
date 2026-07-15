@@ -63,3 +63,21 @@ export function isUniqueViolation(err: unknown): boolean {
     (err as { code?: string }).code === "23505"
   );
 }
+
+/**
+ * Formats a `Date` read from a Postgres `date` column (no timezone) back to
+ * `YYYY-MM-DD`. `pg`'s default parser (`postgres-date`) turns a `date`
+ * column's text value into a `Date` anchored at *local* midnight (e.g.
+ * `new Date(year, month, day)`), not UTC. Using `.toISOString()` on that
+ * value re-reads it in UTC, which rolls the date back a day in any positive
+ * UTC-offset timezone (e.g. Vietnam, UTC+7) -- a DB value of `2026-07-10`
+ * comes back as `"2026-07-09"`. Reading the same local getters `pg` used to
+ * construct the `Date` reverses it correctly regardless of server TZ.
+ */
+export function dbDateToIso(d: Date | null | undefined): string | null {
+  if (d == null) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}

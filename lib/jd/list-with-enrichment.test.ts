@@ -16,9 +16,14 @@ function fakeDb() {
             position: "Backend",
             status: "Hiring",
             jd_storage_path: "jd/a.pdf",
-            start_date: new Date("2026-01-15"),
+            // `date` columns come back from `pg` as local-midnight `Date`s
+            // (see `postgres-date`'s parser), not UTC-anchored ISO strings --
+            // constructed the same way here so this test actually exercises
+            // `dbDateToIso`'s real conversion instead of trivially round-
+            // tripping a UTC value through `.toISOString()`.
+            start_date: new Date(2026, 0, 15),
             end_date: null,
-            hiring_deadline: new Date("2026-02-01"),
+            hiring_deadline: new Date(2026, 1, 1),
             created_at: new Date("2026-01-01T00:00:00Z"),
             updated_at: new Date("2026-01-02T00:00:00Z"),
             total_count: "2",

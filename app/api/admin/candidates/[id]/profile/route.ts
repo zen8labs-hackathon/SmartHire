@@ -4,7 +4,7 @@ import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign
 import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
 import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
-import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
 import {
   candidateProfilePatchSchema,
   mergeProfileIntoParsedPayload,
@@ -111,7 +111,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         experienceYears: patch.experience_years !== undefined ? patch.experience_years : (cvVersion.experience_years ? parseFloat(cvVersion.experience_years) : null),
         gpa: cvVersion.gpa,
         englishLevel: cvVersion.english_level,
-        dateOfBirth: cvVersion.date_of_birth ? cvVersion.date_of_birth.toISOString().split("T")[0] : null,
+        dateOfBirth: dbDateToIso(cvVersion.date_of_birth),
         studentYears: cvVersion.student_years,
         matchedOn: cvVersion.matched_on,
         changeSummary: patch.change_summary ?? null,

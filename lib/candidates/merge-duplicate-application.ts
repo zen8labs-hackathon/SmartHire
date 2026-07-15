@@ -7,6 +7,7 @@ import {
 import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
 import { syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
+import { dbDateToIso } from "@/lib/db/query-helpers";
 
 export type MergeDuplicateApplicationResult =
   | { ok: true }
@@ -79,9 +80,7 @@ export async function mergeDuplicateApplicationIntoExisting(
         : null,
       gpa: duplicateCvVersion.gpa,
       englishLevel: duplicateCvVersion.english_level,
-      dateOfBirth: duplicateCvVersion.date_of_birth
-        ? duplicateCvVersion.date_of_birth.toISOString().split("T")[0]
-        : null,
+      dateOfBirth: dbDateToIso(duplicateCvVersion.date_of_birth),
       studentYears: duplicateCvVersion.student_years,
       matchedOn,
       createdBy,

@@ -5,6 +5,7 @@ import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign
 import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
 import { syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
+import { dbDateToIso } from "@/lib/db/query-helpers";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -89,7 +90,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         experienceYears: targetCv.experience_years ? parseFloat(targetCv.experience_years) : null,
         gpa: targetCv.gpa,
         englishLevel: targetCv.english_level,
-        dateOfBirth: targetCv.date_of_birth ? targetCv.date_of_birth.toISOString().split("T")[0] : null,
+        dateOfBirth: dbDateToIso(targetCv.date_of_birth),
         studentYears: targetCv.student_years,
         matchedOn: targetCv.matched_on,
         changeSummary: body.note ?? null,
