@@ -13,7 +13,11 @@ import {
   TextField,
 } from "@heroui/react";
 
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import {
+  campaignAppliedToCandidateDbRow,
+  type CandidateDbRow,
+} from "@/lib/candidates/db-row";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 import {
   type CandidateProfileFormSnapshot,
@@ -24,6 +28,16 @@ import {
   isCandidateSource,
 } from "@/lib/candidates/source-constants";
 import { PROFILE_CHANGE_SUMMARY_MAX } from "@/lib/candidates/candidate-profile-patch";
+import {
+  resolveCandidatePipelineIds,
+  type StageMapping,
+  type SubStage,
+} from "@/lib/pipelines/transition-validator";
+import {
+  allowedStageTargets,
+  stageSubStageOptionKey,
+} from "@/lib/pipelines/jd-pipeline-row-helpers";
+import { getSubStageTextColorClass } from "@/lib/candidates/pipeline-status-styles";
 
 export type CandidateProfileEditSectionProps = {
   candidateId: string;
@@ -160,6 +174,54 @@ export function CandidateProfileEditSection({
   const [error, setError] = useState<string | null>(null);
   const autoStartedRef = useRef(false);
 
+  const [pipelineConfig, setPipelineConfig] = useState<{
+    jobId: string;
+    stageMappings: StageMapping[];
+    subStages: SubStage[];
+  } | null>(null);
+  const [stageBaseline, setStageBaseline] = useState<{
+    stageMappingId: string;
+    subStateId: string;
+  } | null>(null);
+  const [stageDraft, setStageDraft] = useState<{
+    stageMappingId: string;
+    subStateId: string;
+  } | null>(null);
+
+  const jobId = dbRow?.job_opening_id ?? null;
+
+  useEffect(() => {
+    if (!jobId) return;
+    if (pipelineConfig?.jobId === jobId) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/candidates/pipeline-config?jobIds=${encodeURIComponent(jobId)}`,
+          { credentials: "include", signal: ac.signal },
+        );
+        if (!res.ok || ac.signal.aborted) return;
+        const json = (await res.json()) as {
+          configs?: Record<
+            string,
+            { stageMappings: StageMapping[]; subStages: SubStage[] }
+          >;
+        };
+        const config = json.configs?.[jobId];
+        if (!config || ac.signal.aborted) return;
+        setPipelineConfig({
+          jobId,
+          stageMappings: config.stageMappings,
+          subStages: config.subStages,
+        });
+      } catch {
+        // Pipeline-stage editing is an enhancement on top of the profile
+        // form -- a failed fetch just means that section stays hidden.
+      }
+    })();
+    return () => ac.abort();
+  }, [jobId, pipelineConfig?.jobId]);
+
   const snapFromDb = useMemo(
     () => (dbRow ? snapshotFromDb(dbRow) : null),
     [dbRow],
@@ -232,13 +294,46 @@ export function CandidateProfileEditSection({
     startEdit();
   }, [startInEditMode, dbRow, snapFromDb, startEdit]);
 
+  // Initializes the pipeline-stage draft once editing starts -- deferred
+  // from `startEdit` itself since `pipelineConfig` loads asynchronously and
+  // may not be ready yet (e.g. `startInEditMode` auto-starts before its
+  // fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change while
+  // editing and no draft exists yet, but never overwrites in-progress edits.
+  useEffect(() => {
+    if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
+    const resolved = resolveCandidatePipelineIds(
+      dbRow,
+      pipelineConfig.stageMappings,
+      pipelineConfig.subStages,
+    );
+    if (!resolved.stageMappingId || !resolved.subStateId) return;
+    const b = {
+      stageMappingId: resolved.stageMappingId,
+      subStateId: resolved.subStateId,
+    };
+    setStageBaseline(b);
+    setStageDraft(b);
+  }, [editing, dbRow, pipelineConfig, stageBaseline]);
+
   const cancelEdit = useCallback(() => {
     setEditing(false);
     setBaseline(null);
     setSkillInput("");
     if (snapFromDb) setDraft(draftFromSnapshot(snapFromDb));
     setError(null);
+    setStageBaseline(null);
+    setStageDraft(null);
   }, [snapFromDb]);
+
+  const stageOptions = useMemo(() => {
+    if (!pipelineConfig || !stageBaseline) return [];
+    return allowedStageTargets(
+      stageBaseline.stageMappingId,
+      stageBaseline.subStateId,
+      pipelineConfig.stageMappings,
+      pipelineConfig.subStages,
+    );
+  }, [pipelineConfig, stageBaseline]);
 
   const save = useCallback(async () => {
     if (!dbRow || !baseline) return;
@@ -248,62 +343,119 @@ export function CandidateProfileEditSection({
       return;
     }
     const rawPatch = diffProfileSnapshotsToPatch(current, baseline);
-    if (rawPatch == null) {
+    const stagePipelineChanged =
+      !!stageDraft &&
+      !!stageBaseline &&
+      (stageDraft.stageMappingId !== stageBaseline.stageMappingId ||
+        stageDraft.subStateId !== stageBaseline.subStateId);
+    if (rawPatch == null && !stagePipelineChanged) {
       setError("No changes to save.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const summaryTrim = changeSummary.trim();
-      const patchBody: Record<string, unknown> = { ...rawPatch };
-      if (summaryTrim.length > 0) {
-        patchBody.change_summary = summaryTrim.slice(
-          0,
-          PROFILE_CHANGE_SUMMARY_MAX,
+      let savedCandidate: CandidateDbRow | null = null;
+
+      if (rawPatch != null) {
+        const summaryTrim = changeSummary.trim();
+        const patchBody: Record<string, unknown> = { ...rawPatch };
+        if (summaryTrim.length > 0) {
+          patchBody.change_summary = summaryTrim.slice(
+            0,
+            PROFILE_CHANGE_SUMMARY_MAX,
+          );
+        }
+        const res = await fetch(`/api/admin/candidates/${candidateId}/profile`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          const raw = body.error ?? "Could not save profile.";
+          if (
+            res.status === 409 &&
+            typeof raw === "string" &&
+            raw.toLowerCase().includes("archived")
+          ) {
+            setError(
+              "This profile was archived (superseded by a newer CV upload). Refresh the candidate list and open the active row to edit.",
+            );
+          } else {
+            setError(raw);
+          }
+          return;
+        }
+        const json = (await res.json()) as { candidate?: CandidateDbRow };
+        if (!json.candidate) {
+          setError("Save succeeded but response was incomplete.");
+          return;
+        }
+        savedCandidate = json.candidate;
+      }
+
+      if (stagePipelineChanged && stageDraft) {
+        const res = await fetch(`/api/admin/candidates/${candidateId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            current_job_stage_mapping_id: stageDraft.stageMappingId,
+            current_sub_state_id: stageDraft.subStateId,
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setError(body.error ?? "Could not save pipeline stage.");
+          return;
+        }
+        const json = (await res.json()) as { candidate?: unknown };
+        if (
+          !json.candidate ||
+          typeof json.candidate !== "object" ||
+          !("candidate_id" in json.candidate)
+        ) {
+          setError("Save succeeded but response was incomplete.");
+          return;
+        }
+        savedCandidate = campaignAppliedToCandidateDbRow(
+          json.candidate as CampaignAppliedAdminRow,
         );
       }
-      const res = await fetch(`/api/admin/candidates/${candidateId}/profile`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchBody),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        const raw = body.error ?? "Could not save profile.";
-        if (
-          res.status === 409 &&
-          typeof raw === "string" &&
-          raw.toLowerCase().includes("archived")
-        ) {
-          setError(
-            "This profile was archived (superseded by a newer CV upload). Refresh the candidate list and open the active row to edit.",
-          );
-        } else {
-          setError(raw);
-        }
-        return;
-      }
-      const json = (await res.json()) as { candidate?: CandidateDbRow };
-      const c = json.candidate;
-      if (!c) {
+
+      if (!savedCandidate) {
         setError("Save succeeded but response was incomplete.");
         return;
       }
-      onSaved(c);
+
+      onSaved(savedCandidate);
       setEditing(false);
       setBaseline(null);
       setSkillInput("");
       setChangeSummary("");
+      setStageBaseline(null);
+      setStageDraft(null);
     } catch {
       setError("Could not save profile.");
     } finally {
       setBusy(false);
     }
-  }, [baseline, candidateId, changeSummary, dbRow, draft, onSaved]);
+  }, [
+    baseline,
+    candidateId,
+    changeSummary,
+    dbRow,
+    draft,
+    onSaved,
+    stageBaseline,
+    stageDraft,
+  ]);
 
   if (!canEdit) return null;
 
@@ -562,6 +714,70 @@ export function CandidateProfileEditSection({
                     </TextField>
                   ) : null}
                 </div>
+                {stageBaseline && stageOptions.length > 0 ? (
+                  <div className="min-w-0 md:col-span-2">
+                    <Label className={FIELD_LABEL}>Pipeline stage</Label>
+                    <Select
+                      value={
+                        stageDraft
+                          ? stageSubStageOptionKey(
+                              stageDraft.stageMappingId,
+                              stageDraft.subStateId,
+                            )
+                          : undefined
+                      }
+                      onChange={(k) => {
+                        if (typeof k !== "string") return;
+                        const [stageMappingId, subStateId] = k.split(":");
+                        if (stageMappingId && subStateId) {
+                          setStageDraft({ stageMappingId, subStateId });
+                        }
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {stageOptions.map(({ stageMapping, subStage }) => {
+                            const key = stageSubStageOptionKey(
+                              stageMapping.id,
+                              subStage.id,
+                            );
+                            return (
+                              <ListBox.Item
+                                key={key}
+                                id={key}
+                                textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
+                              >
+                                <span
+                                  className={getSubStageTextColorClass(
+                                    subStage.code,
+                                    subStage.is_passed,
+                                    subStage.is_default,
+                                    stageMapping.pipeline_stages?.color,
+                                  )}
+                                >
+                                  {stageMapping.pipeline_stages?.label ??
+                                    stageMapping.pipeline_stages?.code}
+                                  {" · "}
+                                  {subStage.label}
+                                </span>
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            );
+                          })}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    <p className="mt-1.5 text-[11px] text-muted/80">
+                      Only shows moves allowed from the candidate's current
+                      stage — same rules as the pipeline table.
+                    </p>
+                  </div>
+                ) : null}
                 <TextField className="min-w-0 md:col-span-2">
                   <Label className={FIELD_LABEL}>
                     Change summary{" "}

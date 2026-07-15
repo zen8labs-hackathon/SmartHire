@@ -11,9 +11,11 @@ import {
   TextArea,
   TextField,
   cn,
+  useOverlayState,
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
+import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
 import {
   getStageColorClasses,
   getStageColorStyles,
@@ -29,6 +31,8 @@ type Props = {
   candidate: JobPipelineCandidateRow;
   currentUserId: string;
   isAdmin: boolean;
+  /** HR/admin may edit the candidate's profile fields from this page. */
+  canEditProfile: boolean;
 };
 
 type LatestEval = {
@@ -88,8 +92,10 @@ export function PipelineCandidateEvaluationClient({
   candidate,
   currentUserId,
   isAdmin,
+  canEditProfile,
 }: Props) {
   const router = useRouter();
+  const editProfileModal = useOverlayState();
   const [draftNote, setDraftNote] = useState("");
   const [notesBusy, setNotesBusy] = useState(false);
   const [evalBusy, setEvalBusy] = useState(false);
@@ -420,6 +426,18 @@ export function PipelineCandidateEvaluationClient({
           <SectionCard
             title="Candidate Details"
             description="Personal profile, academic background, and timeline records."
+            actions={
+              canEditProfile ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                  onPress={() => editProfileModal.open()}
+                >
+                  Edit profile
+                </Button>
+              ) : null
+            }
           >
             <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
@@ -447,6 +465,10 @@ export function PipelineCandidateEvaluationClient({
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
                 <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Source</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.sourceLabel}</p>
               </div>
               {candidate.expectedSalary ? (
                 <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
@@ -730,6 +752,19 @@ export function PipelineCandidateEvaluationClient({
           </SectionCard>
         </div>{/* end right panel */}
       </div>{/* end split row */}
+
+      {canEditProfile ? (
+        <EditCandidateModal
+          isOpen={editProfileModal.isOpen}
+          onOpenChange={editProfileModal.setOpen}
+          row={{ id: candidate.id, name: candidate.name }}
+          canEdit={canEditProfile}
+          onSaved={() => {
+            editProfileModal.close();
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

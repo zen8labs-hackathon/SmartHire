@@ -32,6 +32,7 @@ import {
   type CvReviewConfirmResult,
 } from "@/components/admin/candidates/cv-review-sub-modal";
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
+import { useToast } from "@/components/admin/toast-provider";
 
 type JobOpening = {
   id: string;
@@ -66,6 +67,11 @@ type QueueRow = {
   prefillName?: string | null;
   prefillEmail?: string | null;
   prefillPhone?: string | null;
+  /** Set once, when `/process` is first triggered -- drives the "Scanning…
+   * (Ns)" elapsed-time label so a genuinely slow AI/extraction call reads as
+   * "still working, N seconds in" instead of an indistinguishable stuck
+   * "Scanning" with no sense of how long it's actually been. */
+  processingStartedAt?: number;
 };
 
 type DuplicateFlowState = {
@@ -115,6 +121,7 @@ function progressForRow(row: QueueRow): { pct: number; label: string } {
   if (row.parsing_status === "processing") {
     return { pct: 72, label: "Parsing skills & experience…" };
   }
+  if (row.uploadPhase === "uploaded") return { pct: 100, label: "Done" };
   return { pct: 45, label: "Queued for processing…" };
 }
 
@@ -133,6 +140,9 @@ function statusChip(row: QueueRow): {
   }
   if (row.uploadPhase === "awaiting-review") {
     return { label: "Review needed", color: "default" };
+  }
+  if (row.uploadPhase === "uploaded") {
+    return { label: "Completed", color: "success" };
   }
   return { label: "Scanning", color: "accent" };
 }
@@ -215,6 +225,21 @@ export function AddCandidateModal({
     null,
   );
   const [duplicateSubmitting, setDuplicateSubmitting] = useState(false);
+  /** The queue row currently going through "Update CV" or "Discard" from the
+   * duplicate-candidate modal -- kept set from the moment an action is
+   * chosen until it settles, spanning the gap after `closeDuplicateModal()`
+   * hides the modal but before the row's `uploadPhase` actually changes (it
+   * stays "awaiting-review" while the merge/discard request is in flight),
+   * so the row's own Review/Confirm buttons don't stay clickable underneath. */
+  const [duplicateResolvingRowId, setDuplicateResolvingRowId] = useState<
+    string | null
+  >(null);
+  const [allSuccessToastShown, setAllSuccessToastShown] = useState(false);
+  const { success: triggerSuccess, error: triggerError } = useToast();
+  /** Ticks once a second while any row is mid-scan, purely to force a
+   * re-render so the "Scanning… (Ns)" elapsed-time label stays live --
+   * see {@link QueueRow.processingStartedAt}. */
+  const [scanClockTick, setScanClockTick] = useState(() => Date.now());
 
   const isJdPipeline = jdPipelineCampaign != null;
   const isCampaignLocked =
@@ -276,7 +301,9 @@ export function AddCandidateModal({
     async (rowId: string, candidateId: string, runJdMatch: boolean) => {
       setQueue((q) =>
         q.map((r) =>
-          r.rowId === rowId ? { ...r, uploadPhase: "invoking" as const } : r,
+          r.rowId === rowId
+            ? { ...r, uploadPhase: "invoking" as const, processingStartedAt: Date.now() }
+            : r,
         ),
       );
       try {
@@ -415,6 +442,7 @@ export function AddCandidateModal({
     if (!payload) return;
     closeDuplicateModal();
     setDuplicateSubmitting(true);
+    setDuplicateResolvingRowId(payload.rowId);
     let candidateId = payload.candidateId;
     try {
       if (!candidateId) {
@@ -460,7 +488,11 @@ export function AddCandidateModal({
         setQueue((q) =>
           q.map((r) =>
             r.rowId === payload.rowId
-              ? { ...r, uploadPhase: "uploaded" as const }
+              ? {
+                  ...r,
+                  uploadPhase: "uploaded" as const,
+                  parsing_status: "completed" as const,
+                }
               : r,
           ),
         );
@@ -502,17 +534,22 @@ export function AddCandidateModal({
       setQueue((q) =>
         q.map((r) =>
           r.rowId === payload.rowId
-            ? { ...r, uploadPhase: "uploaded" as const }
+            ? {
+                ...r,
+                uploadPhase: "uploaded" as const,
+                parsing_status: "completed" as const,
+              }
             : r,
         ),
       );
     } catch (e) {
-      window.alert(
+      triggerError(
         e instanceof Error ? e.message : "Failed to update candidate profile",
       );
     } finally {
       if (candidateId) duplicateMergeIdsRef.current.delete(candidateId);
       setDuplicateSubmitting(false);
+      setDuplicateResolvingRowId(null);
     }
   }, [
     closeDuplicateModal,
@@ -540,6 +577,7 @@ export function AddCandidateModal({
       return;
     }
     setDuplicateSubmitting(true);
+    setDuplicateResolvingRowId(payload.rowId);
     try {
       const delRes = await fetch(
         `/api/admin/candidates/${payload.candidateId}/discard-duplicate`,
@@ -564,15 +602,17 @@ export function AddCandidateModal({
       );
       onCandidatesChanged?.();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
+      triggerError(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
     } finally {
       setDuplicateSubmitting(false);
+      setDuplicateResolvingRowId(null);
     }
   }, [closeDuplicateModal, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
     const res = await fetch("/api/admin/job-openings", {
       credentials: "include",
+      cache: "no-store",
     });
     if (!res.ok) return;
     const json = (await res.json()) as { jobOpenings?: JobOpening[] };
@@ -599,6 +639,20 @@ export function AddCandidateModal({
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  const hasRowMidScan = queue.some(
+    (r) =>
+      r.processingStartedAt != null &&
+      r.uploadPhase !== "error" &&
+      r.parsing_status !== "completed" &&
+      r.parsing_status !== "failed",
+  );
+
+  useEffect(() => {
+    if (!open || !hasRowMidScan) return;
+    const interval = setInterval(() => setScanClockTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [open, hasRowMidScan]);
 
   /**
    * A row leaves "awaiting-review" (confirmed via the per-row button, via the
@@ -646,6 +700,34 @@ export function AddCandidateModal({
     const target = rowElRefs.current.get(newRows[newRows.length - 1].rowId);
     target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [queue]);
+
+  useEffect(() => {
+    if (!open) {
+      setQueue([]);
+      setAllSuccessToastShown(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (queue.length === 0) return;
+    const allTerminal = queue.every(
+      (r) =>
+        r.parsing_status === "completed" ||
+        r.parsing_status === "failed" ||
+        r.uploadPhase === "error"
+    );
+    if (allTerminal && !allSuccessToastShown) {
+      setAllSuccessToastShown(true);
+      const successCount = queue.filter((r) => r.parsing_status === "completed").length;
+      const failCount = queue.filter((r) => r.parsing_status === "failed" || r.uploadPhase === "error").length;
+
+      if (failCount > 0) {
+        triggerError(`CV upload completed: ${successCount} succeeded, ${failCount} failed.`);
+      } else {
+        triggerSuccess("All CVs uploaded and processed successfully!");
+      }
+    }
+  }, [queue, allSuccessToastShown, triggerSuccess, triggerError]);
 
   /**
    * Polls parsing status for queue rows still in flight. No realtime
@@ -885,28 +967,28 @@ export function AddCandidateModal({
     );
   }, [selectedRowIds, confirmAndProcessRow]);
 
-  const ingestFile = async (file: File) => {
+  const ingestFile = async (file: File): Promise<boolean> => {
     if (isCampaignBlocked) {
-      window.alert(
+      triggerError(
         "Link a job campaign to this job first (Jobs list → publish / link opening), then try again.",
       );
-      return;
+      return false;
     }
     if (isCampaignMissing) {
-      window.alert("Select a target campaign before uploading CVs.");
-      return;
+      triggerError("Select a target campaign before uploading CVs.");
+      return false;
     }
     if (!isAllowedCvFilename(file.name)) {
-      window.alert("Only PDF or DOCX files are supported.");
-      return;
+      triggerError("Only PDF or DOCX files are supported.");
+      return false;
     }
     if (file.size > MAX_CV_BYTES) {
-      window.alert("File exceeds 25MB limit.");
-      return;
+      triggerError("File exceeds 25MB limit.");
+      return false;
     }
     if (sourceKey === "Other" && !sourceOther.trim()) {
-      window.alert("Please describe where this candidate was sourced (Other).");
-      return;
+      triggerError("Please describe where this candidate was sourced (Other).");
+      return false;
     }
 
     const rowId = crypto.randomUUID();
@@ -981,6 +1063,7 @@ export function AddCandidateModal({
           r.rowId === rowId ? { ...r, uploadPhase: "awaiting-review" as const } : r,
         ),
       );
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       setQueue((q) =>
@@ -988,12 +1071,22 @@ export function AddCandidateModal({
           r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
         ),
       );
+      return false;
     }
   };
 
   const handleFiles = async (files: FileList | File[]) => {
+    setAllSuccessToastShown(false);
     const list = Array.from(files);
-    await Promise.all(list.map((f) => ingestFile(f)));
+    const results = await Promise.all(list.map((f) => ingestFile(f)));
+    const successCount = results.filter(Boolean).length;
+    if (successCount > 0) {
+      triggerSuccess(
+        successCount === 1
+          ? "CV uploaded successfully — ready for review."
+          : `${successCount} CVs uploaded successfully — ready for review.`,
+      );
+    }
   };
 
   const reviewingRow = reviewingRowId
@@ -1156,23 +1249,30 @@ export function AddCandidateModal({
                       <Card variant="secondary">
                         <Card.Content className="gap-1 p-3">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            Queue total
+                            CVs uploaded
                           </p>
                           <p className="text-2xl font-semibold tabular-nums text-foreground">
                             {queue.length}
+                          </p>
+                          <p className="text-[10px] text-muted">
+                            This session
                           </p>
                         </Card.Content>
                       </Card>
                       <Card variant="secondary">
                         <Card.Content className="gap-1 p-3">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            Storage
+                            Completed
                           </p>
                           <p className="text-2xl font-semibold tabular-nums text-foreground">
-                            —
+                            {
+                              queue.filter(
+                                (r) => r.parsing_status === "completed",
+                              ).length
+                            }
                           </p>
                           <p className="text-[10px] text-muted">
-                            Per-project metrics
+                            AI parsing finished
                           </p>
                         </Card.Content>
                       </Card>
@@ -1304,8 +1404,43 @@ export function AddCandidateModal({
                                 </Table.Row>
                               ) : (
                                 queue.map((row) => {
-                                  const { pct, label } = progressForRow(row);
-                                  const chip = statusChip(row);
+                                  // A row whose post-parse dedupe safety net (in
+                                  // `/process`) found a hit never leaves
+                                  // `uploadPhase: "invoking"` -- AI parsing has
+                                  // already finished by then (that's how the
+                                  // hit was found), but `progressForRow`/
+                                  // `statusChip` would otherwise keep showing
+                                  // "Starting AI scan…"/"Scanning" for as long
+                                  // as the duplicate modal sits unresolved,
+                                  // reading as a stuck/slow parse instead of
+                                  // "waiting on you to resolve the duplicate".
+                                  const isDuplicatePending =
+                                    duplicateFlow?.rowId === row.rowId ||
+                                    duplicateResolvingRowId === row.rowId;
+                                  const { pct, label } = isDuplicatePending
+                                    ? { pct: 90, label: "Duplicate found — resolve below" }
+                                    : progressForRow(row);
+                                  const baseChip = isDuplicatePending
+                                    ? ({ label: "Duplicate found", color: "default" } as const)
+                                    : statusChip(row);
+                                  // Elapsed-time readout for the generic "Scanning"
+                                  // fallback -- makes a genuinely slow AI/extraction
+                                  // call ("longer than usual" but still working)
+                                  // distinguishable from a silently stuck one, since
+                                  // both otherwise render identically.
+                                  const chip =
+                                    baseChip.label === "Scanning" &&
+                                    row.processingStartedAt != null
+                                      ? {
+                                          ...baseChip,
+                                          label: `Scanning… (${Math.max(
+                                            0,
+                                            Math.floor(
+                                              (scanClockTick - row.processingStartedAt) / 1000,
+                                            ),
+                                          )}s)`,
+                                        }
+                                      : baseChip;
                                   return (
                                     <Table.Row key={row.rowId} id={row.rowId}>
                                       <Table.Cell
@@ -1377,6 +1512,10 @@ export function AddCandidateModal({
                                             <Button
                                               size="sm"
                                               variant="secondary"
+                                              isDisabled={
+                                                duplicateFlow?.rowId === row.rowId ||
+                                                duplicateResolvingRowId === row.rowId
+                                              }
                                               onPress={() => setReviewingRowId(row.rowId)}
                                             >
                                               Review
@@ -1384,6 +1523,10 @@ export function AddCandidateModal({
                                             <Button
                                               size="sm"
                                               variant="primary"
+                                              isDisabled={
+                                                duplicateFlow?.rowId === row.rowId ||
+                                                duplicateResolvingRowId === row.rowId
+                                              }
                                               onPress={() => {
                                                 if (row.tempKey) {
                                                   void confirmAndProcessRow(

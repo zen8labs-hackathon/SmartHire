@@ -4,9 +4,14 @@ import { clampLimit, clampOffset, extractWindowTotal } from "@/lib/db/query-help
 
 /**
  * One existing application whose person or CV file matches a submitted
- * signal. Granularity is "one CV version of one application" (not "one
- * person"), mirroring the old schema's one-row-per-upload dedupe hits so a
- * person with several past uploads/applications can surface more than once.
+ * signal. Granularity is "one application" (not "one person"), mirroring
+ * the old schema's one-row-per-upload dedupe hits so a person with several
+ * past applications (to different jobs) can surface more than once -- but
+ * exactly once per application, via its *active* CV version. Joining every
+ * historical `cv_detail_versions` row instead (i.e. every past re-upload on
+ * the same application) would return the same `campaign_applied_id` once
+ * per version, which is what produced the "same key" React warning in
+ * `DuplicateCandidateModal`'s `hits.map(h => <div key={h.id}>)`.
  */
 export type DedupeSignalMatch = {
   candidate_id: string;
@@ -108,7 +113,7 @@ export async function findCandidatesByDedupeSignals(
      FROM campaign_applied ca
      JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
      JOIN jobs j ON j.id = ca.job_id
-     LEFT JOIN cv_detail_versions cv ON cv.campaign_applied_id = ca.id
+     LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
@@ -237,7 +242,7 @@ export async function listDedupedCandidatesForAdmin(
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      LEFT JOIN pipeline_sub_stages pss ON pss.id = la.current_sub_state_id
      WHERE ${conditions.join(" AND ")}
-     ORDER BY COALESCE(cv.created_at, la.created_at) DESC, c.created_at DESC
+     ORDER BY COALESCE(cv.created_at, la.created_at) DESC, c.created_at DESC, c.id ASC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );

@@ -67,7 +67,7 @@ export const JobPipelineDataPanel = forwardRef<
       try {
         const res = await fetch(
           `/api/admin/candidates?jobId=${jobId}&all=true`,
-          { credentials: "include" },
+          { credentials: "include", cache: "no-store" },
         );
         if (!res.ok) {
           if (!silent) setPipelineLoadState("error");

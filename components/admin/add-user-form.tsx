@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 
+import { adminAddUser, type AdminUserFormState } from "@/app/admin/actions";
 import {
-  adminAddUser,
-  type AdminUserFormState,
-} from "@/app/admin/actions";
-import { ChapterRolePicker, type ChapterOption } from "@/components/admin/chapter-role-picker";
+  ChapterRolePicker,
+  type ChapterOption,
+} from "@/components/admin/chapter-role-picker";
 import {
   Alert,
   Button,
@@ -90,7 +90,12 @@ export function AddUserForm({
         <input key={id} type="hidden" name="chapter_ids" value={id} />
       ))}
       {headChapterIds.map((id) => (
-        <input key={`head-${id}`} type="hidden" name="chapter_head_ids" value={id} />
+        <input
+          key={`head-${id}`}
+          type="hidden"
+          name="chapter_head_ids"
+          value={id}
+        />
       ))}
       {state?.error ? (
         <Alert status="danger">
@@ -130,11 +135,11 @@ export function AddUserForm({
       </TextField>
 
       <Checkbox isSelected={ssoOnly} onChange={setSsoOnly}>
-        <Checkbox.Control>
-          <Checkbox.Indicator />
-        </Checkbox.Control>
         <Checkbox.Content>
-          Sign in with Microsoft only (no password)
+          <Checkbox.Control className="border-2 border-slate-600 dark:border-slate-400 rounded-md">
+            <Checkbox.Indicator />
+          </Checkbox.Control>
+          <span>Sign in with Microsoft (no password)</span>
         </Checkbox.Content>
       </Checkbox>
 
@@ -148,7 +153,9 @@ export function AddUserForm({
         >
           <Label>Initial password</Label>
           <Input placeholder="••••••••" />
-          <Description>At least 8 characters. Share it securely with the user.</Description>
+          <Description>
+            At least 8 characters. Share it securely with the user.
+          </Description>
           <FieldError />
         </TextField>
       ) : (
@@ -193,8 +200,8 @@ export function AddUserForm({
           </Select.Popover>
         </Select>
         <Description>
-          Chapter recruiters need at least one chapter and must be granted on each
-          job (by email or whole chapter) to open that job.
+          Chapter recruiters need at least one chapter and must be granted on
+          each job (by email or whole chapter) to open that job.
         </Description>
       </div>
 

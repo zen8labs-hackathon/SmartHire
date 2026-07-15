@@ -66,6 +66,22 @@ describe("findCandidatesByDedupeSignals", () => {
     expect(sql).toContain("pss.label AS sub_stage_label");
     expect(sql).toContain("LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id");
   });
+
+  it("joins only the active CV version, not every historical version", async () => {
+    // An application with multiple `cv_detail_versions` (re-uploads/replacements)
+    // must still produce exactly one match row for that application -- joining
+    // on `cv.campaign_applied_id = ca.id` (every version) instead of
+    // `cv.id = ca.active_cv_version_id` (just the current one) would fan out to
+    // one row per version, giving `DuplicateCandidateModal` a `hits` array with
+    // the same `campaign_applied_id` repeated (React "duplicate key" warning).
+    const db = fakeDb([]);
+
+    await findCandidatesByDedupeSignals(db, { email: "a@b.com" });
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id");
+    expect(sql).not.toContain("cv.campaign_applied_id = ca.id");
+  });
 });
 
 describe("dedupeMatchStatusLabel", () => {

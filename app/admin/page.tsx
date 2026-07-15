@@ -29,7 +29,7 @@ import {
 } from "./dashboard-skeletons";
 
 export const metadata: Metadata = {
-  title: "Admin Dashboard | Smart Hire Admin",
+  title: "Statistic Dashboard | Smart Hire",
   description:
     "Central workspace management, audit logs, and recruiting analytics.",
 };
@@ -230,7 +230,7 @@ export default async function AdminPage() {
   return (
     <div className="space-y-8 font-sans">
       <PageHeader
-        title="Admin Control Panel"
+        title="Statistic Control Panel"
         description="Monitor system metrics, active pipelines, recent uploads, and account changes."
       />
 

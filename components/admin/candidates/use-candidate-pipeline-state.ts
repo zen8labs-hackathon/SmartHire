@@ -156,7 +156,7 @@ export function useCandidatePipelineState(
         const params = buildCandidatesListSearchParams(buildListQuery());
         url = `/api/admin/candidates?${params}`;
       }
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { credentials: "include", cache: "no-store" });
       if (!res.ok) {
         setDbLoadState("error");
         return;

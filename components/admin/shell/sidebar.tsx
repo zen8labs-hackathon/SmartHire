@@ -14,7 +14,7 @@ import {
   Layers,
   Compass,
   FileSpreadsheet,
-  Settings,
+  BarChart2,
   ChevronDown,
   LogOut,
   Loader2,
@@ -132,10 +132,10 @@ export function Sidebar({
             <Link
               href="/admin"
               className={navLinkClass(isLinkActive("/admin"))}
-              title={collapsed ? "Admin Panel" : undefined}
+              title={collapsed ? "Statistic" : undefined}
             >
-              <Settings className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>Admin Panel</span>}
+              <BarChart2 className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>Statistic</span>}
             </Link>
           )}
 

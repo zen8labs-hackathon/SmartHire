@@ -9,6 +9,16 @@ export const CANDIDATES_LIST_MAX_LIMIT = 200;
 /** Cap when `all=true` or no limit (job pipeline table / full list). */
 export const CANDIDATES_LIST_MAX_ALL = 2000;
 
+/** Whitelisted sortable columns for the admin candidates list. */
+export const CANDIDATES_LIST_SORT_COLUMNS = [
+  "experience",
+  "jdMatchScore",
+  "uploadDate",
+] as const;
+export type CandidatesListSortColumn =
+  (typeof CANDIDATES_LIST_SORT_COLUMNS)[number];
+export type CandidatesListSortDir = "asc" | "desc";
+
 export type CandidatesListQuery = {
   /** `jobs.id` -- DB7X2K merged job_openings + job_descriptions, so there's a single id now. */
   jobId?: string;
@@ -23,6 +33,10 @@ export type CandidatesListQuery = {
   offset?: number;
   /** When true, return up to {@link CANDIDATES_LIST_MAX_ALL} rows (no offset). */
   all?: boolean;
+  /** Defaults to `uploadDate` (the pre-sorting behavior) when omitted. */
+  sortBy?: CandidatesListSortColumn;
+  /** Defaults to `desc` when omitted. */
+  sortDir?: CandidatesListSortDir;
 };
 
 export type CandidatesListPagination = {
@@ -84,6 +98,16 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   const subStateId =
     subStateIdRaw && UUID_RE.test(subStateIdRaw) ? subStateIdRaw : undefined;
 
+  const sortByRaw = searchParams.get("sortBy");
+  const sortBy = (
+    CANDIDATES_LIST_SORT_COLUMNS as readonly string[]
+  ).includes(sortByRaw ?? "")
+    ? (sortByRaw as CandidatesListSortColumn)
+    : undefined;
+  const sortDirRaw = searchParams.get("sortDir");
+  const sortDir: CandidatesListSortDir | undefined =
+    sortDirRaw === "asc" || sortDirRaw === "desc" ? sortDirRaw : undefined;
+
   return {
     query: {
       jobId,
@@ -95,6 +119,8 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
       limit,
       offset,
       all: all || limit == null,
+      sortBy,
+      sortDir,
     },
     error: null,
   };
@@ -110,6 +136,8 @@ export function buildCandidatesListSearchParams(
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
+  if (query.sortBy) params.set("sortBy", query.sortBy);
+  if (query.sortDir) params.set("sortDir", query.sortDir);
   if (query.all) {
     params.set("all", "true");
   } else {
@@ -148,6 +176,8 @@ export async function queryCandidatesList(
       q: input.q,
       uploadFrom: input.uploadFrom,
       uploadTo: input.uploadTo,
+      sortBy: input.sortBy,
+      sortDir: input.sortDir,
       limit,
       offset,
     });

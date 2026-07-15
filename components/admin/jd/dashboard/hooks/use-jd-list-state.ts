@@ -124,6 +124,7 @@ export function useJdListState(
       const params = buildJdListSearchParams(filtersRef.current);
       const res = await fetch(`/api/admin/job-descriptions?${params}`, {
         credentials: "include",
+        cache: "no-store",
       });
       const json = (await res.json()) as {
         jobDescriptions?: JobDescription[];

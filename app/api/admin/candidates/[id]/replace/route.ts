@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { mergeDuplicateApplicationIntoExisting } from "@/lib/candidates/merge-duplicate-application";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -55,6 +56,15 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
     return Response.json({ ok: true });
   } catch (err) {
+    if (isUniqueViolation(err)) {
+      return Response.json(
+        {
+          error:
+            "This CV's email or phone number already belongs to another candidate profile. Refresh and check for duplicates before retrying.",
+        },
+        { status: 409 },
+      );
+    }
     const msg = err instanceof Error ? err.message : "Failed to replace candidate CV.";
     return Response.json({ error: msg }, { status: 500 });
   }

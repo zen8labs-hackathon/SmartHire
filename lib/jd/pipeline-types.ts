@@ -18,4 +18,6 @@ export type JobPipelineCandidateRow = {
   subStageIsPassed: boolean | null;
   /** Only populated server-side when the viewer is HR/admin or a chapter head. */
   expectedSalary: string | null;
+  /** e.g. "LinkedIn", "Facebook", "Other (referral)" — see `formatCandidateSourceLabel`. */
+  sourceLabel: string;
 };

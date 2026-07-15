@@ -276,7 +276,6 @@ export const PipelineTableRow = memo(function PipelineTableRow({
                 ⚠
               </span>
             ) : null}
-            <Select.Indicator />
           </Select.Trigger>
           <Select.Popover>
             <ListBox>

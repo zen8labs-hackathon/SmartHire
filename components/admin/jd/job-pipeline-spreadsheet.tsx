@@ -13,6 +13,7 @@ import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundar
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
+import { FileText } from "lucide-react";
 import { Alert, Breadcrumbs } from "@heroui/react";
 
 function PipelineErrorFallback() {
@@ -32,6 +33,7 @@ function PipelineErrorFallback() {
 type Props = {
   jobId: string;
   jobTitle: string;
+  hasJdSourceFile: boolean;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
   pipelineDataPromise: Promise<{
@@ -45,6 +47,7 @@ type Props = {
 export function JobPipelineSpreadsheet({
   jobId,
   jobTitle,
+  hasJdSourceFile,
   canEditPipeline,
   canAddCandidates,
   pipelineDataPromise,
@@ -64,9 +67,22 @@ export function JobPipelineSpreadsheet({
           <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
           <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
         </Breadcrumbs>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          {jobTitle} pipeline
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {jobTitle} pipeline
+          </h1>
+          {hasJdSourceFile ? (
+            <a
+              href={`/api/admin/job-descriptions/${jobId}/jd-download`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-tertiary"
+            >
+              <FileText className="size-3.5" />
+              View JD file
+            </a>
+          ) : null}
+        </div>
         <p className="max-w-2xl text-sm text-muted">
           Filter and sort by CV upload time.
           {canEditPipeline

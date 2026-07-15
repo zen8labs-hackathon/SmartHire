@@ -12,6 +12,7 @@ import { isChapterHeadOnJob } from "@/lib/admin/profile-access";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 import { campaignAppliedAdminRowToEvaluationRow } from "@/lib/jd/campaign-applied-to-evaluation-row";
+import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,19 +32,24 @@ export default async function PipelineCandidateEvaluationPage({
   if (!access?.isStaff) redirect("/dashboard");
 
   const db = getPool();
-  // Both queries only depend on jobId/candidateId/user.id (already known), not on each
-  // other's result, so they can run concurrently instead of waterfalling. Only fire the
-  // chapter-head check when it can actually affect the outcome (access.isHr already grants
+  // None of these three depend on each other's result, so they can run
+  // concurrently instead of waterfalling. Only fire the chapter-head check
+  // when it can actually affect the outcome (access.isHr already grants
   // canViewSalary), matching the original short-circuit.
-  const [row, isChapterHead] = await Promise.all([
+  const [row, isChapterHead, pipelineConfig] = await Promise.all([
     getCampaignAppliedAdminRowById(db, candidateId),
     access.isHr ? Promise.resolve(false) : isChapterHeadOnJob(db, user.id, jobId),
+    fetchJobPipelineConfig(db, jobId),
   ]);
   if (!row || row.job_id !== jobId) notFound();
 
   const canViewSalary = access.isHr || isChapterHead;
 
-  const candidate = campaignAppliedAdminRowToEvaluationRow(row, { canViewSalary });
+  const candidate = campaignAppliedAdminRowToEvaluationRow(row, {
+    canViewSalary,
+    stageMappings: pipelineConfig.stageMappings,
+    subStages: pipelineConfig.subStages,
+  });
 
   return (
     <PipelineCandidateEvaluationClient
@@ -52,6 +58,7 @@ export default async function PipelineCandidateEvaluationPage({
       candidate={candidate}
       currentUserId={user.id}
       isAdmin={access.isAdmin}
+      canEditProfile={access.isHr}
     />
   );
 }

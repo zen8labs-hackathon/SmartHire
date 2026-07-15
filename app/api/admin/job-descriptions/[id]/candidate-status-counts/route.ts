@@ -1,5 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { countCampaignAppliedByStageForJob } from "@/lib/db/campaign-applied-list";
+import { countActiveApplicationsByJobIds } from "@/lib/db/campaign-applied";
 import { getPool } from "@/lib/db/config/client";
 
 const UUID_RE =
@@ -23,6 +24,11 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid job id." }, { status: 400 });
   }
 
-  const counts = await countCampaignAppliedByStageForJob(getPool(), jobId);
-  return Response.json({ counts });
+  const db = getPool();
+  const [counts, totalByJob] = await Promise.all([
+    countCampaignAppliedByStageForJob(db, jobId),
+    countActiveApplicationsByJobIds(db, [jobId]),
+  ]);
+  const total = totalByJob.get(jobId) ?? 0;
+  return Response.json({ counts, total });
 }

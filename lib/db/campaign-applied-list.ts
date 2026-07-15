@@ -64,6 +64,43 @@ export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   /** Inclusive lower/upper bound (YYYY-MM-DD) on the active CV version's upload time (falls back to the application's created_at when there's no active version yet). */
   uploadFrom?: string;
   uploadTo?: string;
+  /** Defaults to `uploadDate` (the pre-sorting behavior) when omitted. */
+  sortBy?: "experience" | "jdMatchScore" | "uploadDate";
+  /** Defaults to `desc` when omitted. */
+  sortDir?: "asc" | "desc";
+};
+
+/**
+ * Allowlisted `ORDER BY` fragments -- never build this from raw request
+ * input directly (SQL injection), only from this map. `experience`/
+ * `jdMatchScore` are nullable columns; `NULLS LAST` is forced regardless of
+ * direction so unscored/no-experience candidates always sink to the bottom
+ * instead of jumping to the top on ascending sort (Postgres's default null
+ * ordering is direction-dependent, which reads as broken here).
+ *
+ * Every option ends with `, ca.id ASC` -- without a unique tiebreaker,
+ * Postgres doesn't guarantee a stable order among rows that tie on the
+ * primary sort column (e.g. many rows sharing the same upload timestamp from
+ * a bulk seed/import), which under `LIMIT`/`OFFSET` pagination can surface
+ * the same row on two different pages, or skip one entirely, between one
+ * fetch and the next.
+ */
+const SORT_COLUMN_SQL: Record<
+  NonNullable<ListCampaignAppliedForAdminFilters["sortBy"]>,
+  { asc: string; desc: string }
+> = {
+  experience: {
+    asc: "c.experience_years ASC NULLS LAST, ca.id ASC",
+    desc: "c.experience_years DESC NULLS LAST, ca.id ASC",
+  },
+  jdMatchScore: {
+    asc: "ca.jd_match_score ASC NULLS LAST, ca.id ASC",
+    desc: "ca.jd_match_score DESC NULLS LAST, ca.id ASC",
+  },
+  uploadDate: {
+    asc: "COALESCE(cv.created_at, ca.created_at) ASC, ca.id ASC",
+    desc: "COALESCE(cv.created_at, ca.created_at) DESC, ca.id ASC",
+  },
 };
 
 const ADMIN_ROW_SELECT = `
@@ -194,11 +231,14 @@ export async function listCampaignAppliedForAdmin(
   values.push(offset);
   const offsetIdx = values.length;
 
+  const orderBy =
+    SORT_COLUMN_SQL[filters.sortBy ?? "uploadDate"][filters.sortDir ?? "desc"];
+
   const { rows } = await db.query<CampaignAppliedAdminRow & { total_count: string }>(
     `SELECT ${ADMIN_ROW_SELECT}, count(*) OVER() AS total_count
      ${ADMIN_ROW_JOIN}
      WHERE ${conditions.join(" AND ")}
-     ORDER BY COALESCE(cv.created_at, ca.created_at) DESC
+     ORDER BY ${orderBy}
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );
@@ -226,6 +266,15 @@ export type CampaignAppliedStageCountRow = {
  * 0. Replaces that enum breakdown: a custom pipeline's stages/sub-stages
  * aren't a fixed global set, so there's no static list to key a `Record` by
  * anymore -- ordered by the job's actual stage/sub-stage sequence instead.
+ *
+ * A brand-new application has `current_job_stage_mapping_id`/
+ * `current_sub_state_id` both `NULL` until it's explicitly moved -- the UI
+ * (`resolveCandidatePipelineIds`) displays those as sitting in the job's
+ * first stage's default sub-stage without ever writing that back to the row,
+ * so the second half of the `LEFT JOIN` condition below attributes NULL/NULL
+ * applications to that same (first stage, default sub-stage) pair. Without
+ * it, those applications would silently vanish from every bucket even though
+ * they're visibly sitting in "first stage · default" in the table.
  */
 export async function countCampaignAppliedByStageForJob(
   db: QueryExecutor,
@@ -239,9 +288,20 @@ export async function countCampaignAppliedByStageForJob(
      JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id AND ps.deleted_at IS NULL
      JOIN pipeline_sub_stages pss ON pss.pipeline_stage_id = ps.id AND pss.deleted_at IS NULL
      LEFT JOIN campaign_applied ca
-       ON ca.current_sub_state_id = pss.id
-       AND ca.current_job_stage_mapping_id = jsm.id
+       ON ca.job_id = jsm.job_id
        AND ca.deleted_at IS NULL
+       AND (
+         (ca.current_sub_state_id = pss.id AND ca.current_job_stage_mapping_id = jsm.id)
+         OR (
+           ca.current_sub_state_id IS NULL
+           AND ca.current_job_stage_mapping_id IS NULL
+           AND pss.is_default = true
+           AND jsm.sequence_number = (
+             SELECT MIN(sequence_number) FROM job_stage_mappings
+             WHERE job_id = jsm.job_id AND deleted_at IS NULL
+           )
+         )
+       )
      WHERE jsm.job_id = $1 AND jsm.deleted_at IS NULL
      GROUP BY ps.code, ps.label, jsm.sequence_number, pss.code, pss.label, pss.sequence_number
      ORDER BY jsm.sequence_number, pss.sequence_number`,

@@ -77,6 +77,7 @@ export default async function JobPipelinePage({ params }: PageProps) {
       key={job.id}
       jobId={job.id}
       jobTitle={job.position}
+      hasJdSourceFile={!!job.jd_storage_path}
       pipelineDataPromise={pipelineDataPromise}
       canEditPipeline={access.isHr}
       canAddCandidates={access.isStaff}

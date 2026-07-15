@@ -52,16 +52,16 @@ import {
 } from "@/lib/pipelines/transition-validator";
 import {
   buildPipelineStageSubStageFilterOptions,
-  countByStageMappingId,
   type PipelineStageSubStageFilterOption,
 } from "@/lib/pipelines/jd-pipeline-filter-options";
 import {
   findFailSubStage,
   resolveRowPipeline,
-  rowMatchesSearch,
-  rowMatchesUploadDateRange,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
-import { buildCandidatesListSearchParams } from "@/lib/candidates/candidates-list-query";
+import {
+  buildCandidatesListSearchParams,
+  type CandidatesListSortColumn,
+} from "@/lib/candidates/candidates-list-query";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 1, label: "Jan" },
@@ -81,6 +81,15 @@ const YEAR_OPTIONS = Array.from(
   { length: 2030 - 1990 + 1 },
   (_, i) => 1990 + i,
 );
+
+/** Shape of `/api/admin/job-descriptions/[id]/candidate-status-counts`'s `counts` entries. */
+type StageCount = {
+  stage_code: string;
+  stage_label: string;
+  sub_stage_code: string;
+  sub_stage_label: string;
+  count: number;
+};
 
 type Props = {
   jobId: string;
@@ -250,6 +259,10 @@ export function JdAppliedCandidatesPipeline({
     );
   const [uploadDateRange, setUploadDateRange] =
     useState<RangeValue<CalendarDate> | null>(null);
+  const [sortDescriptor, setSortDescriptor] = useState<{
+    column: CandidatesListSortColumn;
+    direction: "ascending" | "descending";
+  } | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
     () => today(getLocalTimeZone()),
   );
@@ -276,7 +289,7 @@ export function JdAppliedCandidatesPipeline({
       return;
     }
     setPage(1);
-  }, [debouncedQuery, statusFilter, uploadDateRange]);
+  }, [debouncedQuery, statusFilter, uploadDateRange, sortDescriptor]);
 
   // If the selected filter's stage/sub-stage was removed by a JD pipeline
   // edit (stale composite id), reset to "all" instead of silently showing
@@ -294,27 +307,51 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [uploadDateRange]);
 
-  // Stage-count summary row: derived from the full `dbRows` (all=true, every
-  // candidate for this JD) fetch, filtered by search/date only — not by the
-  // stage/sub-stage filter itself, so selecting one stage doesn't zero out
-  // every other stage's card.
-  const statsSourceRows = useMemo(() => {
-    let rows = dbRows;
-    if (debouncedQuery.trim()) {
-      rows = rows.filter((r) => rowMatchesSearch(r, debouncedQuery));
-    }
-    rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
-    return rows;
-  }, [dbRows, debouncedQuery, uploadDateRange]);
+  // Stage-count summary row: the `dbRows` full-list fetch caps out at 200
+  // rows server-side (see `CANDIDATES_LIST_MAX_ALL`/`MAX_LIST_LIMIT`), so
+  // deriving stat-card totals from it silently under-counts any job with
+  // more applicants than that. These come from a dedicated `COUNT(*)`
+  // endpoint instead, scoped to the whole job (not the search/date filters,
+  // which only affect the table itself) so the numbers always match the
+  // database regardless of how many rows happen to be loaded client-side.
+  const [statusCounts, setStatusCounts] = useState<StageCount[]>([]);
+  const [totalCandidates, setTotalCandidates] = useState(0);
 
-  const stageMappingCounts = useMemo(
-    () =>
-      countByStageMappingId(
-        statsSourceRows.map((r) => resolveRow(r).stageMappingId),
-        stageMappings,
-      ),
-    [statsSourceRows, resolveRow, stageMappings],
-  );
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobId}/candidate-status-counts`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        counts?: StageCount[];
+        total?: number;
+      };
+      setStatusCounts(json.counts ?? []);
+      setTotalCandidates(json.total ?? 0);
+    } catch {
+      // Stat cards are non-critical; keep the last-known counts on failure.
+    }
+  }, [jobId]);
+
+  // Re-synced whenever the parent's full-list fetch resolves with a new
+  // `dbRows` reference (i.e. after any mutation via `onRefetch`), so the
+  // cards don't go stale after a status change/delete/add.
+  useEffect(() => {
+    void fetchStats();
+  }, [fetchStats, dbRows]);
+
+  const stageMappingCounts = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const sm of stageMappings) {
+      const code = (sm.pipeline_stages?.code ?? "").toLowerCase();
+      totals[sm.id] = statusCounts
+        .filter((c) => c.stage_code.toLowerCase() === code)
+        .reduce((sum, c) => sum + c.count, 0);
+    }
+    return totals;
+  }, [statusCounts, stageMappings]);
 
   // The rendered table is its own backend-paginated query (scoped by jobId +
   // the same filters, including the stage/sub-stage filter), independent of
@@ -351,9 +388,16 @@ export function JdAppliedCandidatesPipeline({
         uploadTo: uploadDateRange?.end.toString(),
         stageMappingId: selectedFilterOption?.stageMapping.id,
         subStateId: selectedFilterOption?.subStage.id,
+        sortBy: sortDescriptor?.column,
+        sortDir: sortDescriptor
+          ? sortDescriptor.direction === "ascending"
+            ? "asc"
+            : "desc"
+          : undefined,
       });
       const res = await fetch(`/api/admin/candidates?${params}`, {
         credentials: "include",
+        cache: "no-store",
       });
       if (seq !== fetchPageSeqRef.current) return;
       if (!res.ok) {
@@ -377,6 +421,7 @@ export function JdAppliedCandidatesPipeline({
     debouncedQuery,
     uploadDateRange,
     selectedFilterOption,
+    sortDescriptor,
     pageSize,
   ]);
 
@@ -905,7 +950,7 @@ export function JdAppliedCandidatesPipeline({
   const pipelineStats = [
     {
       label: "Total Candidates",
-      value: dbRows.length,
+      value: totalCandidates,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
       description: "Applied to opening",
     },
@@ -924,7 +969,6 @@ export function JdAppliedCandidatesPipeline({
 
   return (
     <div className="mt-3 flex flex-col gap-4">
-
       <DataTableStats stats={pipelineStats} />
 
       <DataTableToolbar
@@ -940,6 +984,7 @@ export function JdAppliedCandidatesPipeline({
         isRefreshing={loadState === "loading" || pageLoadState === "loading"}
         actions={
           <Button
+            isDisabled={true}
             variant="outline"
             className="h-9 px-3.5 rounded-xl border border-divider hover:bg-surface-secondary text-foreground font-semibold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer text-xs"
           >
@@ -958,6 +1003,17 @@ export function JdAppliedCandidatesPipeline({
           <Table.Content
             aria-label="Candidates for this job description"
             className="min-w-[900px]"
+            sortDescriptor={sortDescriptor ?? undefined}
+            onSortChange={(next) =>
+              setSortDescriptor(
+                next.column
+                  ? {
+                      column: next.column as CandidatesListSortColumn,
+                      direction: next.direction,
+                    }
+                  : null,
+              )
+            }
           >
             <Table.Header>
               <Table.Column className="w-10" textValue="Select">
@@ -998,12 +1054,52 @@ export function JdAppliedCandidatesPipeline({
                 })()}
               </Table.Column>
               <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
-              <Table.Column className="text-center">Exp.</Table.Column>
+              <Table.Column
+                id="experience"
+                allowsSorting
+                className="text-center"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "experience"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  Exp.
+                </Table.SortableColumnHeader>
+              </Table.Column>
               <Table.Column>Education</Table.Column>
-              <Table.Column className="text-center">JD match</Table.Column>
+              <Table.Column
+                id="jdMatchScore"
+                allowsSorting
+                className="text-center"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "jdMatchScore"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  JD match
+                </Table.SortableColumnHeader>
+              </Table.Column>
               <Table.Column>Pipeline</Table.Column>
-              <Table.Column className="whitespace-nowrap">
-                Uploaded at
+              <Table.Column
+                id="uploadDate"
+                allowsSorting
+                className="whitespace-nowrap"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "uploadDate"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  Uploaded at
+                </Table.SortableColumnHeader>
               </Table.Column>
               <Table.Column>Schedule</Table.Column>
               <Table.Column className="text-center w-[110px]">

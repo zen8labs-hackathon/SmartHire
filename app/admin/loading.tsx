@@ -13,7 +13,7 @@ export default function Loading() {
   return (
     <div className="space-y-8 font-sans">
       <PageHeader
-        title="Admin Control Panel"
+        title="Statistic Control Panel"
         description="Monitor system metrics, active pipelines, recent uploads, and account changes."
       />
 

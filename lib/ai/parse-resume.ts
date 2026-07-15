@@ -46,6 +46,17 @@ const SYSTEM_PROMPT = `You extract structured candidate data from resume text. U
 const MAX_INPUT_CHARS = 120_000;
 
 /**
+ * Without a timeout, a slow/hung LLM call leaves the caller's single
+ * synchronous `/process` request (and the upload queue row's "Scanning"
+ * status in `add-candidate-modal.tsx`) waiting indefinitely -- there's no
+ * other client- or server-side timeout anywhere in this call chain (S3
+ * download, `extractTextFromBuffer`, this call, the dedupe check, the DB
+ * write all run in series inside one awaited request). 60s is generous for
+ * a single resume-extraction call under normal provider latency.
+ */
+const AI_CALL_TIMEOUT_MS = 60_000;
+
+/**
  * Replaces the old `process-cv` Edge Function's raw `fetch` + manual
  * `json_object`/plain-text fallback dance with the same
  * `generateText`/`Output.object` pattern already used by JD extraction and
@@ -66,18 +77,29 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
       ? plainText.slice(0, MAX_INPUT_CHARS)
       : plainText;
 
-  const { output } = await generateText({
-    model,
-    output: Output.object({
-      name: "parsed_resume",
-      description: "Structured candidate data extracted from a resume document",
-      schema: parsedResumeSchema,
-    }),
-    system: SYSTEM_PROMPT,
-    prompt: `Resume text:\n\n${truncated}`,
-    temperature: 0.1,
-    maxOutputTokens: 2048,
-  });
+  let output: ParsedResume;
+  try {
+    ({ output } = await generateText({
+      model,
+      output: Output.object({
+        name: "parsed_resume",
+        description: "Structured candidate data extracted from a resume document",
+        schema: parsedResumeSchema,
+      }),
+      system: SYSTEM_PROMPT,
+      prompt: `Resume text:\n\n${truncated}`,
+      temperature: 0.1,
+      maxOutputTokens: 2048,
+      abortSignal: AbortSignal.timeout(AI_CALL_TIMEOUT_MS),
+    }));
+  } catch (e) {
+    if (e instanceof Error && e.name === "TimeoutError") {
+      throw new Error(
+        "AI resume extraction timed out. The AI provider may be slow or unreachable -- try again in a moment.",
+      );
+    }
+    throw e;
+  }
 
   return output;
 }
