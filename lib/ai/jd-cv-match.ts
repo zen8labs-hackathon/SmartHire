@@ -30,15 +30,24 @@ const matchOutputSchema = z.object({
 async function runLlmJdMatch(
   cv: string,
   jd: string,
-  options?: { heuristicSuffix?: string },
+  options?: { heuristicSuffix?: string; criteriaText?: string },
 ): Promise<{ score: number; rationale: string }> {
   const model = getConfiguredLanguageModel();
   const suffix = options?.heuristicSuffix?.trim() ?? "";
+  const criteriaText = options?.criteriaText?.trim();
   const systemBase = `You are an experienced technical recruiter. Compare the candidate summary to the job description.
 Score 0–100 for overall fit: required skills, experience level, education, and role alignment.
 Be fair: partial overlap should yield mid scores; strong alignment with must-haves yields high scores.`;
+  // Evaluation criteria is hiring-manager-defined for this specific job, so it
+  // outranks the general JD text when the two disagree.
+  const systemCriteria = criteriaText
+    ? `\nIf the evaluation criteria conflicts with the general job description, the evaluation criteria takes precedence -- treat it as a hard requirement.`
+    : "";
   const systemHeuristic = suffix
     ? `\nUse the heuristic notes only as a sanity check; your judgment may differ if the checklist is incomplete.`
+    : "";
+  const criteriaSection = criteriaText
+    ? `\n\n## Evaluation criteria (hard requirements -- takes precedence over the job description above if they conflict)\n\n${criteriaText}`
     : "";
   const { output } = await generateText({
     model,
@@ -47,9 +56,9 @@ Be fair: partial overlap should yield mid scores; strong alignment with must-hav
       description: "Fit score and rationale comparing a CV to a job description",
       schema: matchOutputSchema,
     }),
-    system: `${systemBase}${systemHeuristic}
+    system: `${systemBase}${systemCriteria}${systemHeuristic}
 Respond only with structured output.`,
-    prompt: `## Job description\n\n${jd}\n\n## Candidate (from CV)\n\n${cv}${suffix}`,
+    prompt: `## Job description\n\n${jd}${criteriaSection}\n\n## Candidate (from CV)\n\n${cv}${suffix}`,
     temperature: 0.2,
     maxOutputTokens: 512,
   });
@@ -99,7 +108,7 @@ export async function scoreCvAgainstJobDescriptionHybrid(
   cvSummary: string,
   jobDescriptionText: string,
   formula: JdMatchFormulaResult,
-  options?: { blend?: boolean },
+  options?: { blend?: boolean; criteriaText?: string },
 ): Promise<HybridJdMatchResult> {
   const blend = options?.blend !== false;
 
@@ -111,6 +120,10 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     jobDescriptionText.length > 14_000
       ? jobDescriptionText.slice(0, 14_000) + "\n…[truncated]"
       : jobDescriptionText;
+  const criteriaText =
+    options?.criteriaText && options.criteriaText.length > 14_000
+      ? options.criteriaText.slice(0, 14_000) + "\n…[truncated]"
+      : options?.criteriaText;
 
   const formulaContext = formula.breakdown.jdHintCount
     ? `\n(Heuristic: ~${formula.breakdown.matchedHints}/${formula.breakdown.jdHintCount} requirement phrases overlap the profile; ~${formula.breakdown.candidateSkillsMatchedInJd}/${Math.max(1, formula.breakdown.candidateSkillCount)} listed skills appear in the JD.)`
@@ -135,7 +148,7 @@ export async function scoreCvAgainstJobDescriptionHybrid(
   let aiScore: number;
   let baseRationale: string;
   try {
-    const out = await runLlmJdMatch(cv, jd, { heuristicSuffix: formulaContext });
+    const out = await runLlmJdMatch(cv, jd, { heuristicSuffix: formulaContext, criteriaText });
     aiScore = out.score;
     baseRationale = out.rationale;
   } catch (e) {

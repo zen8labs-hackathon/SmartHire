@@ -153,6 +153,7 @@ export type JobEvaluateTemplateRow = {
   storage_path: string | null;
   original_filename: string | null;
   mime_type: string | null;
+  content_text: string | null;
   created_by: string | null;
   updated_at: Date;
   updated_by: string | null;
@@ -163,6 +164,7 @@ export type UpsertJobEvaluateTemplateInput = {
   storagePath?: string | null;
   originalFilename?: string | null;
   mimeType?: string | null;
+  contentText?: string | null;
   createdBy?: string | null;
   updatedBy?: string | null;
 };
@@ -185,12 +187,13 @@ export async function upsertJobEvaluateTemplate(
 ): Promise<JobEvaluateTemplateRow> {
   const { rows } = await db.query<JobEvaluateTemplateRow>(
     `INSERT INTO job_evaluate_templates
-       (job_id, storage_path, original_filename, mime_type, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (job_id, storage_path, original_filename, mime_type, content_text, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (job_id) DO UPDATE SET
        storage_path = EXCLUDED.storage_path,
        original_filename = EXCLUDED.original_filename,
        mime_type = EXCLUDED.mime_type,
+       content_text = EXCLUDED.content_text,
        updated_by = EXCLUDED.updated_by,
        updated_at = now()
      RETURNING *`,
@@ -199,6 +202,7 @@ export async function upsertJobEvaluateTemplate(
       input.storagePath ?? null,
       input.originalFilename ?? null,
       input.mimeType ?? null,
+      input.contentText ?? null,
       input.createdBy ?? null,
       input.updatedBy ?? null,
     ],

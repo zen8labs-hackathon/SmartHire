@@ -1,5 +1,12 @@
 import React, { type DragEvent, type ChangeEvent } from "react";
-import { Modal, Card, Button, TextField, Label, Input, TextArea } from "@heroui/react";
+import {
+  Modal,
+  Card,
+  Button,
+  TextField,
+  Label,
+  Input,
+} from "@heroui/react";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
@@ -44,7 +51,9 @@ export function JdCreateModal() {
         <Modal.Dialog className="w-full max-w-[820px] overflow-hidden p-0">
           <Modal.CloseTrigger />
           <Modal.Header className="items-start border-b border-divider px-6 py-5">
-            <Modal.Heading className="text-xl">Create New Definition</Modal.Heading>
+            <Modal.Heading className="text-xl">
+              Create New Definition
+            </Modal.Heading>
           </Modal.Header>
 
           <Modal.Body className="max-h-[72vh] space-y-6 overflow-y-auto px-6 py-6">
@@ -110,8 +119,8 @@ export function JdCreateModal() {
                   <span className="font-normal text-danger">*</span>
                 </p>
                 <p className="text-xs text-muted">
-                  PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
-                  form for you to review.
+                  PDF, DOCX or TXT — max 10 MB. After upload, AI fills the form
+                  for you to review.
                 </p>
                 {jdUploadPhase === "uploading" && (
                   <p className="text-xs text-accent">Uploading…</p>
@@ -175,7 +184,9 @@ export function JdCreateModal() {
                     <Input type="date" />
                   </TextField>
                   {createFieldErrors.start_date && (
-                    <p className="text-xs text-danger">{createFieldErrors.start_date}</p>
+                    <p className="text-xs text-danger">
+                      {createFieldErrors.start_date}
+                    </p>
                   )}
                 </div>
 
@@ -190,25 +201,13 @@ export function JdCreateModal() {
                     <Input type="date" />
                   </TextField>
                   {createFieldErrors.hiring_deadline && (
-                    <p className="text-xs text-danger">{createFieldErrors.hiring_deadline}</p>
+                    <p className="text-xs text-danger">
+                      {createFieldErrors.hiring_deadline}
+                    </p>
                   )}
                 </div>
               </div>
 
-              <TextField
-                value={form.criteria}
-                onChange={(v) => setField("criteria", v)}
-              >
-                <Label>Criteria</Label>
-                <TextArea
-                  className="min-h-[5rem]"
-                  placeholder="e.g. Minimum 4 years of experience, English IELTS 7.0+…"
-                />
-                <p className="text-xs text-muted">
-                  Free text. Used later to guide AI candidate matching for
-                  this JD.
-                </p>
-              </TextField>
             </div>
 
             <div className="space-y-3">
@@ -244,14 +243,12 @@ export function JdCreateModal() {
               />
             </div>
 
-            {formError && (
-              <p className="text-sm text-danger">{formError}</p>
-            )}
+            {formError && <p className="text-sm text-danger">{formError}</p>}
           </Modal.Body>
 
-          <Modal.Footer className="justify-between border-t border-divider px-6 py-5">
+          <Modal.Footer className="justify-end border-t border-divider px-6 py-5">
             <Button
-              variant="ghost"
+              variant="secondary"
               onPress={() => void discardJdDraft()}
               isDisabled={
                 formSubmitting ||
@@ -263,24 +260,13 @@ export function JdCreateModal() {
             </Button>
             <div className="flex gap-2">
               <Button
-                variant="secondary"
-                isDisabled={
-                  formSubmitting ||
-                  jdUploadPhase === "uploading" ||
-                  jdUploadPhase === "extracting"
-                }
-                onPress={() => void handleSave(true)}
-              >
-                Save draft
-              </Button>
-              <Button
                 variant="primary"
                 isDisabled={
                   formSubmitting ||
                   jdUploadPhase === "uploading" ||
                   jdUploadPhase === "extracting"
                 }
-                onPress={() => void handleSave(false)}
+                onPress={() => void handleSave()}
               >
                 {formSubmitting ? "Saving…" : "Create"}
               </Button>

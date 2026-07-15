@@ -10,13 +10,14 @@ import {
   type DragEvent,
 } from "react";
 
-import { Alert, Button, ListBox, Select } from "@heroui/react";
+import { Alert, Button, Label, ListBox, Select, TextArea, TextField } from "@heroui/react";
 import { SectionCard } from "@/components/admin/shell/cards";
-import { UploadCloud, FileText, Download, Trash2, Eye } from "lucide-react";
+import { UploadCloud, FileText, Download, Trash2, Eye, Type } from "lucide-react";
 
 import {
   isAllowedCandidateEvalTemplateFilename,
   MAX_CANDIDATE_EVAL_TEMPLATE_BYTES,
+  MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN,
 } from "@/lib/admin/candidate-evaluation-template-constants";
 
 export type EvaluationTemplateJobOption = {
@@ -28,8 +29,12 @@ export type TemplateInfo = {
   hasFile: boolean;
   originalFilename: string | null;
   mimeType: string | null;
+  hasText: boolean;
+  contentText: string | null;
   updatedAt: string | null;
 };
+
+type Mode = "file" | "text";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -47,6 +52,8 @@ export function CandidateEvaluationTemplateManager({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [mode, setMode] = useState<Mode>("file");
+  const [textDraft, setTextDraft] = useState("");
 
   const templateUrl = jobId ? `/api/admin/job-descriptions/${jobId}/evaluation-template` : null;
 
@@ -61,12 +68,17 @@ export function CandidateEvaluationTemplateManager({
         setLoadError(json.error ?? "Could not load template status.");
         return;
       }
-      setInfo({
+      const loaded: TemplateInfo = {
         hasFile: json.hasFile,
         originalFilename: json.originalFilename,
         mimeType: json.mimeType,
+        hasText: json.hasText,
+        contentText: json.contentText,
         updatedAt: json.updatedAt,
-      });
+      };
+      setInfo(loaded);
+      setMode(loaded.hasText ? "text" : "file");
+      setTextDraft(loaded.contentText ?? "");
     } catch {
       setLoadError("Could not load template status.");
     } finally {
@@ -77,8 +89,50 @@ export function CandidateEvaluationTemplateManager({
   useEffect(() => {
     setInfo(null);
     setActionError(null);
+    setMode("file");
+    setTextDraft("");
     void refresh();
   }, [refresh]);
+
+  const onSaveText = async () => {
+    if (!templateUrl) return;
+    setActionError(null);
+    const trimmed = textDraft.trim();
+    if (!trimmed) {
+      setActionError("Criteria text cannot be empty.");
+      return;
+    }
+    if (trimmed.length > MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN) {
+      setActionError(
+        `Criteria text must be at most ${MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN} characters.`,
+      );
+      return;
+    }
+    if (info?.hasFile) {
+      const proceed = confirm(
+        "Saving plain-text criteria will remove the uploaded PDF for this job. Continue?",
+      );
+      if (!proceed) return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(templateUrl, {
+        method: "PUT",
+        credentials: "include",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ contentText: trimmed }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Could not save criteria text.");
+      }
+      await refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Save failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const ingestFile = async (file: File) => {
     if (!jobId) return;
@@ -90,6 +144,12 @@ export function CandidateEvaluationTemplateManager({
     if (file.size > MAX_CANDIDATE_EVAL_TEMPLATE_BYTES) {
       setActionError("File exceeds 10 MB limit.");
       return;
+    }
+    if (info?.hasText) {
+      const proceed = confirm(
+        "Uploading a PDF will remove the saved plain-text criteria for this job. Continue?",
+      );
+      if (!proceed) return;
     }
 
     setBusy(true);
@@ -238,8 +298,87 @@ export function CandidateEvaluationTemplateManager({
               </Alert>
             ) : null}
 
+            <div className="inline-flex w-fit rounded-xl border border-divider bg-surface-secondary/20 p-1">
+              <button
+                type="button"
+                onClick={() => setMode("file")}
+                disabled={busy}
+                className={
+                  mode === "file"
+                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white"
+                    : "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-muted hover:text-foreground"
+                }
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Upload PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("text")}
+                disabled={busy}
+                className={
+                  mode === "text"
+                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white"
+                    : "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-muted hover:text-foreground"
+                }
+              >
+                <Type className="h-3.5 w-3.5" />
+                Write plain text
+              </button>
+            </div>
+            <p className="text-xs text-muted">
+              A job's evaluation criteria is either an uploaded PDF or plain text, not both —
+              saving one clears the other. Whichever is set feeds the AI CV-JD match score;
+              only the PDF form can also be used to generate a filled evaluation PDF for
+              interviewers.
+            </p>
+
             {infoLoading && !info ? (
               <p className="text-sm text-muted">Loading template status…</p>
+            ) : mode === "text" ? (
+              <div className="flex flex-col gap-3">
+                <TextField value={textDraft} onChange={setTextDraft}>
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                    Evaluation criteria (plain text)
+                  </Label>
+                  <TextArea
+                    className="mt-2 min-h-[10rem]"
+                    placeholder="e.g. Minimum 4 years of experience, English IELTS 7.0+…"
+                  />
+                </TextField>
+                <div className="flex items-center justify-between">
+                  {info?.hasText && info.updatedAt ? (
+                    <p className="text-[10px] font-medium text-muted">
+                      Last updated {updatedLabel}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center gap-2">
+                    {info?.hasText ? (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        className="h-8 px-3 rounded-xl text-xs font-bold"
+                        isDisabled={busy}
+                        onPress={() => void onRemove()}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Remove
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="h-8 px-4 rounded-xl text-xs font-bold"
+                      isDisabled={busy}
+                      onPress={() => void onSaveText()}
+                    >
+                      {busy ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ) : info?.hasFile ? (
               <div className="flex flex-col gap-3 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/5 to-indigo-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -293,7 +432,7 @@ export function CandidateEvaluationTemplateManager({
             ) : (
               <div className="flex items-center gap-3 rounded-xl border border-dashed border-divider bg-surface-secondary/20 px-4 py-3 text-xs text-muted font-medium">
                 <FileText className="h-4 w-4 shrink-0 text-muted/60" />
-                No evaluation template uploaded yet for this job.
+                No PDF uploaded yet for this job.
               </div>
             )}
 
@@ -307,73 +446,75 @@ export function CandidateEvaluationTemplateManager({
               </Alert>
             ) : null}
 
-            {/* Upload dropzone */}
-            <div
-              className={
-                dragOver
-                  ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-indigo-500/8 p-10 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
-                  : "group relative rounded-2xl border-2 border-dashed border-divider bg-surface-secondary/10 p-10 text-center transition-all duration-200 hover:border-accent/40 hover:bg-surface-secondary/25 cursor-pointer"
-              }
-              onClick={() => !busy && fileInputRef.current?.click()}
-              onDragOver={(e: DragEvent) => {
-                if (busy) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e: DragEvent) => {
-                if (busy) return;
-                e.preventDefault();
-                setDragOver(false);
-                const f = e.dataTransfer.files?.[0];
-                if (f) void ingestFile(f);
-              }}
-            >
-              {dragOver && (
-                <div className="pointer-events-none absolute inset-0 rounded-2xl bg-accent/5 blur-xl" />
-              )}
-              <div className="relative flex flex-col items-center justify-center gap-3">
-                <div
-                  className={`flex h-14 w-14 items-center justify-center rounded-2xl border transition-all duration-200 ${
-                    dragOver
-                      ? "border-accent/40 bg-accent/15 text-accent shadow-lg shadow-accent/20 scale-110"
-                      : "border-divider bg-surface-secondary text-muted group-hover:border-accent/30 group-hover:bg-accent/10 group-hover:text-accent"
-                  }`}
-                >
-                  <UploadCloud className={`h-6 w-6 ${dragOver ? "animate-bounce" : ""}`} />
+            {/* Upload dropzone (file mode only) */}
+            {mode === "file" ? (
+              <div
+                className={
+                  dragOver
+                    ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-indigo-500/8 p-10 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
+                    : "group relative rounded-2xl border-2 border-dashed border-divider bg-surface-secondary/10 p-10 text-center transition-all duration-200 hover:border-accent/40 hover:bg-surface-secondary/25 cursor-pointer"
+                }
+                onClick={() => !busy && fileInputRef.current?.click()}
+                onDragOver={(e: DragEvent) => {
+                  if (busy) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e: DragEvent) => {
+                  if (busy) return;
+                  e.preventDefault();
+                  setDragOver(false);
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) void ingestFile(f);
+                }}
+              >
+                {dragOver && (
+                  <div className="pointer-events-none absolute inset-0 rounded-2xl bg-accent/5 blur-xl" />
+                )}
+                <div className="relative flex flex-col items-center justify-center gap-3">
+                  <div
+                    className={`flex h-14 w-14 items-center justify-center rounded-2xl border transition-all duration-200 ${
+                      dragOver
+                        ? "border-accent/40 bg-accent/15 text-accent shadow-lg shadow-accent/20 scale-110"
+                        : "border-divider bg-surface-secondary text-muted group-hover:border-accent/30 group-hover:bg-accent/10 group-hover:text-accent"
+                    }`}
+                  >
+                    <UploadCloud className={`h-6 w-6 ${dragOver ? "animate-bounce" : ""}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {dragOver ? "Drop to upload" : "Drag & drop your PDF here"}
+                    </p>
+                    <p className="mt-1 text-[11px] font-medium text-muted">
+                      PDF files only · Max 10 MB
+                    </p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="sr-only"
+                    accept=".pdf,application/pdf"
+                    aria-hidden
+                    tabIndex={-1}
+                    disabled={busy}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      const f = e.target.files?.[0];
+                      if (f) void ingestFile(f);
+                    }}
+                  />
+                  <Button
+                    variant="primary"
+                    className="mt-1 h-9 px-6 rounded-xl bg-accent text-white font-bold text-xs shadow-md shadow-accent/20 hover:bg-accent/90"
+                    isDisabled={busy}
+                    onPress={() => fileInputRef.current?.click()}
+                  >
+                    {busy ? "Uploading…" : info?.hasFile ? "Replace PDF" : "Browse Files"}
+                  </Button>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {dragOver ? "Drop to upload" : "Drag & drop your PDF here"}
-                  </p>
-                  <p className="mt-1 text-[11px] font-medium text-muted">
-                    PDF files only · Max 10 MB
-                  </p>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="sr-only"
-                  accept=".pdf,application/pdf"
-                  aria-hidden
-                  tabIndex={-1}
-                  disabled={busy}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    const f = e.target.files?.[0];
-                    if (f) void ingestFile(f);
-                  }}
-                />
-                <Button
-                  variant="primary"
-                  className="mt-1 h-9 px-6 rounded-xl bg-accent text-white font-bold text-xs shadow-md shadow-accent/20 hover:bg-accent/90"
-                  isDisabled={busy}
-                  onPress={() => fileInputRef.current?.click()}
-                >
-                  {busy ? "Uploading…" : info?.hasFile ? "Replace PDF" : "Browse Files"}
-                </Button>
               </div>
-            </div>
+            ) : null}
           </>
         )}
       </div>

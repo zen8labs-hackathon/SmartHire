@@ -39,8 +39,6 @@ export type JobDescription = {
   experience_requirements_must_have: string | null;
   experience_requirements_nice_to_have: string | null;
   what_we_offer: string | null;
-  /** Free-text hiring criteria entered at JD-creation time (e.g. "min 4 years exp, IELTS 7.0+") -- not AI-extracted; for future use in AI prompts. */
-  criteria: string | null;
   // Detailed intake fields (managed via Edit modal)
   level: string | null;
   headcount: number | null;
@@ -84,8 +82,6 @@ export type JobDescriptionFormData = {
   experience_requirements_must_have: string;
   experience_requirements_nice_to_have: string;
   what_we_offer: string;
-  /** Free-text hiring criteria (e.g. "min 4 years exp, IELTS 7.0+"), for future use in AI prompts. */
-  criteria: string;
 };
 
 /**

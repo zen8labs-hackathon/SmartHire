@@ -1,6 +1,7 @@
 import { scoreCvAgainstJobDescriptionHybrid } from "@/lib/ai/jd-cv-match";
 import { computeJdMatchFormulaAnchor, aiWeightFromEnv } from "@/lib/candidates/jd-match-formula";
 import { resolveJobDescriptionText } from "@/lib/candidates/resolve-job-description-text";
+import { resolveJobEvaluationCriteriaText } from "@/lib/candidates/resolve-job-evaluation-criteria-text";
 import {
   getCampaignAppliedById,
   lockCampaignAppliedForJdMatch,
@@ -120,8 +121,12 @@ export async function runJdMatchForCandidate(
 
   try {
     const jdText = await resolveJobDescriptionText(campaignApplied.job_id);
+    const criteriaText = await resolveJobEvaluationCriteriaText(campaignApplied.job_id);
+    const combinedJdText = [jdText, criteriaText ? `Evaluation criteria:\n${criteriaText}` : null]
+      .filter((s): s is string => !!s?.trim())
+      .join("\n\n---\n\n");
 
-    if (!jdText?.trim()) {
+    if (!combinedJdText.trim()) {
       await saveJdMatchResult(
         campaignAppliedId,
         cvVersion.id,
@@ -158,7 +163,7 @@ export async function runJdMatchForCandidate(
     }
 
     const formula = computeJdMatchFormulaAnchor({
-      jdText,
+      jdText: combinedJdText,
       cvSummary,
       skills: cvVersion.skills,
       role: cvVersion.role,
@@ -167,8 +172,9 @@ export async function runJdMatchForCandidate(
 
     const { score, rationale, aiScore, formulaScore } = await scoreCvAgainstJobDescriptionHybrid(
       cvSummary,
-      jdText,
+      jdText ?? "",
       formula,
+      { criteriaText: criteriaText ?? undefined },
     );
 
     await saveJdMatchResult(

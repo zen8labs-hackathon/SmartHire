@@ -18,7 +18,6 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   experience_requirements_must_have: "",
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
-  criteria: "",
   start_date: "",
   hiring_deadline: "",
 };
@@ -203,7 +202,7 @@ export function useJdCreateState(
   }, [deleteJdDraftOnServer, jdDraftStoragePath, jdModal, resetUploadState]);
 
   const handleSave = useCallback(
-    async (asDraft: boolean) => {
+    async () => {
       setFormSubmitting(true);
       setFormError(null);
       if (!jdDraftStoragePath) {
@@ -213,15 +212,13 @@ export function useJdCreateState(
         setFormSubmitting(false);
         return;
       }
-      if (!asDraft) {
-        const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
-        if (!form.start_date) fieldErrs.start_date = "Start date is required.";
-        if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
-        if (Object.keys(fieldErrs).length > 0) {
-          setCreateFieldErrors(fieldErrs);
-          setFormSubmitting(false);
-          return;
-        }
+      const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
+      if (!form.start_date) fieldErrs.start_date = "Start date is required.";
+      if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
+      if (Object.keys(fieldErrs).length > 0) {
+        setCreateFieldErrors(fieldErrs);
+        setFormSubmitting(false);
+        return;
       }
       const positionFromFile =
         jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
@@ -231,11 +228,7 @@ export function useJdCreateState(
       const payload: JobDescriptionFormData = {
         ...form,
         position: resolvedPosition,
-        status: asDraft
-          ? "Pending"
-          : form.status === "Pending"
-            ? "Hiring"
-            : form.status,
+        status: form.status === "Pending" ? "Hiring" : form.status,
       };
       const postBody = {
         ...payload,
@@ -257,7 +250,7 @@ export function useJdCreateState(
         if (!res.ok) throw new Error(json.error ?? "Save failed.");
         jdModal.close();
         await loadDescriptions();
-        toast.success(asDraft ? "Draft saved successfully." : "Job description created successfully.");
+        toast.success("Job description created successfully.");
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error.";
         setFormError(msg);

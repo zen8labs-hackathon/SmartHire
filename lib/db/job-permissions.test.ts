@@ -127,7 +127,26 @@ describe("job_evaluate_templates", () => {
     expect(result).toEqual(row);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("ON CONFLICT (job_id) DO UPDATE SET"),
-      ["job-1", "templates/a.pdf", null, null, null, null],
+      ["job-1", "templates/a.pdf", null, null, null, null, null],
+    );
+  });
+
+  it("upsertJobEvaluateTemplate saves plain text and clears file fields", async () => {
+    const row = { id: "1", job_id: "job-1", content_text: "Min 4 years experience" };
+    const db = fakeDb([row]);
+
+    const result = await upsertJobEvaluateTemplate(db, {
+      jobId: "job-1",
+      contentText: "Min 4 years experience",
+      storagePath: null,
+      originalFilename: null,
+      mimeType: null,
+    });
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (job_id) DO UPDATE SET"),
+      ["job-1", null, null, null, "Min 4 years experience", null, null],
     );
   });
 

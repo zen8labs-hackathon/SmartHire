@@ -23,8 +23,6 @@ export type JobRow = {
   experience_requirements_must_have: string | null;
   experience_requirements_nice_to_have: string | null;
   what_we_offer: string | null;
-  /** Free-text hiring criteria entered at JD-creation time (e.g. "min 4 years exp, IELTS 7.0+") -- not AI-extracted; for future use in AI prompts. */
-  criteria: string | null;
   level: string | null;
   headcount: number | null;
   hire_type: string | null;
@@ -62,7 +60,6 @@ export type CreateJobInput = {
   experienceRequirementsMustHave?: string | null;
   experienceRequirementsNiceToHave?: string | null;
   whatWeOffer?: string | null;
-  criteria?: string | null;
   level?: string | null;
   headcount?: number | null;
   hireType?: string | null;
@@ -213,14 +210,14 @@ export async function createJob(
     `INSERT INTO jobs (
        position, status, department, employment_status, work_location, reporting,
        role_overview, duties_and_responsibilities, experience_requirements_must_have,
-       experience_requirements_nice_to_have, what_we_offer, criteria, level, headcount, hire_type,
+       experience_requirements_nice_to_have, what_we_offer, level, headcount, hire_type,
        project_info, team_size, language_requirements, career_development, other_requirements,
        salary_range, project_allowances, interview_process, start_date, end_date,
        hiring_deadline, jd_storage_path, jd_original_filename, jd_mime_type, update_note, created_by
      )
      VALUES (
-        $1, COALESCE($2, 'Pending'), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
+        $1, COALESCE($2, 'Pending'), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
      )
      RETURNING *`,
     [
@@ -235,7 +232,6 @@ export async function createJob(
       input.experienceRequirementsMustHave ?? null,
       input.experienceRequirementsNiceToHave ?? null,
       input.whatWeOffer ?? null,
-      input.criteria ?? null,
       input.level ?? null,
       input.headcount ?? null,
       input.hireType ?? null,
@@ -279,7 +275,6 @@ export async function updateJob(
       experience_requirements_nice_to_have:
         patch.experienceRequirementsNiceToHave,
       what_we_offer: patch.whatWeOffer,
-      criteria: patch.criteria,
       level: patch.level,
       headcount: patch.headcount,
       hire_type: patch.hireType,

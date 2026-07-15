@@ -1,5 +1,7 @@
 export const MAX_CANDIDATE_EVAL_TEMPLATE_BYTES = 10 * 1024 * 1024;
 
+export const MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN = 20_000;
+
 /** S3 key prefix -- kept distinct from `jd/` so the two never collide. */
 export const CANDIDATE_EVAL_TEMPLATE_KEY_PREFIX = "evaluation-template/";
 

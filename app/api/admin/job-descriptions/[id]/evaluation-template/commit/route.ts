@@ -83,6 +83,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     storagePath: path,
     originalFilename: filename,
     mimeType: typeof body.mimeType === "string" ? body.mimeType : null,
+    contentText: null,
     createdBy: auth.userId,
     updatedBy: auth.userId,
   });
