@@ -156,7 +156,7 @@ export async function createUser(
 ): Promise<PublicUserRow> {
   const { rows } = await db.query<PublicUserRow>(
     `INSERT INTO users (email, username, role, password_hash)
-     VALUES ($1, $2, COALESCE($3, 'none'), $4)
+     VALUES ($1, $2, COALESCE($3::profile_role, 'none'), $4)
      RETURNING ${PUBLIC_COLUMNS}`,
     [
       input.email,
@@ -189,6 +189,39 @@ export async function updateUser(
      WHERE id = $1 AND deleted_at IS NULL
      RETURNING ${PUBLIC_COLUMNS}`,
     [id, ...values],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Links a Microsoft/Azure AD identity to an already-invited user row. Only
+ * matches a row that has no SSO identity yet (`sso_provider IS NULL`) --
+ * this app is invite-only, so first SSO login must land on an account an
+ * admin already created, never create a new one (see AZ4S9K planning).
+ */
+export async function linkSsoIdentity(
+  db: QueryExecutor,
+  input: { email: string; provider: string; subjectId: string },
+): Promise<UserRow | null> {
+  const { rows } = await db.query<UserRow>(
+    `UPDATE users
+     SET sso_provider = $1, sso_subject_id = $2
+     WHERE lower(email) = lower($3) AND sso_provider IS NULL AND deleted_at IS NULL
+     RETURNING *`,
+    [input.provider, input.subjectId, input.email],
+  );
+  return rows[0] ?? null;
+}
+
+/** Return-visit lookup for a user already linked to an SSO identity. */
+export async function getUserBySsoIdentity(
+  db: QueryExecutor,
+  provider: string,
+  subjectId: string,
+): Promise<UserRow | null> {
+  const { rows } = await db.query<UserRow>(
+    `SELECT * FROM users WHERE sso_provider = $1 AND sso_subject_id = $2 AND deleted_at IS NULL`,
+    [provider, subjectId],
   );
   return rows[0] ?? null;
 }

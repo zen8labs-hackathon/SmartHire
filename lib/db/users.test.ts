@@ -6,8 +6,10 @@ import {
   getPublicUserById,
   getUserByEmailForAuth,
   getUserByIdForAuth,
+  getUserBySsoIdentity,
   getUsersByEmails,
   getUsersByIds,
+  linkSsoIdentity,
   listPublicUsers,
   searchUsersByEmail,
   softDeleteUser,
@@ -149,7 +151,7 @@ describe("createUser", () => {
 
     expect(result).toEqual(row);
     const [sql, values] = db.query.mock.calls[0];
-    expect(sql).toContain("COALESCE($3, 'none')");
+    expect(sql).toContain("COALESCE($3::profile_role, 'none')");
     expect(values).toEqual(["a@b.com", "a", null, null]);
   });
 
@@ -191,6 +193,52 @@ describe("updateUser", () => {
       `SELECT id, email, username, role, created_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`,
       ["u-1"],
     );
+  });
+});
+
+describe("linkSsoIdentity", () => {
+  it("updates only an unlinked, non-deleted row matched by email", async () => {
+    const row = { id: "u-1", email: "a@b.com", sso_provider: "azure_ad", sso_subject_id: "obj-1" };
+    const db = fakeDb([row]);
+
+    const result = await linkSsoIdentity(db, {
+      email: "A@B.com",
+      provider: "azure_ad",
+      subjectId: "obj-1",
+    });
+
+    expect(result).toEqual(row);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("WHERE lower(email) = lower($3) AND sso_provider IS NULL AND deleted_at IS NULL");
+    expect(values).toEqual(["azure_ad", "obj-1", "A@B.com"]);
+  });
+
+  it("returns null when no row matches", async () => {
+    const db = fakeDb([]);
+    const result = await linkSsoIdentity(db, {
+      email: "nobody@b.com",
+      provider: "azure_ad",
+      subjectId: "obj-2",
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe("getUserBySsoIdentity", () => {
+  it("looks up by provider + subject id", async () => {
+    const row = { id: "u-1", sso_provider: "azure_ad", sso_subject_id: "obj-1" };
+    const db = fakeDb([row]);
+
+    const result = await getUserBySsoIdentity(db, "azure_ad", "obj-1");
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["azure_ad", "obj-1"]);
+  });
+
+  it("returns null when no row matches", async () => {
+    const db = fakeDb([]);
+    const result = await getUserBySsoIdentity(db, "azure_ad", "missing");
+    expect(result).toBeNull();
   });
 });
 

@@ -11,6 +11,7 @@ import { ChapterRolePicker, type ChapterOption } from "@/components/admin/chapte
 import {
   Alert,
   Button,
+  Checkbox,
   Description,
   FieldError,
   Input,
@@ -60,6 +61,7 @@ export function AddUserForm({
       }
     }
   }, [state, triggerSuccess, onSuccess]);
+  const [ssoOnly, setSsoOnly] = useState(false);
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("chapter");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
@@ -83,6 +85,7 @@ export function AddUserForm({
 
   return (
     <form action={formAction} className="flex w-full flex-col gap-4">
+      <input type="hidden" name="sso_only" value={ssoOnly ? "true" : "false"} />
       <input type="hidden" name="recruiting_access" value={recruitingAccess} />
       {selectedChapterIds.map((id) => (
         <input key={id} type="hidden" name="chapter_ids" value={id} />
@@ -127,18 +130,34 @@ export function AddUserForm({
         <FieldError />
       </TextField>
 
-      <TextField
-        isRequired
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={8}
-      >
-        <Label>Initial password</Label>
-        <Input placeholder="••••••••" />
-        <Description>At least 8 characters. Share it securely with the user.</Description>
-        <FieldError />
-      </TextField>
+      <Checkbox isSelected={ssoOnly} onChange={setSsoOnly}>
+        <Checkbox.Control>
+          <Checkbox.Indicator />
+        </Checkbox.Control>
+        <Checkbox.Content>
+          Sign in with Microsoft only (no password)
+        </Checkbox.Content>
+      </Checkbox>
+
+      {!ssoOnly ? (
+        <TextField
+          isRequired
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+        >
+          <Label>Initial password</Label>
+          <Input placeholder="••••••••" />
+          <Description>At least 8 characters. Share it securely with the user.</Description>
+          <FieldError />
+        </TextField>
+      ) : (
+        <Description>
+          This user will link their SmartHire account on first "Sign in with
+          Microsoft" using this email address.
+        </Description>
+      )}
 
       <div className="space-y-2">
         <Label className="text-sm font-medium text-foreground">

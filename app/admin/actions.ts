@@ -143,15 +143,21 @@ export async function adminAddUser(
 
   const email = normalizeEmail(String(formData.get("email") ?? ""));
   const password = String(formData.get("password") ?? "");
+  const ssoOnly = String(formData.get("sso_only") ?? "") === "true";
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  if (!email) {
+    return { error: "Email is required." };
   }
   if (!isValidEmail(email)) {
     return { error: "Enter a valid email address." };
   }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  if (!ssoOnly) {
+    if (!password) {
+      return { error: "Email and password are required." };
+    }
+    if (password.length < 8) {
+      return { error: "Password must be at least 8 characters." };
+    }
   }
 
   const recruitingAccess = String(
@@ -169,7 +175,7 @@ export async function adminAddUser(
   }
 
   const username = await generateUniqueUsername(email);
-  const passwordHash = await hashPassword(password);
+  const passwordHash = ssoOnly ? null : await hashPassword(password);
 
   let user;
   try {
@@ -196,7 +202,11 @@ export async function adminAddUser(
   revalidatePath("/admin");
   revalidatePath("/admin/chapters");
   return {
-    message: `Created account for ${email}. ${accessHint(result.role, chapterIds.length, chapterHeadIds.size)} They can sign in with this email and password.`,
+    message: `Created account for ${email}. ${accessHint(result.role, chapterIds.length, chapterHeadIds.size)} ${
+      ssoOnly
+        ? "They can sign in with Microsoft using this email."
+        : "They can sign in with this email and password."
+    }`,
   };
 }
 
