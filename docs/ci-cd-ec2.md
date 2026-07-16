@@ -76,7 +76,9 @@ File: `.github/workflows/deploy-ec2.yml`
 |----------|------------------|
 | Branch trigger | `chore/aws-ec2-deploy` |
 | Runner labels | `self-hosted`, `smarthire-ec2` |
-| Lệnh deploy | `/opt/smarthire/app/deploy/deploy.sh chore/aws-ec2-deploy` |
+| Lệnh deploy | `/opt/smarthire/app/deploy/deploy-bluegreen.sh chore/aws-ec2-deploy` |
+
+Blue-green (gần zero downtime): [blue-green-ec2.md](./blue-green-ec2.md). Rollback / bật lần đầu: xem doc đó trước khi chạy CI.
 
 Đổi branch deploy: sửa **cả hai** chỗ `branches:` và tham số `./deploy/deploy.sh <branch>` trong workflow.
 

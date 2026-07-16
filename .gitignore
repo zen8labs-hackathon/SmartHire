@@ -47,3 +47,7 @@ next-env.d.ts
 .specstory
 .vscode
 .agents/*
+
+# blue-green state on server (symlink + slot name)
+deploy/.active-slot
+deploy/nginx/active-app-upstream.conf

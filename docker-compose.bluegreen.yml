@@ -1,0 +1,40 @@
+# Overlay for blue-green app slots. Use with docker-compose.prod.yml:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.bluegreen.yml up -d app_blue
+#
+# Do not run the single `app` service at the same time — use deploy-bluegreen.sh.
+
+x-app-common: &app-common
+  build: .
+  image: smart_hire:prod
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    NODE_ENV: production
+    PORT: "3100"
+    DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire.zen8labs.io}
+  extra_hosts:
+    - "smart-hire.zen8labs.io:host-gateway"
+  depends_on:
+    db:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    minio-init:
+      condition: service_completed_successfully
+
+services:
+  app_blue:
+    <<: *app-common
+    container_name: smarthire_app_blue
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  app_green:
+    <<: *app-common
+    container_name: smarthire_app_green
+    ports:
+      - "127.0.0.1:3101:3100"

@@ -1,7 +1,7 @@
 # Auto-deploy EC2 when pushing to a specific branch.
 #
 # Requires a self-hosted GitHub Actions runner on the EC2 box (see docs/ci-cd-ec2.md).
-# The runner executes deploy.sh on the server — no SSH, no SSM SendCommand from GitHub.
+# The runner executes deploy-bluegreen.sh on the server (blue-green cutover).
 
 name: Deploy EC2
 
@@ -21,8 +21,8 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Run deploy script
+      - name: Blue-green deploy
         run: |
           cd /opt/smarthire/app
           git config --global --add safe.directory /opt/smarthire/app
-          ./deploy/deploy.sh chore/aws-ec2-deploy
+          ./deploy/deploy-bluegreen.sh chore/aws-ec2-deploy
