@@ -403,7 +403,7 @@ export function UsersTableWrapper({
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search users by email or username..."
-        createButtonLabel="Create User"
+        createButtonLabel="Add User"
         onCreate={() => setInviteModalOpen(true)}
         filters={roleFilterElement}
         onRefresh={fetchUsers}
