@@ -40,6 +40,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env (min 8 chars)}
+      # Free MinIO: bucket-level `mc cors` often fails — global API CORS is reliable.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOW_ORIGIN:-https://smart-hire.zen8labs.io}
     volumes:
       - smarthire_minio:/data
     ports:
@@ -71,7 +73,9 @@ services:
         set -e
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb -p "local/$$S3_BUCKET" || true
-        mc cors set "local/$$S3_BUCKET" /cors.json
+        # JSON file needs set-json (set expects XML). Bucket CORS may be unsupported on
+        # free MinIO — non-fatal because MINIO_API_CORS_ALLOW_ORIGIN is set on the server.
+        mc cors set-json "local/$$S3_BUCKET" /cors.json || echo "WARN: bucket CORS skipped (using global MINIO_API_CORS_ALLOW_ORIGIN)"
         echo "MinIO bucket $$S3_BUCKET ready"
     restart: "no"
 
