@@ -458,6 +458,31 @@ git pull
 
 ---
 
+## Auto deploy khi push GitHub (CI/CD)
+
+Muốn **mỗi lần push** lên branch deploy thì server tự chạy lại `deploy.sh`:
+
+1. Cài **GitHub Actions self-hosted runner** trên EC2 (một lần)
+2. Push file `.github/workflows/deploy-ec2.yml` lên repo
+3. Mỗi push vào `chore/aws-ec2-deploy` → Actions chạy deploy
+
+Hướng dẫn chi tiết: **[ci-cd-ec2.md](./ci-cd-ec2.md)**
+
+Tóm tắt một lần trên EC2:
+
+```bash
+# GitHub → Settings → Actions → Runners → New self-hosted runner → copy token
+cd /opt/smarthire
+# tải + giải nén runner (xem ci-cd-ec2.md)
+./config.sh --url https://github.com/zen8labs-hackathon/SmartHire \
+  --token TOKEN --name smarthire-ec2 --labels smarthire-ec2 --unattended
+sudo ./svc.sh install ubuntu && sudo ./svc.sh start
+```
+
+Đổi branch auto-deploy: sửa `branches:` và `./deploy/deploy.sh <branch>` trong `.github/workflows/deploy-ec2.yml`.
+
+---
+
 ## Tóm tắt lệnh “happy path” (đã có Docker + `.env`)
 
 ```bash

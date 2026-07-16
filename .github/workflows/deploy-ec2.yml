@@ -1,0 +1,28 @@
+# Auto-deploy EC2 when pushing to a specific branch.
+#
+# Requires a self-hosted GitHub Actions runner on the EC2 box (see docs/ci-cd-ec2.md).
+# The runner executes deploy.sh on the server — no SSH, no SSM SendCommand from GitHub.
+
+name: Deploy EC2
+
+on:
+  push:
+    branches:
+      - chore/aws-ec2-deploy
+
+concurrency:
+  group: deploy-ec2-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to smart-hire.zen8labs.io
+    runs-on: [self-hosted, smarthire-ec2]
+    timeout-minutes: 30
+
+    steps:
+      - name: Run deploy script
+        run: |
+          cd /opt/smarthire/app
+          git config --global --add safe.directory /opt/smarthire/app
+          ./deploy/deploy.sh chore/aws-ec2-deploy
