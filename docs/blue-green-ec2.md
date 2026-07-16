@@ -49,10 +49,13 @@ File trạng thái trên server (không commit): `deploy/.active-slot` → `blue
 
 ### 1. Dừng app single-slot cũ (nếu có)
 
+`deploy-bluegreen.sh` tự stop/rm container `app` trước mỗi deploy. Lần đầu hoặc khi debug port `:3100 already allocated`, có thể chạy tay:
+
 ```bash
 cd /opt/smarthire/app
 docker compose -f docker-compose.prod.yml stop app
 docker compose -f docker-compose.prod.yml rm -f app
+docker ps --filter publish=3100
 ```
 
 ### 2. Cấu hình nginx dùng upstream động

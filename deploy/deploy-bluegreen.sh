@@ -34,6 +34,10 @@ echo "==> Ensure db + MinIO are up"
 echo "==> Run migrations"
 "${COMPOSE[@]}" --profile migrate run --rm migrate
 
+echo "==> Stop legacy single-slot app (frees :3100 for blue-green)"
+docker compose -f docker-compose.prod.yml stop app 2>/dev/null || true
+docker compose -f docker-compose.prod.yml rm -f app 2>/dev/null || true
+
 ACTIVE="$(active_slot)"
 if [ "$ACTIVE" = blue ]; then
   TARGET=green
@@ -50,7 +54,10 @@ else
 fi
 
 echo "==> Active slot: ${ACTIVE} → deploying to ${TARGET} (:${TARGET_PORT})"
-"${COMPOSE[@]}" up -d --no-deps "${TARGET_SERVICE}"
+# Idle slot must be stopped first (frees port if a prior deploy failed mid-cutover).
+"${COMPOSE[@]}" stop "${TARGET_SERVICE}" 2>/dev/null || true
+"${COMPOSE[@]}" rm -f "${TARGET_SERVICE}" 2>/dev/null || true
+"${COMPOSE[@]}" up -d --no-deps --force-recreate "${TARGET_SERVICE}"
 
 echo "==> Health check ${TARGET} on 127.0.0.1:${TARGET_PORT}"
 for i in $(seq 1 30); do
