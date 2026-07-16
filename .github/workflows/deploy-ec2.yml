@@ -1,7 +1,7 @@
 # Auto-deploy EC2 when pushing to a specific branch.
 #
 # Requires a self-hosted GitHub Actions runner on the EC2 box (see docs/ci-cd-ec2.md).
-# The runner executes deploy-bluegreen.sh on the server (blue-green cutover).
+# Syncs /opt/smarthire/app to origin before running deploy (script may not exist until first pull).
 
 name: Deploy EC2
 
@@ -23,6 +23,22 @@ jobs:
     steps:
       - name: Blue-green deploy
         run: |
-          cd /opt/smarthire/app
-          git config --global --add safe.directory /opt/smarthire/app
-          ./deploy/deploy-bluegreen.sh chore/aws-ec2-deploy
+          set -euo pipefail
+          APP_DIR=/opt/smarthire/app
+          BRANCH=chore/aws-ec2-deploy
+
+          cd "$APP_DIR"
+          git config --global --add safe.directory "$APP_DIR"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+
+          if [ -x deploy/deploy-bluegreen.sh ]; then
+            ./deploy/deploy-bluegreen.sh "$BRANCH"
+          elif [ -x deploy/deploy.sh ]; then
+            ./deploy/deploy.sh "$BRANCH"
+          else
+            echo "No deploy script found after sync. Check $APP_DIR"
+            ls -la deploy/ || true
+            exit 1
+          fi

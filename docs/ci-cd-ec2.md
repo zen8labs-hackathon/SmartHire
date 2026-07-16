@@ -80,6 +80,19 @@ File: `.github/workflows/deploy-ec2.yml`
 
 Blue-green (gần zero downtime): [blue-green-ec2.md](./blue-green-ec2.md). Rollback / bật lần đầu: xem doc đó trước khi chạy CI.
 
+Workflow tự `git reset --hard origin/<branch>` trước khi chạy deploy script (tránh lỗi file chưa pull trên server).
+
+### Tắt check Vercel trên GitHub
+
+Repo có `vercel.json` với `"git": { "deploymentEnabled": false }` để Vercel không deploy khi push.
+
+Nếu vẫn thấy check **Vercel** / **Vercel Preview Comments**:
+
+1. [Vercel Dashboard](https://vercel.com) → project SmartHire → **Settings** → **Git** → Disconnect (hoặc bỏ branch khỏi production deploy)
+2. GitHub repo → **Settings** → **Integrations** / **Installed GitHub Apps** → gỡ **Vercel** nếu không dùng nữa
+
+Production hiện tại: **EC2** (`smart-hire.zen8labs.io`), không phải Vercel.
+
 Đổi branch deploy: sửa **cả hai** chỗ `branches:` và tham số `./deploy/deploy.sh <branch>` trong workflow.
 
 ---
