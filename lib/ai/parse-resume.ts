@@ -1,7 +1,11 @@
-import { generateText, Output } from "ai";
+import { Output } from "ai";
 import { z } from "zod";
 
-import { getConfiguredLanguageModel, isLlmInferenceConfigured } from "@/lib/llm";
+import {
+  generateTextWithFallback,
+  getConfiguredLanguageModel,
+  isLlmInferenceConfigured,
+} from "@/lib/llm";
 
 /**
  * Field names/shape match `lib/candidates/normalize-parsed-resume.ts`'s
@@ -79,7 +83,7 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
 
   let output: ParsedResume;
   try {
-    ({ output } = await generateText({
+    ({ output } = await generateTextWithFallback({
       model,
       output: Output.object({
         name: "parsed_resume",

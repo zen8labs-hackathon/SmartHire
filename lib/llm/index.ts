@@ -1,13 +1,17 @@
 export type { LlmProviderId } from "@/lib/llm/types";
 export {
+  getFallbackLlmModelId,
   getGlobalLlmModelId,
   getJdExtractModelId,
   getOpenAiCompatibleBaseUrl,
   getVercelAiGatewayBaseUrl,
+  isLlmFallbackConfigured,
   isLlmInferenceConfigured,
   llmInferenceDisabledReason,
   parseLlmProviderId,
 } from "@/lib/llm/config";
+export { generateTextWithFallback, formatLlmCallLabel } from "@/lib/llm/generate-with-fallback";
+export type { LlmCallMeta } from "@/lib/llm/generate-with-fallback";
 export {
   createGeminiClient,
   GEMINI_API_KEY_MISSING_MESSAGE,

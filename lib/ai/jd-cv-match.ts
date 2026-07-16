@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { Output } from "ai";
 import { z } from "zod";
 
 import {
@@ -7,9 +7,12 @@ import {
   type JdMatchFormulaResult,
 } from "@/lib/candidates/jd-match-formula";
 import {
+  formatLlmCallLabel,
+  generateTextWithFallback,
   getConfiguredLanguageModel,
   isLlmInferenceConfigured,
   llmInferenceDisabledReason,
+  type LlmCallMeta,
 } from "@/lib/llm";
 
 const matchOutputSchema = z.object({
@@ -31,7 +34,7 @@ async function runLlmJdMatch(
   cv: string,
   jd: string,
   options?: { heuristicSuffix?: string; criteriaText?: string },
-): Promise<{ score: number; rationale: string }> {
+): Promise<{ score: number; rationale: string; llmMeta: LlmCallMeta }> {
   const model = getConfiguredLanguageModel();
   const suffix = options?.heuristicSuffix?.trim() ?? "";
   const criteriaText = options?.criteriaText?.trim();
@@ -49,7 +52,7 @@ Be fair: partial overlap should yield mid scores; strong alignment with must-hav
   const criteriaSection = criteriaText
     ? `\n\n## Evaluation criteria (hard requirements -- takes precedence over the job description above if they conflict)\n\n${criteriaText}`
     : "";
-  const { output } = await generateText({
+  const { output, llmMeta } = await generateTextWithFallback({
     model,
     output: Output.object({
       name: "cv_jd_match",
@@ -65,6 +68,7 @@ Respond only with structured output.`,
   return {
     score: output.score,
     rationale: output.rationale.trim().slice(0, 880),
+    llmMeta,
   };
 }
 
@@ -74,7 +78,7 @@ Respond only with structured output.`,
 export async function scoreCvAgainstJobDescription(
   cvSummary: string,
   jobDescriptionText: string,
-): Promise<{ score: number; rationale: string }> {
+): Promise<{ score: number; rationale: string; llmMeta: LlmCallMeta }> {
   if (!isLlmInferenceConfigured()) {
     throw new Error(llmInferenceDisabledReason());
   }
@@ -94,6 +98,8 @@ export type HybridJdMatchResult = {
   rationale: string;
   aiScore: number;
   formulaScore: number;
+  /** Set when an LLM call succeeded (primary or Vercel fallback). */
+  llmMeta: LlmCallMeta | null;
 };
 
 /**
@@ -142,15 +148,21 @@ export async function scoreCvAgainstJobDescriptionHybrid(
       rationale,
       aiScore: formulaScore,
       formulaScore,
+      llmMeta: null,
     };
   }
 
   let aiScore: number;
   let baseRationale: string;
+  let llmMeta: LlmCallMeta;
   try {
-    const out = await runLlmJdMatch(cv, jd, { heuristicSuffix: formulaContext, criteriaText });
+    const out = await runLlmJdMatch(cv, jd, {
+      heuristicSuffix: formulaContext,
+      criteriaText,
+    });
     aiScore = out.score;
     baseRationale = out.rationale;
+    llmMeta = out.llmMeta;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const rationale =
@@ -163,6 +175,7 @@ export async function scoreCvAgainstJobDescriptionHybrid(
       rationale,
       aiScore: formulaScore,
       formulaScore,
+      llmMeta: null,
     };
   }
 
@@ -170,15 +183,17 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     ? blendAiAndFormulaScores(aiScore, formulaScore)
     : aiScore;
 
+  const modelNote = ` AI model: ${formatLlmCallLabel(llmMeta)}.`;
   const blendNote = blend
     ? ` Blended score: AI ${aiScore} + formula anchor ${formulaScore} (JD_MATCH_AI_WEIGHT=${String(aiWeightFromEnv())}).`
     : "";
-  const rationale = (baseRationale + blendNote).slice(0, 1000);
+  const rationale = (baseRationale + modelNote + blendNote).slice(0, 1000);
 
   return {
     score,
     rationale,
     aiScore,
     formulaScore,
+    llmMeta,
   };
 }

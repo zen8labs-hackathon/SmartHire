@@ -81,3 +81,26 @@ export function llmInferenceDisabledReason(): string {
   }
   return "LLM inference is disabled (missing AI_GATEWAY_API_KEY for LLM_PROVIDER=vercel_gateway).";
 }
+
+/**
+ * Runtime fallback to Vercel AI Gateway after a primary-provider failure.
+ * Enabled when `AI_GATEWAY_API_KEY` is set and primary is not already Vercel.
+ * Disable with `LLM_FALLBACK_PROVIDER=off`.
+ */
+export function isLlmFallbackConfigured(): boolean {
+  const raw = process.env.LLM_FALLBACK_PROVIDER?.trim().toLowerCase();
+  if (raw === "off" || raw === "none" || raw === "false") return false;
+  if (parseLlmProviderId() === "vercel_gateway") return false;
+  return Boolean(process.env.AI_GATEWAY_API_KEY?.trim());
+}
+
+/**
+ * Model id for Vercel fallback (must be a Gateway catalog id).
+ * Uses `LLM_FALLBACK_MODEL`, else `openai/gpt-4o-mini` — not `LLM_MODEL`,
+ * which may be LiteLLM-specific (e.g. MiniMax).
+ */
+export function getFallbackLlmModelId(): string {
+  const explicit = process.env.LLM_FALLBACK_MODEL?.trim();
+  if (explicit) return explicit;
+  return "openai/gpt-4o-mini";
+}

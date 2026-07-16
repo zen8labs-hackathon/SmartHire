@@ -170,12 +170,13 @@ export async function runJdMatchForCandidate(
       experienceYears: cvVersion.experience_years,
     });
 
-    const { score, rationale, aiScore, formulaScore } = await scoreCvAgainstJobDescriptionHybrid(
-      cvSummary,
-      jdText ?? "",
-      formula,
-      { criteriaText: criteriaText ?? undefined },
-    );
+    const { score, rationale, aiScore, formulaScore, llmMeta } =
+      await scoreCvAgainstJobDescriptionHybrid(
+        cvSummary,
+        jdText ?? "",
+        formula,
+        { criteriaText: criteriaText ?? undefined },
+      );
 
     await saveJdMatchResult(
       campaignAppliedId,
@@ -190,8 +191,8 @@ export async function runJdMatchForCandidate(
         jdMatchFormulaScore: formulaScore,
         jdMatchAiWeight: aiWeightFromEnv(),
         jdMatchFormulaBreakdown: formula.breakdown,
-        jdMatchModel: getGlobalLlmModelId(),
-        jdMatchProvider: parseLlmProviderId(),
+        jdMatchModel: llmMeta?.modelId ?? getGlobalLlmModelId(),
+        jdMatchProvider: llmMeta?.provider ?? parseLlmProviderId(),
       },
     );
 
