@@ -1,0 +1,68 @@
+# Production stack for EC2 (smart-hire.zen8labs.io).
+# Usage (on the server, from the repo root):
+#   cp .env.production.example .env   # then fill secrets
+#   docker compose -f docker-compose.prod.yml up -d db
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d --build app
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: smarthire_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smarthire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-smart_hire}
+    volumes:
+      - smarthire_pgdata:/var/lib/postgresql/data
+    # Only reachable from this host / compose network — not the public internet.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-smarthire} -d ${POSTGRES_DB:-smart_hire}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      # Force compose DNS name even if .env still says localhost from a laptop copy.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npm install && npm run db:migrate"
+    profiles:
+      - migrate
+
+  app:
+    build: .
+    image: smart_hire:prod
+    container_name: smarthire_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      # App talks to Postgres on the compose network.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+    ports:
+      - "127.0.0.1:3100:3100"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  smarthire_pgdata:
