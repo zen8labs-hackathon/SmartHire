@@ -33,7 +33,7 @@ Không có portal ứng viên tự ứng tuyển; toàn bộ luồng do staff/HR
 | Documents | `pdf-parse` / `unpdf`, `mammoth`, `pdf-lib` |
 | Validation | Zod v4 |
 | Test | Vitest |
-| Deploy | Docker standalone (`output: "standalone"`, port **3100**); production target: **EC2** (`smart-hire.zen8labs.io`) |
+| Deploy | Docker standalone (`output: "standalone"`); prod **EC2** + nginx + **blue-green**; CI: GitHub Actions self-hosted runner |
 
 ---
 
@@ -77,43 +77,77 @@ flowchart TB
 - App đọc `AWS_ENDPOINT_URL=http://floci:4566` (hoặc `localhost:4566` từ host)
 - Bucket + CORS khởi tạo qua `.floci-init/init-s3.sh`
 
-### 3.3 Production EC2 (`docker-compose.prod.yml`)
+### 3.3 Production EC2 (blue-green)
 
 ```mermaid
 flowchart TB
   subgraph Internet
     Browser["Browser"]
+    GH["GitHub push"]
   end
 
   subgraph EC2["Ubuntu EC2 — smart-hire.zen8labs.io"]
-    Nginx["nginx :443 → app :3100"]
-    NginxBucket["nginx path /{bucket}/ → MinIO :9000"]
-    subgraph Compose["docker compose prod"]
-      AppP["smarthire_app :3100"]
-      DBP["smarthire_db Postgres 16"]
-      MinIO["smarthire_minio :9000"]
-      Init["minio-init one-shot"]
-      AppP --> DBP
-      AppP --> MinIO
-      Init --> MinIO
+    Runner["Actions self-hosted runner"]
+    Nginx["nginx :443"]
+    NginxBucket["/{bucket}/ → MinIO :9000"]
+    subgraph Slots["App slots (blue-green)"]
+      Blue["app_blue :3100"]
+      Green["app_green :3101"]
     end
-    Nginx --> AppP
+    subgraph Shared["Shared services"]
+      DBP["Postgres 16"]
+      MinIO["MinIO :9000"]
+    end
+    Nginx -->|active upstream| Blue
+    Nginx -.->|idle during deploy| Green
+    Blue --> DBP
+    Green --> DBP
+    Blue --> MinIO
+    Green --> MinIO
     NginxBucket --> MinIO
+    Runner -->|deploy-bluegreen.sh| Slots
   end
 
+  GH --> Runner
   Browser --> Nginx
-  Browser -->|presigned PUT path-style| NginxBucket
-  AppP -.->|AI| Gateway["Vercel AI Gateway"]
+  Browser -->|presigned PUT| NginxBucket
 ```
 
-**Luồng upload file (JD/CV/evaluation):**
+| Thành phần | File / ghi chú |
+|------------|----------------|
+| Shared stack | `docker-compose.prod.yml` — `db`, `minio`, `minio-init`, profile `migrate` |
+| App slots | `docker-compose.bluegreen.yml` — `app_blue` (:3100), `app_green` (:3101) |
+| Deploy script | `deploy/deploy-bluegreen.sh` — build idle slot → health → switch nginx → stop old |
+| nginx upstream | `deploy/nginx/active-app-upstream.conf` → symlink `upstreams/app-{blue,green}.conf` |
+| Trạng thái slot | `deploy/.active-slot` trên server (`blue` \| `green`, không commit) |
 
-1. Client gọi `POST .../sign-upload` → server ký presigned PUT URL
-2. Browser `PUT` trực tiếp lên URL đó (không qua Next.js body)
-3. URL path-style: `https://smart-hire.zen8labs.io/{S3_BUCKET}/jd/...` (cùng origin với app)
-4. nginx proxy `/{bucket}/` → MinIO `127.0.0.1:9000` — **không** dùng prefix `/minio/` (tránh lệch chữ ký presigned)
+**Luồng upload file** — giữ nguyên path-style trên cùng domain:
 
-Truy cập server: AWS SSM (không SSH). Chi tiết: `docs/smart-hire-vm-access-guide.md`, `docs/huong-dan-deploy-aws-ec2.md`.
+1. `POST .../sign-upload` → presigned PUT URL
+2. Browser `PUT` → `https://smart-hire.zen8labs.io/{S3_BUCKET}/jd/...`
+3. nginx `location ^~ /smart-hire-bucket/` → MinIO `:9000` (không dùng prefix `/minio/`)
+
+Truy cập server: AWS SSM (không SSH). Chi tiết: `docs/smart-hire-vm-access-guide.md`, `docs/huong-dan-deploy-aws-ec2.md`, `docs/blue-green-ec2.md`.
+
+### 3.4 CI/CD
+
+```mermaid
+sequenceDiagram
+  participant Dev as Developer
+  participant GH as GitHub
+  participant R as Self-hosted runner (EC2)
+  participant D as deploy-bluegreen.sh
+
+  Dev->>GH: push chore/aws-ec2-deploy
+  GH->>R: workflow Deploy EC2
+  R->>R: git reset --hard origin/branch
+  R->>D: pull, build, migrate, cutover
+  D-->>GH: job success / fail
+```
+
+- Workflow: `.github/workflows/deploy-ec2.yml`
+- Runner label: `smarthire-ec2` (cài một lần trên EC2 — `docs/ci-cd-ec2.md`)
+- **Vercel Git deploy tắt:** `vercel.json` → `"git": { "deploymentEnabled": false }` (prod là EC2, không phải `*.vercel.app`)
 
 ---
 
@@ -132,9 +166,12 @@ Truy cập server: AWS SSM (không SSH). Chi tiết: `docs/smart-hire-vm-access-
 | `migrations/` | Schema chuẩn (`node-pg-migrate`) |
 | `proxy.ts` | Session refresh + coarse route protection |
 | `docker-compose.yml` | Local: app + Postgres + Floci |
-| `docker-compose.prod.yml` | EC2: app + Postgres + MinIO + migrate profile |
-| `deploy/` | `deploy.sh`, nginx snippets, MinIO CORS JSON |
-| `docs/` | Kiến trúc, hướng dẫn deploy EC2, VM access |
+| `docker-compose.prod.yml` | EC2 shared: db + MinIO + migrate |
+| `docker-compose.bluegreen.yml` | EC2 overlay: `app_blue` / `app_green` |
+| `deploy/` | `deploy.sh`, `deploy-bluegreen.sh`, nginx upstreams/snippets |
+| `.github/workflows/deploy-ec2.yml` | Auto deploy on push (self-hosted runner) |
+| `vercel.json` | `deploymentEnabled: false` — không deploy Git lên Vercel |
+| `docs/` | Kiến trúc, deploy EC2, blue-green, CI/CD, VM access |
 
 ---
 
@@ -413,10 +450,16 @@ npm run dev   # :3000
 | Thành phần | Chi tiết |
 |------------|----------|
 | Host | `i-040a0bcdfe9618b56`, `smart-hire.zen8labs.io`, Ubuntu 24.04 |
-| Compose | `docker-compose.prod.yml` — `db`, `minio`, `minio-init`, `app`, profile `migrate` |
-| Reverse proxy | nginx → app `127.0.0.1:3100`; bucket path → MinIO `127.0.0.1:9000` |
+| App | Blue-green: `app_blue` :3100, `app_green` :3101 |
+| Data | Postgres 16 + MinIO (volume Docker) |
+| Reverse proxy | nginx → upstream active slot; `/{bucket}/` → MinIO |
 | TLS | certbot `--nginx` |
-| Redeploy | `./deploy/deploy.sh chore/aws-ec2-deploy` |
+| Deploy tay | `./deploy/deploy-bluegreen.sh chore/aws-ec2-deploy` |
+| Deploy CI | Push branch → `.github/workflows/deploy-ec2.yml` |
+
+**Lần đầu blue-green:** cấu hình nginx `include .../active-app-upstream.conf` — xem `docs/blue-green-ec2.md`.
+
+**Fallback đơn giản** (một container, downtime vài giây): `./deploy/deploy.sh`.
 
 **Biến môi trường production** (`.env.production.example` → `.env` trên server):
 
@@ -425,14 +468,24 @@ npm run dev   # :3000
 | `POSTGRES_*`, `DATABASE_URL` | Postgres (host `db` trong compose) |
 | `AUTH_JWT_SECRET` | HMAC access JWT |
 | `COOKIE_SECURE` | Chỉ set `false` khi test HTTP tạm |
-| `AZURE_AD_*` | Microsoft SSO (tuỳ chọn) |
+| `AZURE_AD_*` | Microsoft SSO (tuỳ chọn); cần `AZURE_AD_TENANT_ID` |
 | `AI_GATEWAY_API_KEY`, `JD_MATCH_AI_WEIGHT` | AI |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO + credentials app |
 | `S3_BUCKET` | Tên bucket (mặc định `smart-hire-bucket`; **phải khớp** nginx `location`) |
 | `AWS_REGION` | Region ký URL (vd. `ap-southeast-1`) |
 | `AWS_ENDPOINT_URL` | Prod MinIO: `https://smart-hire.zen8labs.io` (không `/minio`) |
 
-Scripts: `npm run db:migrate` (qua service `migrate` hoặc one-shot).
+Scripts: `npm run db:migrate` (service `migrate` trong compose).
+
+### 11.3 Blue-green cutover (tóm tắt)
+
+1. Slot **active** phục vụ user (blue `:3100` hoặc green `:3101`)
+2. Deploy build lên slot **idle** → `curl` health
+3. Symlink `active-app-upstream.conf` → slot mới → `nginx reload`
+4. Stop container slot cũ
+5. **Rollback nhanh:** đổi symlink ngược (nếu container cũ còn) — `docs/blue-green-ec2.md`
+
+Migrate chạy **một lần** trước cutover; nên backward-compatible khi hai slot chạy song song vài phút.
 
 ---
 
@@ -444,8 +497,11 @@ Scripts: `npm run db:migrate` (qua service `migrate` hoặc one-shot).
 | Raw SQL repositories | Kiểm soát query; test qua `QueryExecutor` |
 | Auth ở app layer (không RLS) | ACL chapter + job grant trong TypeScript |
 | Presigned PUT trực tiếp từ browser | Giảm tải app; cần CORS + nginx path khớp chữ ký |
-| MinIO trên EC2 thay S3 | Không cần bucket AWS; trade-off: tự vận hành disk/volume |
-| Path-style bucket trên cùng domain | Tránh lệch signature khi strip `/minio/` prefix |
+| MinIO trên EC2 thay S3 | Không cần bucket AWS; tự vận hành volume |
+| Blue-green trên một EC2 | Gần zero downtime; tạm 2 container app khi deploy |
+| Path-style bucket trên cùng domain | Presigned URL khớp chữ ký nginx → MinIO |
+| Self-hosted GitHub runner | Auto deploy không cần SSH / SSM SendCommand |
+| `vercel.json` tắt Git deploy | Prod EC2; Vercel chỉ còn cho AI Gateway API (tuỳ chọn) |
 | AI sync trong request | Đơn giản MVP; rủi ro timeout CV lớn |
 | Immutable `cv_detail_versions` | Audit + chống upload trùng (hash) |
 
@@ -458,11 +514,13 @@ Scripts: `npm run db:migrate` (qua service `migrate` hoặc one-shot).
 | **`docs/architecture.md` (file này)** | Kiến trúc stack hiện tại |
 | `docs/huong-dan-deploy-aws-ec2.md` | Hướng dẫn deploy EC2 (tiếng Việt) |
 | `docs/aws-ec2-deploy.md` | Checklist deploy (tiếng Anh) |
-| `docs/ci-cd-ec2.md` | Auto deploy khi push branch (GitHub Actions runner) |
+| `docs/blue-green-ec2.md` | Blue-green setup, rollback |
+| `docs/ci-cd-ec2.md` | GitHub Actions runner + tắt check Vercel |
 | `docs/smart-hire-vm-access-guide.md` | SSO/SSM vào EC2 |
+| `vercel.json` | Tắt auto-deploy Vercel từ Git |
 | `migrations/*.sql` | Schema authoritative |
 | `.env.example` / `.env.production.example` | Env local vs prod |
-| `README.md` | **Lỗi thời** (Supabase, Vercel-centric) |
+| `README.md` | **Lỗi thời** (Supabase, Vercel hosting) |
 
 ---
 
@@ -472,4 +530,5 @@ Scripts: `npm run db:migrate` (qua service `migrate` hoặc one-shot).
   - Email: `admin@smart-hire.test`  
   - Password: `SmartHireTestAdmin!1`
 - **Local:** `.env` ← `.env.example` → `docker compose up` → `npm run db:migrate` → `npm run dev`
-- **EC2:** xem `docs/huong-dan-deploy-aws-ec2.md` — SSO → clone → `.env` → `up db minio` → `minio-init` → `migrate` → `up app` → nginx + certbot
+- **EC2 lần đầu:** `docs/huong-dan-deploy-aws-ec2.md` + `docs/blue-green-ec2.md`
+- **Sau đó:** `git push` → CI deploy, hoặc `./deploy/deploy-bluegreen.sh chore/aws-ec2-deploy`
