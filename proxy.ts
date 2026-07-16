@@ -65,6 +65,12 @@ function redirectTo(
   params?: Record<string, string>,
 ): NextResponse {
   const url = request.nextUrl.clone();
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  const proto = request.headers.get("x-forwarded-proto") || "https";
+  if (host) {
+    url.protocol = proto;
+    url.host = host;
+  }
   url.pathname = pathname;
   url.search = "";
   if (params) {

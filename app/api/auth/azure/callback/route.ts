@@ -103,7 +103,10 @@ export async function GET(request: NextRequest) {
     const session = await issueSession(db, toPublicUser(user), meta);
 
     const next = safeNextPath(stateCookie.next);
-    const response = NextResponse.redirect(new URL(next, request.nextUrl.origin));
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || request.nextUrl.host;
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const origin = `${proto}://${host}`;
+    const response = NextResponse.redirect(new URL(next, origin));
     response.cookies.set(buildAccessTokenCookie(session.accessToken));
     response.cookies.set(buildRefreshTokenCookie(session.refreshToken));
     return response;
