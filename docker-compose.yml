@@ -9,29 +9,11 @@ services:
       - "3100:3100"
     env_file:
       - .env
+    environment:
+      - AWS_ENDPOINT_URL=http://floci:4566
     depends_on:
-      db:
-        condition: service_healthy
       floci:
         condition: service_started
-    restart: unless-stopped
-
-  db:
-    image: postgres:15
-    container_name: postgres_db
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: smart_hire
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d smart_hire"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
     restart: unless-stopped
 
   # --- HỆ THỐNG GIẢ LẬP AWS S3 (FLOCI) ---
@@ -43,11 +25,13 @@ services:
       - "4510-4559:4510-4559"
     environment:
       - DEBUG=1
+      # 1. Kích hoạt chế độ lưu xuống đĩa
+      - FLOCI_STORAGE_MODE=persistent
+      # 2. Khai báo thư mục chứa data bên trong container của Floci
+      - FLOCI_STORAGE_PERSISTENT_PATH=/floci-data
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "${TMPDIR:-/tmp}/floci:/tmp/floci"
-      # Ánh xạ thư mục chứa script khởi tạo (init-s3.sh) vào bên trong container
-      - "./.floci-init:/etc/floci/init.d"
-
-volumes:
-  pgdata:
+      - "./.floci-init:/etc/floci/init/ready.d"
+      # 3. Ánh xạ thư mục /floci-data từ container ra máy thật
+      - "./floci-data:/floci-data"
