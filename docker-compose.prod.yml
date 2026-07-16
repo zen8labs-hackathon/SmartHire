@@ -111,8 +111,8 @@ services:
       # MinIO credentials (same as root user). Override real-AWS IAM if both set.
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      # Public URL used for browser presigned PUTs (nginx /minio/). Required.
-      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire.zen8labs.io/minio}
+      # Public URL for browser presigned PUTs — same host, path-style /{bucket}/...
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire.zen8labs.io}
     ports:
       - "127.0.0.1:3100:3100"
     # So the app container can call the public MinIO URL via host nginx.
