@@ -12,6 +12,7 @@ import {
 beforeEach(() => {
   process.env.AZURE_AD_CLIENT_ID = "test-client-id";
   process.env.AZURE_AD_CLIENT_SECRET = "test-client-secret";
+  process.env.AZURE_AD_TENANT_ID = "test-tenant-id";
   process.env.AZURE_AD_REDIRECT_URI = "http://localhost:3000/api/auth/azure/callback";
 });
 
@@ -19,6 +20,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.AZURE_AD_CLIENT_ID;
   delete process.env.AZURE_AD_CLIENT_SECRET;
+  delete process.env.AZURE_AD_TENANT_ID;
   delete process.env.AZURE_AD_REDIRECT_URI;
 });
 
@@ -45,7 +47,7 @@ describe("buildAuthorizeUrl", () => {
       buildAuthorizeUrl({ state: "s1", codeChallenge: "c1" }),
     );
     expect(url.origin + url.pathname).toBe(
-      "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
+      "https://login.microsoftonline.com/test-tenant-id/oauth2/v2.0/authorize",
     );
     expect(url.searchParams.get("client_id")).toBe("test-client-id");
     expect(url.searchParams.get("response_type")).toBe("code");

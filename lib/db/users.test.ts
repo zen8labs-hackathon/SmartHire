@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createSsoUser,
   createUser,
+  deriveUsernameCandidate,
+  generateUniqueUsername,
   getPublicUserByEmail,
   getPublicUserById,
   getUserByEmailForAuth,
@@ -139,6 +142,66 @@ describe("usernameExists", () => {
   it("returns false when no match", async () => {
     const db = fakeDb([{ exists: false }]);
     expect(await usernameExists(db, "jdoe")).toBe(false);
+  });
+});
+
+describe("deriveUsernameCandidate", () => {
+  it("lowercases and strips invalid characters from the email local part", () => {
+    expect(deriveUsernameCandidate("John.Doe+hr@Example.com")).toBe("johndoehr");
+  });
+
+  it("pads a too-short local part out to the 3-char minimum", () => {
+    expect(deriveUsernameCandidate("a@b.com")).toBe("aus");
+  });
+
+  it("truncates to 30 characters", () => {
+    const email = `${"x".repeat(40)}@b.com`;
+    expect(deriveUsernameCandidate(email).length).toBe(30);
+  });
+});
+
+describe("generateUniqueUsername", () => {
+  it("returns the base candidate when it isn't taken", async () => {
+    const db = fakeDb([{ exists: false }]);
+    const username = await generateUniqueUsername(db, "jdoe@b.com");
+    expect(username).toBe("jdoe");
+  });
+
+  it("appends a numeric suffix on collision", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+      .mockResolvedValueOnce({ rows: [{ exists: false }] });
+    const db = { query };
+    const username = await generateUniqueUsername(db, "jdoe@b.com");
+    expect(username).toBe("jdoe2");
+  });
+});
+
+describe("createSsoUser", () => {
+  it("inserts a row with the given role and sso identity, no password_hash", async () => {
+    const row = {
+      id: "u-1",
+      email: "a@b.com",
+      username: "auser",
+      role: "hr",
+      sso_provider: "azure_ad",
+      sso_subject_id: "obj-1",
+    };
+    const db = fakeDb([row]);
+
+    const result = await createSsoUser(db, {
+      email: "a@b.com",
+      username: "auser",
+      role: "hr",
+      provider: "azure_ad",
+      subjectId: "obj-1",
+    });
+
+    expect(result).toEqual(row);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("INSERT INTO users (email, username, role, sso_provider, sso_subject_id)");
+    expect(values).toEqual(["a@b.com", "auser", "hr", "azure_ad", "obj-1"]);
   });
 });
 

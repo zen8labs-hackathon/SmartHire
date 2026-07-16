@@ -3,14 +3,27 @@ import { createHash, randomBytes } from "node:crypto";
 /**
  * "Sign in with Microsoft" -- hand-rolled OAuth2 authorization-code flow
  * against Azure AD (Entra ID), no SDK (matches the rest of lib/auth/*).
- * Uses the "/organizations" endpoint (any Azure AD org account, no single
- * company tenant restriction, no personal Microsoft accounts) rather than
- * "/common" (which also admits personal MSA accounts) or a single tenant id.
+ * Scoped to a single Azure AD tenant id (AZURE_AD_TENANT_ID) -- only accounts
+ * belonging to the company's own tenant can sign in, not "/organizations"
+ * (any Azure AD org) and not "/common" (which also admits personal MSA
+ * accounts).
  */
-const AUTHORIZE_URL =
-  "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize";
-const TOKEN_URL =
-  "https://login.microsoftonline.com/organizations/oauth2/v2.0/token";
+function getTenantId(): string {
+  const tenantId = process.env.AZURE_AD_TENANT_ID;
+  if (!tenantId) {
+    throw new Error("Missing AZURE_AD_TENANT_ID environment variable");
+  }
+  return tenantId;
+}
+
+function authorizeUrl(): string {
+  return `https://login.microsoftonline.com/${getTenantId()}/oauth2/v2.0/authorize`;
+}
+
+function tokenUrl(): string {
+  return `https://login.microsoftonline.com/${getTenantId()}/oauth2/v2.0/token`;
+}
+
 const GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me";
 
 const SCOPE = "openid profile email User.Read";
@@ -74,7 +87,7 @@ export function buildAuthorizeUrl(params: {
   state: string;
   codeChallenge: string;
 }): string {
-  const url = new URL(AUTHORIZE_URL);
+  const url = new URL(authorizeUrl());
   url.searchParams.set("client_id", getClientId());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", getRedirectUri());
@@ -106,7 +119,7 @@ export async function exchangeCodeForToken(params: {
 
   let response: Response;
   try {
-    response = await fetch(TOKEN_URL, {
+    response = await fetch(tokenUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,

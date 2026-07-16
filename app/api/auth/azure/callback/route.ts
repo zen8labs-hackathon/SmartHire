@@ -15,7 +15,10 @@ import {
   issueSession,
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 import {
+  createSsoUser,
+  generateUniqueUsername,
   getUserBySsoIdentity,
   linkSsoIdentity,
   type UserRow,
@@ -90,11 +93,30 @@ export async function GET(request: NextRequest) {
   try {
     let user = await getUserBySsoIdentity(db, SSO_PROVIDER, profile.subjectId);
     if (!user) {
+      // Existing admin/HR-invited account (no SSO linked yet) -- keep its role as-is.
       user = await linkSsoIdentity(db, {
         email: profile.email,
         provider: SSO_PROVIDER,
         subjectId: profile.subjectId,
       });
+    }
+    if (!user) {
+      // No pre-created account for this email -- first-time SSO signup, self-provision as HR.
+      // Tenant is already restricted to the company's own Azure AD (see lib/auth/azure.ts), so
+      // reaching this point means the account belongs to someone inside the org.
+      try {
+        const username = await generateUniqueUsername(db, profile.email);
+        user = await createSsoUser(db, {
+          email: profile.email,
+          username,
+          role: "hr",
+          provider: SSO_PROVIDER,
+          subjectId: profile.subjectId,
+        });
+      } catch (err) {
+        // Email already belongs to a row tied to a different SSO identity -- don't take it over.
+        if (!isUniqueViolation(err)) throw err;
+      }
     }
     if (!user) {
       return loginRedirect(request, "sso-not-invited");
