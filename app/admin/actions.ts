@@ -12,14 +12,15 @@ import {
   replaceMembershipsForUser,
   type ChapterMemberRole,
 } from "@/lib/db/profile-chapters";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 import { revokeAllRefreshTokensForUser } from "@/lib/db/refresh-tokens";
 import {
   createUser,
+  generateUniqueUsername,
   getPublicUserByEmail,
   getPublicUserById,
   softDeleteUser,
   updateUser,
-  usernameExists,
   type ProfileRole,
 } from "@/lib/db/users";
 
@@ -35,39 +36,6 @@ function parseIdList(formData: FormData, field: string): string[] {
     if (UUID_RE.test(s)) set.add(s);
   }
   return [...set];
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: string }).code === "23505"
-  );
-}
-
-/** `users.username` requires `^[a-z0-9_]{3,30}$` -- same email-local-part fallback the old Supabase `handle_new_user` trigger used. */
-function deriveUsernameCandidate(email: string): string {
-  const local = email.split("@")[0]?.toLowerCase() ?? "";
-  const sanitized = local.replace(/[^a-z0-9_]/g, "");
-  const base =
-    sanitized.length >= 3 ? sanitized : (sanitized + "user").slice(0, 3);
-  return base.slice(0, 30);
-}
-
-async function generateUniqueUsername(email: string): Promise<string> {
-  const base = deriveUsernameCandidate(email);
-  for (let suffix = 1; suffix <= 1000; suffix += 1) {
-    const candidate =
-      suffix === 1
-        ? base
-        : `${base.slice(0, Math.max(1, 30 - String(suffix).length))}${suffix}`;
-    if (!(await usernameExists(getPool(), candidate))) {
-      return candidate;
-    }
-  }
-  throw new Error(
-    "Could not generate a unique username -- too many collisions.",
-  );
 }
 
 function accessHint(
@@ -174,7 +142,7 @@ export async function adminAddUser(
     return { error: "A user with this email already exists." };
   }
 
-  const username = await generateUniqueUsername(email);
+  const username = await generateUniqueUsername(getPool(), email);
   const passwordHash = ssoOnly ? null : await hashPassword(password);
 
   let user;

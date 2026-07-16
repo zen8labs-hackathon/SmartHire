@@ -27,7 +27,7 @@ const REASON_MESSAGES: Record<string, { title: string; description: string }> = 
   "sso-not-invited": {
     title: "Account not linked",
     description:
-      "This Microsoft account isn't linked to a SmartHire user. Contact your HR administrator.",
+      "This email is already registered with a different sign-in method. Contact your HR administrator.",
   },
   "sso-failed": {
     title: "Microsoft sign-in failed",

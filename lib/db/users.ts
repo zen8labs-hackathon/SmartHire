@@ -150,6 +150,35 @@ export async function usernameExists(
   return rows[0]?.exists === true;
 }
 
+/** `users.username` requires `^[a-z0-9_]{3,30}$` -- same email-local-part fallback the old Supabase `handle_new_user` trigger used. */
+export function deriveUsernameCandidate(email: string): string {
+  const local = email.split("@")[0]?.toLowerCase() ?? "";
+  const sanitized = local.replace(/[^a-z0-9_]/g, "");
+  const base =
+    sanitized.length >= 3 ? sanitized : (sanitized + "user").slice(0, 3);
+  return base.slice(0, 30);
+}
+
+/** Appends a numeric suffix to `deriveUsernameCandidate(email)` until it finds one not already taken. */
+export async function generateUniqueUsername(
+  db: QueryExecutor,
+  email: string,
+): Promise<string> {
+  const base = deriveUsernameCandidate(email);
+  for (let suffix = 1; suffix <= 1000; suffix += 1) {
+    const candidate =
+      suffix === 1
+        ? base
+        : `${base.slice(0, Math.max(1, 30 - String(suffix).length))}${suffix}`;
+    if (!(await usernameExists(db, candidate))) {
+      return candidate;
+    }
+  }
+  throw new Error(
+    "Could not generate a unique username -- too many collisions.",
+  );
+}
+
 export async function createUser(
   db: QueryExecutor,
   input: CreateUserInput,
@@ -195,9 +224,11 @@ export async function updateUser(
 
 /**
  * Links a Microsoft/Azure AD identity to an already-invited user row. Only
- * matches a row that has no SSO identity yet (`sso_provider IS NULL`) --
- * this app is invite-only, so first SSO login must land on an account an
- * admin already created, never create a new one (see AZ4S9K planning).
+ * matches a row that has no SSO identity yet (`sso_provider IS NULL`), so an
+ * admin/HR-created account keeps whatever role it was given. Returns null
+ * when no such row exists (either no user with that email at all, or one
+ * that already has a different SSO identity) -- the caller then falls back
+ * to `createSsoUser` for a first-time signup with no pre-created row.
  */
 export async function linkSsoIdentity(
   db: QueryExecutor,
@@ -211,6 +242,33 @@ export async function linkSsoIdentity(
     [input.provider, input.subjectId, input.email],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Creates a brand-new user for a first-time SSO login whose email doesn't
+ * match any admin/HR-invited row. SSO-only account (no password_hash).
+ * Relies on the caller to catch a unique-violation on `email` (see
+ * `isUniqueViolation`) for the race where a row with this email already
+ * exists but is tied to a different SSO identity -- that case must not
+ * silently take over the existing account.
+ */
+export async function createSsoUser(
+  db: QueryExecutor,
+  input: {
+    email: string;
+    username: string;
+    role: ProfileRole;
+    provider: string;
+    subjectId: string;
+  },
+): Promise<UserRow> {
+  const { rows } = await db.query<UserRow>(
+    `INSERT INTO users (email, username, role, sso_provider, sso_subject_id)
+     VALUES ($1, $2, $3::profile_role, $4, $5)
+     RETURNING *`,
+    [input.email, input.username, input.role, input.provider, input.subjectId],
+  );
+  return rows[0];
 }
 
 /** Return-visit lookup for a user already linked to an SSO identity. */
