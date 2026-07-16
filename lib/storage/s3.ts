@@ -48,8 +48,12 @@ function getClient(): S3Client {
     forcePathStyle: !!endpoint,
     // Omit credentials entirely when unset so the SDK falls back to its
     // default provider chain (EC2 IAM instance role in production).
-    // requestChecksumCalculation: "WHEN_REQUIRED",
-    // responseChecksumValidation: "WHEN_REQUIRED",
+    // AWS SDK v3 defaults to flexible checksums on PutObject; those params
+    // get signed into the presigned URL, but the browser's plain
+    // fetch(url, { method: "PUT", body: file }) does not send them → S3/MinIO
+    // rejects the upload. WHEN_REQUIRED keeps checksums off for browser PUTs.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     credentials:
       accessKeyId && secretAccessKey
         ? { accessKeyId, secretAccessKey }

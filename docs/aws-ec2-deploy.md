@@ -1,9 +1,13 @@
 # Deploy Smart Hire to EC2 (`smart-hire.zen8labs.io`)
 
-Copy-paste checklist. Full SSM/SSO setup: [smart-hire-vm-access-guide.md](./smart-hire-vm-access-guide.md).
+Copy-paste checklist (English). **Hướng dẫn tiếng Việt đầy đủ:** [huong-dan-deploy-aws-ec2.md](./huong-dan-deploy-aws-ec2.md).
 
-**Branch assumed:** `refactor/database-queries-and-schemas`  
+SSM/SSO setup: [smart-hire-vm-access-guide.md](./smart-hire-vm-access-guide.md).
+
+**Branch assumed:** `chore/aws-ec2-deploy`  
 **Server:** `i-040a0bcdfe9618b56` · Ubuntu 24.04 · no SSH (SSM only)
+
+Object storage default: **MinIO on EC2** (nginx path `/minio/`). Real AWS S3 is optional — see `.env.production.example`.
 
 ---
 

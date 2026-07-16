@@ -2,7 +2,7 @@
 # Redeploy app on the EC2 box. Run from the repo root as ubuntu.
 set -euo pipefail
 
-BRANCH="${1:-refactor/database-queries-and-schemas}"
+BRANCH="${1:-chore/aws-ec2-deploy}"
 COMPOSE=(docker compose -f docker-compose.prod.yml)
 
 echo "==> Fetch / checkout ${BRANCH}"
@@ -13,14 +13,15 @@ git pull --ff-only origin "${BRANCH}"
 echo "==> Build app image"
 "${COMPOSE[@]}" build app
 
-echo "==> Ensure db is up"
-"${COMPOSE[@]}" up -d db
+echo "==> Ensure db + MinIO are up"
+"${COMPOSE[@]}" up -d db minio
+"${COMPOSE[@]}" up minio-init
 
 echo "==> Run migrations"
 "${COMPOSE[@]}" --profile migrate run --rm migrate
 
 echo "==> Start / recreate app"
-"${COMPOSE[@]}" up -d app
+"${COMPOSE[@]}" up -d app --force-recreate
 
 echo "==> Status"
 "${COMPOSE[@]}" ps

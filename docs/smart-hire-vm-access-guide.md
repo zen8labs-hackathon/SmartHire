@@ -196,8 +196,9 @@ Certbot will handle the certificate and auto-renewal.
 > Only ports 80 and 443 are open to the internet. If your app listens on 3000/8080, don't
 > ask for that port to be opened — put nginx in front of it. That's the intended design.
 
-For the full app deploy (Docker, Postgres, migrate, nginx, SSL), see
-[aws-ec2-deploy.md](./aws-ec2-deploy.md).
+For the full app deploy (Docker, Postgres, migrate, nginx, SSL), see the Vietnamese
+guide [huong-dan-deploy-aws-ec2.md](./huong-dan-deploy-aws-ec2.md) (short English
+checklist: [aws-ec2-deploy.md](./aws-ec2-deploy.md)).
 
 ---
 
