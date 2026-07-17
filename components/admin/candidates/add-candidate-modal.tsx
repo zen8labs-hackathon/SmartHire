@@ -105,6 +105,27 @@ function formatDate(ts: number) {
   }).format(new Date(ts));
 }
 
+const BULK_AI_CONCURRENCY = 3;
+
+async function runWithConcurrency(
+  items: readonly string[],
+  limit: number,
+  worker: (item: string) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item) await worker(item);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
 function progressForRow(row: QueueRow): { pct: number; label: string } {
   if (row.uploadPhase === "error") return { pct: 0, label: row.uploadError ?? "Upload failed" };
   if (row.uploadPhase === "signing")
@@ -947,8 +968,10 @@ export function AddCandidateModal({
 
     setSelectedRowIds(new Set());
 
-    await Promise.all(
-      ids.map(async (rowId) => {
+    await runWithConcurrency(
+      ids,
+      BULK_AI_CONCURRENCY,
+      async (rowId) => {
         const row = queueRef.current.find((r) => r.rowId === rowId);
         if (row && row.tempKey && row.uploadPhase === "awaiting-review") {
           await confirmAndProcessRow(
@@ -963,7 +986,7 @@ export function AddCandidateModal({
             true,
           );
         }
-      })
+      },
     );
   }, [selectedRowIds, confirmAndProcessRow]);
 

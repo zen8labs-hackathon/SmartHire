@@ -726,6 +726,37 @@ export function JdAppliedCandidatesPipeline({
     [onRefetch, postPipeline, fetchPage, toast],
   );
 
+  const retryParsing = useCallback(
+    async (row: JdPipelineApplicationRow) => {
+      setRowUpdating(row.id);
+      try {
+        const response = await fetch(
+          `/api/admin/candidates/${row.id}/process`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ runJdMatch: true }),
+          },
+        );
+        const json = (await response.json()) as { error?: string };
+        if (!response.ok) {
+          throw new Error(json.error ?? "CV processing retry failed.");
+        }
+        onRefetch(true);
+        await fetchPage();
+        toast.success("CV processed successfully.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "CV processing retry failed.",
+        );
+      } finally {
+        setRowUpdating(null);
+      }
+    },
+    [fetchPage, onRefetch, toast],
+  );
+
   const filtersElement = (
     <Select
       value={statusFilter}
@@ -1104,7 +1135,7 @@ export function JdAppliedCandidatesPipeline({
                 </Table.SortableColumnHeader>
               </Table.Column>
               <Table.Column>Schedule</Table.Column>
-              <Table.Column className="text-center w-[110px]">
+              <Table.Column className="text-center w-[140px]">
                 Action
               </Table.Column>
             </Table.Header>
@@ -1173,6 +1204,7 @@ export function JdAppliedCandidatesPipeline({
                     subStages={subStages}
                     offerStageSubStateIds={offerStageSubStateIds}
                     onStatusChange={onStatusChange}
+                    onRetryParsing={retryParsing}
                     onOpenSchedule={openSchedule}
                     onOpenRationale={openRationale}
                     setRowPendingEdit={setRowPendingEdit}

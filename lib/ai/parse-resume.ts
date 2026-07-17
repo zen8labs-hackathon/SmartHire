@@ -83,19 +83,24 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
 
   let output: ParsedResume;
   try {
-    ({ output } = await generateTextWithFallback({
-      model,
-      output: Output.object({
-        name: "parsed_resume",
-        description: "Structured candidate data extracted from a resume document",
-        schema: parsedResumeSchema,
-      }),
-      system: SYSTEM_PROMPT,
-      prompt: `Resume text:\n\n${truncated}`,
-      temperature: 0.1,
-      maxOutputTokens: 2048,
-      abortSignal: AbortSignal.timeout(AI_CALL_TIMEOUT_MS),
-    }));
+    ({ output } = await generateTextWithFallback(
+      {
+        model,
+        output: Output.object({
+          name: "parsed_resume",
+          description: "Structured candidate data extracted from a resume document",
+          schema: parsedResumeSchema,
+        }),
+        system: SYSTEM_PROMPT,
+        prompt: `Resume text:\n\n${truncated}`,
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+        abortSignal: AbortSignal.timeout(AI_CALL_TIMEOUT_MS),
+      },
+      // The primary signal is already aborted when a timeout triggers the
+      // fallback. Give the fallback provider its own full timeout window.
+      () => AbortSignal.timeout(AI_CALL_TIMEOUT_MS),
+    ));
   } catch (e) {
     if (e instanceof Error && e.name === "TimeoutError") {
       throw new Error(

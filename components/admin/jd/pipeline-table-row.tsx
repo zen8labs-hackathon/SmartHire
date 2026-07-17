@@ -1,6 +1,6 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
-import { Info, Pencil, Trash2 } from "lucide-react";
+import { Info, Pencil, RotateCw, Trash2 } from "lucide-react";
 import {
   Avatar,
   Button,
@@ -59,6 +59,8 @@ export type PipelineTableRowProps = {
     id: string,
     next: { toStageMappingId: string; toSubStateId: string },
   ) => Promise<void>;
+  /** Retries CV parsing (and then JD matching) for a failed upload. */
+  onRetryParsing: (r: JdPipelineApplicationRow) => Promise<void>;
   /** Opens the interview-schedule modal (round label/date/duration/location + history) for this row. */
   onOpenSchedule: (r: JdPipelineApplicationRow) => void;
   /** Opens the JD-match reasoning modal (AI rationale behind the score) for this row. */
@@ -104,6 +106,7 @@ function pipelineTableRowPropsAreEqual(
     prev.subStages === next.subStages &&
     prev.offerStageSubStateIds === next.offerStageSubStateIds &&
     prev.onStatusChange === next.onStatusChange &&
+    prev.onRetryParsing === next.onRetryParsing &&
     prev.onOpenSchedule === next.onOpenSchedule &&
     prev.onOpenRationale === next.onOpenRationale &&
     prev.setRowPendingEdit === next.setRowPendingEdit &&
@@ -131,6 +134,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   subStages,
   offerStageSubStateIds,
   onStatusChange,
+  onRetryParsing,
   onOpenSchedule,
   onOpenRationale,
   setRowPendingEdit,
@@ -331,6 +335,18 @@ export const PipelineTableRow = memo(function PipelineTableRow({
       </Table.Cell>
       <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
         <div className="flex items-center justify-center gap-1">
+          {r.cv_parsing_status === "failed" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="min-w-0 text-accent"
+              isDisabled={!canEditPipeline || busy}
+              onPress={() => void onRetryParsing(r)}
+              aria-label={`Retry CV processing for ${row.name}`}
+            >
+              <RotateCw className={`size-4 ${busy ? "animate-spin" : ""}`} />
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="secondary"

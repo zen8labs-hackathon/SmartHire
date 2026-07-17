@@ -22,7 +22,10 @@ export type LlmCallMeta = {
  * when {@link isLlmFallbackConfigured} is true (primary is not already Vercel).
  * Always attaches {@link LlmCallMeta} for which backend actually answered.
  */
-export async function generateTextWithFallback(options: GenerateTextArgs) {
+export async function generateTextWithFallback(
+  options: GenerateTextArgs,
+  createFallbackAbortSignal?: () => AbortSignal,
+) {
   try {
     const result = await generateText(options);
     // `Output.object()` is validated lazily by the AI SDK when `output` is
@@ -47,6 +50,7 @@ export async function generateTextWithFallback(options: GenerateTextArgs) {
     const result = await generateText({
       ...options,
       model: getVercelGatewayLanguageModel(modelId),
+      abortSignal: createFallbackAbortSignal?.() ?? options.abortSignal,
     });
     // Surface a fallback model's invalid structured output to the caller.
     void result.output;
