@@ -654,9 +654,8 @@ export function JdAppliedCandidatesPipeline({
 
   /**
    * `runJdMatchForCandidate` (called per id server-side) already self-guards
-   * via its own CAS lock. This explicit user action sets `force` so completed
-   * scores can be recalculated; genuinely ineligible rows (e.g. parsing not
-   * done) still come back as skipped.
+   * via its own CAS lock. Completed scores are preserved, while genuinely
+   * ineligible rows (e.g. parsing not done) also come back as skipped.
    */
   const runJdMatchForSelected = useCallback(async () => {
     if (selectedRows.length === 0) return;
@@ -668,7 +667,6 @@ export function JdAppliedCandidatesPipeline({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ids: selectedRows.map((r) => r.id),
-          force: true,
         }),
       });
       const json = (await res.json()) as {
