@@ -12,6 +12,10 @@ export const PROFILE_CHANGE_SUMMARY_MAX = 500;
 export const MAX_SKILLS = 40;
 export const MAX_SKILL_LEN = 80;
 export const EXPERIENCE_YEARS_MAX = 80;
+export const PROFILE_GPA_MAX = 20;
+export const PROFILE_ENGLISH_LEVEL_MAX = 100;
+export const PROFILE_STUDENT_YEARS_MAX = 50;
+export const PROFILE_EXPECTED_SALARY_MAX = 100;
 
 function optionalTrimmedNullable(maxLen: number) {
   return z
@@ -22,6 +26,23 @@ function optionalTrimmedNullable(maxLen: number) {
       if (v === null) return null;
       const t = v.trim();
       return t.length === 0 ? null : t;
+    });
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function optionalDateNullable() {
+  return z
+    .union([z.string(), z.null()])
+    .optional()
+    .transform((v) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const t = v.trim();
+      return t.length === 0 ? null : t;
+    })
+    .refine((v) => v === undefined || v === null || DATE_ONLY_RE.test(v), {
+      message: "date_of_birth must be an ISO date (YYYY-MM-DD).",
     });
 }
 
@@ -61,6 +82,11 @@ export const candidateProfilePatchSchema = z
     source_other: optionalTrimmedNullable(PROFILE_SOURCE_OTHER_MAX),
     email: optionalTrimmedNullable(PROFILE_EMAIL_MAX),
     phone: optionalTrimmedNullable(PROFILE_PHONE_MAX),
+    gpa: optionalTrimmedNullable(PROFILE_GPA_MAX),
+    english_level: optionalTrimmedNullable(PROFILE_ENGLISH_LEVEL_MAX),
+    date_of_birth: optionalDateNullable(),
+    student_years: optionalTrimmedNullable(PROFILE_STUDENT_YEARS_MAX),
+    expected_salary: optionalTrimmedNullable(PROFILE_EXPECTED_SALARY_MAX),
     change_summary: z
       .string()
       .max(PROFILE_CHANGE_SUMMARY_MAX)
@@ -108,6 +134,10 @@ export type ProfileMergeFields = {
   school?: string | null;
   email?: string | null;
   phone?: string | null;
+  gpa?: string | null;
+  englishLevel?: string | null;
+  dateOfBirth?: string | null;
+  studentYears?: string | null;
 };
 
 /**
@@ -134,6 +164,10 @@ export function mergeProfileIntoParsedPayload(
   if (profile.school !== undefined) base.school = profile.school;
   if (profile.email !== undefined) base.email = profile.email;
   if (profile.phone !== undefined) base.phone = profile.phone;
+  if (profile.gpa !== undefined) base.gpa = profile.gpa;
+  if (profile.englishLevel !== undefined) base.englishLevel = profile.englishLevel;
+  if (profile.dateOfBirth !== undefined) base.dateOfBirth = profile.dateOfBirth;
+  if (profile.studentYears !== undefined) base.studentYears = profile.studentYears;
   return base;
 }
 
@@ -149,6 +183,11 @@ export type CandidateProfileFormSnapshot = {
   sourceOther: string;
   email: string;
   phone: string;
+  gpa: string;
+  englishLevel: string;
+  dateOfBirth: string;
+  studentYears: string;
+  expectedSalary: string;
 };
 
 function sortedSkillKey(skills: string[]): string {
@@ -215,6 +254,31 @@ export function diffProfileSnapshotsToPatch(
     patch.phone = phone.length === 0 ? null : phone;
   }
 
+  const gpa = current.gpa.trim();
+  if (gpa !== baseline.gpa.trim()) {
+    patch.gpa = gpa.length === 0 ? null : gpa;
+  }
+
+  const englishLevel = current.englishLevel.trim();
+  if (englishLevel !== baseline.englishLevel.trim()) {
+    patch.english_level = englishLevel.length === 0 ? null : englishLevel;
+  }
+
+  const dateOfBirth = current.dateOfBirth.trim();
+  if (dateOfBirth !== baseline.dateOfBirth.trim()) {
+    patch.date_of_birth = dateOfBirth.length === 0 ? null : dateOfBirth;
+  }
+
+  const studentYears = current.studentYears.trim();
+  if (studentYears !== baseline.studentYears.trim()) {
+    patch.student_years = studentYears.length === 0 ? null : studentYears;
+  }
+
+  const expectedSalary = current.expectedSalary.trim();
+  if (expectedSalary !== baseline.expectedSalary.trim()) {
+    patch.expected_salary = expectedSalary.length === 0 ? null : expectedSalary;
+  }
+
   if (Object.keys(patch).length === 0) return null;
   return patch;
 }
@@ -233,5 +297,9 @@ export function patchInputToMergeFields(
   if (patch.skills !== undefined) out.skills = patch.skills;
   if (patch.email !== undefined) out.email = patch.email;
   if (patch.phone !== undefined) out.phone = patch.phone;
+  if (patch.gpa !== undefined) out.gpa = patch.gpa;
+  if (patch.english_level !== undefined) out.englishLevel = patch.english_level;
+  if (patch.date_of_birth !== undefined) out.dateOfBirth = patch.date_of_birth;
+  if (patch.student_years !== undefined) out.studentYears = patch.student_years;
   return out;
 }

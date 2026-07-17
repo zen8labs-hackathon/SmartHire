@@ -206,9 +206,36 @@ export async function listCampaignAppliedForAdmin(
   }
   if (filters.stageMappingId && filters.subStateId) {
     values.push(filters.stageMappingId);
-    conditions.push(`ca.current_job_stage_mapping_id = $${values.length}`);
+    const stageMappingIdx = values.length;
     values.push(filters.subStateId);
-    conditions.push(`ca.current_sub_state_id = $${values.length}`);
+    const subStateIdx = values.length;
+    // A brand-new application has current_job_stage_mapping_id/current_sub_state_id
+    // both NULL until it's explicitly moved -- same NULL == "first stage's default
+    // sub-stage" convention as countCampaignAppliedByStageForJob below. Without the
+    // second branch, filtering by that first (stage, sub-stage) pair -- e.g. "CV Scan
+    // / New" -- would never match these rows even though the table displays them
+    // there, so they'd silently disappear from the filtered list.
+    conditions.push(`
+      (
+        (ca.current_job_stage_mapping_id = $${stageMappingIdx} AND ca.current_sub_state_id = $${subStateIdx})
+        OR (
+          ca.current_job_stage_mapping_id IS NULL
+          AND ca.current_sub_state_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM job_stage_mappings jsm2
+            JOIN pipeline_sub_stages pss2 ON pss2.pipeline_stage_id = jsm2.pipeline_stage_id
+            WHERE jsm2.id = $${stageMappingIdx}
+              AND pss2.id = $${subStateIdx}
+              AND pss2.is_default = true
+              AND jsm2.job_id = ca.job_id
+              AND jsm2.sequence_number = (
+                SELECT MIN(sequence_number) FROM job_stage_mappings
+                WHERE job_id = jsm2.job_id AND deleted_at IS NULL
+              )
+          )
+        )
+      )
+    `);
   }
   if (filters.uploadFrom) {
     values.push(filters.uploadFrom);

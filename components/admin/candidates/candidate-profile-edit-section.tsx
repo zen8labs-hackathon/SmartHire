@@ -64,6 +64,11 @@ type Draft = {
   sourceOther: string;
   email: string;
   phone: string;
+  gpa: string;
+  englishLevel: string;
+  dateOfBirth: string;
+  studentYears: string;
+  expectedSalary: string;
 };
 
 function skillsFromComma(s: string): string[] {
@@ -90,6 +95,11 @@ function snapshotFromDraft(d: Draft): CandidateProfileFormSnapshot {
     sourceOther: d.sourceOther,
     email: d.email,
     phone: d.phone,
+    gpa: d.gpa,
+    englishLevel: d.englishLevel,
+    dateOfBirth: d.dateOfBirth,
+    studentYears: d.studentYears,
+    expectedSalary: d.expectedSalary,
   };
 }
 
@@ -125,6 +135,11 @@ function snapshotFromDb(db: CandidateDbRow): CandidateProfileFormSnapshot {
     sourceOther: db.source_other?.trim() || "",
     email: p.email?.trim() || "",
     phone: p.phone?.trim() || "",
+    gpa: p.gpa?.trim() || "",
+    englishLevel: p.englishLevel?.trim() || "",
+    dateOfBirth: db.date_of_birth ?? "",
+    studentYears: db.student_years?.trim() || "",
+    expectedSalary: db.expected_salary?.trim() || "",
   };
 }
 
@@ -140,6 +155,11 @@ function draftFromSnapshot(s: CandidateProfileFormSnapshot): Draft {
     sourceOther: s.sourceOther,
     email: s.email,
     phone: s.phone,
+    gpa: s.gpa,
+    englishLevel: s.englishLevel,
+    dateOfBirth: s.dateOfBirth,
+    studentYears: s.studentYears,
+    expectedSalary: s.expectedSalary,
   };
 }
 
@@ -167,6 +187,11 @@ export function CandidateProfileEditSection({
     sourceOther: "",
     email: "",
     phone: "",
+    gpa: "",
+    englishLevel: "",
+    dateOfBirth: "",
+    studentYears: "",
+    expectedSalary: "",
   }));
   const [skillInput, setSkillInput] = useState("");
   const [changeSummary, setChangeSummary] = useState("");
@@ -662,6 +687,62 @@ export function CandidateProfileEditSection({
                     onChange={(e) =>
                       setDraft((d) => ({ ...d, phone: e.target.value }))
                     }
+                    className="mt-1 text-sm"
+                    autoComplete="off"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Date of birth</Label>
+                  <Input
+                    type="date"
+                    value={draft.dateOfBirth}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, dateOfBirth: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Student years</Label>
+                  <Input
+                    value={draft.studentYears}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, studentYears: e.target.value }))
+                    }
+                    placeholder="e.g. K68"
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>GPA</Label>
+                  <Input
+                    value={draft.gpa}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, gpa: e.target.value }))
+                    }
+                    placeholder="e.g. 3.4/4.0"
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>English level</Label>
+                  <Input
+                    value={draft.englishLevel}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, englishLevel: e.target.value }))
+                    }
+                    placeholder="e.g. IELTS 6.5"
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Expected salary</Label>
+                  <Input
+                    value={draft.expectedSalary}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, expectedSalary: e.target.value }))
+                    }
+                    placeholder="e.g. 15-20M VND"
                     className="mt-1 text-sm"
                     autoComplete="off"
                   />

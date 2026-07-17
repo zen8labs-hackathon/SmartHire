@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Chip, Input, Label, Modal } from "@heroui/react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
@@ -8,7 +8,11 @@ import {
 } from "@/lib/candidates/db-row";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import { jdMatchChipColor } from "@/lib/candidates/candidate-display";
-import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
+import {
+  formatSchedule,
+  localDatetimeToIso,
+} from "@/lib/pipelines/jd-pipeline-row-helpers";
+import { Trash, Trash2 } from "lucide-react";
 
 type ScheduleHistoryItem = {
   id: string;
@@ -57,46 +61,60 @@ export function InterviewScheduleModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isOpen || !row) return;
-    let cancelled = false;
+  const [deleteTarget, setDeleteTarget] = useState<ScheduleHistoryItem | null>(
+    null,
+  );
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  /** Guards against a stale response (e.g. a reload fired right before this
+   * modal is closed/reopened for a different row) clobbering fresher state --
+   * same pattern as `fetchPageSeqRef` in add-candidate-modal.tsx. */
+  const loadSeqRef = useRef(0);
+
+  const loadSchedules = useCallback(async () => {
+    if (!row) return;
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
-    (async () => {
-      try {
-        const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
-          credentials: "include",
-        });
-        const json = (await res.json()) as {
-          schedules?: ScheduleHistoryItem[];
-          error?: string;
-        };
-        if (!res.ok) throw new Error(json.error ?? "Could not load schedule.");
-        if (cancelled) return;
-        const schedules = json.schedules ?? [];
-        setHistory(schedules);
-        const active = schedules.find(
-          (s) => s.status === "Scheduled" || s.status === "Confirmed",
-        );
-        setRoundLabel(active?.round_label ?? "");
-        setScheduledAt(
-          active ? toLocalDatetimeInputValue(active.scheduled_at) : "",
-        );
-        setDurationMinutes(
-          active?.duration_minutes != null ? String(active.duration_minutes) : "",
-        );
-        setLocation(active?.location ?? "");
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Could not load schedule.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+    try {
+      const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        schedules?: ScheduleHistoryItem[];
+        error?: string;
+      };
+      if (seq !== loadSeqRef.current) return;
+      if (!res.ok) throw new Error(json.error ?? "Could not load schedule.");
+      const schedules = json.schedules ?? [];
+      setHistory(schedules);
+      const active = schedules.find(
+        (s) => s.status === "Scheduled" || s.status === "Confirmed",
+      );
+      setRoundLabel(active?.round_label ?? "");
+      setScheduledAt(
+        active ? toLocalDatetimeInputValue(active.scheduled_at) : "",
+      );
+      setDurationMinutes(
+        active?.duration_minutes != null ? String(active.duration_minutes) : "",
+      );
+      setLocation(active?.location ?? "");
+    } catch (e) {
+      if (seq === loadSeqRef.current) {
+        setError(e instanceof Error ? e.message : "Could not load schedule.");
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    } finally {
+      if (seq === loadSeqRef.current) setLoading(false);
+    }
+  }, [row]);
+
+  useEffect(() => {
+    if (!isOpen || !row) return;
+    void loadSchedules();
+    // `loadSchedules` itself is stable per `row` (its only dep), so this only
+    // needs to re-fire when the modal opens or the target row changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, row]);
 
   const handleSave = useCallback(async () => {
@@ -131,112 +149,226 @@ export function InterviewScheduleModal({
     } finally {
       setSaving(false);
     }
-  }, [row, scheduledAt, roundLabel, durationMinutes, location, onSaved, onOpenChange]);
+  }, [
+    row,
+    scheduledAt,
+    roundLabel,
+    durationMinutes,
+    location,
+    onSaved,
+    onOpenChange,
+  ]);
+
+  const closeDeleteConfirm = useCallback(() => {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }, [deleteBusy]);
+
+  const confirmDeleteSchedule = useCallback(async () => {
+    if (!row || !deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/candidates/${row.id}/timeline?scheduleId=${encodeURIComponent(deleteTarget.id)}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to delete schedule.");
+      setDeleteTarget(null);
+      await loadSchedules();
+      onSaved();
+    } catch (e) {
+      setDeleteError(
+        e instanceof Error ? e.message : "Failed to delete schedule.",
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [row, deleteTarget, loadSchedules, onSaved]);
 
   return (
-    <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Modal.Container>
-        <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
-          <Modal.CloseTrigger />
-          <Modal.Header className="border-b border-divider px-5 py-4">
-            <Modal.Heading>Interview schedule</Modal.Heading>
-          </Modal.Header>
-          <Modal.Body className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
-            {loading ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium">Round label</Label>
-                  <Input
-                    value={roundLabel}
-                    onChange={(e) => setRoundLabel(e.target.value)}
-                    placeholder="e.g. Technical round"
-                    disabled={!canEdit}
-                    className="w-full"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-medium">Date &amp; time</Label>
-                  <Input
-                    type="datetime-local"
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                    disabled={!canEdit}
-                    className="w-full"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+    <>
+      <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-5 py-4">
+              <Modal.Heading>Interview schedule</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+              {loading ? (
+                <p className="text-sm text-muted">Loading…</p>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Round label</Label>
+                    <Input
+                      value={roundLabel}
+                      onChange={(e) => setRoundLabel(e.target.value)}
+                      placeholder="e.g. Technical round"
+                      disabled={!canEdit}
+                      className="w-full"
+                    />
+                  </div>
                   <div className="space-y-1">
                     <Label className="text-xs font-medium">
-                      Duration (minutes)
+                      Date &amp; time
                     </Label>
                     <Input
-                      type="number"
-                      min={1}
-                      value={durationMinutes}
-                      onChange={(e) => setDurationMinutes(e.target.value)}
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
                       disabled={!canEdit}
                       className="w-full"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-medium">Location</Label>
-                    <Input
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="e.g. Meet link, room"
-                      disabled={!canEdit}
-                      className="w-full"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">
+                        Duration (minutes)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={durationMinutes}
+                        onChange={(e) => setDurationMinutes(e.target.value)}
+                        disabled={!canEdit}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Location</Label>
+                      <Input
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        placeholder="e.g. Meet link, room"
+                        disabled={!canEdit}
+                        className="w-full"
+                      />
+                    </div>
                   </div>
-                </div>
-                {error ? <p className="text-sm text-danger">{error}</p> : null}
-                {history.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Past rounds
-                    </p>
-                    <ul className="space-y-1.5">
-                      {history.map((h) => (
-                        <li
-                          key={h.id}
-                          className="rounded-lg border border-divider bg-surface-secondary/20 px-3 py-2 text-xs"
-                        >
-                          <span className="font-medium text-foreground">
-                            {h.round_label ?? "Interview"}
-                          </span>{" "}
-                          <span className="text-muted">
-                            · {formatSchedule(h.scheduled_at) ?? h.scheduled_at} ·{" "}
-                            {h.status}
-                            {h.duration_minutes ? ` · ${h.duration_minutes}min` : ""}
-                            {h.location ? ` · ${h.location}` : ""}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </Modal.Body>
-          <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
-            <Button variant="secondary" onPress={() => onOpenChange(false)}>
-              Close
-            </Button>
-            {canEdit ? (
+                  {error ? (
+                    <p className="text-sm text-danger">{error}</p>
+                  ) : null}
+                  {history.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Past rounds
+                      </p>
+                      <ul className="space-y-1.5">
+                        {history.map((h) => (
+                          <li
+                            key={h.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-divider bg-surface-secondary/20 px-3 py-2 text-xs"
+                          >
+                            <div>
+                              <span className="font-medium text-foreground">
+                                {h.round_label ?? "Interview"}
+                              </span>{" "}
+                              <span className="text-muted">
+                                ·{" "}
+                                {formatSchedule(h.scheduled_at) ??
+                                  h.scheduled_at}{" "}
+                                · {h.status}
+                                {h.duration_minutes
+                                  ? ` · ${h.duration_minutes}min`
+                                  : ""}
+                                {h.location ? ` · ${h.location}` : ""}
+                              </span>
+                            </div>
+                            {canEdit && h.status !== "Canceled" ? (
+                              <Button
+                                variant="tertiary"
+                                className="shrink-0 px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/5"
+                                onPress={() => setDeleteTarget(h)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </Modal.Body>
+            <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
+              <Button variant="secondary" onPress={() => onOpenChange(false)}>
+                Close
+              </Button>
+              {canEdit ? (
+                <Button
+                  variant="primary"
+                  isDisabled={saving || loading}
+                  onPress={() => void handleSave()}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              ) : null}
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+
+      <Modal.Backdrop
+        isOpen={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteConfirm();
+        }}
+        className="z-[150] bg-black/45 backdrop-blur-sm"
+      >
+        <Modal.Container className="z-[150] w-full">
+          <Modal.Dialog className="w-full max-w-md overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
+              <Modal.Heading className="text-lg font-bold text-foreground">
+                Delete interview schedule
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="px-5 py-4 space-y-3">
+              <p className="text-sm text-muted">
+                Are you sure you want to delete{" "}
+                <span className="font-semibold text-foreground">
+                  {deleteTarget?.round_label ?? "this interview round"}
+                </span>
+                {deleteTarget
+                  ? ` (${formatSchedule(deleteTarget.scheduled_at) ?? deleteTarget.scheduled_at})`
+                  : ""}
+                ?
+              </p>
+              <p className="text-xs text-danger font-medium bg-danger/5 border border-danger/25 rounded-lg p-2.5">
+                This action cannot be undone.
+              </p>
+              {deleteError ? (
+                <p className="text-sm text-danger" role="alert">
+                  {deleteError}
+                </p>
+              ) : null}
+            </Modal.Body>
+            <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4 bg-muted/10">
+              <Button
+                variant="secondary"
+                onPress={closeDeleteConfirm}
+                isDisabled={deleteBusy}
+              >
+                Cancel
+              </Button>
               <Button
                 variant="primary"
-                isDisabled={saving || loading}
-                onPress={() => void handleSave()}
+                className="bg-danger text-white hover:bg-danger-600"
+                isDisabled={deleteBusy}
+                onPress={() => void confirmDeleteSchedule()}
               >
-                {saving ? "Saving…" : "Save"}
+                {deleteBusy ? "Deleting…" : "Delete"}
               </Button>
-            ) : null}
-          </Modal.Footer>
-        </Modal.Dialog>
-      </Modal.Container>
-    </Modal.Backdrop>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </>
   );
 }
 
@@ -430,7 +562,9 @@ export function EditCandidateModal({
           return;
         }
         const c =
-          json.candidate && typeof json.candidate === "object" && "candidate_id" in json.candidate
+          json.candidate &&
+          typeof json.candidate === "object" &&
+          "candidate_id" in json.candidate
             ? campaignAppliedToCandidateDbRow(json.candidate as any)
             : (json.candidate as CandidateDbRow);
         setDbRow(c);

@@ -73,6 +73,11 @@ describe("diffProfileSnapshotsToPatch", () => {
     sourceOther: "",
     email: "a@a.com",
     phone: "1",
+    gpa: "3.5",
+    englishLevel: "IELTS 6.5",
+    dateOfBirth: "2000-01-01",
+    studentYears: "K65",
+    expectedSalary: "15-20M",
   };
 
   it("returns null when nothing changed", () => {

@@ -109,10 +109,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         degree: patch.degree !== undefined ? patch.degree : cvVersion.degree,
         education: patch.school !== undefined ? patch.school : cvVersion.education,
         experienceYears: patch.experience_years !== undefined ? patch.experience_years : (cvVersion.experience_years ? parseFloat(cvVersion.experience_years) : null),
-        gpa: cvVersion.gpa,
-        englishLevel: cvVersion.english_level,
-        dateOfBirth: dbDateToIso(cvVersion.date_of_birth),
-        studentYears: cvVersion.student_years,
+        gpa: patch.gpa !== undefined ? patch.gpa : cvVersion.gpa,
+        englishLevel: patch.english_level !== undefined ? patch.english_level : cvVersion.english_level,
+        dateOfBirth: patch.date_of_birth !== undefined ? patch.date_of_birth : dbDateToIso(cvVersion.date_of_birth),
+        studentYears: patch.student_years !== undefined ? patch.student_years : cvVersion.student_years,
         matchedOn: cvVersion.matched_on,
         changeSummary: patch.change_summary ?? null,
         createdBy: auth.userId,
@@ -123,6 +123,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         activeCvVersionId: nextVersion.id,
         source: nextSource,
         sourceOther: nextSource === "Other" ? nextSourceOther : null,
+        expectedSalary:
+          patch.expected_salary !== undefined
+            ? patch.expected_salary
+            : campaignApplied.expected_salary,
       });
 
       // 3. Update candidate (person) fields (name, email, phone)

@@ -5,6 +5,7 @@ import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import {
   createCandidateSchedule,
+  getCandidateScheduleById,
   listCandidateSchedulesByCampaignApplied,
   updateCandidateSchedule,
   type CandidateScheduleRow,
@@ -14,6 +15,9 @@ import { getJobStageMappingById, getPipelineStageById } from "@/lib/db/pipeline-
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** `candidate_schedules.id` is a bigint identity column, not a uuid (unlike `campaign_applied.id`). */
+const BIGINT_ID_RE = /^[1-9][0-9]*$/;
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
@@ -154,5 +158,43 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: msg }, { status: 500 });
   }
 
+  return Response.json({ schedule: result });
+}
+
+/**
+ * Cancels one specific interview round (`?scheduleId=`) belonging to this
+ * application -- any row from the "past rounds" list, not just the currently
+ * active one. Per `candidate_schedules`' own design (no `deleted_at` on that
+ * table), "deleting" a schedule from the UI is a status change to
+ * `"Canceled"`, not a row delete -- the row (and reschedule history linking
+ * to/from it) stays intact.
+ */
+export async function DELETE(request: Request, { params }: RouteContext) {
+  const auth = await requireAdminForRequest(request);
+  if (!auth.ok) return auth.response;
+
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const scheduleId = new URL(request.url).searchParams.get("scheduleId");
+  if (!scheduleId || !BIGINT_ID_RE.test(scheduleId)) {
+    return Response.json(
+      { error: "Missing or invalid scheduleId." },
+      { status: 400 },
+    );
+  }
+
+  const db = getPool();
+  const schedule = await getCandidateScheduleById(db, scheduleId);
+  if (!schedule || schedule.campaign_applied_id !== campaignAppliedId) {
+    return Response.json({ error: "Schedule not found." }, { status: 404 });
+  }
+  if (schedule.status === "Canceled") {
+    return Response.json({ schedule });
+  }
+
+  const result = await updateCandidateSchedule(db, schedule.id, { status: "Canceled" });
   return Response.json({ schedule: result });
 }

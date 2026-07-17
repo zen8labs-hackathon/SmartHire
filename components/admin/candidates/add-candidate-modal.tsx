@@ -34,6 +34,16 @@ import {
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
 import { useToast } from "@/components/admin/toast-provider";
 
+/** User-meaningful `runJdMatchForCandidate` skip reasons worth a toast --
+ * excludes internal race-condition skips ("already_processing", "already_scored",
+ * "race_or_state") since those mean scoring already happened or is in flight,
+ * not that the user's request silently went nowhere. */
+const JD_MATCH_SKIP_MESSAGES: Record<string, string> = {
+  no_job_description_text: "This job has no job description text to match against.",
+  parsing_not_complete: "CV parsing hadn't finished yet, so scoring was skipped.",
+  no_active_cv: "No CV file on record for this candidate.",
+};
+
 type JobOpening = {
   id: string;
   title: string;
@@ -320,9 +330,24 @@ export function AddCandidateModal({
           error?: string;
           duplicateCandidates?: DuplicateCandidateHit[];
           duplicateNewUpload?: DuplicateNewUploadPreview | null;
+          jdMatch?: {
+            skipped?: boolean;
+            reason?: string;
+            score?: number;
+            error?: string;
+          };
         };
         if (!procRes.ok) {
           throw new Error(procJson.error ?? "Failed to start processing");
+        }
+
+        if (runJdMatch && procJson.jdMatch) {
+          if (procJson.jdMatch.error) {
+            triggerError(`AI JD-match scoring failed: ${procJson.jdMatch.error}`);
+          } else if (procJson.jdMatch.skipped) {
+            const friendly = JD_MATCH_SKIP_MESSAGES[procJson.jdMatch.reason ?? ""];
+            if (friendly) triggerError(`AI JD-match scoring skipped: ${friendly}`);
+          }
         }
 
         const hits = procJson.duplicateCandidates ?? [];
@@ -362,7 +387,7 @@ export function AddCandidateModal({
         );
       }
     },
-    [onCandidatesChanged],
+    [onCandidatesChanged, triggerError],
   );
 
   /**

@@ -39,17 +39,20 @@ export function PipelineStageSubStageInlineLabel({
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        "inline-flex min-w-0 max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
         surfaceClass,
       )}
       style={surfaceStyle}
     >
-      <span className="text-xs text-foreground">
+      <span className="min-w-0 truncate text-xs text-foreground">
         {stageMapping.pipeline_stages?.label ??
           stageMapping.pipeline_stages?.code}
       </span>
-      <span className="mx-1 text-xs text-muted">·</span>
-      <span className={cn("text-xs", detailClass)} style={detailStyle}>
+      <span className="mx-1 shrink-0 text-xs text-muted">·</span>
+      <span
+        className={cn("min-w-0 truncate text-xs", detailClass)}
+        style={detailStyle}
+      >
         {subStage.label}
       </span>
     </span>

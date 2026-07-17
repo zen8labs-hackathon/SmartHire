@@ -738,14 +738,16 @@ export function JdAppliedCandidatesPipeline({
         }
       }}
       placeholder="All statuses"
-      className="w-32"
+      className="w-40"
     >
-      <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
+      <Select.Trigger className="w-full h-9 overflow-hidden rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {statusFilter !== "all" && selectedFilterOption ? (
-          <PipelineStageSubStageInlineLabel
-            stageMapping={selectedFilterOption.stageMapping}
-            subStage={selectedFilterOption.subStage}
-          />
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <PipelineStageSubStageInlineLabel
+              stageMapping={selectedFilterOption.stageMapping}
+              subStage={selectedFilterOption.subStage}
+            />
+          </div>
         ) : (
           <Select.Value />
         )}

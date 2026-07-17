@@ -69,6 +69,9 @@ export type CandidateDbRow = {
   cv_detail_version?: number;
   /** HR-entered free text; only fetched/exposed to HR or a chapter head (see evaluation page). */
   expected_salary?: string | null;
+  /** ISO date (YYYY-MM-DD), from the active `cv_detail_versions` row. */
+  date_of_birth?: string | null;
+  student_years?: string | null;
 };
 
 function positionFromJdEmbed(
@@ -245,6 +248,16 @@ function toIsoString(d: Date | string | null | undefined): string | null {
   return d;
 }
 
+function dateOnlyIso(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): CandidateDbRow {
   return {
     id: r.id,
@@ -289,6 +302,8 @@ export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): Can
     created_at: toIsoString(r.created_at) ?? new Date().toISOString(),
     updated_at: toIsoString(r.updated_at) ?? new Date().toISOString(),
     expected_salary: r.expected_salary,
+    date_of_birth: dateOnlyIso(r.cv_date_of_birth),
+    student_years: r.cv_student_years,
   };
 }
 
