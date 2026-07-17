@@ -25,14 +25,13 @@ export type LlmCallMeta = {
 export async function generateTextWithFallback(options: GenerateTextArgs) {
   try {
     const result = await generateText(options);
-    return {
-      ...result,
+    return Object.assign(result, {
       llmMeta: {
         provider: parseLlmProviderId(),
         modelId: getGlobalLlmModelId(),
         usedFallback: false,
       } satisfies LlmCallMeta,
-    };
+    });
   } catch (primaryError) {
     if (
       !isLlmFallbackConfigured() ||
@@ -45,14 +44,13 @@ export async function generateTextWithFallback(options: GenerateTextArgs) {
       ...options,
       model: getVercelGatewayLanguageModel(modelId),
     });
-    return {
-      ...result,
+    return Object.assign(result, {
       llmMeta: {
         provider: "vercel_gateway",
         modelId,
         usedFallback: true,
       } satisfies LlmCallMeta,
-    };
+    });
   }
 }
 
