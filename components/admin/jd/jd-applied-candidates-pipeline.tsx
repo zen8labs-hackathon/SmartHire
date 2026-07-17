@@ -654,10 +654,9 @@ export function JdAppliedCandidatesPipeline({
 
   /**
    * `runJdMatchForCandidate` (called per id server-side) already self-guards
-   * via its own CAS lock -- no client-side eligibility filter is needed here
-   * the way `bulkFailEligible`/`bulkOfferEligible` gate the other actions;
-   * an ineligible row (parsing not done, already scored, etc.) just comes
-   * back as a `skipped` result instead of an error.
+   * via its own CAS lock. This explicit user action sets `force` so completed
+   * scores can be recalculated; genuinely ineligible rows (e.g. parsing not
+   * done) still come back as skipped.
    */
   const runJdMatchForSelected = useCallback(async () => {
     if (selectedRows.length === 0) return;
@@ -667,7 +666,10 @@ export function JdAppliedCandidatesPipeline({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: selectedRows.map((r) => r.id) }),
+        body: JSON.stringify({
+          ids: selectedRows.map((r) => r.id),
+          force: true,
+        }),
       });
       const json = (await res.json()) as {
         error?: string;

@@ -5,6 +5,7 @@ import { runJdMatchForCandidate, type JdMatchRunResult } from "@/lib/candidates/
 
 const bodySchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(100),
+  force: z.boolean().optional().default(false),
 });
 
 const CONCURRENCY = 5;
@@ -36,14 +37,17 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { ids } = parsed.data;
+  const { ids, force } = parsed.data;
   const uniqueIds = [...new Set(ids)];
 
   const results: BulkResult[] = [];
   for (let i = 0; i < uniqueIds.length; i += CONCURRENCY) {
     const chunk = uniqueIds.slice(i, i + CONCURRENCY);
     const chunkResults = await Promise.all(
-      chunk.map(async (id) => ({ id, ...(await runJdMatchForCandidate(id)) })),
+      chunk.map(async (id) => ({
+        id,
+        ...(await runJdMatchForCandidate(id, { force })),
+      })),
     );
     results.push(...chunkResults);
   }

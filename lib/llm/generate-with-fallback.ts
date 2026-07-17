@@ -25,6 +25,10 @@ export type LlmCallMeta = {
 export async function generateTextWithFallback(options: GenerateTextArgs) {
   try {
     const result = await generateText(options);
+    // `Output.object()` is validated lazily by the AI SDK when `output` is
+    // read. Force that read inside this try block so missing/invalid
+    // structured output also triggers the configured fallback.
+    void result.output;
     return Object.assign(result, {
       llmMeta: {
         provider: parseLlmProviderId(),
@@ -44,6 +48,8 @@ export async function generateTextWithFallback(options: GenerateTextArgs) {
       ...options,
       model: getVercelGatewayLanguageModel(modelId),
     });
+    // Surface a fallback model's invalid structured output to the caller.
+    void result.output;
     return Object.assign(result, {
       llmMeta: {
         provider: "vercel_gateway",

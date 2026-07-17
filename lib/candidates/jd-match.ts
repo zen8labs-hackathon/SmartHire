@@ -81,6 +81,7 @@ async function saveJdMatchResult(
  */
 export async function runJdMatchForCandidate(
   campaignAppliedId: string,
+  options?: { force?: boolean },
 ): Promise<JdMatchRunResult> {
   const db = getPool();
 
@@ -106,15 +107,21 @@ export async function runJdMatchForCandidate(
     return { ok: true, skipped: true, reason: "already_processing" };
   }
 
-  if (campaignApplied.jd_match_status === "completed") {
+  if (campaignApplied.jd_match_status === "completed" && !options?.force) {
     return { ok: true, skipped: true, reason: "already_scored" };
   }
 
-  const locked = await lockCampaignAppliedForJdMatch(db, campaignAppliedId, [
+  const lockableStatuses = [
     "pending",
     "failed",
     "skipped",
-  ]);
+    ...(options?.force ? ["completed"] : []),
+  ];
+  const locked = await lockCampaignAppliedForJdMatch(
+    db,
+    campaignAppliedId,
+    lockableStatuses,
+  );
   if (!locked) {
     return { ok: true, skipped: true, reason: "race_or_state" };
   }
