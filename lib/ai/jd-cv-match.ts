@@ -183,9 +183,9 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     ? blendAiAndFormulaScores(aiScore, formulaScore)
     : aiScore;
 
-  const modelNote = ` AI model: ${formatLlmCallLabel(llmMeta)}.`;
+  const modelNote = `\n\nAI model: ${formatLlmCallLabel(llmMeta)}.`;
   const blendNote = blend
-    ? ` Blended score: AI ${aiScore} + formula anchor ${formulaScore} (JD_MATCH_AI_WEIGHT=${String(aiWeightFromEnv())}).`
+    ? `\nBlended score: AI ${aiScore} + formula anchor ${formulaScore} (JD_MATCH_AI_WEIGHT=${String(aiWeightFromEnv())}).`
     : "";
   const rationale = (baseRationale + modelNote + blendNote).slice(0, 1000);
 
