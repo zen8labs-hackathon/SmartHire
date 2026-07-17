@@ -579,7 +579,7 @@ export function PipelineCandidateEvaluationClient({
                     <Button
                       variant="primary"
                       size="sm"
-                      className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold"
+                      className="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-bold"
                       onPress={() => {
                         window.open(
                           latest.downloadUrl,
@@ -674,7 +674,7 @@ export function PipelineCandidateEvaluationClient({
                             <div className="flex gap-2">
                               <Button
                                 variant="primary"
-                                className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-bold"
+                                className="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs font-bold"
                                 isDisabled={editBusy}
                                 onPress={() => void saveEditedNote()}
                               >
@@ -734,7 +734,7 @@ export function PipelineCandidateEvaluationClient({
                 </Button>
                 <Button
                   variant="primary"
-                  className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold"
+                  className="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-bold"
                   isDisabled={evalBusy}
                   onPress={() => void regenerateEvaluation()}
                 >

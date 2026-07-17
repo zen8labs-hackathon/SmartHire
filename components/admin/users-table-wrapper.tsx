@@ -105,7 +105,7 @@ function RoleBadges({ user }: { user: OrgUser }) {
       ) : null}
       {isHr ? (
         <span
-          className={`${BADGE_BASE} bg-blue-500/10 text-blue-600 dark:text-blue-400`}
+          className={`${BADGE_BASE} bg-brand-gold/15 text-brand-green dark:text-brand-gold`}
         >
           HR
         </span>
@@ -620,7 +620,7 @@ export function UsersTableWrapper({
                   type="submit"
                   variant="primary"
                   isDisabled={passwordSubmitting}
-                  className="h-9 px-4 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent/90 cursor-pointer"
+                  className="h-9 px-4 rounded-xl bg-accent text-accent-foreground text-xs font-semibold hover:bg-accent/90 cursor-pointer"
                 >
                   {passwordSubmitting ? "Updating..." : "Update Password"}
                 </Button>

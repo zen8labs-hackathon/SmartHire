@@ -65,11 +65,11 @@ export function Sidebar({
 
   const navLinkClass = (active: boolean) =>
     cn(
-      "flex items-center gap-2.5 rounded-xl py-2 px-3 text-sm font-medium transition-all duration-150 cursor-pointer",
+      "flex items-center gap-2.5 rounded-xl py-2 px-3 text-sm font-medium transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold",
       collapsed && "justify-center px-0",
       active
-        ? "bg-accent/10 text-accent dark:bg-accent/15"
-        : "text-muted hover:bg-surface-secondary hover:text-foreground",
+        ? "bg-brand-gold text-brand-gold-foreground shadow-sm"
+        : "text-white/70 hover:bg-white/10 hover:text-white",
     );
 
   const roleText = isHr ? "HR" : "Recruiter";
@@ -81,7 +81,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-divider bg-surface-primary py-5 font-sans h-full transition-all duration-200 overflow-hidden",
+        "flex shrink-0 flex-col border-r border-white/10 bg-brand-green-dark py-5 font-sans h-full transition-[width] duration-200 overflow-hidden",
         collapsed ? "w-[68px] px-2" : "w-64 px-4",
       )}
     >
@@ -89,11 +89,11 @@ export function Sidebar({
       <Link
         href="/dashboard"
         className={cn(
-          "flex items-center gap-2.5 py-1 mb-6 focus:outline-none",
+          "flex items-center gap-2.5 py-1 mb-6 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold",
           collapsed ? "justify-center px-0" : "px-3",
         )}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white shadow-sm shadow-accent/15">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/10 shadow-sm">
           <Image
             src="/logo.svg"
             className="h-5.5 w-5.5"
@@ -103,7 +103,7 @@ export function Sidebar({
           />
         </div>
         {!collapsed && (
-          <span className="text-lg font-bold tracking-tight text-foreground whitespace-nowrap">
+          <span className="text-lg font-bold tracking-tight text-white whitespace-nowrap">
             Smart Hire
           </span>
         )}
@@ -114,7 +114,7 @@ export function Sidebar({
         {/* Recruiting Group */}
         <div className="space-y-1">
           {!collapsed && (
-            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2">
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-white/40 mb-2">
               Workspace
             </p>
           )}
@@ -175,11 +175,11 @@ export function Sidebar({
         {isHr && (
           <div className="space-y-1">
             {collapsed ? (
-              <div className="h-px bg-divider mb-2" />
+              <div className="h-px bg-white/10 mb-2" />
             ) : (
               <button
                 onClick={() => setSetupOpen(!setupOpen)}
-                className="flex w-full items-center justify-between px-3 text-[10px] font-bold uppercase tracking-wider text-muted/60 mb-2 hover:text-foreground transition-colors cursor-pointer"
+                className="flex w-full items-center justify-between rounded-lg px-3 text-[10px] font-bold uppercase tracking-wider text-white/40 mb-2 hover:text-white transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold"
               >
                 <span>Setup</span>
                 <ChevronDown
@@ -228,10 +228,10 @@ export function Sidebar({
       </nav>
 
       {/* Bottom Profile Bar */}
-      <div className="mt-auto pt-4 border-t border-divider">
+      <div className="mt-auto pt-4 border-t border-white/10">
         <div
           className={cn(
-            "flex items-center gap-2.5 rounded-2xl p-2.5 bg-surface-secondary border border-divider shadow-sm",
+            "flex items-center gap-2.5 rounded-2xl p-2.5 bg-white/8 border border-white/10 shadow-sm",
             collapsed && "flex-col p-2",
           )}
         >
@@ -240,34 +240,34 @@ export function Sidebar({
             aria-label="Profile settings"
             title={collapsed ? displayName : undefined}
             className={cn(
-              "flex min-w-0 items-center gap-3 text-left cursor-pointer focus:outline-none",
+              "flex min-w-0 items-center gap-3 rounded-xl text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold",
               collapsed ? "justify-center" : "flex-1",
             )}
           >
             <div className="relative shrink-0">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-accent to-indigo-500 text-white text-xs font-bold shadow-md shadow-accent/25">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-gold text-brand-gold-foreground text-xs font-bold shadow-md shadow-black/15">
                 {initials}
               </div>
-              <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-surface-secondary" />
+              <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-brand-green-dark" />
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-xs font-bold text-foreground tracking-tight">
+                  <span className="truncate text-xs font-bold text-white tracking-tight">
                     {displayName}
                   </span>
                   <span
                     className={cn(
                       "shrink-0 rounded px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-wider",
                       isHr
-                        ? "bg-rose-500/20 text-rose-700 dark:text-rose-300"
-                        : "bg-accent/20 text-accent-hover",
+                        ? "bg-rose-400/20 text-rose-100"
+                        : "bg-brand-gold/15 text-brand-gold",
                     )}
                   >
                     {roleText}
                   </span>
                 </div>
-                <p className="truncate text-[10px] text-foreground/75 mt-1 font-semibold">
+                <p className="truncate text-[10px] text-white/60 mt-1 font-semibold">
                   {userEmail}
                 </p>
               </div>
@@ -283,7 +283,7 @@ export function Sidebar({
               onClick={handleSignOut}
               disabled={isPendingSignOut}
               aria-label="Logout"
-              className="shrink-0 rounded-xl p-1.5 bg-danger/10 text-danger hover:bg-danger/20 cursor-pointer focus:outline-none disabled:opacity-50 transition-all duration-150"
+              className="shrink-0 rounded-xl p-1.5 bg-white/10 text-white/70 hover:bg-danger/20 hover:text-rose-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold disabled:opacity-50 transition-colors duration-150"
             >
               {isPendingSignOut ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

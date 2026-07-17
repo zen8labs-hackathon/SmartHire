@@ -205,7 +205,7 @@ export function EditUserForm({
           type="submit"
           variant="primary"
           isDisabled={isPending}
-          className="h-9 px-4 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent/90"
+          className="h-9 px-4 rounded-xl bg-accent text-accent-foreground text-xs font-semibold hover:bg-accent/90"
         >
           {isPending ? "Saving..." : "Save changes"}
         </Button>

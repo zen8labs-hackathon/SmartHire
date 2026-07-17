@@ -305,7 +305,7 @@ export function CandidateEvaluationTemplateManager({
                 disabled={busy}
                 className={
                   mode === "file"
-                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white"
+                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground"
                     : "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-muted hover:text-foreground"
                 }
               >
@@ -318,7 +318,7 @@ export function CandidateEvaluationTemplateManager({
                 disabled={busy}
                 className={
                   mode === "text"
-                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white"
+                    ? "flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground"
                     : "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-muted hover:text-foreground"
                 }
               >
@@ -380,9 +380,9 @@ export function CandidateEvaluationTemplateManager({
                 </div>
               </div>
             ) : info?.hasFile ? (
-              <div className="flex flex-col gap-3 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/5 to-indigo-500/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="flex flex-col gap-3 rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/5 to-brand-gold/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="h-11 w-11 shrink-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-indigo-500/20 rounded-xl text-accent border border-accent/20 shadow-sm shadow-accent/10">
+                  <div className="h-11 w-11 shrink-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-brand-gold/20 rounded-xl text-accent border border-accent/20 shadow-sm shadow-accent/10">
                     <FileText className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -451,7 +451,7 @@ export function CandidateEvaluationTemplateManager({
               <div
                 className={
                   dragOver
-                    ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-indigo-500/8 p-10 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
+                    ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-brand-gold/10 p-10 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
                     : "group relative rounded-2xl border-2 border-dashed border-divider bg-surface-secondary/10 p-10 text-center transition-all duration-200 hover:border-accent/40 hover:bg-surface-secondary/25 cursor-pointer"
                 }
                 onClick={() => !busy && fileInputRef.current?.click()}
@@ -506,7 +506,7 @@ export function CandidateEvaluationTemplateManager({
                   />
                   <Button
                     variant="primary"
-                    className="mt-1 h-9 px-6 rounded-xl bg-accent text-white font-bold text-xs shadow-md shadow-accent/20 hover:bg-accent/90"
+                    className="mt-1 h-9 px-6 rounded-xl bg-accent text-accent-foreground font-bold text-xs shadow-md shadow-accent/20 hover:bg-accent/90"
                     isDisabled={busy}
                     onPress={() => fileInputRef.current?.click()}
                   >

@@ -910,7 +910,7 @@ export function JdAppliedCandidatesPipeline({
           <Button
             size="sm"
             variant="primary"
-            className="bg-accent text-white"
+            className="bg-accent text-accent-foreground"
             isDisabled={
               !canEditPipeline || pipelineBusy || !bulkInterviewEligible
             }
@@ -921,7 +921,7 @@ export function JdAppliedCandidatesPipeline({
           <Button
             size="sm"
             variant="primary"
-            className="bg-accent text-white"
+            className="bg-accent text-accent-foreground"
             isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
             onPress={() => void moveSelectedToOffer()}
           >

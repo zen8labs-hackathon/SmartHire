@@ -235,7 +235,7 @@ export function StageForm({
           type="submit"
           variant="primary"
           isDisabled={busy}
-          className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-bold hover:bg-accent/90"
+          className="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-bold hover:bg-accent/90"
         >
           {busy ? "Saving..." : "Save Stage"}
         </Button>

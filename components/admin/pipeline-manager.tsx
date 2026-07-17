@@ -258,7 +258,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
           <Button
             size="sm"
             variant="primary"
-            className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+            className="h-8 px-3 rounded-lg bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
             onPress={() => stagesPanelRef.current?.startAdd()}
             isDisabled={busy || !stagesPanelReady}
           >
@@ -291,7 +291,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
             <Button
               size="sm"
               variant="primary"
-              className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+              className="h-8 px-3 rounded-lg bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
               onPress={() => setSubStageMode("add")}
               isDisabled={busy}
             >

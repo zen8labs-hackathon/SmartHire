@@ -47,9 +47,9 @@ export default async function LoginPage({ searchParams }: Props) {
   const reasonMessage = reason ? REASON_MESSAGES[reason] : undefined;
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background bg-grid-pattern p-6">
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-brand-green-dark bg-grid-pattern p-6">
       {/* Radiant Spotlight Background Effect */}
-      <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-accent/10 blur-[120px] animate-pulse-glow" />
+      <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-brand-gold/15 blur-[120px] animate-pulse-glow" />
 
       <div className="relative z-10 w-full max-w-[420px]">
         {/* Logo and Header */}
@@ -57,10 +57,10 @@ export default async function LoginPage({ searchParams }: Props) {
           <div className="flex h-14 w-14 items-center justify-center transition-transform duration-300 hover:scale-105">
             <img src="/logo.svg" alt="SmartHire Logo" className="h-14 w-14" />
           </div>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight text-foreground">
+          <h1 className="mt-6 text-2xl font-semibold tracking-tight text-white">
             Welcome back
           </h1>
-          <p className="mt-2 text-sm text-muted">
+          <p className="mt-2 text-sm text-white/65">
             Sign in to manage your recruitment pipeline
           </p>
         </div>
@@ -98,7 +98,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </Card>
 
         {/* Footer info */}
-        <p className="mt-8 text-center text-xs text-muted leading-relaxed">
+        <p className="mt-8 text-center text-xs text-white/55 leading-relaxed">
           Smart Hire is used internally by authorized HR teams.
           <br />
           Protected by role-based workspace security.

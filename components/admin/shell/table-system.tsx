@@ -91,7 +91,7 @@ export function DataTableToolbar({
           variant="primary"
           onPress={onCreate}
           isDisabled={createButtonDisabled}
-          className="h-9 px-3.5 rounded-xl bg-accent hover:bg-accent/90 text-white font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer text-xs"
+          className="h-9 px-3.5 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-semibold shadow-md transition-colors flex items-center gap-1.5 cursor-pointer text-xs"
         >
           <Plus className="h-3.5 w-3.5 shrink-0" />
           <span>{createButtonLabel}</span>
@@ -126,7 +126,7 @@ export function DataTableFilterButton({
       <SlidersHorizontal className="h-3.5 w-3.5" />
       <span>{label}</span>
       {activeCount > 0 && (
-        <span className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+        <span className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground">
           {activeCount}
         </span>
       )}
@@ -277,7 +277,7 @@ export function DataTablePagination({
               onPress={() => setPage(p)}
               className={`h-8 w-8 rounded-lg text-xs font-semibold ${
                 p === page
-                  ? "bg-accent text-white shadow-sm"
+                  ? "bg-accent text-accent-foreground shadow-sm"
                   : "border border-divider/40 hover:bg-surface-secondary text-muted"
               }`}
             >

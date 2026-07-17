@@ -2,14 +2,34 @@
 @import "@heroui/styles";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
+  color-scheme: light;
+  --background: #f9f9f9;
+  --foreground: #142f21;
+  --surface: #ffffff;
+  --surface-foreground: #142f21;
   --surface-primary: #ffffff;
-  --surface-secondary: #f8fafc;
-  --surface-tertiary: #f1f5f9;
-  --divider: #e2e8f0;
-  --muted: #64748b;
-  --accent: #4f46e5;
+  --surface-secondary: #f3f6f4;
+  --surface-tertiary: #e8eee9;
+  --overlay: #ffffff;
+  --overlay-foreground: #142f21;
+  --divider: #d7e1da;
+  --border: #d7e1da;
+  --separator: #d7e1da;
+  --muted: #627168;
+  --accent: #075f32;
+  --accent-foreground: #ffffff;
+  --focus: #007220;
+  --link: #007220;
+  --field-background: #ffffff;
+  --field-foreground: #142f21;
+  --field-placeholder: #627168;
+  --field-border: #d7e1da;
+  --brand-ink: #142f21;
+  --brand-green-dark: #00451f;
+  --brand-green: #075f32;
+  --brand-gold: #f3b44a;
+  --brand-gold-hover: #eeaa39;
+  --brand-gold-foreground: #142f21;
 }
 
 @theme inline {
@@ -24,18 +44,39 @@
   --color-divider: var(--divider);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-green-dark: var(--brand-green-dark);
+  --color-brand-green: var(--brand-green);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-hover: var(--brand-gold-hover);
+  --color-brand-gold-foreground: var(--brand-gold-foreground);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #030712;
-    --foreground: #f3f4f6;
-    --surface-primary: #030712;
-    --surface-secondary: #0b0f19;
-    --surface-tertiary: #161b26;
-    --divider: #1f2937;
-    --muted: #9ca3af;
-    --accent: #6366f1;
+    color-scheme: dark;
+    --background: #04170d;
+    --foreground: #f5f8f6;
+    --surface: #0b2818;
+    --surface-foreground: #f5f8f6;
+    --surface-primary: #0b2818;
+    --surface-secondary: #123520;
+    --surface-tertiary: #1a422a;
+    --overlay: #123520;
+    --overlay-foreground: #f5f8f6;
+    --divider: #285139;
+    --border: #285139;
+    --separator: #285139;
+    --muted: #a6b8ac;
+    --accent: #f3b44a;
+    --accent-foreground: #142f21;
+    --focus: #f3b44a;
+    --link: #f8bd54;
+    --field-background: #123520;
+    --field-foreground: #f5f8f6;
+    --field-placeholder: #a6b8ac;
+    --field-border: #285139;
   }
 }
 
@@ -49,28 +90,30 @@ body {
 .bg-grid-pattern {
   background-size: 30px 30px;
   background-image: 
-    linear-gradient(to right, rgba(79, 70, 229, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(79, 70, 229, 0.04) 1px, transparent 1px);
-}
-
-.dark .bg-grid-pattern {
-  background-image: 
-    linear-gradient(to right, rgba(99, 102, 241, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(99, 102, 241, 0.02) 1px, transparent 1px);
+    linear-gradient(to right, rgba(243, 180, 74, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(243, 180, 74, 0.1) 1px, transparent 1px);
 }
 
 .glass-panel {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(20, 47, 33, 0.12);
 }
 
-.dark .glass-panel {
-  background: rgba(11, 15, 25, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(31, 41, 55, 0.6);
+@media (prefers-color-scheme: dark) {
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, rgba(248, 189, 84, 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(248, 189, 84, 0.08) 1px, transparent 1px);
+  }
+
+  .glass-panel {
+    background: rgba(11, 40, 24, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(248, 189, 84, 0.18);
+  }
 }
 
 /* Animations */

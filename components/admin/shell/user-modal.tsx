@@ -127,7 +127,7 @@ export function UserModal({
             {/* Modal Header */}
             <Modal.Header className="border-b border-divider bg-surface-secondary/40 px-6 py-5">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-accent to-indigo-500 font-sans text-xl font-bold text-white shadow-md shadow-accent/15">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-gold font-sans text-xl font-bold text-brand-gold-foreground shadow-md shadow-black/15">
                   {initials}
                 </div>
                 <div className="min-w-0">
@@ -243,7 +243,7 @@ export function UserModal({
                   </div>
                   <Button
                     type="submit"
-                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl text-sm font-semibold shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-xl text-sm font-semibold shadow-md transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
                     isDisabled={updating}
                   >
                     {updating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -282,7 +282,7 @@ export function UserModal({
                   </div>
                   <Button
                     type="submit"
-                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl text-sm font-semibold shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-xl text-sm font-semibold shadow-md transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
                     isDisabled={updating}
                   >
                     {updating && <Loader2 className="h-4 w-4 animate-spin" />}

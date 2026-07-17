@@ -217,7 +217,7 @@ export function ChaptersSetup({
           </TextField>
           <Button
             variant="primary"
-            className="h-9 shrink-0 px-4 rounded-xl bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+            className="h-9 shrink-0 px-4 rounded-xl bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
             isDisabled={busy || !newName.trim()}
             onPress={() => void addChapter()}
           >
