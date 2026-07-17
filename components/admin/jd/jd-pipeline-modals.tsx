@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Input, Label, Modal } from "@heroui/react";
+import { Button, Chip, Input, Label, Modal } from "@heroui/react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import {
@@ -7,6 +7,7 @@ import {
   campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
+import { jdMatchChipColor } from "@/lib/candidates/candidate-display";
 import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
 type ScheduleHistoryItem = {
@@ -269,9 +270,14 @@ export function RationaleModal({
             <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-foreground">
               JD match reasoning
               {score != null ? (
-                <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-sm font-bold tabular-nums text-accent">
+                <Chip
+                  size="sm"
+                  variant="soft"
+                  color={jdMatchChipColor({ jdMatchScore: score })}
+                  className="min-w-[3.25rem] justify-center text-sm font-bold tabular-nums"
+                >
                   {score}
-                </span>
+                </Chip>
               ) : null}
             </Modal.Heading>
           </Modal.Header>
