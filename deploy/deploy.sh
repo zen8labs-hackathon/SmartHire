@@ -2,7 +2,7 @@
 # Redeploy app on the EC2 box. Run from the repo root as ubuntu.
 set -euo pipefail
 
-BRANCH="${1:-chore/aws-ec2-deploy}"
+BRANCH="${1:-production}"
 COMPOSE=(docker compose -f docker-compose.prod.yml)
 
 echo "==> Fetch / checkout ${BRANCH}"

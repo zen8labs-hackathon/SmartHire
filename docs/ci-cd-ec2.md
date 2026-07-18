@@ -61,7 +61,7 @@ Kiểm tra:
 
 ```bash
 cd /opt/smarthire/app
-git pull origin chore/aws-ec2-deploy
+git pull origin production
 ```
 
 Phải pull được **không** hỏi user/pass.
@@ -74,9 +74,9 @@ File: `.github/workflows/deploy-ec2.yml`
 
 | Cấu hình | Giá trị mặc định |
 |----------|------------------|
-| Branch trigger | `chore/aws-ec2-deploy` |
+| Branch trigger | `production` (sau này thêm `develop`) |
 | Runner labels | `self-hosted`, `smarthire-ec2` |
-| Lệnh deploy | `/opt/smarthire/app/deploy/deploy-bluegreen.sh chore/aws-ec2-deploy` |
+| Lệnh deploy | `/opt/smarthire/app/deploy/deploy-bluegreen.sh <branch>` |
 
 Blue-green (gần zero downtime): [blue-green-ec2.md](./blue-green-ec2.md). Rollback / bật lần đầu: xem doc đó trước khi chạy CI.
 
@@ -99,7 +99,7 @@ Production hiện tại: **EC2** (`smart-hire.zen8labs.io`), không phải Verce
 
 ## 4. Kiểm tra
 
-1. Push một commit lên `chore/aws-ec2-deploy`
+1. Push một commit lên `production`
 2. GitHub → **Actions** → workflow **Deploy EC2**
 3. Job chạy trên runner `smarthire-ec2`, log có `Done.` và `app HTTP 307` (hoặc 200)
 

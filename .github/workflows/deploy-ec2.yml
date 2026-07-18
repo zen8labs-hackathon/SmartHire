@@ -1,4 +1,4 @@
-# Auto-deploy EC2 when pushing to a specific branch.
+# Auto-deploy EC2 when pushing to production (and later develop).
 #
 # Requires a self-hosted GitHub Actions runner on the EC2 box (see docs/ci-cd-ec2.md).
 # Syncs /opt/smarthire/app to origin before running deploy (script may not exist until first pull).
@@ -8,10 +8,11 @@ name: Deploy EC2
 on:
   push:
     branches:
-      - chore/aws-ec2-deploy
+      - production
+      # - develop  # enable when develop EC2/env is ready
 
 concurrency:
-  group: deploy-ec2-production
+  group: deploy-ec2-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -25,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           APP_DIR=/opt/smarthire/app
-          BRANCH=chore/aws-ec2-deploy
+          BRANCH="${{ github.ref_name }}"
 
           cd "$APP_DIR"
           git config --global --add safe.directory "$APP_DIR"

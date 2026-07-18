@@ -2,7 +2,7 @@
 # Blue-green deploy: build on idle slot, health-check, switch nginx upstream, stop old slot.
 set -euo pipefail
 
-BRANCH="${1:-chore/aws-ec2-deploy}"
+BRANCH="${1:-production}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
