@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import {
   createCandidateNote,
   getCandidateNoteById,
@@ -46,6 +47,12 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
+
   const notes = await listCandidateNotesByCampaignApplied(getPool(), campaignAppliedId, "interview");
   notes.reverse();
 
@@ -60,6 +67,12 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
   const parsed = postBodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -85,6 +98,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
   const parsed = patchBodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {

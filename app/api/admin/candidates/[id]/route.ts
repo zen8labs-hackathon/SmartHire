@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { canViewSalary } from "@/lib/authz/can";
+import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import {
   getCampaignAppliedAdminRowById,
 } from "@/lib/db/campaign-applied-list";
@@ -37,12 +40,17 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const row = await getCampaignAppliedAdminRowById(getPool(), candidateId);
+  const db = getPool();
+  const row = await getCampaignAppliedAdminRowById(db, candidateId);
   if (!row) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  return Response.json({ candidate: row });
+  const jobAccess = await requireJobViewAccess(auth.access, row.job_id);
+  if (!jobAccess.ok) return jobAccess.response;
+
+  const viewSalary = await canViewSalary(db, auth.access, row.job_id);
+  return Response.json({ candidate: redactAdminRowSalary(row, viewSalary) });
 }
 
 /**

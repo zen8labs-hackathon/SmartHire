@@ -34,7 +34,7 @@ type CreateBody = Partial<JobDescriptionFormData> & {
   jdMimeType?: string | null;
   /** Recruiter accounts that may open this JD (must already exist). */
   viewerEmails?: string[] | string | null;
-  /** Chapter ids: all members of these chapters may open this JD. */
+  /** Chapter ids: chapter *heads* of these chapters may open this JD (members need a profile grant). */
   viewerChapterIds?: string[] | null;
   pipelineStages?: string[] | null;
 };
@@ -99,6 +99,7 @@ export async function GET(request: Request) {
         startTo,
         limit,
         offset,
+        visibleToUserId: auth.access.isHr ? undefined : auth.userId,
       });
     return Response.json({ jobDescriptions, pagination, statusCounts });
   } catch (e) {

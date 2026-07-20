@@ -47,6 +47,11 @@ export type QueryJobDescriptionsWithEnrichmentOptions = {
   /** When set, paginates; omit to return every matching row up to the default limit. */
   limit?: number;
   offset?: number;
+  /**
+   * When set (non-HR), restrict list + status counts to jobs this user can
+   * view via ACL. Omit for HR/admin unrestricted lists.
+   */
+  visibleToUserId?: string;
 };
 
 export type QueryJobDescriptionsWithEnrichmentResult = {
@@ -79,13 +84,22 @@ export async function queryJobDescriptionsWithEnrichment(
   db: QueryExecutor,
   options: QueryJobDescriptionsWithEnrichmentOptions = {},
 ): Promise<QueryJobDescriptionsWithEnrichmentResult> {
-  const { status, q, startFrom, startTo, limit, offset = 0 } = options;
+  const {
+    status,
+    q,
+    startFrom,
+    startTo,
+    limit,
+    offset = 0,
+    visibleToUserId,
+  } = options;
   const paginate = limit != null;
 
   const countFilters = {
     q: q?.trim() || undefined,
     startFrom: startFrom ?? undefined,
     startTo: startTo ?? undefined,
+    visibleToUserId,
   };
 
   const [{ rows: jobs, total }, statusCounts] = await Promise.all([

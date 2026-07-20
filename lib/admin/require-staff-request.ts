@@ -39,7 +39,8 @@ export async function requireStaffForRequest(
 }
 
 /**
- * HR / admin only (full product management).
+ * HR / admin only (full product management). Prefer this over the deprecated
+ * `requireAdminForRequest` alias.
  */
 export async function requireHrForRequest(
   request: Request,

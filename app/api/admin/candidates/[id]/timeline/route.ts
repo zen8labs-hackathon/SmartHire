@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import {
   createCandidateSchedule,
@@ -40,6 +41,12 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
   const schedules = await listCandidateSchedulesByCampaignApplied(
     getPool(),

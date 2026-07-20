@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipeline-candidate-evaluation-client";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { isChapterHeadOnJob } from "@/lib/admin/profile-access";
+import { canViewJob, canViewSalary } from "@/lib/authz/can";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 import { campaignAppliedAdminRowToEvaluationRow } from "@/lib/jd/campaign-applied-to-evaluation-row";
@@ -32,21 +32,18 @@ export default async function PipelineCandidateEvaluationPage({
   if (!access?.isStaff) redirect("/dashboard");
 
   const db = getPool();
-  // None of these three depend on each other's result, so they can run
-  // concurrently instead of waterfalling. Only fire the chapter-head check
-  // when it can actually affect the outcome (access.isHr already grants
-  // canViewSalary), matching the original short-circuit.
-  const [row, isChapterHead, pipelineConfig] = await Promise.all([
+  const allowed = await canViewJob(db, access, jobId);
+  if (!allowed) redirect("/admin/jd");
+
+  const [row, viewSalary, pipelineConfig] = await Promise.all([
     getCampaignAppliedAdminRowById(db, candidateId),
-    access.isHr ? Promise.resolve(false) : isChapterHeadOnJob(db, user.id, jobId),
+    canViewSalary(db, access, jobId),
     fetchJobPipelineConfig(db, jobId),
   ]);
   if (!row || row.job_id !== jobId) notFound();
 
-  const canViewSalary = access.isHr || isChapterHead;
-
   const candidate = campaignAppliedAdminRowToEvaluationRow(row, {
-    canViewSalary,
+    canViewSalary: viewSalary,
     stageMappings: pipelineConfig.stageMappings,
     subStages: pipelineConfig.subStages,
   });

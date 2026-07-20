@@ -224,7 +224,7 @@ export function JdCreateModal() {
               />
               <div className="space-y-2">
                 <Label className="text-xs text-muted">
-                  Viewer chapters (whole chapter)
+                  Viewer chapters (chapter heads)
                 </Label>
                 <ChapterPicker
                   chapters={chapters}

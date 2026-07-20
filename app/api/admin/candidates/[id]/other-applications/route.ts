@@ -1,5 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
+import { canViewJob } from "@/lib/authz/can";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { listOtherApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 
@@ -17,12 +18,14 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const db = getPool();
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
-  const current = await getCampaignAppliedById(db, campaignAppliedId);
-  if (!current) {
-    return Response.json({ error: "Not found." }, { status: 404 });
-  }
+  const db = getPool();
+  const current = appAccess.application;
 
   try {
     const rows = await listOtherApplicationsForCandidate(
@@ -31,18 +34,22 @@ export async function GET(request: Request, { params }: RouteContext) {
       campaignAppliedId,
     );
 
-    const applications = rows.map((row) => ({
-      id: row.id,
-      cvDownloadUrl: `/api/admin/candidates/${row.id}/cv-download`,
-      jobTitle: row.job_position ?? "—",
-      jobDescriptionId: row.job_id,
-      cvUploadedAt: row.cv_created_at
-        ? row.cv_created_at.toISOString()
-        : row.created_at.toISOString(),
-      name: row.candidate_name ?? null,
-    }));
+    const visible = [];
+    for (const row of rows) {
+      if (!(await canViewJob(db, auth.access, row.job_id))) continue;
+      visible.push({
+        id: row.id,
+        cvDownloadUrl: `/api/admin/candidates/${row.id}/cv-download`,
+        jobTitle: row.job_position ?? "—",
+        jobDescriptionId: row.job_id,
+        cvUploadedAt: row.cv_created_at
+          ? row.cv_created_at.toISOString()
+          : row.created_at.toISOString(),
+        name: row.candidate_name ?? null,
+      });
+    }
 
-    return Response.json({ applications });
+    return Response.json({ applications: visible });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Database error";
     return Response.json({ error: msg }, { status: 500 });
