@@ -1,6 +1,7 @@
 import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
+import { formatDisplayDate } from "@/lib/format-date";
 import {
   resolveCandidatePipelineIds,
   type StageMapping,
@@ -8,8 +9,7 @@ import {
 } from "@/lib/pipelines/transition-validator";
 
 function formatDate(d: Date | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString(undefined, { dateStyle: "medium" });
+  return formatDisplayDate(d);
 }
 
 /**
