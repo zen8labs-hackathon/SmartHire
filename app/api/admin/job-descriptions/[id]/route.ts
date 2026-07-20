@@ -9,8 +9,12 @@ import {
 } from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { upsertJobStageMappings } from "@/lib/pipelines/upsert-job-stage-mappings";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
+import {
+  listJobStageMappings,
+  reconcileJobStageMappings,
+} from "@/lib/db/pipeline-stages";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -27,41 +31,41 @@ import {
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-function parseId(raw: string): number | null {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseId(raw: string): string | null {
+  return UUID_RE.test(raw) ? raw : null;
 }
 
-function sanitize(body: Partial<JobDescriptionFormData>) {
-  const result: Record<string, string | null> = {
-    duties_and_responsibilities: optionalToDb(body.duties_and_responsibilities),
-    experience_requirements_must_have: optionalToDb(
+/** Standard (non-intake) edit: the JD workflow fields, e.g. status transitions from the list view. */
+function sanitizeStandard(body: Partial<JobDescriptionFormData>): UpdateJobInput {
+  const result: UpdateJobInput = {
+    dutiesAndResponsibilities: optionalToDb(body.duties_and_responsibilities),
+    experienceRequirementsMustHave: optionalToDb(
       body.experience_requirements_must_have,
     ),
-    experience_requirements_nice_to_have: optionalToDb(
+    experienceRequirementsNiceToHave: optionalToDb(
       body.experience_requirements_nice_to_have,
     ),
-    what_we_offer: optionalToDb(body.what_we_offer),
+    whatWeOffer: optionalToDb(body.what_we_offer),
   };
 
-  if (body.position !== undefined) {
-    const p = requiredLine(body.position, 50);
-    result.position = p === "" ? null : p;
-  }
+  if (body.position !== undefined) result.position = requiredLine(body.position, 50);
   if (body.department !== undefined)
     result.department = optionalToDb(body.department, 50);
   if (body.employment_status !== undefined)
-    result.employment_status = optionalToDb(body.employment_status, 50);
+    result.employmentStatus = optionalToDb(body.employment_status, 50);
   if (body.update_note !== undefined)
-    result.update_note = optionalToDb(body.update_note, 50);
+    result.updateNote = optionalToDb(body.update_note, 50);
   if (body.work_location !== undefined)
-    result.work_location = optionalToDb(body.work_location, 255);
+    result.workLocation = optionalToDb(body.work_location, 255);
   if (body.reporting !== undefined)
     result.reporting = optionalToDb(body.reporting, 255);
   if (body.role_overview !== undefined)
-    result.role_overview = optionalToDb(body.role_overview, 255);
+    result.roleOverview = optionalToDb(body.role_overview, 255);
   if (body.start_date !== undefined) {
-    result.start_date = optionalDateToDb(body.start_date);
+    result.startDate = optionalDateToDb(body.start_date);
   }
   if (body.status !== undefined && isJdStatus(String(body.status))) {
     result.status = body.status;
@@ -70,51 +74,50 @@ function sanitize(body: Partial<JobDescriptionFormData>) {
   return result;
 }
 
-function sanitizeEdit(body: Partial<JdEditFormData>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+/** Detailed intake edit (Edit Intake modal). */
+function sanitizeEditPayload(body: Partial<JdEditFormData>): UpdateJobInput {
+  const result: UpdateJobInput = {};
 
-  if (body.position !== undefined) {
-    result.position = requiredLine(body.position, 50);
-  }
+  if (body.position !== undefined) result.position = requiredLine(body.position, 50);
   if (body.level !== undefined) result.level = optionalToDb(body.level, 100);
   if (body.headcount !== undefined) {
     const n = body.headcount === "" ? null : Number(body.headcount);
     result.headcount = n !== null && !Number.isNaN(n) && n > 0 ? n : null;
   }
   if (body.hire_type !== undefined)
-    result.hire_type = optionalToDb(body.hire_type, 50);
+    result.hireType = optionalToDb(body.hire_type, 50);
   if (body.reporting !== undefined)
     result.reporting = optionalToDb(body.reporting, 255);
   if (body.project_info !== undefined)
-    result.project_info = optionalToDb(body.project_info);
+    result.projectInfo = optionalToDb(body.project_info);
   if (body.duties_and_responsibilities !== undefined)
-    result.duties_and_responsibilities = optionalToDb(
+    result.dutiesAndResponsibilities = optionalToDb(
       body.duties_and_responsibilities,
     );
   if (body.team_size !== undefined)
-    result.team_size = optionalToDb(body.team_size);
+    result.teamSize = optionalToDb(body.team_size);
   if (body.experience_requirements_must_have !== undefined)
-    result.experience_requirements_must_have = optionalToDb(
+    result.experienceRequirementsMustHave = optionalToDb(
       body.experience_requirements_must_have,
     );
   if (body.experience_requirements_nice_to_have !== undefined)
-    result.experience_requirements_nice_to_have = optionalToDb(
+    result.experienceRequirementsNiceToHave = optionalToDb(
       body.experience_requirements_nice_to_have,
     );
   if (body.language_requirements !== undefined)
-    result.language_requirements = optionalToDb(body.language_requirements);
+    result.languageRequirements = optionalToDb(body.language_requirements);
   if (body.career_development !== undefined)
-    result.career_development = optionalToDb(body.career_development);
+    result.careerDevelopment = optionalToDb(body.career_development);
   if (body.other_requirements !== undefined)
-    result.other_requirements = optionalToDb(body.other_requirements);
+    result.otherRequirements = optionalToDb(body.other_requirements);
   if (body.salary_range !== undefined)
-    result.salary_range = optionalToDb(body.salary_range, 255);
+    result.salaryRange = optionalToDb(body.salary_range, 255);
   if (body.project_allowances !== undefined)
-    result.project_allowances = optionalToDb(body.project_allowances);
+    result.projectAllowances = optionalToDb(body.project_allowances);
   if (body.interview_process !== undefined)
-    result.interview_process = optionalToDb(body.interview_process);
+    result.interviewProcess = optionalToDb(body.interview_process);
   if (body.hiring_deadline !== undefined)
-    result.hiring_deadline = optionalDateToDb(body.hiring_deadline);
+    result.hiringDeadline = optionalDateToDb(body.hiring_deadline);
 
   return result;
 }
@@ -136,52 +139,27 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const numId = parseId(id);
-  if (!numId) return Response.json({ error: "Invalid id." }, { status: 400 });
+  const jobId = parseId(id);
+  if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
-  const { data, error } = await auth.supabase
-    .from("job_descriptions")
-    .select("*")
-    .eq("id", numId)
-    .maybeSingle();
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-  if (!data) return Response.json({ error: "Not found." }, { status: 404 });
+  const db = getPool();
+  const job = await getJobById(db, jobId);
+  if (!job) return Response.json({ error: "Not found." }, { status: 404 });
 
   let viewerEmails: string[] = [];
   let viewerChapterIds: string[] = [];
   let pipelineStages: string[] = [];
   try {
-    const admin = createAdminClient();
-    viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
-    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(
-      admin,
-      numId,
-    );
-
-    const { data: opening } = await auth.supabase
-      .from("job_openings")
-      .select("id")
-      .eq("job_description_id", numId)
-      .maybeSingle();
-
-    if (opening) {
-      const { data: mappings } = await auth.supabase
-        .from("job_stage_mappings")
-        .select("pipeline_stage_id")
-        .eq("job_opening_id", opening.id)
-        .is("deleted_at", null)
-        .order("sequence_number", { ascending: true });
-      if (mappings) {
-        pipelineStages = mappings.map((m) => m.pipeline_stage_id);
-      }
-    }
+    viewerEmails = await fetchViewerEmailsForJobDescription(db, jobId);
+    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(db, jobId);
+    const mappings = await listJobStageMappings(db, jobId);
+    pipelineStages = mappings.map((m) => m.pipeline_stage_id);
   } catch (err) {
     console.error("Failed to fetch pipeline stages or viewers:", err);
   }
 
   return Response.json({
-    jobDescription: data,
+    jobDescription: job,
     viewerEmails,
     viewerChapterIds,
     pipelineStages,
@@ -193,8 +171,8 @@ export async function PUT(request: Request, { params }: RouteContext) {
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const numId = parseId(id);
-  if (!numId) return Response.json({ error: "Invalid id." }, { status: 400 });
+  const jobId = parseId(id);
+  if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
   let raw: Record<string, unknown>;
   try {
@@ -234,15 +212,8 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: "No updates provided." }, { status: 400 });
   }
 
-  const { data: existing, error: existingErr } = await auth.supabase
-    .from("job_descriptions")
-    .select("status, position")
-    .eq("id", numId)
-    .maybeSingle();
-
-  if (existingErr) {
-    return Response.json({ error: existingErr.message }, { status: 500 });
-  }
+  const db = getPool();
+  const existing = await getJobById(db, jobId);
   if (!existing) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
@@ -251,83 +222,67 @@ export async function PUT(request: Request, { params }: RouteContext) {
     const body = raw as Partial<JobDescriptionFormData> &
       Partial<JdEditFormData> & { _editMode?: boolean };
 
-    let payload: Record<string, unknown>;
+    let patch: UpdateJobInput;
 
     if (body._editMode) {
       const { _editMode: _, ...editBody } = body;
-      payload = sanitizeEdit(editBody as Partial<JdEditFormData>);
-      if (editBody.position !== undefined && !payload.position) {
+      patch = sanitizeEditPayload(editBody as Partial<JdEditFormData>);
+      if (editBody.position !== undefined && !patch.position) {
         return Response.json(
           { error: "position is required." },
           { status: 400 },
         );
       }
     } else {
-      const stdPayload = sanitize(body as Partial<JobDescriptionFormData>);
-      if (stdPayload.position === null || stdPayload.position === undefined) {
-        delete stdPayload.position;
+      patch = sanitizeStandard(body as Partial<JobDescriptionFormData>);
+      if (body.position !== undefined && !patch.position) {
+        return Response.json(
+          { error: "position is required." },
+          { status: 400 },
+        );
       }
       if (body.status !== undefined && isJdStatus(String(body.status))) {
         const endDelta = endDateForStatusTransition(
-          String(existing.status),
+          existing.status,
           body.status as JdStatus,
         );
         if (endDelta !== undefined) {
-          (stdPayload as Record<string, unknown>).end_date = endDelta;
+          patch.endDate = endDelta;
         }
       }
-      payload = stdPayload;
     }
 
-    const { error } = await auth.supabase
-      .from("job_descriptions")
-      .update({ ...payload, updated_by: auth.userId })
-      .eq("id", numId);
-
-    if (error) return Response.json({ error: error.message }, { status: 500 });
+    patch.updatedBy = auth.userId;
+    await updateJob(db, jobId, patch);
   }
 
-  //Check if job_opening is alread exist.
   if (hasPipelineStages) {
-    const { data: opening } = await auth.supabase
-      .from("job_openings")
-      .select("id")
-      .eq("job_description_id", numId)
-      .maybeSingle();
-
-    if (opening) {
-      const pipelineStages = pipelineStagesRaw as string[] | null | undefined;
-      const { error: mapErr } = await upsertJobStageMappings(
-        auth.supabase,
-        opening.id,
-        pipelineStages,
+    const pipelineStages = pipelineStagesRaw as string[] | null | undefined;
+    try {
+      await withTransaction((client) =>
+        reconcileJobStageMappings(client, jobId, pipelineStages),
       );
-
-      if (mapErr) {
-        return Response.json({ error: mapErr }, { status: 500 });
-      }
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Failed to reconcile stage mappings: ${err.message}`
+          : "Failed to reconcile stage mappings.";
+      return Response.json({ error: message }, { status: 500 });
     }
   }
 
   if (hasViewerKey || hasViewerChapterKey) {
-    let admin;
-    try {
-      admin = createAdminClient();
-    } catch {
-      return Response.json(
-        { error: "Server missing service role key for viewer sync." },
-        { status: 500 },
-      );
-    }
     if (hasViewerKey) {
       const emails = parseViewerEmailInput(
         viewerEmailsRaw as string | string[] | null | undefined,
       );
-      const { notFound } = await syncJobDescriptionViewersFromEmails(admin, {
-        jobDescriptionId: numId,
-        emails,
-        grantedBy: auth.userId,
-      });
+      const { notFound } = await withTransaction((client) =>
+        syncJobDescriptionViewersFromEmails(client, {
+          jobId,
+          emails,
+          grantedBy: auth.userId,
+        }),
+      );
       if (notFound.length > 0) {
         return Response.json(
           {
@@ -341,7 +296,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       const chapterIds = parseViewerChapterIds(
         viewerChapterIdsRaw as string[] | string | null | undefined,
       );
-      const chapterCheck = await assertChapterIdsExist(admin, chapterIds);
+      const chapterCheck = await assertChapterIdsExist(db, chapterIds);
       if (!chapterCheck.ok) {
         return Response.json(
           {
@@ -350,32 +305,24 @@ export async function PUT(request: Request, { params }: RouteContext) {
           { status: 400 },
         );
       }
-      await replaceJobDescriptionViewerChapters(admin, {
-        jobDescriptionId: numId,
-        chapterIds,
-        grantedBy: auth.userId,
-      });
+      await withTransaction((client) =>
+        replaceJobDescriptionViewerChapters(client, {
+          jobId,
+          chapterIds,
+          grantedBy: auth.userId,
+        }),
+      );
     }
   }
 
-  const { data: jdRow, error: jdErr } = await auth.supabase
-    .from("job_descriptions")
-    .select("*")
-    .eq("id", numId)
-    .maybeSingle();
-
-  if (jdErr) return Response.json({ error: jdErr.message }, { status: 500 });
+  const jdRow = await getJobById(db, jobId);
   if (!jdRow) return Response.json({ error: "Not found." }, { status: 404 });
 
   let viewerEmails: string[] = [];
   let viewerChapterIds: string[] = [];
   try {
-    const admin = createAdminClient();
-    viewerEmails = await fetchViewerEmailsForJobDescription(admin, numId);
-    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(
-      admin,
-      numId,
-    );
+    viewerEmails = await fetchViewerEmailsForJobDescription(db, jobId);
+    viewerChapterIds = await fetchViewerChapterIdsForJobDescription(db, jobId);
   } catch {
     // optional
   }
@@ -392,15 +339,11 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
-  const numId = parseId(id);
-  if (!numId) return Response.json({ error: "Invalid id." }, { status: 400 });
+  const jobId = parseId(id);
+  if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
-  const { error } = await auth.supabase
-    .from("job_descriptions")
-    .delete()
-    .eq("id", numId);
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  const deleted = await softDeleteJob(getPool(), jobId);
+  if (!deleted) return Response.json({ error: "Not found." }, { status: 404 });
 
   return new Response(null, { status: 204 });
 }

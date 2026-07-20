@@ -90,7 +90,7 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
 
       <Button
         type="submit"
-        className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-accent to-indigo-600 hover:from-accent/90 hover:to-indigo-600/90 text-white rounded-xl text-sm font-semibold tracking-wide shadow-md shadow-accent/15 transition-all duration-200 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full mt-2 py-2.5 px-4 bg-brand-gold hover:bg-brand-gold-hover text-brand-gold-foreground rounded-xl text-sm font-semibold tracking-wide shadow-md shadow-black/15 transition-[background-color,transform] duration-200 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         isDisabled={isPending}
       >
         {isPending ? (

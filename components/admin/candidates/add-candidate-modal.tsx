@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOverlayTriggerState } from "react-stately";
 
 import {
@@ -23,14 +23,16 @@ import type {
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
 import {
-  CV_BUCKET,
   MAX_CV_BYTES,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
 import { DuplicateCandidateModal } from "@/components/admin/candidates/duplicate-candidate-modal";
+import {
+  CvReviewSubModal,
+  type CvReviewConfirmResult,
+} from "@/components/admin/candidates/cv-review-sub-modal";
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
+import { useToast } from "@/components/admin/toast-provider";
 
 type JobOpening = {
   id: string;
@@ -40,10 +42,21 @@ type JobOpening = {
   displayTitle: string;
 };
 
-type UploadPhase = "signing" | "uploading" | "invoking" | "uploaded" | "error";
+type UploadPhase =
+  | "signing"
+  | "uploading"
+  | "awaiting-review"
+  | "invoking"
+  | "uploaded"
+  | "error";
 
 type QueueRow = {
-  candidateId: string;
+  /** Client-side stable id -- a `campaign_applied` row (and `candidateId`)
+   * only exists once the per-row review sub-modal's confirm succeeds. */
+  rowId: string;
+  candidateId?: string;
+  tempKey?: string;
+  mimeType: string | null;
   filename: string;
   size: number;
   addedAt: number;
@@ -51,18 +64,29 @@ type QueueRow = {
   uploadError?: string;
   parsing_status: ParsingStatus;
   parsing_error?: string | null;
+  prefillName?: string | null;
+  prefillEmail?: string | null;
+  prefillPhone?: string | null;
+  /** Set once, when `/process` is first triggered -- drives the "Scanning…
+   * (Ns)" elapsed-time label so a genuinely slow AI/extraction call reads as
+   * "still working, N seconds in" instead of an indistinguishable stuck
+   * "Scanning" with no sense of how long it's actually been. */
+  processingStartedAt?: number;
 };
 
 type DuplicateFlowState = {
-  /** Null while the flow was triggered by the pre-upload check — no row exists yet. */
-  newCandidateId: string | null;
-  /** Set only for the pre-upload flow: the file to actually upload if the user picks "Update CV". */
-  pendingFile?: File;
+  rowId: string;
+  /** Null while blocked pre-confirm (no row created yet) -- set once the row
+   * exists, either because this is the post-AI-parse safety-net hit or
+   * because a bypass-confirm already created it. */
+  candidateId: string | null;
+  email: string | null;
+  phone: string | null;
   hits: DuplicateCandidateHit[];
   newUpload: DuplicateNewUploadPreview;
 };
 
-type CommitUploadResult = {
+type CommitAndProcessResult = {
   candidateId: string;
   duplicateCandidates: DuplicateCandidateHit[];
   duplicateNewUpload: DuplicateNewUploadPreview | null;
@@ -81,20 +105,44 @@ function formatDate(ts: number) {
   }).format(new Date(ts));
 }
 
+const BULK_AI_CONCURRENCY = 3;
+
+async function runWithConcurrency(
+  items: readonly string[],
+  limit: number,
+  worker: (item: string) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item) await worker(item);
+      }
+    },
+  );
+  await Promise.all(workers);
+}
+
 function progressForRow(row: QueueRow): { pct: number; label: string } {
-  if (row.uploadPhase === "error") return { pct: 0, label: "Upload failed" };
+  if (row.uploadPhase === "error") return { pct: 0, label: row.uploadError ?? "Upload failed" };
   if (row.uploadPhase === "signing")
     return { pct: 8, label: "Preparing upload…" };
   if (row.uploadPhase === "uploading")
     return { pct: 25, label: "Uploading file…" };
+  if (row.uploadPhase === "awaiting-review")
+    return { pct: 35, label: "Awaiting review…" };
   if (row.uploadPhase === "invoking")
-    return { pct: 40, label: "Starting AI scan…" };
+    return { pct: 45, label: "Starting AI scan…" };
   if (row.parsing_status === "failed")
     return { pct: 100, label: "Parse failed" };
   if (row.parsing_status === "completed") return { pct: 100, label: "Done" };
   if (row.parsing_status === "processing") {
     return { pct: 72, label: "Parsing skills & experience…" };
   }
+  if (row.uploadPhase === "uploaded") return { pct: 100, label: "Done" };
   return { pct: 45, label: "Queued for processing…" };
 }
 
@@ -111,13 +159,11 @@ function statusChip(row: QueueRow): {
   if (row.parsing_status === "completed") {
     return { label: "Completed", color: "success" };
   }
-  if (
-    row.parsing_status === "processing" ||
-    row.uploadPhase === "uploading" ||
-    row.uploadPhase === "signing" ||
-    row.uploadPhase === "invoking"
-  ) {
-    return { label: "Scanning", color: "accent" };
+  if (row.uploadPhase === "awaiting-review") {
+    return { label: "Review needed", color: "default" };
+  }
+  if (row.uploadPhase === "uploaded") {
+    return { label: "Completed", color: "success" };
   }
   return { label: "Scanning", color: "accent" };
 }
@@ -169,18 +215,21 @@ export function AddCandidateModal({
   onDuplicateMergedToExisting,
   jdPipelineCampaign,
 }: Props) {
-  const supabase = useMemo(() => createClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const queueIdsRef = useRef<Set<string>>(new Set());
-  const duplicateResolveRef = useRef<
-    ((outcome: "skip" | "replaced") => void) | null
-  >(null);
+  const queueRef = useRef<QueueRow[]>([]);
   const duplicatePayloadRef = useRef<DuplicateFlowState | null>(null);
   /** Candidate ids currently being merged via "Update CV" — the modal's own
    * parsing-status realtime effect should not independently trigger a list
    * refresh for these; `onDuplicateMergedToExisting` already handles it once
    * the merge finishes, so both firing at once causes double re-renders. */
   const duplicateMergeIdsRef = useRef<Set<string>>(new Set());
+  /** DOM nodes for each queue row, keyed by `rowId` -- lets `ingestFile`
+   * scroll a freshly-added row into view the moment it lands in the queue,
+   * so the user sees confirmation their drop/selection actually registered. */
+  const rowElRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
+  /** Row ids already scrolled-to-on-add, so re-renders of an existing row
+   * (progress ticking, status changes) never re-trigger the scroll. */
+  const scrolledRowIdsRef = useRef<Set<string>>(new Set());
 
   const [jobs, setJobs] = useState<JobOpening[]>([]);
   const [jobKey, setJobKey] = useState<string | null>(null);
@@ -191,19 +240,59 @@ export function AddCandidateModal({
   const [expectedSalary, setExpectedSalary] = useState("");
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [reviewingRowId, setReviewingRowId] = useState<string | null>(null);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [duplicateFlow, setDuplicateFlow] = useState<DuplicateFlowState | null>(
     null,
   );
   const [duplicateSubmitting, setDuplicateSubmitting] = useState(false);
+  /** The queue row currently going through "Update CV" or "Discard" from the
+   * duplicate-candidate modal -- kept set from the moment an action is
+   * chosen until it settles, spanning the gap after `closeDuplicateModal()`
+   * hides the modal but before the row's `uploadPhase` actually changes (it
+   * stays "awaiting-review" while the merge/discard request is in flight),
+   * so the row's own Review/Confirm buttons don't stay clickable underneath. */
+  const [duplicateResolvingRowId, setDuplicateResolvingRowId] = useState<
+    string | null
+  >(null);
+  const [allSuccessToastShown, setAllSuccessToastShown] = useState(false);
+  const { success: triggerSuccess, error: triggerError } = useToast();
+  /** Ticks once a second while any row is mid-scan, purely to force a
+   * re-render so the "Scanning… (Ns)" elapsed-time label stays live --
+   * see {@link QueueRow.processingStartedAt}. */
+  const [scanClockTick, setScanClockTick] = useState(() => Date.now());
 
   const isJdPipeline = jdPipelineCampaign != null;
   const isCampaignLocked =
     isJdPipeline && typeof jdPipelineCampaign === "object";
   const isCampaignBlocked = jdPipelineCampaign === "no_opening_linked";
 
+  /**
+   * A row is "unconfirmed" once it's been temp-uploaded but hasn't gone
+   * through `temp-upload/confirm` yet (no `candidateId`) -- closing now
+   * would abandon it with no `campaign_applied` row ever created. Rows that
+   * errored out before confirm have nothing left to lose by closing.
+   */
+  const handleModalOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        const hasUnconfirmed = queueRef.current.some(
+          (r) => !r.candidateId && r.uploadPhase !== "error",
+        );
+        if (hasUnconfirmed && !confirm(
+          "Some uploaded CVs haven't been confirmed yet and will be discarded from this session if you close now. Close anyway?",
+        )) {
+          return;
+        }
+      }
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange],
+  );
+
   const modalState = useOverlayTriggerState({
     isOpen: open,
-    onOpenChange,
+    onOpenChange: handleModalOpenChange,
   });
 
   const selectedJobId =
@@ -214,10 +303,8 @@ export function AddCandidateModal({
   const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
   const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
 
-  const sessionAuthHeaders = useCallback(
-    () => getSessionAuthorizationHeaders(supabase),
-    [supabase],
-  );
+  const selectableRows = queue.filter((r) => r.uploadPhase === "awaiting-review");
+  const allSelected = selectableRows.length > 0 && selectableRows.every((r) => selectedRowIds.has(r.rowId));
 
   /** Unmounts the duplicate modal right away so the upload queue/progress
    * underneath becomes visible while the merge/discard keeps running. */
@@ -225,93 +312,29 @@ export function AddCandidateModal({
     setDuplicateFlow(null);
   }, []);
 
-  /** Unblocks whichever `ingestFile` call is awaiting the duplicate-flow
-   * outcome. Modal visibility is handled separately by `closeDuplicateModal`. */
-  const resolveDuplicateFlow = useCallback((outcome: "skip" | "replaced") => {
-    if (!duplicateResolveRef.current) return;
-    const resolve = duplicateResolveRef.current;
-    duplicateResolveRef.current = null;
-    duplicatePayloadRef.current = null;
-    resolve(outcome);
-  }, []);
-
   /**
-   * Sign-upload → Storage upload → invoke `/process` (AI parse + JD match +
-   * post-parse dedupe safety net). Shared by the normal ingest path and by
-   * "Update CV" when a duplicate was already caught by the pre-upload check
-   * (that flow still needs a real, parsed row to merge from).
+   * Marks a row processing and calls `POST .../[id]/process` (AI parse + JD
+   * match + post-parse dedupe safety net) -- shared by the normal per-row
+   * confirm path and the bypass-merge path, since both need this same call
+   * once a row exists.
    */
-  const commitUploadAndProcess = useCallback(
-    async (file: File): Promise<CommitUploadResult> => {
-      const auth = await sessionAuthHeaders();
-      if (!auth.Authorization) {
-        throw new Error("Session expired. Sign in again.");
-      }
-      const signRes = await fetch("/api/admin/candidates/sign-upload", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...auth },
-        body: JSON.stringify({
-          jobOpeningId: selectedJobId,
-          filename: file.name,
-          mimeType: file.type || null,
-          source: sourceKey,
-          sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-          expectedSalary: expectedSalary.trim() || null,
-        }),
-      });
-      const signJson = (await signRes.json()) as {
-        error?: string;
-        candidateId?: string;
-        path?: string;
-        token?: string;
-      };
-      if (
-        !signRes.ok ||
-        !signJson.candidateId ||
-        !signJson.path ||
-        !signJson.token
-      ) {
-        throw new Error(signJson.error ?? "Could not start upload");
-      }
-      const candidateId = signJson.candidateId;
-      queueIdsRef.current.add(candidateId);
-
-      setQueue((q) => [
-        ...q,
-        {
-          candidateId,
-          filename: file.name,
-          size: file.size,
-          addedAt: Date.now(),
-          uploadPhase: "uploading",
-          parsing_status: "pending",
-        },
-      ]);
-
+  const triggerProcessing = useCallback(
+    async (rowId: string, candidateId: string, runJdMatch: boolean) => {
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId
+            ? { ...r, uploadPhase: "invoking" as const, processingStartedAt: Date.now() }
+            : r,
+        ),
+      );
       try {
-        const { error: upErr } = await supabase.storage
-          .from(CV_BUCKET)
-          .uploadToSignedUrl(signJson.path, signJson.token, file, {
-            contentType: file.type || undefined,
-          });
-        if (upErr) throw new Error(upErr.message);
-
-        setQueue((q) =>
-          q.map((r) =>
-            r.candidateId === candidateId
-              ? { ...r, uploadPhase: "invoking" as const }
-              : r,
-          ),
-        );
-
-        const procAuth = await sessionAuthHeaders();
         const procRes = await fetch(
           `/api/admin/candidates/${candidateId}/process`,
           {
             method: "POST",
             credentials: "include",
-            headers: { ...procAuth },
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ runJdMatch }),
           },
         );
         const procJson = (await procRes.json()) as {
@@ -323,47 +346,137 @@ export function AddCandidateModal({
           throw new Error(procJson.error ?? "Failed to start processing");
         }
 
-        return {
-          candidateId,
-          duplicateCandidates: procJson.duplicateCandidates ?? [],
-          duplicateNewUpload: procJson.duplicateNewUpload ?? null,
-        };
+        const hits = procJson.duplicateCandidates ?? [];
+        if (hits.length > 0) {
+          const newUpload: DuplicateNewUploadPreview =
+            procJson.duplicateNewUpload ?? {
+              email: null,
+              phone: null,
+              parsedRole: null,
+              cvUploadedAt: null,
+            };
+          const flow: DuplicateFlowState = {
+            rowId,
+            candidateId,
+            email: null,
+            phone: null,
+            hits,
+            newUpload,
+          };
+          duplicatePayloadRef.current = flow;
+          setDuplicateFlow(flow);
+          return;
+        }
+
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId ? { ...r, uploadPhase: "uploaded" as const } : r,
+          ),
+        );
+        onCandidatesChanged?.();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error";
         setQueue((q) =>
           q.map((r) =>
-            r.candidateId === candidateId
-              ? { ...r, uploadPhase: "error", uploadError: msg }
-              : r,
+            r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
           ),
         );
-        throw e;
       }
     },
-    [
-      sessionAuthHeaders,
-      selectedJobId,
-      sourceKey,
-      sourceOther,
-      expectedSalary,
-      supabase,
-    ],
+    [onCandidatesChanged],
   );
 
-  const runDuplicateUpdateWithHistory = useCallback(async () => {
+  /**
+   * Bypass-confirms (skips the dedupe gate, since the user already saw the
+   * duplicate warning) a row that's sitting at `awaiting-review`, then
+   * processes it -- the "Update CV" path needs the row created *and parsed*
+   * before it can be merged/linked, mirroring how the old sign-upload-based
+   * flow always parsed before merging.
+   */
+  const commitAndProcessViaBypass = useCallback(
+    async (
+      row: QueueRow,
+      email: string | null,
+      phone: string | null,
+    ): Promise<CommitAndProcessResult> => {
+      if (!row.tempKey) throw new Error("Missing uploaded file reference.");
+      const confirmRes = await fetch(
+        "/api/admin/candidates/temp-upload/confirm",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tempKey: row.tempKey,
+            filename: row.filename,
+            mimeType: row.mimeType,
+            jobId: selectedJobId,
+            source: sourceKey,
+            sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
+            expectedSalary: expectedSalary.trim() || null,
+            email,
+            phone,
+            bypassDuplicateCheck: true,
+          }),
+        },
+      );
+      const confirmJson = (await confirmRes.json()) as {
+        error?: string;
+        campaignAppliedId?: string;
+        cvVersionId?: string;
+      };
+      if (!confirmRes.ok || !confirmJson.campaignAppliedId) {
+        throw new Error(confirmJson.error ?? "Could not confirm this upload.");
+      }
+      const candidateId = confirmJson.campaignAppliedId;
+
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === row.rowId ? { ...r, candidateId } : r,
+        ),
+      );
+
+      const procRes = await fetch(
+        `/api/admin/candidates/${candidateId}/process`,
+        { method: "POST", credentials: "include" },
+      );
+      const procJson = (await procRes.json()) as {
+        error?: string;
+        duplicateCandidates?: DuplicateCandidateHit[];
+        duplicateNewUpload?: DuplicateNewUploadPreview | null;
+      };
+      if (!procRes.ok) {
+        throw new Error(procJson.error ?? "Failed to start processing");
+      }
+
+      return {
+        candidateId,
+        duplicateCandidates: procJson.duplicateCandidates ?? [],
+        duplicateNewUpload: procJson.duplicateNewUpload ?? null,
+      };
+    },
+    [selectedJobId, sourceKey, sourceOther, expectedSalary],
+  );
+
+  const runDuplicateMerge = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
     closeDuplicateModal();
     setDuplicateSubmitting(true);
-    let newCandidateId = payload.newCandidateId;
+    setDuplicateResolvingRowId(payload.rowId);
+    let candidateId = payload.candidateId;
     try {
-      if (payload.pendingFile) {
-        const result = await commitUploadAndProcess(payload.pendingFile);
-        newCandidateId = result.candidateId;
-        payload.newCandidateId = newCandidateId;
-        payload.pendingFile = undefined;
+      if (!candidateId) {
+        const row = queueRef.current.find((r) => r.rowId === payload.rowId);
+        if (!row) throw new Error("Missing uploaded file reference.");
+        const result = await commitAndProcessViaBypass(
+          row,
+          payload.email,
+          payload.phone,
+        );
+        candidateId = result.candidateId;
       }
-      if (!newCandidateId) {
+      if (!candidateId) {
         throw new Error("Missing uploaded candidate to merge.");
       }
 
@@ -372,11 +485,35 @@ export function AddCandidateModal({
       );
 
       if (!sameJobHit) {
-        resolveDuplicateFlow("replaced");
+        // Cross-job duplicate: keep this application (it's for a different
+        // job), but repoint it onto the existing person instead of leaving
+        // it under the throwaway blank candidate created for it.
+        const existingCandidateId = payload.hits[0]?.candidateId;
+        if (existingCandidateId) {
+          const linkRes = await fetch(
+            `/api/admin/candidates/${candidateId}/link-to-candidate`,
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ existingCandidateId }),
+            },
+          );
+          if (!linkRes.ok) {
+            const linkJson = (await linkRes.json()) as { error?: string };
+            throw new Error(
+              linkJson.error ?? "Failed to link candidate profile",
+            );
+          }
+        }
         setQueue((q) =>
           q.map((r) =>
-            r.candidateId === newCandidateId
-              ? { ...r, uploadPhase: "uploaded" as const }
+            r.rowId === payload.rowId
+              ? {
+                  ...r,
+                  uploadPhase: "uploaded" as const,
+                  parsing_status: "completed" as const,
+                }
               : r,
           ),
         );
@@ -384,16 +521,15 @@ export function AddCandidateModal({
         return;
       }
 
-      duplicateMergeIdsRef.current.add(newCandidateId);
-      const procAuth = await sessionAuthHeaders();
+      duplicateMergeIdsRef.current.add(candidateId);
       const repRes = await fetch(
         `/api/admin/candidates/${sameJobHit.id}/update-with-history`,
         {
           method: "PUT",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...procAuth },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            newCandidateId,
+            newCandidateId: candidateId,
             matchedOn: sameJobHit.matchedOn,
           }),
         },
@@ -407,54 +543,66 @@ export function AddCandidateModal({
           repJson.error ?? "Failed to merge duplicate into existing profile",
         );
       }
-      resolveDuplicateFlow("replaced");
       if (onDuplicateMergedToExisting) {
         await onDuplicateMergedToExisting(
           sameJobHit.id,
           repJson.candidate,
-          newCandidateId,
+          candidateId,
         );
       } else {
         onCandidatesChanged?.();
       }
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === payload.rowId
+            ? {
+                ...r,
+                uploadPhase: "uploaded" as const,
+                parsing_status: "completed" as const,
+              }
+            : r,
+        ),
+      );
     } catch (e) {
-      resolveDuplicateFlow("skip");
-      window.alert(
+      triggerError(
         e instanceof Error ? e.message : "Failed to update candidate profile",
       );
     } finally {
-      if (newCandidateId) duplicateMergeIdsRef.current.delete(newCandidateId);
+      if (candidateId) duplicateMergeIdsRef.current.delete(candidateId);
       setDuplicateSubmitting(false);
+      setDuplicateResolvingRowId(null);
     }
   }, [
-    sessionAuthHeaders,
     closeDuplicateModal,
-    resolveDuplicateFlow,
     onCandidatesChanged,
     onDuplicateMergedToExisting,
-    commitUploadAndProcess,
+    commitAndProcessViaBypass,
     selectedJobId,
   ]);
 
   const runDiscardDuplicate = useCallback(async () => {
     const payload = duplicatePayloadRef.current;
     if (!payload) return;
-    if (payload.pendingFile) {
-      closeDuplicateModal();
-      resolveDuplicateFlow("skip");
+    closeDuplicateModal();
+    if (!payload.candidateId) {
+      // Pre-confirm block: nothing was ever created, so there's nothing to
+      // delete -- the abandoned temp object is left in place (cleanup
+      // deferred, see CV9X7R vault notes).
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === payload.rowId
+            ? { ...r, uploadPhase: "error", uploadError: "Discarded (duplicate)" }
+            : r,
+        ),
+      );
       return;
     }
-    closeDuplicateModal();
     setDuplicateSubmitting(true);
+    setDuplicateResolvingRowId(payload.rowId);
     try {
-      const procAuth = await sessionAuthHeaders();
       const delRes = await fetch(
-        `/api/admin/candidates/${payload.newCandidateId}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-          headers: { ...procAuth },
-        },
+        `/api/admin/candidates/${payload.candidateId}/discard-duplicate`,
+        { method: "DELETE", credentials: "include" },
       );
       if (!delRes.ok) {
         const delJson = (await delRes.json()) as { error?: string };
@@ -462,10 +610,9 @@ export function AddCandidateModal({
           delJson.error ?? "Failed to discard new duplicate candidate record",
         );
       }
-      resolveDuplicateFlow("skip");
       setQueue((prev) =>
         prev.map((r) =>
-          r.candidateId === payload.newCandidateId
+          r.rowId === payload.rowId
             ? {
                 ...r,
                 uploadPhase: "error",
@@ -476,25 +623,17 @@ export function AddCandidateModal({
       );
       onCandidatesChanged?.();
     } catch (e) {
-      resolveDuplicateFlow("skip");
-      window.alert(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
+      triggerError(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
     } finally {
       setDuplicateSubmitting(false);
+      setDuplicateResolvingRowId(null);
     }
-  }, [
-    sessionAuthHeaders,
-    closeDuplicateModal,
-    resolveDuplicateFlow,
-    onCandidatesChanged,
-  ]);
+  }, [closeDuplicateModal, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
-    const auth = await sessionAuthHeaders();
     const res = await fetch("/api/admin/job-openings", {
       credentials: "include",
-      headers: {
-        ...(auth.Authorization ? { Authorization: auth.Authorization } : {}),
-      },
+      cache: "no-store",
     });
     if (!res.ok) return;
     const json = (await res.json()) as { jobOpenings?: JobOpening[] };
@@ -505,7 +644,7 @@ export function AddCandidateModal({
         displayTitle: j.displayTitle ?? j.title,
       })),
     );
-  }, [sessionAuthHeaders]);
+  }, []);
 
   useEffect(() => {
     if (open && !isCampaignLocked) void loadJobs();
@@ -519,175 +658,463 @@ export function AddCandidateModal({
   }, [open, isCampaignLocked, jdPipelineCampaign]);
 
   useEffect(() => {
-    if (!open) return;
+    queueRef.current = queue;
+  }, [queue]);
 
-    const channel = supabase
-      .channel("candidates-admin-modal")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "candidates" },
-        (payload) => {
-          const id =
-            (payload.new as { id?: string } | null)?.id ??
-            (payload.old as { id?: string } | null)?.id;
-          if (!id || !queueIdsRef.current.has(id)) return;
-          const next = payload.new as Record<string, unknown> | null;
-          if (!next) return;
-          setQueue((prev) =>
-            prev.map((r) =>
-              r.candidateId !== id
-                ? r
-                : {
-                    ...r,
-                    parsing_status:
-                      (next.parsing_status as ParsingStatus) ??
-                      r.parsing_status,
-                    parsing_error:
-                      (next.parsing_error as string | null) ?? r.parsing_error,
-                  },
-            ),
-          );
-          if (
-            (next.parsing_status === "completed" ||
-              next.parsing_status === "failed") &&
-            !duplicateMergeIdsRef.current.has(id)
-          ) {
-            onCandidatesChanged?.();
-          }
-        },
-      )
-      .subscribe();
+  const hasRowMidScan = queue.some(
+    (r) =>
+      r.processingStartedAt != null &&
+      r.uploadPhase !== "error" &&
+      r.parsing_status !== "completed" &&
+      r.parsing_status !== "failed",
+  );
 
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [open, supabase, onCandidatesChanged]);
+  useEffect(() => {
+    if (!open || !hasRowMidScan) return;
+    const interval = setInterval(() => setScanClockTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [open, hasRowMidScan]);
 
-  const ingestFile = async (file: File) => {
-    if (isCampaignBlocked) {
-      window.alert(
-        "Link a job campaign to this job first (Jobs list → publish / link opening), then try again.",
+  /**
+   * A row leaves "awaiting-review" (confirmed via the per-row button, via the
+   * Review sub-modal, discarded, errored, merged as a duplicate...) from
+   * several different code paths. Pruning `selectedRowIds` here in one place
+   * -- rather than at each of those call sites -- keeps the bulk "Confirm &
+   * Start AI Check" button in sync: without this, confirming one bulk-checked
+   * row individually via the Review sub-modal left its id in the set, so the
+   * button kept showing a stale count, enabled, with no spinner, for a row
+   * that was already being processed.
+   */
+  useEffect(() => {
+    setSelectedRowIds((prev) => {
+      if (prev.size === 0) return prev;
+      const stillSelectable = new Set(
+        queue
+          .filter((r) => r.uploadPhase === "awaiting-review")
+          .map((r) => r.rowId),
       );
-      return;
-    }
-    if (isCampaignMissing) {
-      window.alert("Select a target campaign before uploading CVs.");
-      return;
-    }
-    if (!isAllowedCvFilename(file.name)) {
-      window.alert("Only PDF or DOCX files are supported.");
-      return;
-    }
-    if (file.size > MAX_CV_BYTES) {
-      window.alert("File exceeds 25MB limit.");
-      return;
-    }
-    if (sourceKey === "Other" && !sourceOther.trim()) {
-      window.alert("Please describe where this candidate was sourced (Other).");
-      return;
-    }
-
-    // Client-side pre-check: parse text + hash + regex-extract contact, then
-    // ask the server for duplicates, all before this file touches Storage or
-    // costs an AI call. Best-effort — any failure here just falls through to
-    // the normal upload pipeline, whose post-parse dedupe is the safety net.
-    let preCheckHits: DuplicateCandidateHit[] = [];
-    let preCheckNewUpload: DuplicateNewUploadPreview | null = null;
-    try {
-      const signals = await extractCvSignalsClientSide(file);
-      const auth = await sessionAuthHeaders();
-      if (auth.Authorization) {
-        const preRes = await fetch("/api/admin/candidates/check-duplicate", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", ...auth },
-          body: JSON.stringify({
-            jobOpeningId: selectedJobId,
-            cvFileSha256: signals.cvFileSha256,
-            cvContentSha256: signals.cvContentSha256,
-            email: signals.email,
-            phone: signals.phone,
-          }),
-        });
-        if (preRes.ok) {
-          const preJson = (await preRes.json()) as {
-            duplicateCandidates?: DuplicateCandidateHit[];
-            duplicateNewUpload?: DuplicateNewUploadPreview | null;
-          };
-          preCheckHits = preJson.duplicateCandidates ?? [];
-          preCheckNewUpload = preJson.duplicateNewUpload ?? null;
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (stillSelectable.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
         }
       }
-    } catch {
-      preCheckHits = [];
-      preCheckNewUpload = null;
-    }
+      return changed ? next : prev;
+    });
+  }, [queue]);
 
-    if (preCheckHits.length > 0) {
-      const newUpload: DuplicateNewUploadPreview = preCheckNewUpload ?? {
-        email: null,
-        phone: null,
-        parsedRole: null,
-        cvUploadedAt: null,
-      };
+  /**
+   * Scrolls a newly-added row into view as soon as it appears in the queue --
+   * ref callbacks run before effects in the same commit, so by the time this
+   * runs the row's `<tr>` is already mounted. Diffing against
+   * `scrolledRowIdsRef` (rather than e.g. "last row in the array") means
+   * later re-renders of that same row (progress %, status chip) never
+   * re-trigger a scroll once it's already been shown.
+   */
+  useEffect(() => {
+    const newRows = queue.filter((r) => !scrolledRowIdsRef.current.has(r.rowId));
+    if (newRows.length === 0) return;
+    for (const r of newRows) scrolledRowIdsRef.current.add(r.rowId);
+    const target = rowElRefs.current.get(newRows[newRows.length - 1].rowId);
+    target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [queue]);
+
+  useEffect(() => {
+    if (!open) {
+      setQueue([]);
+      setAllSuccessToastShown(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (queue.length === 0) return;
+    const allTerminal = queue.every(
+      (r) =>
+        r.parsing_status === "completed" ||
+        r.parsing_status === "failed" ||
+        r.uploadPhase === "error"
+    );
+    if (allTerminal && !allSuccessToastShown) {
+      setAllSuccessToastShown(true);
+      const successCount = queue.filter((r) => r.parsing_status === "completed").length;
+      const failCount = queue.filter((r) => r.parsing_status === "failed" || r.uploadPhase === "error").length;
+
+      if (failCount > 0) {
+        triggerError(`CV upload completed: ${successCount} succeeded, ${failCount} failed.`);
+      } else {
+        triggerSuccess("All CVs uploaded and processed successfully!");
+      }
+    }
+  }, [queue, allSuccessToastShown, triggerSuccess, triggerError]);
+
+  /**
+   * Polls parsing status for queue rows still in flight. No realtime
+   * push channel is available post-Supabase, so this fills that gap;
+   * 3s is frequent enough to feel live without hammering the API.
+   */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      const pendingIds = queueRef.current
+        .filter(
+          (r) =>
+            r.candidateId &&
+            (r.parsing_status === "pending" || r.parsing_status === "processing"),
+        )
+        .map((r) => r.candidateId!);
+      if (pendingIds.length === 0) return;
+
+      await Promise.all(
+        pendingIds.map(async (id) => {
+          try {
+            const res = await fetch(`/api/admin/candidates/${id}`, {
+              credentials: "include",
+            });
+            if (!res.ok || cancelled) return;
+            const json = (await res.json()) as {
+              candidate?: {
+                cv_parsing_status?: ParsingStatus;
+                cv_parsing_error?: string | null;
+              };
+            };
+            const next = json.candidate;
+            if (!next || cancelled) return;
+            setQueue((prev) =>
+              prev.map((r) =>
+                r.candidateId !== id
+                  ? r
+                  : {
+                      ...r,
+                      parsing_status: next.cv_parsing_status ?? r.parsing_status,
+                      parsing_error:
+                        next.cv_parsing_error ?? r.parsing_error,
+                    },
+              ),
+            );
+            if (
+              (next.cv_parsing_status === "completed" ||
+                next.cv_parsing_status === "failed") &&
+              !duplicateMergeIdsRef.current.has(id)
+            ) {
+              onCandidatesChanged?.();
+            }
+          } catch {
+            // best-effort; retried on next tick
+          }
+        }),
+      );
+    };
+
+    const interval = setInterval(() => void poll(), 3000);
+    void poll();
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [open, onCandidatesChanged]);
+
+  const handleRowConfirmed = useCallback(
+    (rowId: string, result: CvReviewConfirmResult) => {
+      setReviewingRowId(null);
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId ? { ...r, candidateId: result.campaignAppliedId } : r,
+        ),
+      );
+      void triggerProcessing(rowId, result.campaignAppliedId, result.runJdMatch);
+    },
+    [triggerProcessing],
+  );
+
+  const handleRowDuplicateFound = useCallback(
+    (
+      rowId: string,
+      hits: DuplicateCandidateHit[],
+      newUpload: DuplicateNewUploadPreview | null,
+      email: string | null,
+      phone: string | null,
+    ) => {
+      setReviewingRowId(null);
       const flow: DuplicateFlowState = {
-        newCandidateId: null,
-        pendingFile: file,
-        hits: preCheckHits,
-        newUpload,
+        rowId,
+        candidateId: null,
+        email,
+        phone,
+        hits,
+        newUpload: newUpload ?? {
+          email,
+          phone,
+          parsedRole: null,
+          cvUploadedAt: null,
+        },
       };
       duplicatePayloadRef.current = flow;
-      const outcome = await new Promise<"skip" | "replaced">((resolve) => {
-        duplicateResolveRef.current = resolve;
-        setDuplicateFlow(flow);
-      });
-      if (outcome === "replaced") onCandidatesChanged?.();
-      return;
+      setDuplicateFlow(flow);
+    },
+    [],
+  );
+
+  /**
+   * Confirms a row without going through the review sub-modal -- used by
+   * both the plain per-row "Confirm" action and the bulk "Confirm & Start AI
+   * Check" action. `email`/`phone` here are only ever the unreviewed
+   * client-side heuristic guess, so `basicInfoReviewed` is deliberately left
+   * false/unset: `process/route.ts` then hands basic-info fully over to AI
+   * instead of locking in a guess nobody actually checked. `runJdMatch` is
+   * the caller's choice since the two buttons have different semantics (see
+   * their `onPress` handlers below).
+   */
+  const confirmAndProcessRow = useCallback(
+    async (
+      rowId: string,
+      tempKey: string,
+      filename: string,
+      mimeType: string | null,
+      email: string | null,
+      phone: string | null,
+      runJdMatch: boolean,
+    ) => {
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId ? { ...r, uploadPhase: "invoking" as const } : r,
+        ),
+      );
+      try {
+        const confirmRes = await fetch(
+          "/api/admin/candidates/temp-upload/confirm",
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tempKey,
+              filename,
+              mimeType,
+              jobId: selectedJobId,
+              source: sourceKey,
+              sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
+              expectedSalary: expectedSalary.trim() || null,
+              email: email || null,
+              phone: phone || null,
+            }),
+          },
+        );
+        const confirmJson = (await confirmRes.json()) as {
+          error?: string;
+          campaignAppliedId?: string;
+          cvVersionId?: string;
+          duplicateCandidates?: DuplicateCandidateHit[];
+          duplicateNewUpload?: DuplicateNewUploadPreview | null;
+        };
+
+        if (confirmRes.status === 409) {
+          setQueue((q) =>
+            q.map((r) =>
+              r.rowId === rowId
+                ? { ...r, uploadPhase: "awaiting-review" as const }
+                : r,
+            ),
+          );
+          handleRowDuplicateFound(
+            rowId,
+            confirmJson.duplicateCandidates ?? [],
+            confirmJson.duplicateNewUpload ?? null,
+            email,
+            phone,
+          );
+          return;
+        }
+
+        if (!confirmRes.ok || !confirmJson.campaignAppliedId) {
+          throw new Error(confirmJson.error ?? "Could not confirm this upload.");
+        }
+
+        const candidateId = confirmJson.campaignAppliedId;
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId ? { ...r, candidateId } : r,
+          ),
+        );
+
+        await triggerProcessing(rowId, candidateId, runJdMatch);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
+          ),
+        );
+      }
+    },
+    [
+      selectedJobId,
+      sourceKey,
+      sourceOther,
+      expectedSalary,
+      handleRowDuplicateFound,
+      triggerProcessing,
+    ],
+  );
+
+  const handleBulkConfirm = useCallback(async () => {
+    const ids = Array.from(selectedRowIds);
+    if (ids.length === 0) return;
+
+    setSelectedRowIds(new Set());
+
+    await runWithConcurrency(
+      ids,
+      BULK_AI_CONCURRENCY,
+      async (rowId) => {
+        const row = queueRef.current.find((r) => r.rowId === rowId);
+        if (row && row.tempKey && row.uploadPhase === "awaiting-review") {
+          await confirmAndProcessRow(
+            row.rowId,
+            row.tempKey,
+            row.filename,
+            row.mimeType,
+            row.prefillEmail ?? null,
+            row.prefillPhone ?? null,
+            // This button is explicitly labeled "...& Start AI Check", so
+            // unlike the plain per-row "Confirm" action, JD-match is expected.
+            true,
+          );
+        }
+      },
+    );
+  }, [selectedRowIds, confirmAndProcessRow]);
+
+  const ingestFile = async (file: File): Promise<boolean> => {
+    if (isCampaignBlocked) {
+      triggerError(
+        "Link a job campaign to this job first (Jobs list → publish / link opening), then try again.",
+      );
+      return false;
+    }
+    if (isCampaignMissing) {
+      triggerError("Select a target campaign before uploading CVs.");
+      return false;
+    }
+    if (!isAllowedCvFilename(file.name)) {
+      triggerError("Only PDF or DOCX files are supported.");
+      return false;
+    }
+    if (file.size > MAX_CV_BYTES) {
+      triggerError("File exceeds 25MB limit.");
+      return false;
+    }
+    if (sourceKey === "Other" && !sourceOther.trim()) {
+      triggerError("Please describe where this candidate was sourced (Other).");
+      return false;
     }
 
-    try {
-      const result = await commitUploadAndProcess(file);
+    const rowId = crypto.randomUUID();
 
-      if (result.duplicateCandidates.length > 0) {
-        const newUpload: DuplicateNewUploadPreview =
-          result.duplicateNewUpload ?? {
-            email: null,
-            phone: null,
-            parsedRole: null,
-            cvUploadedAt: null,
-          };
-        const flow: DuplicateFlowState = {
-          newCandidateId: result.candidateId,
-          hits: result.duplicateCandidates,
-          newUpload,
-        };
-        duplicatePayloadRef.current = flow;
-        await new Promise<"skip" | "replaced">((resolve) => {
-          duplicateResolveRef.current = resolve;
-          setDuplicateFlow(flow);
-        });
+    // Best-effort client-side extraction, purely to prefill the review
+    // sub-modal's email/phone fields instantly -- the server re-derives its
+    // own heuristic at confirm time regardless, so a failure here just means
+    // an empty prefill, not a blocked upload.
+    let prefillName: string | null = null;
+    let prefillEmail: string | null = null;
+    let prefillPhone: string | null = null;
+    try {
+      const signals = await extractCvSignalsClientSide(file);
+      prefillName = signals.name;
+      prefillEmail = signals.email;
+      prefillPhone = signals.phone;
+    } catch {
+      // ignore
+    }
+
+    setQueue((q) => [
+      ...q,
+      {
+        rowId,
+        mimeType: file.type || null,
+        filename: file.name,
+        size: file.size,
+        addedAt: Date.now(),
+        uploadPhase: "signing",
+        parsing_status: "pending",
+        prefillName,
+        prefillEmail,
+        prefillPhone,
+      },
+    ]);
+
+    try {
+      const signRes = await fetch("/api/admin/candidates/temp-upload", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, mimeType: file.type || null }),
+      });
+      const signJson = (await signRes.json()) as {
+        error?: string;
+        tempKey?: string;
+        signedUrl?: string;
+      };
+      if (!signRes.ok || !signJson.tempKey || !signJson.signedUrl) {
+        throw new Error(signJson.error ?? "Could not start upload");
       }
 
       setQueue((q) =>
         q.map((r) =>
-          r.candidateId === result.candidateId
-            ? { ...r, uploadPhase: "uploaded" as const }
+          r.rowId === rowId
+            ? { ...r, uploadPhase: "uploading" as const, tempKey: signJson.tempKey }
             : r,
         ),
       );
-      onCandidatesChanged?.();
+
+      const putRes = await fetch(signJson.signedUrl, {
+        method: "PUT",
+        body: file,
+        headers: file.type ? { "Content-Type": file.type } : undefined,
+      });
+      if (!putRes.ok) {
+        throw new Error("Could not upload file to storage.");
+      }
+
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId ? { ...r, uploadPhase: "awaiting-review" as const } : r,
+        ),
+      );
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      window.alert(msg);
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
+        ),
+      );
+      return false;
     }
   };
 
   const handleFiles = async (files: FileList | File[]) => {
+    setAllSuccessToastShown(false);
     const list = Array.from(files);
-    for (const f of list) {
-      await ingestFile(f);
+    const results = await Promise.all(list.map((f) => ingestFile(f)));
+    const successCount = results.filter(Boolean).length;
+    if (successCount > 0) {
+      triggerSuccess(
+        successCount === 1
+          ? "CV uploaded successfully — ready for review."
+          : `${successCount} CVs uploaded successfully — ready for review.`,
+      );
     }
   };
+
+  const reviewingRow = reviewingRowId
+    ? (queue.find((r) => r.rowId === reviewingRowId) ?? null)
+    : null;
 
   return (
     <>
@@ -845,23 +1272,30 @@ export function AddCandidateModal({
                       <Card variant="secondary">
                         <Card.Content className="gap-1 p-3">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            Queue total
+                            CVs uploaded
                           </p>
                           <p className="text-2xl font-semibold tabular-nums text-foreground">
                             {queue.length}
+                          </p>
+                          <p className="text-[10px] text-muted">
+                            This session
                           </p>
                         </Card.Content>
                       </Card>
                       <Card variant="secondary">
                         <Card.Content className="gap-1 p-3">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            Storage
+                            Completed
                           </p>
                           <p className="text-2xl font-semibold tabular-nums text-foreground">
-                            —
+                            {
+                              queue.filter(
+                                (r) => r.parsing_status === "completed",
+                              ).length
+                            }
                           </p>
                           <p className="text-[10px] text-muted">
-                            Per-project metrics
+                            AI parsing finished
                           </p>
                         </Card.Content>
                       </Card>
@@ -904,12 +1338,11 @@ export function AddCandidateModal({
                       <p className="mt-2 max-w-sm text-xs text-muted">
                         {isCampaignMissing
                           ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                          : "AI will parse contact info, skills, and experience. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                          : "Files land in a private staging area; review and confirm each one before AI parsing starts. Select or drop one or more PDF or DOCX files (max 25MB each)."}
                       </p>
                       <div className="mt-4 flex justify-center">
                         <Button
                           variant="primary"
-                          className="bg-gradient-to-br from-[#002542] to-[#1b3b5a]"
                           onPress={() => fileInputRef.current?.click()}
                           isDisabled={isUploadDisabled}
                         >
@@ -933,14 +1366,25 @@ export function AddCandidateModal({
                 </div>
 
                 <div>
-                  <div className="mb-3">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Active upload queue
-                    </h3>
-                    <p className="text-xs text-muted">
-                      Processing starts automatically after each upload; monitor
-                      progress here.
-                    </p>
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Active upload queue
+                      </h3>
+                      <p className="text-xs text-muted">
+                        Files awaiting review need your confirmation before AI
+                        parsing starts.
+                      </p>
+                    </div>
+                    {selectedRowIds.size > 0 && (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onPress={handleBulkConfirm}
+                      >
+                        Confirm & Start AI Check ({selectedRowIds.size})
+                      </Button>
+                    )}
                   </div>
 
                   <Card variant="secondary" className="overflow-hidden">
@@ -952,6 +1396,20 @@ export function AddCandidateModal({
                             className="min-w-[640px]"
                           >
                             <Table.Header>
+                              <Table.Column width={40}>
+                                <input
+                                  type="checkbox"
+                                  className="size-3.5 rounded border-divider accent-accent cursor-pointer"
+                                  checked={allSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedRowIds(new Set(selectableRows.map((r) => r.rowId)));
+                                    } else {
+                                      setSelectedRowIds(new Set());
+                                    }
+                                  }}
+                                />
+                              </Table.Column>
                               <Table.Column isRowHeader>File</Table.Column>
                               <Table.Column>Upload date</Table.Column>
                               <Table.Column>Progress</Table.Column>
@@ -961,7 +1419,7 @@ export function AddCandidateModal({
                               {queue.length === 0 ? (
                                 <Table.Row id="empty">
                                   <Table.Cell
-                                    colSpan={4}
+                                    colSpan={5}
                                     className="text-center text-sm text-muted"
                                   >
                                     No files in this session yet.
@@ -969,13 +1427,75 @@ export function AddCandidateModal({
                                 </Table.Row>
                               ) : (
                                 queue.map((row) => {
-                                  const { pct, label } = progressForRow(row);
-                                  const chip = statusChip(row);
+                                  // A row whose post-parse dedupe safety net (in
+                                  // `/process`) found a hit never leaves
+                                  // `uploadPhase: "invoking"` -- AI parsing has
+                                  // already finished by then (that's how the
+                                  // hit was found), but `progressForRow`/
+                                  // `statusChip` would otherwise keep showing
+                                  // "Starting AI scan…"/"Scanning" for as long
+                                  // as the duplicate modal sits unresolved,
+                                  // reading as a stuck/slow parse instead of
+                                  // "waiting on you to resolve the duplicate".
+                                  const isDuplicatePending =
+                                    duplicateFlow?.rowId === row.rowId ||
+                                    duplicateResolvingRowId === row.rowId;
+                                  const { pct, label } = isDuplicatePending
+                                    ? { pct: 90, label: "Duplicate found — resolve below" }
+                                    : progressForRow(row);
+                                  const baseChip = isDuplicatePending
+                                    ? ({ label: "Duplicate found", color: "default" } as const)
+                                    : statusChip(row);
+                                  // Elapsed-time readout for the generic "Scanning"
+                                  // fallback -- makes a genuinely slow AI/extraction
+                                  // call ("longer than usual" but still working)
+                                  // distinguishable from a silently stuck one, since
+                                  // both otherwise render identically.
+                                  const chip =
+                                    baseChip.label === "Scanning" &&
+                                    row.processingStartedAt != null
+                                      ? {
+                                          ...baseChip,
+                                          label: `Scanning… (${Math.max(
+                                            0,
+                                            Math.floor(
+                                              (scanClockTick - row.processingStartedAt) / 1000,
+                                            ),
+                                          )}s)`,
+                                        }
+                                      : baseChip;
                                   return (
-                                    <Table.Row
-                                      key={row.candidateId}
-                                      id={row.candidateId}
-                                    >
+                                    <Table.Row key={row.rowId} id={row.rowId}>
+                                      <Table.Cell
+                                        ref={(el: HTMLTableCellElement | null) => {
+                                          // `Table.Row` (react-aria-components) doesn't
+                                          // forward a plain `ref` prop to its rendered
+                                          // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
+                                          // forward it, so anchor here and walk up.
+                                          const tr = el?.closest("tr") ?? null;
+                                          if (tr) rowElRefs.current.set(row.rowId, tr);
+                                          else rowElRefs.current.delete(row.rowId);
+                                        }}
+                                      >
+                                        {row.uploadPhase === "awaiting-review" ? (
+                                          <input
+                                            type="checkbox"
+                                            className="size-3.5 rounded border-divider accent-accent cursor-pointer"
+                                            checked={selectedRowIds.has(row.rowId)}
+                                            onChange={(e) => {
+                                              const next = new Set(selectedRowIds);
+                                              if (e.target.checked) {
+                                                next.add(row.rowId);
+                                              } else {
+                                                next.delete(row.rowId);
+                                              }
+                                              setSelectedRowIds(next);
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="w-3.5" />
+                                        )}
+                                      </Table.Cell>
                                       <Table.Cell>
                                         <div className="flex items-center gap-3">
                                           <FileIcon className="size-8 shrink-0 text-muted" />
@@ -985,7 +1505,8 @@ export function AddCandidateModal({
                                             </p>
                                             <p className="text-[10px] text-muted">
                                               {formatBytes(row.size)}
-                                              {row.uploadError
+                                              {row.uploadError &&
+                                              row.uploadPhase === "error"
                                                 ? ` · ${row.uploadError}`
                                                 : ""}
                                             </p>
@@ -1009,14 +1530,58 @@ export function AddCandidateModal({
                                         </div>
                                       </Table.Cell>
                                       <Table.Cell>
-                                        <Chip
-                                          size="sm"
-                                          variant="soft"
-                                          color={chip.color}
-                                          className="text-[10px] font-bold uppercase"
-                                        >
-                                          {chip.label}
-                                        </Chip>
+                                        {row.uploadPhase === "awaiting-review" ? (
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              size="sm"
+                                              variant="secondary"
+                                              isDisabled={
+                                                duplicateFlow?.rowId === row.rowId ||
+                                                duplicateResolvingRowId === row.rowId
+                                              }
+                                              onPress={() => setReviewingRowId(row.rowId)}
+                                            >
+                                              Review
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              variant="primary"
+                                              isDisabled={
+                                                duplicateFlow?.rowId === row.rowId ||
+                                                duplicateResolvingRowId === row.rowId
+                                              }
+                                              onPress={() => {
+                                                if (row.tempKey) {
+                                                  void confirmAndProcessRow(
+                                                    row.rowId,
+                                                    row.tempKey,
+                                                    row.filename,
+                                                    row.mimeType,
+                                                    row.prefillEmail ?? null,
+                                                    row.prefillPhone ?? null,
+                                                    // Plain "Confirm" doesn't
+                                                    // advertise an AI check --
+                                                    // matches the review
+                                                    // sub-modal's opt-in
+                                                    // default of false.
+                                                    false,
+                                                  );
+                                                }
+                                              }}
+                                            >
+                                              Confirm
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <Chip
+                                            size="sm"
+                                            variant="soft"
+                                            color={chip.color}
+                                            className="text-[10px] font-bold uppercase"
+                                          >
+                                            {chip.label}
+                                          </Chip>
+                                        )}
                                       </Table.Cell>
                                     </Table.Row>
                                   );
@@ -1039,12 +1604,40 @@ export function AddCandidateModal({
           </Modal.Container>
         </Modal.Backdrop>
       </Modal>
+      {reviewingRow && reviewingRow.tempKey ? (
+        <CvReviewSubModal
+          key={reviewingRow.rowId}
+          open
+          tempKey={reviewingRow.tempKey}
+          filename={reviewingRow.filename}
+          mimeType={reviewingRow.mimeType}
+          prefillName={reviewingRow.prefillName ?? null}
+          prefillEmail={reviewingRow.prefillEmail ?? null}
+          prefillPhone={reviewingRow.prefillPhone ?? null}
+          jobId={selectedJobId ?? ""}
+          source={sourceKey}
+          sourceOther={sourceKey === "Other" ? sourceOther.trim() : null}
+          expectedSalary={expectedSalary.trim() || null}
+          onConfirmed={(result) => handleRowConfirmed(reviewingRow.rowId, result)}
+          onDuplicateFound={(hits, newUpload, email, phone) =>
+            handleRowDuplicateFound(reviewingRow.rowId, hits, newUpload, email, phone)
+          }
+          onDiscard={() => {
+            setReviewingRowId(null);
+            setQueue((q) =>
+              q.map((r) =>
+                r.rowId === reviewingRow.rowId
+                  ? { ...r, uploadPhase: "error", uploadError: "Discarded" }
+                  : r,
+              ),
+            );
+          }}
+          onCancel={() => setReviewingRowId(null)}
+        />
+      ) : null}
       {duplicateFlow ? (
         <DuplicateCandidateModal
-          key={
-            duplicateFlow.newCandidateId ??
-            `pre-${duplicateFlow.pendingFile?.name}-${duplicateFlow.pendingFile?.lastModified}`
-          }
+          key={duplicateFlow.rowId}
           open
           onOpenChange={() => {}}
           hits={duplicateFlow.hits}
@@ -1060,7 +1653,7 @@ export function AddCandidateModal({
           willMergeIntoExisting={duplicateFlow.hits.some(
             (h) => h.jobOpeningId === selectedJobId,
           )}
-          onUpdateProfile={runDuplicateUpdateWithHistory}
+          onUpdateProfile={runDuplicateMerge}
           onDiscard={runDiscardDuplicate}
         />
       ) : null}

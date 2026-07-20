@@ -24,7 +24,6 @@ export default async function AdminLayout({
     <DashboardLayout
       userEmail={user.email ?? ""}
       isHr={access.isHr}
-      workChapter={access.workChapter}
       chapterIds={access.chapterIds}
     >
       {children}

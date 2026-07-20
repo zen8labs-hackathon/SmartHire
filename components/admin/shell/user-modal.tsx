@@ -3,7 +3,11 @@
 import { useState, useEffect } from "react";
 import { useOverlayTriggerState } from "react-stately";
 import { Button, Input, Modal, Label } from "@heroui/react";
-import { createClient } from "@/lib/supabase/client";
+import {
+  getMyProfileDetails,
+  updateMyPassword,
+  updateMyUsername,
+} from "@/app/account/actions";
 import { useToast } from "@/components/admin/toast-provider";
 import { Loader2, User, KeyRound, Shield, Compass, Mail } from "lucide-react";
 
@@ -25,7 +29,6 @@ export function UserModal({
     onOpenChange,
   });
 
-  const supabase = createClient();
   const { success: triggerSuccess, error: triggerError } = useToast();
   
   const [activeTab, setActiveTab] = useState<"details" | "edit" | "password">("details");
@@ -45,32 +48,10 @@ export function UserModal({
     async function loadProfile() {
       setLoadingProfile(true);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        // Get profile username
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        if (profile?.username) {
-          setUsername(profile.username);
-        }
-
-        // Get chapter names
-        const { data: chaptersData } = await supabase
-          .from("profile_chapters")
-          .select("chapters(name)")
-          .eq("profile_id", user.id);
-
-        if (chaptersData) {
-          const names = chaptersData
-            .map((r: any) => r.chapters?.name)
-            .filter((name): name is string => typeof name === "string");
-          setChapters(names);
-        }
+        const details = await getMyProfileDetails();
+        if (!details) return;
+        setUsername(details.username);
+        setChapters(details.chapterNames);
       } catch (err: any) {
         console.error("Error loading user profile details", err);
       } finally {
@@ -79,7 +60,7 @@ export function UserModal({
     }
 
     loadProfile();
-  }, [open, supabase]);
+  }, [open]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,17 +71,12 @@ export function UserModal({
     
     setUpdating(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No authenticated user session");
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ username: username.trim() })
-        .eq("id", user.id);
-
-      if (error) throw error;
-
-      triggerSuccess("Profile updated successfully!");
+      const result = await updateMyUsername(username.trim());
+      if (result?.error) {
+        triggerError(result.error);
+        return;
+      }
+      triggerSuccess(result?.message || "Profile updated successfully!");
       setActiveTab("details");
     } catch (err: any) {
       triggerError(err.message || "Failed to update profile");
@@ -122,13 +98,12 @@ export function UserModal({
 
     setUpdating(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        password: password
-      });
-
-      if (error) throw error;
-
-      triggerSuccess("Password changed successfully!");
+      const result = await updateMyPassword(password);
+      if (result?.error) {
+        triggerError(result.error);
+        return;
+      }
+      triggerSuccess(result?.message || "Password changed successfully!");
       setPassword("");
       setConfirmPassword("");
       setActiveTab("details");
@@ -152,7 +127,7 @@ export function UserModal({
             {/* Modal Header */}
             <Modal.Header className="border-b border-divider bg-surface-secondary/40 px-6 py-5">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-accent to-indigo-500 font-sans text-xl font-bold text-white shadow-md shadow-accent/15">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-gold font-sans text-xl font-bold text-brand-gold-foreground shadow-md shadow-black/15">
                   {initials}
                 </div>
                 <div className="min-w-0">
@@ -268,7 +243,7 @@ export function UserModal({
                   </div>
                   <Button
                     type="submit"
-                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl text-sm font-semibold shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-xl text-sm font-semibold shadow-md transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
                     isDisabled={updating}
                   >
                     {updating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -307,7 +282,7 @@ export function UserModal({
                   </div>
                   <Button
                     type="submit"
-                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-white rounded-xl text-sm font-semibold shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-xl text-sm font-semibold shadow-md transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
                     isDisabled={updating}
                   >
                     {updating && <Loader2 className="h-4 w-4 animate-spin" />}

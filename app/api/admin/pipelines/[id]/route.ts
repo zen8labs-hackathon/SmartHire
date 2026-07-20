@@ -1,4 +1,7 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { softDeletePipelineStage, updatePipelineStage } from "@/lib/db/pipeline-stages";
 import { pipelineStageSchema } from "@/lib/pipelines/schemas";
 
 const UUID_RE =
@@ -32,29 +35,22 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   const { code, label, desc, color } = parsed.data;
 
-  const { data, error } = await auth.supabase
-    .from("pipeline_stages")
-    .update({ code, label, desc, color })
-    .eq("id", id)
-    .is("deleted_at", null)
-    .select("id, code, label, desc, color, created_at, updated_at")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const stage = await updatePipelineStage(getPool(), id, { code, label, desc, color });
+    if (!stage) {
+      return Response.json({ error: "Stage not found or already deleted." }, { status: 404 });
+    }
+    return Response.json({ stage });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: `A stage with code '${code}' already exists.` },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not update stage.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  if (!data) {
-    return Response.json({ error: "Stage not found or already deleted." }, { status: 404 });
-  }
-
-  return Response.json({ stage: data });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
@@ -66,20 +62,8 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid stage ID." }, { status: 400 });
   }
 
-  // Soft delete: update deleted_at
-  const { data, error } = await auth.supabase
-    .from("pipeline_stages")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id)
-    .is("deleted_at", null)
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  if (!data) {
+  const stage = await softDeletePipelineStage(getPool(), id);
+  if (!stage) {
     return Response.json({ error: "Stage not found or already deleted." }, { status: 404 });
   }
 

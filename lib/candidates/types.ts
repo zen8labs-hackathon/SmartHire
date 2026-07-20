@@ -37,8 +37,8 @@ export type CandidateRow = {
   uploadedByEmail: string | null;
   /** Campaign UUID when CV was uploaded to a job opening; null if unassigned */
   jobOpeningId: string | null;
-  /** Job description int id for linking to the evaluation page; null if not linked */
-  jobDescriptionId: number | null;
+  /** `jobs.id` (uuid), for linking to the evaluation page; null if not linked */
+  jobDescriptionId: string | null;
   /** Job description position (or opening title) for the applied campaign */
   jdCampaignLabel: string;
   /** Display label for HR sourcing channel (includes custom text when source is Other) */

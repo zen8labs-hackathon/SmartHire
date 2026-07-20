@@ -1,7 +1,16 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Table, Label, ListBox, Select, Modal, Button, Input, TextField } from "@heroui/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Table,
+  Label,
+  ListBox,
+  Select,
+  Modal,
+  Button,
+  Input,
+  TextField,
+} from "@heroui/react";
 import {
   DataTableToolbar,
   DataTablePagination,
@@ -15,19 +24,36 @@ import type {
   UsersRoleFilter,
 } from "@/lib/admin/users-list-query";
 import type { ChapterMembership } from "@/lib/admin/list-org-users";
-import { Users, Shield, Compass, UserCheck, Edit2, Key, Trash2 } from "lucide-react";
-import { AddUserForm, type AddUserChapterOption } from "@/components/admin/add-user-form";
-import { EditUserForm, type EditUserData } from "@/components/admin/edit-user-form";
-import { adminDeleteUser, adminGetUserDetails, adminUpdateUserPassword } from "@/app/admin/actions";
+import {
+  Users,
+  Shield,
+  Compass,
+  UserCheck,
+  Edit2,
+  Key,
+  Trash2,
+} from "lucide-react";
+import {
+  AddUserForm,
+  type AddUserChapterOption,
+} from "@/components/admin/add-user-form";
+import {
+  EditUserForm,
+  type EditUserData,
+} from "@/components/admin/edit-user-form";
+import {
+  adminDeleteUser,
+  adminGetUserDetails,
+  adminUpdateUserPassword,
+} from "@/app/admin/actions";
 import { useToast } from "@/components/admin/toast-provider";
-import { createClient } from "@/lib/supabase/client";
+import type { ProfileRole } from "@/lib/db/users";
 
 export type OrgUser = {
   id: string;
   email: string | null;
   accessSummary: string;
-  isAdmin?: boolean;
-  workChapter?: string | null;
+  role: ProfileRole;
   chapterMemberships?: ChapterMembership[];
 };
 
@@ -38,6 +64,8 @@ export type UsersTableWrapperProps = {
   initialPagination: Pagination;
   initialCounts: UsersListCounts;
   chapters: readonly AddUserChapterOption[];
+  /** The signed-in HR/admin viewing this page -- disables self-deletion in the table. */
+  currentUserId: string;
 };
 
 const ROLE_OPTIONS: { id: UsersRoleFilter; label: string }[] = [
@@ -53,14 +81,14 @@ const BADGE_BASE =
 
 function RoleBadges({ user }: { user: OrgUser }) {
   const chapterMemberships = user.chapterMemberships ?? [];
-  const isAdmin = user.isAdmin ?? user.accessSummary.toUpperCase().includes("ADMIN");
-  const isHr =
-    user.workChapter === "HR" ||
-    (user.workChapter === undefined && user.accessSummary.toUpperCase().includes("HR"));
+  const isAdmin = user.role === "admin";
+  const isHr = user.role === "hr";
 
   if (!isAdmin && !isHr && chapterMemberships.length === 0) {
     return (
-      <span className={`${BADGE_BASE} bg-surface-tertiary text-foreground border border-divider`}>
+      <span
+        className={`${BADGE_BASE} bg-surface-tertiary text-foreground border border-divider`}
+      >
         Dashboard only
       </span>
     );
@@ -69,12 +97,16 @@ function RoleBadges({ user }: { user: OrgUser }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {isAdmin ? (
-        <span className={`${BADGE_BASE} bg-rose-500/10 text-rose-600 dark:text-rose-400`}>
+        <span
+          className={`${BADGE_BASE} bg-rose-500/10 text-rose-600 dark:text-rose-400`}
+        >
           Admin
         </span>
       ) : null}
       {isHr ? (
-        <span className={`${BADGE_BASE} bg-blue-500/10 text-blue-600 dark:text-blue-400`}>
+        <span
+          className={`${BADGE_BASE} bg-brand-gold/15 text-brand-green dark:text-brand-gold`}
+        >
           HR
         </span>
       ) : null}
@@ -99,8 +131,8 @@ export function UsersTableWrapper({
   initialPagination,
   initialCounts,
   chapters,
+  currentUserId,
 }: UsersTableWrapperProps) {
-  const supabase = useMemo(() => createClient(), []);
   const toast = useToast();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -123,7 +155,9 @@ export function UsersTableWrapper({
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordUserId, setPasswordUserId] = useState<string | null>(null);
-  const [passwordUserEmail, setPasswordUserEmail] = useState<string | null>(null);
+  const [passwordUserEmail, setPasswordUserEmail] = useState<string | null>(
+    null,
+  );
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
@@ -133,22 +167,13 @@ export function UsersTableWrapper({
   const [deleteUserEmail, setDeleteUserEmail] = useState<string | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-
-  // Retrieve current logged in user ID to disable self-deletion
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        setCurrentUserId(data.user.id);
-      }
-    });
-  }, []); // supabase is stable (memoized); intentionally omitted to run once
-
-  const handlePageSizeChange = useCallback((size: number) => {
-    setPageSize(size);
-    setPage(1);
-  }, [setPage]);
+  const handlePageSizeChange = useCallback(
+    (size: number) => {
+      setPageSize(size);
+      setPage(1);
+    },
+    [setPage],
+  );
 
   const skipInitialFetchRef = useRef(true);
   const skipInitialPageResetRef = useRef(true);
@@ -157,7 +182,8 @@ export function UsersTableWrapper({
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (debouncedSearchQuery.trim()) params.set("q", debouncedSearchQuery.trim());
+      if (debouncedSearchQuery.trim())
+        params.set("q", debouncedSearchQuery.trim());
       if (roleFilter !== "all") params.set("role", roleFilter);
       params.set("limit", String(pageSize));
       params.set("offset", String((page - 1) * pageSize));
@@ -172,8 +198,18 @@ export function UsersTableWrapper({
         counts?: UsersListCounts;
       };
       setUsers(json.users ?? []);
-      setPagination(json.pagination ?? { total: 0, limit: pageSize, offset: 0 });
-      setCounts(json.counts ?? { total: 0, admin: 0, hr: 0, recruiter: 0, dashboardOnly: 0 });
+      setPagination(
+        json.pagination ?? { total: 0, limit: pageSize, offset: 0 },
+      );
+      setCounts(
+        json.counts ?? {
+          total: 0,
+          admin: 0,
+          hr: 0,
+          recruiter: 0,
+          dashboardOnly: 0,
+        },
+      );
     } finally {
       setLoading(false);
     }
@@ -291,39 +327,40 @@ export function UsersTableWrapper({
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const safePage = Math.min(page, totalPages);
   const startIdx = totalCount === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const endIdx = totalCount === 0 ? 0 : Math.min(startIdx - 1 + pageSize, totalCount);
+  const endIdx =
+    totalCount === 0 ? 0 : Math.min(startIdx - 1 + pageSize, totalCount);
 
   const stats = [
     {
       label: "Total Accounts",
       value: counts.total,
       icon: <Users className="h-4.5 w-4.5" />,
-      description: "Active profiles in workspace"
+      description: "Active profiles in workspace",
     },
     {
       label: "Admin",
       value: counts.admin,
       icon: <Shield className="h-4.5 w-4.5 text-rose-500" />,
-      description: "Workspace administrators"
+      description: "Workspace administrators",
     },
     {
       label: "HR",
       value: counts.hr,
       icon: <Shield className="h-4.5 w-4.5 text-accent" />,
-      description: "Full recruitment control"
+      description: "Full recruitment control",
     },
     {
       label: "Chapter Recruiters",
       value: counts.recruiter,
       icon: <Compass className="h-4.5 w-4.5" />,
-      description: "Chapter-specific roles"
+      description: "Chapter-specific roles",
     },
-    {
-      label: "Dashboard only",
-      value: counts.dashboardOnly,
-      icon: <UserCheck className="h-4.5 w-4.5" />,
-      description: "Base dashboard view"
-    }
+    // {
+    //   label: "Dashboard only",
+    //   value: counts.dashboardOnly,
+    //   icon: <UserCheck className="h-4.5 w-4.5" />,
+    //   description: "Base dashboard view"
+    // }
   ];
 
   const roleFilterElement = (
@@ -341,7 +378,12 @@ export function UsersTableWrapper({
       <Select.Popover>
         <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl">
           {ROLE_OPTIONS.map((opt) => (
-            <ListBox.Item key={opt.id} id={opt.id} textValue={opt.label} className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer">
+            <ListBox.Item
+              key={opt.id}
+              id={opt.id}
+              textValue={opt.label}
+              className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
+            >
               {opt.label}
               <ListBox.ItemIndicator />
             </ListBox.Item>
@@ -360,8 +402,8 @@ export function UsersTableWrapper({
       <DataTableToolbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search users by email or role..."
-        createButtonLabel="Invite User"
+        searchPlaceholder="Search users by email or username..."
+        createButtonLabel="Add User"
         onCreate={() => setInviteModalOpen(true)}
         filters={roleFilterElement}
         onRefresh={fetchUsers}
@@ -465,10 +507,15 @@ export function UsersTableWrapper({
           <Modal.Dialog className="max-h-[90vh] w-full overflow-hidden rounded-2xl border border-divider bg-surface-primary p-0 shadow-2xl">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-base font-semibold">Invite User</Modal.Heading>
+              <Modal.Heading className="text-base font-semibold">
+                Invite User
+              </Modal.Heading>
             </Modal.Header>
             <Modal.Body className="px-6 py-5 overflow-y-auto">
-              <AddUserForm chapters={chapters} onSuccess={handleInviteSuccess} />
+              <AddUserForm
+                chapters={chapters}
+                onSuccess={handleInviteSuccess}
+              />
             </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>
@@ -484,12 +531,16 @@ export function UsersTableWrapper({
           <Modal.Dialog className="max-h-[90vh] w-full overflow-hidden rounded-2xl border border-divider bg-surface-primary p-0 shadow-2xl">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-base font-semibold">Edit User Access</Modal.Heading>
+              <Modal.Heading className="text-base font-semibold">
+                Edit User Access
+              </Modal.Heading>
             </Modal.Header>
             <Modal.Body className="px-6 py-5 overflow-y-auto min-h-[150px]">
               {loadingDetails ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-2">
-                  <span className="text-xs text-muted font-medium animate-pulse">Loading user details...</span>
+                  <span className="text-xs text-muted font-medium animate-pulse">
+                    Loading user details...
+                  </span>
                 </div>
               ) : editUserData ? (
                 <EditUserForm
@@ -514,11 +565,17 @@ export function UsersTableWrapper({
           <Modal.Dialog className="max-h-[90vh] w-full overflow-hidden rounded-2xl border border-divider bg-surface-primary p-0 shadow-2xl">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-base font-semibold">Change Password</Modal.Heading>
+              <Modal.Heading className="text-base font-semibold">
+                Change Password
+              </Modal.Heading>
             </Modal.Header>
             <form onSubmit={handlePasswordSubmit}>
               <Modal.Body className="px-6 py-5 flex flex-col gap-4">
-                <TextField isReadOnly name="email" value={passwordUserEmail ?? ""}>
+                <TextField
+                  isReadOnly
+                  name="email"
+                  value={passwordUserEmail ?? ""}
+                >
                   <Label>Email</Label>
                   <Input className="opacity-70 cursor-not-allowed bg-surface-secondary/20" />
                 </TextField>
@@ -563,7 +620,7 @@ export function UsersTableWrapper({
                   type="submit"
                   variant="primary"
                   isDisabled={passwordSubmitting}
-                  className="h-9 px-4 rounded-xl bg-accent text-white text-xs font-semibold hover:bg-accent/90 cursor-pointer"
+                  className="h-9 px-4 rounded-xl bg-accent text-accent-foreground text-xs font-semibold hover:bg-accent/90 cursor-pointer"
                 >
                   {passwordSubmitting ? "Updating..." : "Update Password"}
                 </Button>
@@ -583,10 +640,15 @@ export function UsersTableWrapper({
           <Modal.Dialog className="max-h-[90vh] w-full overflow-hidden rounded-2xl border border-divider bg-surface-primary p-0 shadow-2xl">
             <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider px-6 py-5 bg-danger/5">
-              <Modal.Heading className="text-base font-semibold text-danger">Delete User Account</Modal.Heading>
+              <Modal.Heading className="text-base font-semibold text-danger">
+                Delete User Account
+              </Modal.Heading>
             </Modal.Header>
             <Modal.Body className="px-6 py-5 text-sm text-foreground leading-normal">
-              Are you sure you want to permanently delete the account for <strong className="font-mono text-xs">{deleteUserEmail}</strong>? This action cannot be undone and will remove all their access permissions and roles.
+              Are you sure you want to permanently delete the account for{" "}
+              <strong className="font-mono text-xs">{deleteUserEmail}</strong>?
+              This action cannot be undone and will remove all their access
+              permissions and roles.
             </Modal.Body>
             <Modal.Footer className="border-t border-divider px-6 py-4 flex items-center justify-end gap-3">
               <Button

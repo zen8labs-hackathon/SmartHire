@@ -2,18 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
-import { createClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/auth/next-path";
+import { getRequestMeta } from "@/lib/auth/request-meta";
+import {
+  buildAccessTokenCookie,
+  buildClearedCookies,
+  buildRefreshTokenCookie,
+  login,
+  logout,
+  REFRESH_TOKEN_COOKIE,
+} from "@/lib/auth/session";
+import { getPool } from "@/lib/db/config/client";
 
 export type AuthFormState = { error?: string; message?: string } | null;
-
-function safeNextPath(raw: string): string {
-  if (raw.startsWith("/") && !raw.startsWith("//") && !raw.includes("://")) {
-    return raw;
-  }
-  return "/dashboard";
-}
 
 export async function signIn(
   _prev: AuthFormState,
@@ -30,24 +34,30 @@ export async function signIn(
     return { error: "Enter a valid email address." };
   }
 
-  const supabase = await createClient();
+  const meta = await getRequestMeta();
+  const result = await login(getPool(), email, password, meta);
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error) {
+  if (!result.ok) {
     return { error: "Invalid email or password." };
   }
 
-  revalidatePath("/", "layout");
+  const cookieStore = await cookies();
+  cookieStore.set(buildAccessTokenCookie(result.session.accessToken));
+  cookieStore.set(buildRefreshTokenCookie(result.session.refreshToken));
+
   redirect(safeNextPath(nextRaw));
 }
 
 export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  const cookieStore = await cookies();
+  const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+
+  await logout(getPool(), refreshToken);
+
+  for (const cookie of buildClearedCookies()) {
+    cookieStore.set(cookie);
+  }
+
   revalidatePath("/", "layout");
   redirect("/");
 }

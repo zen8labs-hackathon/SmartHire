@@ -4,8 +4,6 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button } from "@heroui/react";
 import { SectionCard } from "@/components/admin/shell/cards";
 
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { useToast } from "@/components/admin/toast-provider";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import type {
@@ -17,6 +15,8 @@ import { StagesPanel, type StagesPanelHandle } from "./pipelines/stages-panel";
 import { StagesPanelSkeleton } from "./pipelines/stages-panel-skeleton";
 import { SubStageList } from "./pipelines/sub-stage-list";
 import { SubStageForm } from "./pipelines/sub-stage-form";
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function StagesErrorFallback() {
   return (
@@ -39,7 +39,6 @@ type PipelineManagerProps = {
 };
 
 export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
-  const supabase = createClient();
   const toast = useToast();
 
   // State
@@ -67,23 +66,13 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
     setStagesPanelReady(handle !== null);
   }, []);
 
-  // Headers helper
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
-
   // Load sub-stages for selected stage
   const loadSubStages = useCallback(
     async (stageId: string) => {
       try {
-        const h = await authHeaders();
         const res = await fetch(
           `/api/admin/pipelines/sub-stages?stageId=${stageId}`,
-          {
-            credentials: "include",
-            headers: h,
-          },
+          { credentials: "include" },
         );
         const json = (await res.json()) as {
           subStages?: PipelineSubStageRow[];
@@ -98,7 +87,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
         );
       }
     },
-    [authHeaders, toast],
+    [toast],
   );
 
   useEffect(() => {
@@ -108,7 +97,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
     } else {
       setSubStages([]);
     }
-  }, [selectedStage, loadSubStages]);
+  }, [selectedStage?.id, loadSubStages]);
 
   // Stage Handlers
   const handleSelectStage = (stage: PipelineStageRow) => {
@@ -153,11 +142,10 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
         : "/api/admin/pipelines/sub-stages";
       const method = isEdit ? "PATCH" : "POST";
 
-      const h = await authHeaders();
       const res = await fetch(url, {
         method,
         credentials: "include",
-        headers: h,
+        headers: JSON_HEADERS,
         body: JSON.stringify(payload),
       });
 
@@ -195,11 +183,9 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
     }
     setBusy(true);
     try {
-      const h = await authHeaders();
       const res = await fetch(`/api/admin/pipelines/sub-stages/${id}`, {
         method: "DELETE",
         credentials: "include",
-        headers: h,
       });
 
       if (!res.ok) {
@@ -231,11 +217,10 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
     }));
 
     try {
-      const h = await authHeaders();
       const res = await fetch("/api/admin/pipelines/sub-stages/reorder", {
         method: "POST",
         credentials: "include",
-        headers: h,
+        headers: JSON_HEADERS,
         body: JSON.stringify({ reorders }),
       });
 
@@ -273,7 +258,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
           <Button
             size="sm"
             variant="primary"
-            className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+            className="h-8 px-3 rounded-lg bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
             onPress={() => stagesPanelRef.current?.startAdd()}
             isDisabled={busy || !stagesPanelReady}
           >
@@ -306,7 +291,7 @@ export function PipelineManager({ stagesPromise }: PipelineManagerProps) {
             <Button
               size="sm"
               variant="primary"
-              className="h-8 px-3 rounded-lg bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+              className="h-8 px-3 rounded-lg bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
               onPress={() => setSubStageMode("add")}
               isDisabled={busy}
             >

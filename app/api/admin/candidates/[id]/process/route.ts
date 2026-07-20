@@ -1,225 +1,300 @@
-import {
-  createClient as createSupabaseJsClient,
-  FunctionsFetchError,
-  FunctionsHttpError,
-  FunctionsRelayError,
-} from "@supabase/supabase-js";
-
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import {
   duplicateNewUploadPreviewFromRow,
   findDuplicateCandidateHits,
   shouldFetchCandidatesForDedupe,
+  parsedContactFromPayload,
   type CandidateDedupeRow,
   type DuplicateCandidateHit,
   type DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
-import { getSupabasePublishableKey } from "@/lib/supabase/env";
+import { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
+import { cvContentSha256Hex, cvFileSha256Hex } from "@/lib/candidates/cv-hash";
+import { parseResumeWithAI } from "@/lib/ai/parse-resume";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
+import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
+import {
+  getCvDetailVersionById,
+  lockCvDetailVersionForParsing,
+  updateCvDetailVersionParsingResult,
+} from "@/lib/db/cv-detail-versions";
+import { syncCandidateAggregateFields } from "@/lib/db/candidates";
+import {
+  dedupeMatchStatusLabel,
+  findCandidatesByDedupeSignals,
+} from "@/lib/db/candidates-dedupe";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { downloadObject } from "@/lib/storage/s3";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-function candidateRowToDedupe(row: Record<string, unknown>): CandidateDedupeRow {
-  const jo = row.job_openings as { title?: string } | null;
-  return {
-    id: String(row.id),
-    name: (row.name as string | null) ?? null,
-    status: (row.status as string | null) ?? null,
-    job_opening_id: (row.job_opening_id as string | null) ?? null,
-    job_opening_title: jo?.title ?? null,
-    cv_uploaded_at: (row.cv_uploaded_at as string | null) ?? null,
-    created_at: (row.created_at as string | null) ?? null,
-    parsed_payload: row.parsed_payload,
-    cv_file_sha256: (row.cv_file_sha256 as string | null) ?? null,
-    cv_content_sha256: (row.cv_content_sha256 as string | null) ?? null,
-  };
+/**
+ * Runs CV text extraction + AI parsing for this application's active CV
+ * version and persists the result. Replaces the old `process-cv` Supabase
+ * Edge Function (`supabase/functions/process-cv`), which read/wrote the
+ * pre-DB7X2K single-table `candidates` schema and downloaded from Supabase
+ * Storage -- both gone. No storage-path "prettifying" rename step (the old
+ * function moved the file into a `{job}/{name}_{timestamp}_{uuid}/` folder
+ * for human Storage-browser convenience); the new S3 layout is a flat
+ * `cv/{uuid}{ext}` key assigned once at upload time and nothing reads
+ * structure out of it, so there's nothing to preserve by renaming.
+ */
+async function runCvParsing(
+  campaignAppliedId: string,
+): Promise<{ ok: true; skipped: true; reason: string } | { ok: true; skipped: false } | { ok: false; error: string }> {
+  const db = getPool();
+
+  const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!campaignApplied) {
+    return { ok: false, error: "Candidate application not found" };
+  }
+  if (!campaignApplied.active_cv_version_id) {
+    return { ok: false, error: "No CV file on record for this application" };
+  }
+
+  const cvVersion = await getCvDetailVersionById(
+    db,
+    campaignApplied.active_cv_version_id,
+  );
+  if (!cvVersion) {
+    return { ok: false, error: "Active CV version not found" };
+  }
+
+  if (cvVersion.parsing_status === "completed") {
+    return { ok: true, skipped: true, reason: "already_completed" };
+  }
+  if (cvVersion.parsing_status === "processing") {
+    return { ok: true, skipped: true, reason: "already_processing" };
+  }
+
+  const locked = await lockCvDetailVersionForParsing(db, cvVersion.id, [
+    "pending",
+    "failed",
+  ]);
+  if (!locked) {
+    return { ok: true, skipped: true, reason: "race_or_state" };
+  }
+
+  try {
+    if (!cvVersion.cv_storage_path) {
+      throw new Error("No CV file path on record for this version");
+    }
+
+    const bytes = await downloadObject(cvVersion.cv_storage_path);
+    const cvFileSha256 = cvFileSha256Hex(bytes);
+
+    const plainText = await extractTextFromBuffer(
+      bytes,
+      cvVersion.mime_type || "application/octet-stream",
+    );
+    if (!plainText || plainText.length < 20) {
+      throw new Error("Could not extract enough text from the document");
+    }
+
+    const cvContentSha256 = cvContentSha256Hex(plainText);
+    const parsedRaw = await parseResumeWithAI(plainText);
+    // The basic-info fields on this version's existing record were set at
+    // confirm time -- but only actually locked in if `basicInfoReviewed` is
+    // true, meaning the user went through the review sub-modal (even if they
+    // left the prefilled values unchanged). A row confirmed via the
+    // skip-review bulk/quick-confirm path only ever has the unverified
+    // heuristic guess in `parsed_payload`, so it must NOT block the AI's own
+    // (generally more accurate) extraction -- that path hands basic-info
+    // fully over to AI by design. role/degree/school/gpa/englishLevel are
+    // also top-level `cv_detail_versions` columns (the canonical source used
+    // by `syncCandidateAggregateFields` elsewhere), so those are read from
+    // there, and aren't heuristic-derived in the first place (quick-confirm
+    // never sends them), so no reviewed-gate is needed for them.
+    const priorPayload =
+      cvVersion.parsed_payload && typeof cvVersion.parsed_payload === "object"
+        ? (cvVersion.parsed_payload as Record<string, unknown>)
+        : {};
+    const basicInfoReviewed = priorPayload.basicInfoReviewed === true;
+    const confirmedEmail =
+      basicInfoReviewed && typeof priorPayload.email === "string" ? priorPayload.email : null;
+    const confirmedPhone =
+      basicInfoReviewed && typeof priorPayload.phone === "string" ? priorPayload.phone : null;
+    const confirmedName =
+      basicInfoReviewed && typeof priorPayload.name === "string" ? priorPayload.name : null;
+    const parsed = {
+      ...parsedRaw,
+      email: confirmedEmail ?? parsedRaw.email,
+      phone: confirmedPhone ?? parsedRaw.phone,
+      name: confirmedName ?? parsedRaw.name,
+      role: cvVersion.role ?? parsedRaw.role,
+      degree: cvVersion.degree ?? parsedRaw.degree,
+      school: cvVersion.education ?? parsedRaw.school,
+      gpa: cvVersion.gpa ?? parsedRaw.gpa,
+      englishLevel: cvVersion.english_level ?? parsedRaw.englishLevel,
+      // Carried forward so a hypothetical future re-parse still honors it.
+      basicInfoReviewed,
+    };
+    // The model is asked for ISO YYYY-MM-DD but isn't guaranteed to comply --
+    // `date_of_birth` is a real `date` column, so an off-format value would
+    // otherwise fail the whole write rather than just this one field.
+    const dateOfBirth =
+      parsed.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(parsed.dateOfBirth)
+        ? parsed.dateOfBirth
+        : null;
+
+    // Check for a conflicting *different* person before writing the parsed
+    // email/phone onto this candidate's aggregate row -- `candidates(email)`/
+    // `candidates(phone)` are unique, so syncing unconditionally would throw
+    // and roll back the whole transaction (losing the parse result) whenever
+    // this CV belongs to someone who already has a profile under another
+    // application. Detecting it here lets the parse result persist and the
+    // duplicate-candidate flow below surface it instead of a raw DB error.
+    const contact = parsedContactFromPayload(parsed);
+    const conflictMatches = await findCandidatesByDedupeSignals(
+      db,
+      {
+        email: contact.email,
+        phoneVariants: contact.phoneVariants,
+        cvFileSha256,
+        cvContentSha256,
+      },
+      campaignAppliedId,
+    );
+    const hasConflictingCandidate = conflictMatches.some(
+      (m) => m.candidate_id !== campaignApplied.candidate_id,
+    );
+
+    await withTransaction(async (tx) => {
+      await updateCvDetailVersionParsingResult(tx, cvVersion.id, {
+        parsingStatus: "completed",
+        parsingError: null,
+        parsedPayload: parsed,
+        skills: parsed.skills,
+        role: parsed.role,
+        degree: parsed.degree,
+        education: parsed.school,
+        experienceYears: parsed.experienceYears,
+        gpa: parsed.gpa,
+        englishLevel: parsed.englishLevel,
+        dateOfBirth,
+        studentYears: parsed.studentYears,
+        cvFileSha256,
+        cvContentSha256,
+      });
+      if (!hasConflictingCandidate) {
+        await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+      }
+    });
+
+    return { ok: true, skipped: false };
+  } catch (e) {
+    const msg = isUniqueViolation(e)
+      ? "Another candidate profile already uses this email or phone number. Check for duplicates before retrying."
+      : e instanceof Error
+        ? e.message
+        : String(e);
+    await updateCvDetailVersionParsingResult(db, cvVersion.id, {
+      parsingStatus: "failed",
+      parsingError: msg,
+    });
+    return { ok: false, error: msg };
+  }
 }
 
-async function messageFromInvokeError(error: unknown): Promise<{
-  message: string;
-  upstreamStatus?: number;
-}> {
-  if (error instanceof FunctionsHttpError) {
-    const ctx = error.context;
-    if (ctx instanceof Response) {
-      const upstreamStatus = ctx.status;
-      const raw = await ctx.text();
-      try {
-        const parsed = JSON.parse(raw) as {
-          error?: string;
-          message?: string;
-        };
-        const msg = parsed.error ?? parsed.message;
-        if (msg) return { message: msg, upstreamStatus };
-      } catch {
-        /* not JSON */
-      }
-      if (raw?.trim()) {
-        return {
-          message: `${upstreamStatus}: ${raw.slice(0, 800)}`,
-          upstreamStatus,
-        };
-      }
-      return {
-        message:
-          upstreamStatus === 401
-            ? "Edge Function rejected the session (401). Sign in again, or check that NEXT_PUBLIC_SUPABASE_URL and keys match the project where process-cv is deployed."
-            : error.message,
-        upstreamStatus,
-      };
-    }
-  }
-  if (error instanceof FunctionsRelayError) {
-    const ctx = error.context;
-    if (ctx instanceof Response) {
-      const upstreamStatus = ctx.status;
-      const raw = await ctx.text();
-      return {
-        message: raw?.trim()
-          ? `Relay ${upstreamStatus}: ${raw.slice(0, 800)}`
-          : error.message,
-        upstreamStatus,
-      };
-    }
-  }
-  if (error instanceof FunctionsFetchError) {
-    const ctx = error.context as { message?: string } | undefined;
-    return {
-      message: ctx?.message ?? error.message,
-    };
-  }
-  if (error instanceof Error) {
-    return { message: error.message };
-  }
-  return { message: String(error) };
-}
+type ProcessRequestBody = {
+  /** Opt-in (CV9X7R Phase 5): JD-match scoring is a second, separate LLM
+   * call from resume parsing above and no longer runs automatically -- the
+   * caller (review sub-modal checkbox, or a later bulk trigger) must ask for
+   * it explicitly. Missing/invalid body just means "not requested". */
+  runJdMatch?: boolean;
+};
 
 export async function POST(request: Request, { params }: RouteParams) {
-  const { id: candidateId } = await params;
-  if (!candidateId) {
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId) {
     return Response.json({ error: "Missing candidate id" }, { status: 400 });
   }
 
   const auth = await requireAdminForRequest(request);
-  if (!auth.ok) return auth.response;
-
-  const bearerHeader = request.headers.get("Authorization");
-  const bearer =
-    bearerHeader?.startsWith("Bearer ") ? bearerHeader.slice(7).trim() : "";
-
-  let accessToken: string;
-  if (bearer) {
-    accessToken = bearer;
-  } else {
-    let {
-      data: { session },
-    } = await auth.supabase.auth.getSession();
-    if (!session?.access_token) {
-      await auth.supabase.auth.refreshSession();
-      ({
-        data: { session },
-      } = await auth.supabase.auth.getSession());
-    }
-    if (!session?.access_token) {
-      return Response.json(
-        {
-          error:
-            "Missing access token for Edge Function. Send Authorization: Bearer from the client (getSession().access_token).",
-        },
-        { status: 401 },
-      );
-    }
-    accessToken = session.access_token;
+  if (!auth.ok) {
+    return auth.response;
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = getSupabasePublishableKey();
-  if (!url || !key) {
-    return Response.json(
-      { error: "Missing Supabase configuration." },
-      { status: 500 },
-    );
+  let body: ProcessRequestBody = {};
+  try {
+    body = (await request.json()) as ProcessRequestBody;
+  } catch {
+    // No/invalid JSON body -- treat as runJdMatch: false (existing callers
+    // that send no body at all keep working, just without JD-match).
   }
 
-  const functionsClient = createSupabaseJsClient(url, key, {
-    global: {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-
-  const { data, error } = await functionsClient.functions.invoke("process-cv", {
-    body: { candidateId },
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  if (error) {
-    const { message, upstreamStatus } = await messageFromInvokeError(error);
-    if (process.env.NODE_ENV === "development") {
-      console.error("[process-cv invoke]", error.name, message, { upstreamStatus });
-    }
-    const status =
-      upstreamStatus === 401 || upstreamStatus === 403 ? upstreamStatus : 502;
-    return Response.json({ error: message }, { status });
+  const parseResult = await runCvParsing(campaignAppliedId);
+  if (!parseResult.ok) {
+    return Response.json({ error: parseResult.error }, { status: 500 });
   }
 
-  if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    !("ok" in data)
-  ) {
-    const msg = String((data as { error: unknown }).error);
-    return Response.json({ error: msg }, { status: 500 });
-  }
-
-  const jdMatch = await runJdMatchForCandidate(auth.supabase, candidateId);
+  const jdMatch = body.runJdMatch
+    ? await runJdMatchForCandidate(campaignAppliedId)
+    : ({ ok: true, skipped: true, reason: "not_requested" } as const);
   if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
-    console.warn("[jd-match]", candidateId, jdMatch);
+    console.warn("[jd-match]", campaignAppliedId, jdMatch);
   }
 
   let duplicateCandidates: DuplicateCandidateHit[] = [];
   let duplicateNewUpload: DuplicateNewUploadPreview | null = null;
-  const { data: currentRow, error: currentErr } = await auth.supabase
-    .from("candidates")
-    .select(
-      "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
-    )
-    .eq("id", candidateId)
-    .maybeSingle();
-  if (!currentErr && currentRow) {
-    const currentDedupe = candidateRowToDedupe(
-      currentRow as Record<string, unknown>,
-    );
+
+  const db = getPool();
+  const currentRow = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
+
+  if (currentRow) {
+    const activeVersion = currentRow.active_cv_version_id
+      ? await getCvDetailVersionById(db, currentRow.active_cv_version_id)
+      : null;
+    const currentDedupe: CandidateDedupeRow = {
+      id: campaignAppliedId,
+      name: currentRow.candidate_name,
+      status: dedupeMatchStatusLabel(currentRow),
+      job_opening_id: currentRow.job_id,
+      job_opening_title: currentRow.job_position,
+      cv_uploaded_at: activeVersion?.created_at.toISOString() ?? currentRow.created_at.toISOString(),
+      created_at: currentRow.created_at.toISOString(),
+      parsed_payload: activeVersion?.parsed_payload ?? {},
+      cv_file_sha256: activeVersion?.cv_file_sha256 ?? null,
+      cv_content_sha256: activeVersion?.cv_content_sha256 ?? null,
+    };
+
     if (shouldFetchCandidatesForDedupe(currentDedupe)) {
-      const { data: others, error: othersErr } = await auth.supabase
-        .from("candidates")
-        .select(
-          "id, name, status, job_opening_id, cv_uploaded_at, created_at, parsed_payload, cv_file_sha256, cv_content_sha256, job_openings ( title )",
-        )
-        .eq("is_active", true)
-        .neq("id", candidateId);
-      if (!othersErr && others) {
-        duplicateCandidates = findDuplicateCandidateHits(
-          currentDedupe,
-          (others as Record<string, unknown>[]).map(candidateRowToDedupe),
-        );
-      }
+      const contact = parsedContactFromPayload(currentDedupe.parsed_payload);
+      const matches = await findCandidatesByDedupeSignals(db, {
+        email: contact.email,
+        phoneVariants: contact.phoneVariants,
+        cvFileSha256: currentDedupe.cv_file_sha256,
+        cvContentSha256: currentDedupe.cv_content_sha256,
+      }, campaignAppliedId);
+
+      const others: CandidateDedupeRow[] = matches.map((m) => ({
+        id: m.campaign_applied_id,
+        candidate_id: m.candidate_id,
+        name: m.candidate_name,
+        status: dedupeMatchStatusLabel(m),
+        job_opening_id: m.job_id,
+        job_opening_title: m.job_position,
+        cv_uploaded_at: m.cv_created_at ? m.cv_created_at.toISOString() : m.created_at.toISOString(),
+        created_at: m.created_at.toISOString(),
+        parsed_payload: { email: m.candidate_email, phone: m.candidate_phone, role: m.cv_role },
+        cv_file_sha256: m.cv_file_sha256,
+        cv_content_sha256: m.cv_content_sha256,
+      }));
+
+      duplicateCandidates = findDuplicateCandidateHits(currentDedupe, others);
     }
+
     if (duplicateCandidates.length > 0) {
       duplicateNewUpload = duplicateNewUploadPreviewFromRow(currentDedupe);
     }
   }
 
-  const base =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : { ok: true };
+  const base = parseResult.skipped
+    ? { ok: true, skipped: true, reason: parseResult.reason }
+    : { ok: true };
+
   return Response.json({
     ...base,
     duplicateCandidates,

@@ -1,12 +1,10 @@
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useOverlayState } from "@heroui/react";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import { extractedApiToFormPatch, extractedPatchToEditFormPatch } from "@/lib/jd/extracted-to-form";
 import type { JobDescription, JdEditFormData } from "@/lib/jd/types";
 import { normalizeFormText } from "@/lib/jd/normalize-text";
 import { normalizeHireTypeForForm } from "../helpers";
-import { JD_BUCKET, MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
+import { MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
 import { useToast } from "@/components/admin/toast-provider";
 
 const DEFAULT_EDIT_FORM: JdEditFormData = {
@@ -29,10 +27,11 @@ const DEFAULT_EDIT_FORM: JdEditFormData = {
   hiring_deadline: "",
 };
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export function useJdEditState(loadDescriptions: () => Promise<void>) {
-  const supabase = useMemo(() => createClient(), []);
   const editJdFileInputRef = useRef<HTMLInputElement>(null);
-  const editDraftJobOpeningIdRef = useRef<string | null>(null);
+  const editDraftStoragePathRef = useRef<string | null>(null);
   const toast = useToast();
 
   const [editIntakeRow, setEditIntakeRow] = useState<JobDescription | null>(null);
@@ -41,33 +40,24 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const [editError, setEditError] = useState<string | null>(null);
   const [editUploadPhase, setEditUploadPhase] = useState<"idle" | "uploading" | "extracting" | "done" | "error">("idle");
   const [editUploadError, setEditUploadError] = useState<string | null>(null);
-  const [editDraftJobOpeningId, setEditDraftJobOpeningId] = useState<string | null>(null);
+  const [editDraftStoragePath, setEditDraftStoragePath] = useState<string | null>(null);
   const [editSelectedFileName, setEditSelectedFileName] = useState<string | null>(null);
   const [editDragOver, setEditDragOver] = useState(false);
   const [editSelectedStageIds, setEditSelectedStageIds] = useState<string[]>([]);
   const [editStagesLoading, setEditStagesLoading] = useState(false);
 
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
-
-  const deleteJdDraftOnServer = useCallback(
-    async (jobOpeningId: string) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      await fetch(
-        `/api/admin/job-openings/sign-upload?jobOpeningId=${encodeURIComponent(jobOpeningId)}`,
-        { method: "DELETE", credentials: "include", headers: { ...h } },
-      );
-    },
-    [supabase],
-  );
+  const deleteJdDraftOnServer = useCallback(async (storagePath: string) => {
+    await fetch(
+      `/api/admin/job-openings/sign-upload?path=${encodeURIComponent(storagePath)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+  }, []);
 
   const resetEditUploadState = useCallback(() => {
     setEditUploadPhase("idle");
     setEditUploadError(null);
-    setEditDraftJobOpeningId(null);
-    editDraftJobOpeningIdRef.current = null;
+    setEditDraftStoragePath(null);
+    editDraftStoragePathRef.current = null;
     setEditSelectedFileName(null);
     setEditDragOver(false);
     if (editJdFileInputRef.current) editJdFileInputRef.current.value = "";
@@ -76,8 +66,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const editIntakeModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) {
-        const draftId = editDraftJobOpeningIdRef.current;
-        if (draftId) void deleteJdDraftOnServer(draftId);
+        const draftPath = editDraftStoragePathRef.current;
+        if (draftPath) void deleteJdDraftOnServer(draftPath);
         resetEditUploadState();
         setEditIntakeRow(null);
         setEditForm(DEFAULT_EDIT_FORM);
@@ -158,45 +148,39 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       }
       setEditUploadError(null);
       setEditUploadPhase("uploading");
-      let newJobId: string | undefined;
+      let newStoragePath: string | undefined;
       try {
-        const h = await getSessionAuthorizationHeaders(supabase);
-        if (!h.Authorization) {
-          const msg = "Session expired. Sign in again.";
-          setEditUploadError(msg);
-          setEditUploadPhase("error");
-          toast.error(msg);
-          return;
-        }
         const signRes = await fetch("/api/admin/job-openings/sign-upload", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...h },
+          headers: JSON_HEADERS,
           body: JSON.stringify({
             filename: file.name,
             mimeType: file.type || null,
-            replaceJobOpeningId: editDraftJobOpeningId,
+            replacePath: editDraftStoragePath,
           }),
         });
         const signJson = (await signRes.json()) as {
           error?: string;
-          jobOpeningId?: string;
           path?: string;
-          token?: string;
+          signedUrl?: string;
         };
-        if (!signRes.ok || !signJson.jobOpeningId || !signJson.path || !signJson.token) {
+        if (!signRes.ok || !signJson.path || !signJson.signedUrl) {
           throw new Error(signJson.error ?? "Could not start upload.");
         }
-        newJobId = signJson.jobOpeningId;
-        const { error: upErr } = await supabase.storage
-          .from(JD_BUCKET)
-          .uploadToSignedUrl(signJson.path, signJson.token, file, {
-            contentType: file.type || undefined,
-          });
-        if (upErr) throw new Error(upErr.message);
+        newStoragePath = signJson.path;
 
-        setEditDraftJobOpeningId(signJson.jobOpeningId);
-        editDraftJobOpeningIdRef.current = signJson.jobOpeningId;
+        const putRes = await fetch(signJson.signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: file.type ? { "Content-Type": file.type } : undefined,
+        });
+        if (!putRes.ok) {
+          throw new Error("Could not upload file to storage.");
+        }
+
+        setEditDraftStoragePath(signJson.path);
+        editDraftStoragePathRef.current = signJson.path;
         setEditSelectedFileName(file.name);
         setEditUploadPhase("extracting");
         setEditUploadError(null);
@@ -205,8 +189,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
           const exRes = await fetch("/api/admin/job-descriptions/extract", {
             method: "POST",
             credentials: "include",
-            headers: { "Content-Type": "application/json", ...h },
-            body: JSON.stringify({ jobOpeningId: signJson.jobOpeningId }),
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ storagePath: signJson.path }),
           });
           const exJson = (await exRes.json()) as {
             error?: string;
@@ -233,14 +217,14 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         setEditUploadError(msg);
         setEditUploadPhase("error");
         toast.error(`Upload failed: ${msg}`);
-        if (newJobId) {
-          await deleteJdDraftOnServer(newJobId);
-          setEditDraftJobOpeningId(null);
-          editDraftJobOpeningIdRef.current = null;
+        if (newStoragePath) {
+          await deleteJdDraftOnServer(newStoragePath);
+          setEditDraftStoragePath(null);
+          editDraftStoragePathRef.current = null;
         }
       }
     },
-    [deleteJdDraftOnServer, editDraftJobOpeningId, supabase, toast],
+    [deleteJdDraftOnServer, editDraftStoragePath, toast],
   );
 
   const handleEditSave = useCallback(async () => {
@@ -254,11 +238,10 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const headers = await authHeaders();
       const res = await fetch(`/api/admin/job-descriptions/${editIntakeRow.id}`, {
         method: "PUT",
         credentials: "include",
-        headers,
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           ...editForm,
           _editMode: true,
@@ -277,7 +260,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     } finally {
       setEditSubmitting(false);
     }
-  }, [authHeaders, editForm, editIntakeModal, editIntakeRow, loadDescriptions, editSelectedStageIds, toast]);
+  }, [editForm, editIntakeModal, editIntakeRow, loadDescriptions, editSelectedStageIds, toast]);
 
   return {
     editIntakeRow,

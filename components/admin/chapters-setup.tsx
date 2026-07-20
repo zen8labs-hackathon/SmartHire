@@ -1,8 +1,6 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
-import { createClient } from "@/lib/supabase/client";
 import {
   Alert,
   Button,
@@ -23,23 +21,19 @@ export type ChapterMemberRow = {
   role: "head" | "member";
 };
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export function ChaptersSetup({
   chaptersPromise,
 }: {
   chaptersPromise: Promise<ChapterRow[]>;
 }) {
   const initialChapters = use(chaptersPromise);
-  const supabase = createClient();
   const [rows, setRows] = useState<ChapterRow[]>(initialChapters);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
 
   const addChapter = useCallback(async () => {
     const name = newName.trim();
@@ -50,7 +44,7 @@ export function ChaptersSetup({
       const res = await fetch("/api/admin/chapters", {
         method: "POST",
         credentials: "include",
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ name }),
       });
       const json = (await res.json()) as {
@@ -71,31 +65,27 @@ export function ChaptersSetup({
     } finally {
       setBusy(false);
     }
-  }, [authHeaders, newName]);
+  }, [newName]);
 
-  const removeChapter = useCallback(
-    async (id: string) => {
-      setDeletingId(id);
-      setError(null);
-      try {
-        const res = await fetch(`/api/admin/chapters/${id}`, {
-          method: "DELETE",
-          credentials: "include",
-          headers: await authHeaders(),
-        });
-        if (!res.ok) {
-          const json = (await res.json()) as { error?: string };
-          throw new Error(json.error ?? "Could not delete chapter.");
-        }
-        setRows((prev) => prev.filter((r) => r.id !== id));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not delete chapter.");
-      } finally {
-        setDeletingId(null);
+  const removeChapter = useCallback(async (id: string) => {
+    setDeletingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/chapters/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Could not delete chapter.");
       }
-    },
-    [authHeaders],
-  );
+      setRows((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete chapter.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   // --- Edit (rename) modal ---
   const editModal = useOverlayState();
@@ -124,7 +114,7 @@ export function ChaptersSetup({
       const res = await fetch(`/api/admin/chapters/${editingChapter.id}`, {
         method: "PATCH",
         credentials: "include",
-        headers: await authHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify({ name }),
       });
       const json = (await res.json()) as {
@@ -145,7 +135,7 @@ export function ChaptersSetup({
     } finally {
       setEditBusy(false);
     }
-  }, [authHeaders, editingChapter, editName, editModal]);
+  }, [editingChapter, editName, editModal]);
 
   // --- View details (members) modal ---
   const viewModal = useOverlayState();
@@ -169,10 +159,9 @@ export function ChaptersSetup({
     setMembersError(null);
     (async () => {
       try {
-        const headers = await authHeaders();
         const res = await fetch(
           `/api/admin/chapters/${viewingChapter.id}/members`,
-          { credentials: "include", headers },
+          { credentials: "include" },
         );
         const json = (await res.json()) as {
           error?: string;
@@ -193,7 +182,7 @@ export function ChaptersSetup({
     return () => {
       cancelled = true;
     };
-  }, [viewModal.isOpen, viewingChapter, authHeaders]);
+  }, [viewModal.isOpen, viewingChapter]);
 
   return (
     <SectionCard>
@@ -228,7 +217,7 @@ export function ChaptersSetup({
           </TextField>
           <Button
             variant="primary"
-            className="h-9 shrink-0 px-4 rounded-xl bg-accent text-white font-semibold text-xs transition-colors hover:bg-accent/90"
+            className="h-9 shrink-0 px-4 rounded-xl bg-accent text-accent-foreground font-semibold text-xs transition-colors hover:bg-accent/90"
             isDisabled={busy || !newName.trim()}
             onPress={() => void addChapter()}
           >

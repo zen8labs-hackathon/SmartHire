@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   /** Ensure PDF evaluation routes can read bundled Noto TTFs on Vercel/serverless. */
   outputFileTracingIncludes: {
     "/api/**/*": ["./assets/fonts/**/*"],

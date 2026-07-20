@@ -44,8 +44,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     toast(message, "danger");
   }, [toast]);
 
+  const contextValue = React.useMemo(
+    () => ({ toast, success, error }),
+    [toast, success, error]
+  );
+
   return (
-    <ToastContext.Provider value={{ toast, success, error }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
       
       {/* Toast Render Container: Fixed at bottom-right by default */}

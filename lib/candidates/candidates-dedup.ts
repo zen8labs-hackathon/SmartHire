@@ -1,61 +1,11 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-import {
-  parsedContactFromPayload,
-  normalizeEmailFromPayload,
-  normalizePhoneFromPayload,
-} from "@/lib/candidates/duplicate-detection";
-import { ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT } from "@/lib/candidates/admin-select";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import type { CandidatesListPagination } from "@/lib/candidates/candidates-list-query";
-
-const DEDUP_FETCH_LIMIT = 5000;
-
-function skillsUnion(groups: (string[] | null)[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const skillList of groups) {
-    for (const s of skillList ?? []) {
-      const key = s.trim().toLowerCase();
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        result.push(s.trim());
-      }
-    }
-  }
-  return result;
-}
-
-function maxExpYears(rows: CandidateDbRow[]): number {
-  let max = 0;
-  for (const r of rows) {
-    const v = r.experience_years;
-    const n = v == null || v === "" ? 0 : Number(v);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return max;
-}
-
-function personKey(row: CandidateDbRow): string {
-  // Prefer projected contact fields (from ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT)
-  // to avoid parsing the full parsed_payload blob.
-  const email =
-    row.parsed_contact_email != null
-      ? normalizeEmailFromPayload(row.parsed_contact_email)
-      : parsedContactFromPayload(row.parsed_payload).email;
-  if (email) return `email:${email}`;
-
-  const rawPhone =
-    row.parsed_contact_phone != null
-      ? row.parsed_contact_phone
-      : parsedContactFromPayload(row.parsed_payload).phone;
-  if (rawPhone) {
-    const { variants } = normalizePhoneFromPayload(rawPhone);
-    if (variants.length > 0) return `phone:${variants[0]}`;
-  }
-  return `anon:${row.id}`;
-}
+import {
+  dedupeMatchStatusLabel,
+  listDedupedCandidatesForAdmin,
+  type DedupedCandidateAdminRow,
+} from "@/lib/db/candidates-dedupe";
+import type { QueryExecutor } from "@/lib/db/config/client";
 
 export type DedupedCandidatesResult = {
   people: CandidateDbRow[];
@@ -63,8 +13,63 @@ export type DedupedCandidatesResult = {
   error: string | null;
 };
 
+/**
+ * `row.id` is `candidates.id` (the person) -- every per-row admin action
+ * (view/edit/move-stage/delete/other-applications) is keyed by
+ * `campaign_applied.id` (the application) instead, so the mapped row's `id`
+ * must be `row.campaign_applied_id`, not the person id. Using the person id
+ * here previously made every one of those actions 404 silently.
+ */
+function toCandidateDbRow(row: DedupedCandidateAdminRow): CandidateDbRow {
+  return {
+    id: row.campaign_applied_id,
+    job_opening_id: row.job_id,
+    job_openings: {
+      id: row.job_id,
+      title: row.job_position,
+      job_descriptions: { position: row.job_position },
+    },
+    cv_storage_path: row.cv_storage_path ?? "",
+    original_filename: row.cv_original_filename ?? "",
+    mime_type: row.cv_mime_type,
+    parsing_status: (row.cv_parsing_status ?? "pending") as CandidateDbRow["parsing_status"],
+    parsing_error: row.cv_parsing_error,
+    parsed_payload: row.cv_parsed_payload,
+    parsed_contact_email: row.email,
+    parsed_contact_phone: row.phone,
+    name: row.name,
+    role: row.role,
+    avatar_url: null,
+    experience_years: row.experience_years,
+    skills: row.skills,
+    degree: row.degree,
+    school: row.education,
+    status: dedupeMatchStatusLabel(row),
+    source: row.source ?? "Other",
+    source_other: row.source_other,
+    jd_match_score: row.jd_match_score,
+    jd_match_status: row.jd_match_status as CandidateDbRow["jd_match_status"],
+    jd_match_error: row.jd_match_error,
+    jd_match_rationale: row.jd_match_rationale,
+    cv_uploaded_at: row.cv_created_at ? row.cv_created_at.toISOString() : null,
+    current_job_stage_mapping_id: row.current_job_stage_mapping_id,
+    current_sub_state_id: row.current_sub_state_id,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    expected_salary: row.expected_salary,
+  };
+}
+
+/**
+ * Admin "deduped candidates" list: one row per person (dedupe-by-person is
+ * inherent in the new schema, unlike the old one-row-per-upload table), each
+ * enriched with their most recent application. Thin mapping layer over
+ * `lib/db/candidates-dedupe.ts::listDedupedCandidatesForAdmin` -- the actual
+ * query/pagination lives there; this just shapes rows into `CandidateDbRow`
+ * for the existing admin table UI.
+ */
 export async function queryDedupedCandidatesList(
-  supabase: SupabaseClient,
+  db: QueryExecutor,
   input: {
     q?: string;
     uploadFrom?: string;
@@ -73,96 +78,25 @@ export async function queryDedupedCandidatesList(
     offset?: number;
   },
 ): Promise<DedupedCandidatesResult> {
-  const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
-  const offset = input.offset ?? 0;
+  try {
+    const { rows, total, limit, offset } = await listDedupedCandidatesForAdmin(db, input);
 
-  const emptyPagination: CandidatesListPagination = {
-    limit,
-    offset,
-    total: 0,
-    hasMore: false,
-  };
-
-  const { data, error } = await supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_LIST_SELECT_WITH_CONTACT)
-    .eq("is_active", true)
-    .order("cv_uploaded_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .limit(DEDUP_FETCH_LIMIT);
-
-  if (error) {
-    return { people: [], pagination: emptyPagination, error: error.message };
-  }
-
-  const raw = (data ?? []) as unknown as CandidateDbRow[];
-  const enriched = await enrichCandidatesWithJobOpenings(supabase, raw);
-
-  // Group by person identity; enriched is already sorted most-recent-first
-  const groups = new Map<string, CandidateDbRow[]>();
-  const keyOrder: string[] = [];
-
-  for (const row of enriched) {
-    const key = personKey(row);
-    if (!groups.has(key)) {
-      groups.set(key, []);
-      keyOrder.push(key);
-    }
-    groups.get(key)!.push(row);
-  }
-
-  // Merge each group → one row per person (base = most recent)
-  let merged: CandidateDbRow[] = keyOrder.map((key) => {
-    const group = groups.get(key)!;
-    const base = group[0];
     return {
-      ...base,
-      experience_years: maxExpYears(group),
-      skills: skillsUnion(group.map((r) => r.skills)),
+      people: rows.map(toCandidateDbRow),
+      pagination: { limit, offset, total, hasMore: offset + rows.length < total },
+      error: null,
     };
-  });
-
-  // Apply search filter against merged row fields
-  if (input.q) {
-    const lower = input.q.toLowerCase();
-    merged = merged.filter(
-      (r) =>
-        r.name?.toLowerCase().includes(lower) ||
-        r.role?.toLowerCase().includes(lower) ||
-        r.skills?.some((s) => s.toLowerCase().includes(lower)) ||
-        r.school?.toLowerCase().includes(lower) ||
-        r.degree?.toLowerCase().includes(lower) ||
-        r.original_filename?.toLowerCase().includes(lower),
-    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Database error";
+    return {
+      people: [],
+      pagination: {
+        limit: input.limit ?? 50,
+        offset: input.offset ?? 0,
+        total: 0,
+        hasMore: false,
+      },
+      error: msg,
+    };
   }
-
-  // Apply upload date filter against most recent CV date
-  if (input.uploadFrom || input.uploadTo) {
-    const fromMs = input.uploadFrom
-      ? new Date(`${input.uploadFrom}T00:00:00.000Z`).getTime()
-      : null;
-    const toEndMs = input.uploadTo
-      ? (() => {
-          const d = new Date(`${input.uploadTo}T00:00:00.000Z`);
-          d.setUTCDate(d.getUTCDate() + 1);
-          return d.getTime();
-        })()
-      : null;
-    merged = merged.filter((r) => {
-      const t = r.cv_uploaded_at ? new Date(r.cv_uploaded_at).getTime() : null;
-      if (t == null) return false;
-      if (fromMs != null && t < fromMs) return false;
-      if (toEndMs != null && t >= toEndMs) return false;
-      return true;
-    });
-  }
-
-  const total = merged.length;
-  const page = merged.slice(offset, offset + limit);
-
-  return {
-    people: page,
-    pagination: { limit, offset, total, hasMore: offset + page.length < total },
-    error: null,
-  };
 }

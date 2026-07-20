@@ -20,7 +20,6 @@ export default async function DashboardLayoutWrapper({
     <DashboardLayout
       userEmail={user.email ?? ""}
       isHr={access?.isHr === true}
-      workChapter={access?.workChapter ?? null}
       chapterIds={access?.chapterIds ?? []}
     >
       {children}

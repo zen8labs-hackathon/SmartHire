@@ -5,76 +5,50 @@ import {
   looksLikePdfBinary,
 } from "@/lib/jd/extract-document-text";
 import { downloadJdFromStorage } from "@/lib/jd/download-jd-from-storage";
-import { createAdminClient } from "@/lib/supabase/admin";
+
+const JD_KEY_PREFIX = "jd/";
+
+function isJdKey(key: string): boolean {
+  return key.startsWith(JD_KEY_PREFIX) && !key.includes("..");
+}
 
 /**
  * POST /api/admin/job-descriptions/extract
  *
- * Body: { jobOpeningId: string }
+ * Body: { storagePath: string }
  *
- * Downloads the JD file attached to the draft job_openings row,
- * extracts text, runs AI extraction, and returns pre-filled form data.
- *
- * NOTE: Only selects columns that are guaranteed to exist (id, status,
- * jd_storage_path). MIME type is inferred from the file extension so this
- * route works even if the jd_mime_type column migration hasn't been applied yet.
+ * Downloads the just-uploaded JD file straight from S3 (no draft DB row
+ * anymore -- the single-step create flow only persists a `jobs` row once the
+ * form is actually submitted), extracts text, runs AI extraction, and
+ * returns pre-filled form data.
  */
 export async function POST(request: Request) {
   const auth = await requireAdminForRequest(request);
   if (!auth.ok) return auth.response;
 
-  let body: { jobOpeningId?: string };
+  let body: { storagePath?: string };
   try {
-    body = (await request.json()) as { jobOpeningId?: string };
+    body = (await request.json()) as { storagePath?: string };
   } catch {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  const { jobOpeningId } = body;
-  if (!jobOpeningId || typeof jobOpeningId !== "string") {
+  const { storagePath } = body;
+  if (!storagePath || typeof storagePath !== "string" || !isJdKey(storagePath)) {
     return Response.json(
-      { error: "jobOpeningId is required." },
+      { error: "storagePath is required." },
       { status: 400 },
     );
   }
 
-  // ── 1. Fetch storage path (only base columns — avoids schema-cache errors) ──
-  const { data: row, error: selErr } = await auth.supabase
-    .from("job_openings")
-    .select("id, jd_storage_path")
-    .eq("id", jobOpeningId)
-    .maybeSingle();
-
-  if (selErr) {
-    return Response.json({ error: selErr.message }, { status: 500 });
-  }
-  if (!row?.jd_storage_path) {
-    return Response.json(
-      { error: "No JD file found for this job opening." },
-      { status: 404 },
-    );
-  }
-
-  const storagePath: string = row.jd_storage_path as string;
-
-  // ── 2. Download file (admin client bypasses Storage RLS) ──
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      { error: "Server missing service role key." },
-      { status: 500 },
-    );
-  }
-
-  const dl = await downloadJdFromStorage(admin, storagePath);
+  // ── 1. Download file ──
+  const dl = await downloadJdFromStorage(storagePath);
   if ("error" in dl) {
     return Response.json({ error: dl.error }, { status: 500 });
   }
   const { buffer, mimeType } = dl;
 
-  // ── 3. Extract raw text ──
+  // ── 2. Extract raw text ──
   let text: string;
   try {
     text = await extractTextFromBuffer(buffer, mimeType);
@@ -100,7 +74,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // ── 4. Heuristic header + optional AI merge (always 200 with payload) ──
+  // ── 3. Heuristic header + optional AI merge (always 200 with payload) ──
   const extracted = await extractJdFromDocument(text);
   return Response.json({ extracted });
 }

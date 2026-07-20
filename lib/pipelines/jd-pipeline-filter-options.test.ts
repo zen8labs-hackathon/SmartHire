@@ -76,26 +76,6 @@ describe("buildPipelineStageSubStageFilterOptions", () => {
     ]);
   });
 
-  it("resolves a legacy status for pairs with a legacy analog", () => {
-    const options = buildPipelineStageSubStageFilterOptions(
-      mockStageMappings,
-      mockSubStages,
-    );
-    const cvNew = options.find((o) => o.id === "mapping-cv-scan:sub-cv-new");
-    expect(cvNew?.legacyStatus).toBe("New");
-  });
-
-  it("returns null legacyStatus for fully custom stage/sub-stage pairs", () => {
-    const options = buildPipelineStageSubStageFilterOptions(
-      mockStageMappings,
-      mockSubStages,
-    );
-    const custom = options.find(
-      (o) => o.id === "mapping-custom:sub-custom-review",
-    );
-    expect(custom?.legacyStatus).toBeNull();
-  });
-
   it("returns an empty array when there are no stage mappings", () => {
     expect(buildPipelineStageSubStageFilterOptions([], [])).toEqual([]);
   });

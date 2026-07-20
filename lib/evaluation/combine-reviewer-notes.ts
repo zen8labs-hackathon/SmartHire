@@ -1,23 +1,6 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-import { loadInterviewNotesAggregatedText } from "@/lib/evaluation/interview-notes-text";
-
-export async function loadPreInterviewNoteText(
-  admin: SupabaseClient,
-  jobDescriptionId: number,
-  pipelineCandidateId: string,
-): Promise<string> {
-  const { data, error } = await admin
-    .from("pipeline_candidate_pre_interview_notes")
-    .select("pre_interview_note")
-    .eq("job_description_id", jobDescriptionId)
-    .eq("pipeline_candidate_id", pipelineCandidateId)
-    .maybeSingle();
-
-  if (error || !data) return "";
-  const raw = (data as { pre_interview_note: string | null }).pre_interview_note;
-  return typeof raw === "string" ? raw.trim() : "";
-}
+import type { QueryExecutor } from "@/lib/db/config/client";
+import { listCandidateNotesByCampaignApplied } from "@/lib/db/candidate-notes";
+import { getUsersByIds } from "@/lib/db/users";
 
 /** Pre-interview planning + saved interview notes for the evaluation AI prompt. */
 export function combinePreAndInterviewNotes(
@@ -33,14 +16,63 @@ export function combinePreAndInterviewNotes(
   return preBlock || post;
 }
 
+/**
+ * Loads all interview notes for an application and formats them for the
+ * evaluation AI prompt, oldest first. `candidate_notes` has no per-author
+ * profile join built in, so author usernames are resolved separately (same
+ * pattern as the interview-notes route's `serializeNotes`).
+ */
+async function loadInterviewNotesAggregatedText(
+  db: QueryExecutor,
+  campaignAppliedId: string,
+): Promise<string> {
+  const notes = await listCandidateNotesByCampaignApplied(
+    db,
+    campaignAppliedId,
+    "interview",
+  );
+  if (notes.length === 0) return "";
+
+  const authorIds = [
+    ...new Set(
+      notes.map((n) => n.author_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const authors = authorIds.length > 0 ? await getUsersByIds(db, authorIds) : [];
+  const usernameById = new Map(authors.map((a) => [a.id, a.username]));
+
+  return [...notes]
+    .reverse() // query orders newest-first; the prompt reads best oldest-first
+    .map((n) => {
+      const when = n.created_at.toISOString().slice(0, 16).replace("T", " ");
+      const who = n.author_id
+        ? (usernameById.get(n.author_id) ?? n.author_id.slice(0, 8))
+        : "Unknown";
+      return `[${when} @${who}]\n${n.body}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+/** Most recent `pre_interview`-type note body, matching the pre-interview-note route's "one note per application" contract. */
+async function loadPreInterviewNoteText(
+  db: QueryExecutor,
+  campaignAppliedId: string,
+): Promise<string> {
+  const [note] = await listCandidateNotesByCampaignApplied(
+    db,
+    campaignAppliedId,
+    "pre_interview",
+  );
+  return note?.body?.trim() ?? "";
+}
+
 export async function loadCombinedReviewerNotesForEvaluation(
-  admin: SupabaseClient,
-  jobDescriptionId: number,
-  pipelineCandidateId: string,
+  db: QueryExecutor,
+  campaignAppliedId: string,
 ): Promise<string> {
   const [pre, interview] = await Promise.all([
-    loadPreInterviewNoteText(admin, jobDescriptionId, pipelineCandidateId),
-    loadInterviewNotesAggregatedText(admin, jobDescriptionId, pipelineCandidateId),
+    loadPreInterviewNoteText(db, campaignAppliedId),
+    loadInterviewNotesAggregatedText(db, campaignAppliedId),
   ]);
   return combinePreAndInterviewNotes(pre, interview);
 }

@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    image: smart_hire:latest
+    container_name: smarthire_app
+    ports:
+      - "3100:3100"
+    env_file:
+      - .env
+    depends_on:
+      floci:
+        condition: service_started
+    restart: unless-stopped
+
+  # --- HỆ THỐNG GIẢ LẬP AWS S3 (FLOCI) ---
+  floci:
+    image: floci/floci:latest
+    container_name: floci_local
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    environment:
+      - DEBUG=1
+      # 1. Kích hoạt chế độ lưu xuống đĩa
+      - FLOCI_STORAGE_MODE=persistent
+      # 2. Khai báo thư mục chứa data bên trong container của Floci
+      - FLOCI_STORAGE_PERSISTENT_PATH=/floci-data
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${TMPDIR:-/tmp}/floci:/tmp/floci"
+      - "./.floci-init:/etc/floci/init/ready.d"
+      # 3. Ánh xạ thư mục /floci-data từ container ra máy thật
+      - "./floci-data:/floci-data"

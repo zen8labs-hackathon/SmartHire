@@ -5,18 +5,15 @@ import {
   use,
   useCallback,
   useImperativeHandle,
-  useMemo,
   useState,
 } from "react";
 
 import { JdAppliedCandidatesPipeline } from "@/components/admin/jd/jd-applied-candidates-pipeline";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import type {
   StageMapping,
   SubStage,
 } from "@/lib/pipelines/transition-validator";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 
 import { Card } from "@heroui/react";
 
@@ -25,10 +22,9 @@ export type JobPipelineDataPanelHandle = {
 };
 
 type Props = {
-  jobDescriptionId: number;
   jobId: string;
   pipelineDataPromise: Promise<{
-    rows: CandidateDbRow[];
+    rows: JdPipelineApplicationRow[];
     fetchFailed: boolean;
     stageMappings: StageMapping[];
     subStages: SubStage[];
@@ -48,7 +44,6 @@ export const JobPipelineDataPanel = forwardRef<
   Props
 >(function JobPipelineDataPanel(
   {
-    jobDescriptionId,
     jobId,
     pipelineDataPromise,
     canEditPipeline,
@@ -59,7 +54,6 @@ export const JobPipelineDataPanel = forwardRef<
 ) {
   const { rows, fetchFailed, stageMappings, subStages } =
     use(pipelineDataPromise);
-  const supabase = useMemo(() => createClient(), []);
   const [pipelineRows, setPipelineRows] = useState(rows);
   const [pipelineLoadState, setPipelineLoadState] = useState<
     "idle" | "loading" | "error" | "ok"
@@ -71,23 +65,24 @@ export const JobPipelineDataPanel = forwardRef<
         setPipelineLoadState("loading");
       }
       try {
-        const h = await getSessionAuthorizationHeaders(supabase);
         const res = await fetch(
-          `/api/admin/candidates?jobDescriptionId=${jobDescriptionId}&all=true&contactFields=true`,
-          { credentials: "include", headers: { ...h } },
+          `/api/admin/candidates?jobId=${jobId}&all=true`,
+          { credentials: "include", cache: "no-store" },
         );
         if (!res.ok) {
           if (!silent) setPipelineLoadState("error");
           return;
         }
-        const json = (await res.json()) as { candidates?: CandidateDbRow[] };
+        const json = (await res.json()) as {
+          candidates?: JdPipelineApplicationRow[];
+        };
         setPipelineRows(json.candidates ?? []);
         setPipelineLoadState("ok");
       } catch {
         if (!silent) setPipelineLoadState("error");
       }
     },
-    [jobDescriptionId, supabase],
+    [jobId],
   );
 
   useImperativeHandle(
@@ -102,7 +97,6 @@ export const JobPipelineDataPanel = forwardRef<
     <Card>
       <Card.Content className="p-4 sm:p-6">
         <JdAppliedCandidatesPipeline
-          jobDescriptionId={jobDescriptionId}
           jobId={jobId}
           dbRows={pipelineRows}
           loadState={pipelineLoadState}

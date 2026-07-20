@@ -1,6 +1,23 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
+import type { QueryExecutor } from "@/lib/db/config/client";
+import { findExistingChapterIds } from "@/lib/db/chapters";
+import {
+  listAllowedChaptersForJob,
+  listAllowedProfilesForJob,
+  replaceAllowedChaptersForJob,
+  replaceAllowedProfilesForJob,
+} from "@/lib/db/job-permissions";
+import { getUsersByEmails, getUsersByIds } from "@/lib/db/users";
+
+// NOTE for whoever wires these into app/api/admin/job-descriptions/** next:
+// - The write paths (replaceJobDescriptionViewers, syncJobDescriptionViewersFromEmails,
+//   replaceJobDescriptionViewerChapters) each compose a delete + insert -- call them
+//   through withTransaction (lib/db/client.ts), not with the bare pool.
+// - The read paths (fetchViewerEmailsForJobDescription / fetchViewerChapterIdsForJobDescription)
+//   take one jobId at a time. Calling them per-row inside a JD *list* loop is an N+1 --
+//   batch instead (e.g. one job_allowed_profiles/chapters query with `job_id = ANY($1)`
+//   across all listed job ids, like list-with-enrichment.ts already does for
+//   applicant counts) rather than adding a bulk variant here speculatively.
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,113 +50,77 @@ export function parseViewerEmailInput(
   return out;
 }
 
-/**
- * Resolve emails to auth user ids (paginates `listUsers` until all matches found).
- */
+/** Resolve emails to user ids. Emails with no matching user are reported in `notFound`. */
 export async function resolveViewerEmailsToUserIds(
-  admin: SupabaseClient,
+  db: QueryExecutor,
   emails: string[],
 ): Promise<{ idByEmail: Map<string, string>; notFound: string[] }> {
   if (emails.length === 0) {
     return { idByEmail: new Map(), notFound: [] };
   }
-  const need = new Set(emails);
+  const users = await getUsersByEmails(db, emails);
   const idByEmail = new Map<string, string>();
-  let page = 1;
-  const perPage = 1000;
-  const maxPages = 100;
-
-  while (need.size > 0 && page <= maxPages) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      throw new Error(error.message);
-    }
-    for (const u of data.users) {
-      const em = u.email ? normalizeEmail(u.email) : "";
-      if (em && need.has(em)) {
-        idByEmail.set(em, u.id);
-        need.delete(em);
-      }
-    }
-    if (data.users.length < perPage) break;
-    page += 1;
+  for (const u of users) {
+    idByEmail.set(normalizeEmail(u.email), u.id);
   }
-
-  return { idByEmail, notFound: [...need] };
+  const notFound = emails.filter((e) => !idByEmail.has(e));
+  return { idByEmail, notFound };
 }
 
 export async function fetchViewerEmailsForJobDescription(
-  admin: SupabaseClient,
-  jobDescriptionId: number,
+  db: QueryExecutor,
+  jobId: string,
 ): Promise<string[]> {
-  const { data: rows, error } = await admin
-    .from("job_description_viewers")
-    .select("user_id")
-    .eq("job_description_id", jobDescriptionId);
+  const grants = await listAllowedProfilesForJob(db, jobId);
+  if (grants.length === 0) return [];
 
-  if (error || !rows?.length) return [];
-
-  const emails: string[] = [];
-  for (const r of rows) {
-    const uid = r.user_id as string;
-    const { data, error: gErr } = await admin.auth.admin.getUserById(uid);
-    if (!gErr && data.user?.email) {
-      emails.push(normalizeEmail(data.user.email));
-    }
-  }
+  const users = await getUsersByIds(
+    db,
+    grants.map((g) => g.profile_id),
+  );
+  const emails = users.map((u) => normalizeEmail(u.email));
   emails.sort();
   return emails;
 }
 
 /**
- * Replaces all viewer rows for this JD with the given user ids.
+ * Replaces all viewer rows for this job with the given user ids. Delegates
+ * to `replaceAllowedProfilesForJob` (delete-then-insert) -- callers must run
+ * this through `withTransaction` and pass the transaction client as `db`.
  */
 export async function replaceJobDescriptionViewers(
-  admin: SupabaseClient,
+  db: QueryExecutor,
   params: {
-    jobDescriptionId: number;
+    jobId: string;
     userIds: string[];
     grantedBy: string;
   },
 ): Promise<void> {
-  const { error: delErr } = await admin
-    .from("job_description_viewers")
-    .delete()
-    .eq("job_description_id", params.jobDescriptionId);
-
-  if (delErr) {
-    throw new Error(delErr.message);
-  }
-
-  if (params.userIds.length === 0) return;
-
-  const { error: insErr } = await admin.from("job_description_viewers").insert(
-    params.userIds.map((user_id) => ({
-      job_description_id: params.jobDescriptionId,
-      user_id,
-      granted_by: params.grantedBy,
-    })),
+  await replaceAllowedProfilesForJob(
+    db,
+    params.jobId,
+    params.userIds,
+    params.grantedBy,
   );
-
-  if (insErr) {
-    throw new Error(insErr.message);
-  }
 }
 
 /**
- * Validates emails exist, then replaces viewer rows. Returns unknown emails without mutating.
+ * Validates emails exist, then replaces viewer rows. Returns unknown emails
+ * without mutating. Issues a read followed by a delete-then-insert -- callers
+ * must run this through `withTransaction` and pass the transaction client as
+ * `db`, same requirement as `replaceJobDescriptionViewers`.
  */
 export async function syncJobDescriptionViewersFromEmails(
-  admin: SupabaseClient,
+  db: QueryExecutor,
   params: {
-    jobDescriptionId: number;
+    jobId: string;
     emails: string[];
     grantedBy: string;
   },
 ): Promise<{ notFound: string[] }> {
   if (params.emails.length === 0) {
-    await replaceJobDescriptionViewers(admin, {
-      jobDescriptionId: params.jobDescriptionId,
+    await replaceJobDescriptionViewers(db, {
+      jobId: params.jobId,
       userIds: [],
       grantedBy: params.grantedBy,
     });
@@ -147,15 +128,15 @@ export async function syncJobDescriptionViewersFromEmails(
   }
 
   const { idByEmail, notFound } = await resolveViewerEmailsToUserIds(
-    admin,
+    db,
     params.emails,
   );
   if (notFound.length > 0) {
     return { notFound };
   }
   const userIds = params.emails.map((e) => idByEmail.get(e)!);
-  await replaceJobDescriptionViewers(admin, {
-    jobDescriptionId: params.jobDescriptionId,
+  await replaceJobDescriptionViewers(db, {
+    jobId: params.jobId,
     userIds,
     grantedBy: params.grantedBy,
   });
@@ -183,73 +164,44 @@ export function parseViewerChapterIds(
 }
 
 export async function fetchViewerChapterIdsForJobDescription(
-  admin: SupabaseClient,
-  jobDescriptionId: number,
+  db: QueryExecutor,
+  jobId: string,
 ): Promise<string[]> {
-  const { data, error } = await admin
-    .from("job_description_viewer_chapters")
-    .select("chapter_id")
-    .eq("job_description_id", jobDescriptionId);
-
-  if (error) return [];
-  if (!data?.length) return [];
-
-  const ids = data.map((r) => String(r.chapter_id));
+  const grants = await listAllowedChaptersForJob(db, jobId);
+  const ids = grants.map((g) => g.chapter_id);
   ids.sort();
   return ids;
 }
 
 export async function assertChapterIdsExist(
-  admin: SupabaseClient,
+  db: QueryExecutor,
   chapterIds: string[],
 ): Promise<{ ok: true } | { ok: false; unknownIds: string[] }> {
   if (chapterIds.length === 0) return { ok: true };
-  const { data, error } = await admin
-    .from("chapters")
-    .select("id")
-    .in("id", chapterIds);
-  if (error) {
-    throw new Error(error.message);
-  }
-  const found = new Set((data ?? []).map((r) => String(r.id)));
+  const found = new Set(await findExistingChapterIds(db, chapterIds));
   const unknownIds = chapterIds.filter((id) => !found.has(id));
   if (unknownIds.length > 0) return { ok: false, unknownIds };
   return { ok: true };
 }
 
 /**
- * Replaces JD ↔ chapter viewer grants (all members of those chapters may open the JD).
+ * Replaces JD <-> chapter viewer grants (all members of those chapters may
+ * open the job). Delegates to `replaceAllowedChaptersForJob`
+ * (delete-then-insert) -- callers must run this through `withTransaction`
+ * and pass the transaction client as `db`.
  */
 export async function replaceJobDescriptionViewerChapters(
-  admin: SupabaseClient,
+  db: QueryExecutor,
   params: {
-    jobDescriptionId: number;
+    jobId: string;
     chapterIds: string[];
     grantedBy: string;
   },
 ): Promise<void> {
-  const { error: delErr } = await admin
-    .from("job_description_viewer_chapters")
-    .delete()
-    .eq("job_description_id", params.jobDescriptionId);
-
-  if (delErr) {
-    throw new Error(delErr.message);
-  }
-
-  if (params.chapterIds.length === 0) return;
-
-  const { error: insErr } = await admin
-    .from("job_description_viewer_chapters")
-    .insert(
-      params.chapterIds.map((chapter_id) => ({
-        job_description_id: params.jobDescriptionId,
-        chapter_id,
-        granted_by: params.grantedBy,
-      })),
-    );
-
-  if (insErr) {
-    throw new Error(insErr.message);
-  }
+  await replaceAllowedChaptersForJob(
+    db,
+    params.jobId,
+    params.chapterIds,
+    params.grantedBy,
+  );
 }

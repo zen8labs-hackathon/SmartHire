@@ -20,6 +20,7 @@ import {
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
+  campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
 import type { CandidateRow } from "@/lib/candidates/types";
 
@@ -61,8 +62,8 @@ export const CandidatePipelineDashboard = forwardRef<
     deleteInProgress,
     deleteError,
     setDeleteError,
-    statusUpdateBusy,
-    statusUpdateError,
+    stageUpdateBusy,
+    stageUpdateError,
     cvHistoryRows,
     cvVersions,
     cvHistoryLoading,
@@ -78,8 +79,9 @@ export const CandidatePipelineDashboard = forwardRef<
     activeDbRow,
     noResultsForUploadDate,
     openRow,
-    drawerStatusOptions,
-    patchCandidateStatus,
+    resolvedActivePipeline,
+    drawerStageOptions,
+    patchCandidateStage,
     confirmDeleteCandidate,
   } = useCandidatePipelineState(initialRows, {
     listMode: "page",
@@ -101,19 +103,29 @@ export const CandidatePipelineDashboard = forwardRef<
       stagedNewId?: string,
     ) => {
       if (updated) {
+        // `PUT update-with-history` actually responds with a
+        // `CampaignAppliedAdminRow` (has `candidate_id`/`stage_label`, no
+        // `status`), not a `CandidateDbRow` despite the prop's declared type
+        // -- same shape ambiguity `onProfileSaved` below already guards
+        // against. Passing the raw row straight into `candidateDbRowToTableRow`
+        // reads `.status` as undefined and throws, taking down this whole
+        // dashboard until reload.
+        const c = "candidate_id" in updated
+          ? campaignAppliedToCandidateDbRow(updated as any)
+          : updated;
         setDbRows((prev) => {
           const withoutStaging = stagedNewId
             ? prev.filter((r) => r.id !== stagedNewId)
             : prev;
-          const i = withoutStaging.findIndex((r) => r.id === updated.id);
+          const i = withoutStaging.findIndex((r) => r.id === c.id);
           if (i >= 0) {
             const copy = [...withoutStaging];
-            copy[i] = updated;
+            copy[i] = c;
             return copy;
           }
-          return [updated, ...withoutStaging];
+          return [c, ...withoutStaging];
         });
-        openRow(candidateDbRowToTableRow(updated));
+        openRow(candidateDbRowToTableRow(c));
         void refreshCvHistoryForCandidate(existingId);
       }
       await fetchCandidates();
@@ -199,7 +211,15 @@ export const CandidatePipelineDashboard = forwardRef<
 
       <AddCandidateModal
         open={addModalOpen}
-        onOpenChange={setAddModalOpen}
+        onOpenChange={(open) => {
+          setAddModalOpen(open);
+          // Uploads still "processing" when the modal is closed stop being
+          // polled (AddCandidateModal's status poll only runs while open),
+          // so without this the list can go stale until a manual page
+          // refresh -- always resync on close, not just on the in-modal
+          // completion callbacks below.
+          if (!open) void fetchCandidates();
+        }}
         onCandidatesChanged={fetchCandidates}
         onDuplicateMergedToExisting={handleDuplicateMergedToExisting}
       />
@@ -249,15 +269,19 @@ export const CandidatePipelineDashboard = forwardRef<
           cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
-          drawerStatusOptions={drawerStatusOptions}
-          statusUpdateBusy={statusUpdateBusy}
-          statusUpdateError={statusUpdateError}
+          resolvedStage={resolvedActivePipeline}
+          stageOptions={drawerStageOptions}
+          stageUpdateBusy={stageUpdateBusy}
+          stageUpdateError={stageUpdateError}
           dbLoadState={dbLoadState}
-          onStatusChange={(next) => {
+          onStageChange={(target) => {
             if (!activeRow) return;
-            void patchCandidateStatus(activeRow.id, next);
+            void patchCandidateStage(activeRow.id, target);
           }}
-          onProfileSaved={(c) => {
+          onProfileSaved={(rawC) => {
+            const c = "candidate_id" in rawC
+              ? campaignAppliedToCandidateDbRow(rawC as any)
+              : (rawC as CandidateDbRow);
             setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
             setActiveRow((prev) =>
               prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,

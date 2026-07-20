@@ -13,18 +13,13 @@ import { ChaptersListSkeleton } from "@/components/admin/chapters-list-skeleton"
 import { ChaptersSetup, type ChapterRow } from "@/components/admin/chapters-setup";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { createClient } from "@/lib/supabase/server";
+import { listChapters } from "@/lib/db/chapters";
+import { getPool } from "@/lib/db/config/client";
 import { PageHeader } from "@/components/admin/shell/page-header";
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-
-async function getChapters(supabase: SupabaseServerClient): Promise<ChapterRow[]> {
-  const { data, error } = await supabase
-    .from("chapters")
-    .select("id, name")
-    .order("name", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+async function getChapters(): Promise<ChapterRow[]> {
+  const chapters = await listChapters(getPool());
+  return chapters.map((c) => ({ id: c.id, name: c.name }));
 }
 
 function ChaptersErrorFallback() {
@@ -46,8 +41,7 @@ export default async function AdminChaptersPage() {
   if (!user) redirect("/login?next=/admin/chapters");
   if (!access?.isHr) redirect("/admin/jd");
 
-  const supabase = await createClient();
-  const chaptersPromise = getChapters(supabase);
+  const chaptersPromise = getChapters();
 
   return (
     <div className="flex flex-col gap-4 font-sans">

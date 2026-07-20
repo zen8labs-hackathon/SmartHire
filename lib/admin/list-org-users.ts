@@ -1,168 +1,114 @@
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getPool } from "@/lib/db/config/client";
+import { listChapters } from "@/lib/db/chapters";
+import {
+  listMembersOfChapter,
+  listMembershipsForUsers,
+  type ChapterMemberRole,
+} from "@/lib/db/profile-chapters";
+import { listPublicUsers, type ProfileRole } from "@/lib/db/users";
 
 export type ChapterMembership = {
   chapterId: string;
   chapterName: string;
-  role: "head" | "member";
+  role: ChapterMemberRole;
 };
 
 export type OrgUserRow = {
   id: string;
   email: string;
-  isAdmin: boolean;
-  workChapter: string | null;
+  username: string;
+  role: ProfileRole;
   chapterMemberships: ChapterMembership[];
   accessSummary: string;
 };
 
-const MAX_LIST_PAGES = 50;
-
-/**
- * Paginates through every auth user once (service role). Used instead of
- * per-id `getUserById` calls, which turn into a slow N+1 round-trip per
- * caller (e.g. rendering a chapter's member list) as the org grows.
- */
-async function listAllAuthUsers(
-  admin: ReturnType<typeof createAdminClient>,
-): Promise<{ id: string; email: string }[]> {
-  const users: { id: string; email: string }[] = [];
-
-  let page = 1;
-  const perPage = 100;
-  for (;;) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) {
-      throw new Error(error.message);
-    }
-    for (const u of data.users) {
-      users.push({
-        id: u.id,
-        email: (u.email ?? "").trim() || "—",
-      });
-    }
-    if (data.users.length < perPage) break;
-    page += 1;
-    if (page > MAX_LIST_PAGES) break;
+function accessSummaryFor(
+  role: ProfileRole,
+  chapterMemberships: ChapterMembership[],
+): string {
+  if (role === "admin") return "Admin";
+  if (role === "hr") return "HR";
+  if (chapterMemberships.length > 0) {
+    return `Chapters: ${chapterMemberships
+      .map((c) => `${c.chapterName} (${c.role})`)
+      .join(", ")}`;
   }
-
-  return users;
+  return "Dashboard only";
 }
 
 /**
- * Lists auth users with recruiting access summary (service role; HR admin page only).
+ * Lists every user with their recruiting access summary (HR admin page only).
  */
 export async function listOrgUsersForAdminPage(): Promise<OrgUserRow[]> {
-  const admin = createAdminClient();
-  const users = await listAllAuthUsers(admin);
-
+  const db = getPool();
+  const [users, chapters] = await Promise.all([
+    listPublicUsers(db),
+    listChapters(db),
+  ]);
   if (users.length === 0) return [];
 
-  const ids = users.map((u) => u.id);
-
-  const [profsRes, pcRowsRes, chapterRowsRes] = await Promise.all([
-    admin
-      .from("profiles")
-      .select("id, is_admin, work_chapter")
-      .in("id", ids),
-    admin
-      .from("profile_chapters")
-      .select("profile_id, chapter_id, role")
-      .in("profile_id", ids),
-    admin.from("chapters").select("id, name"),
-  ]);
-
-  const profById = new Map(
-    (profsRes.data ?? []).map((p) => [p.id as string, p]),
+  const chapterNameById = new Map(chapters.map((c) => [c.id, c.name]));
+  const membershipsByUser = await listMembershipsForUsers(
+    db,
+    users.map((u) => u.id),
   );
-
-  const pcRows = pcRowsRes.data;
-  const chapterRows = chapterRowsRes.data;
-  const chapterNameById = new Map(
-    (chapterRows ?? []).map((c) => [c.id as string, String(c.name)]),
-  );
-
-  const chaptersByProfile = new Map<string, ChapterMembership[]>();
-  for (const r of pcRows ?? []) {
-    const pid = r.profile_id as string;
-    const cid = r.chapter_id as string;
-    const name = chapterNameById.get(cid);
-    if (!name) continue;
-    const role = r.role === "head" ? "head" : "member";
-    const arr = chaptersByProfile.get(pid) ?? [];
-    arr.push({ chapterId: cid, chapterName: name, role });
-    chaptersByProfile.set(pid, arr);
-  }
 
   const rows: OrgUserRow[] = users.map((u) => {
-    const p = profById.get(u.id);
-    const isAdmin = p?.is_admin === true;
-    const wc = typeof p?.work_chapter === "string" ? p.work_chapter.trim() : "";
-    const workChapter = wc.length > 0 ? wc : null;
-    const chapterMemberships = (chaptersByProfile.get(u.id) ?? []).sort((a, b) =>
-      a.chapterName.localeCompare(b.chapterName),
-    );
-
-    const parts: string[] = [];
-    if (isAdmin) parts.push("Admin");
-    if (workChapter === "HR") parts.push("HR");
-    if (chapterMemberships.length > 0) {
-      parts.push(
-        `Chapters: ${chapterMemberships
-          .map((c) => `${c.chapterName} (${c.role})`)
-          .join(", ")}`,
-      );
-    }
-    if (parts.length === 0) {
-      parts.push("Dashboard only");
-    }
+    const chapterMemberships = (membershipsByUser.get(u.id) ?? [])
+      .map((m) => ({
+        chapterId: m.chapterId,
+        chapterName: chapterNameById.get(m.chapterId) ?? "",
+        role: m.role,
+      }))
+      .filter((m) => m.chapterName.length > 0)
+      .sort((a, b) => a.chapterName.localeCompare(b.chapterName));
 
     return {
       id: u.id,
       email: u.email,
-      isAdmin,
-      workChapter,
+      username: u.username,
+      role: u.role,
       chapterMemberships,
-      accessSummary: parts.join(" · "),
+      accessSummary: accessSummaryFor(u.role, chapterMemberships),
     };
   });
 
-  rows.sort((a, b) => a.email.localeCompare(b.email, undefined, { sensitivity: "base" }));
+  rows.sort((a, b) =>
+    a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
+  );
   return rows;
 }
 
 export type ChapterMemberRow = {
   profileId: string;
   email: string;
-  role: "head" | "member";
+  role: ChapterMemberRole;
 };
 
 /**
- * Lists the members of a single chapter (service role; HR admin page only).
+ * Lists the members of a single chapter (HR admin page only).
  */
 export async function listChapterMembers(
   chapterId: string,
 ): Promise<ChapterMemberRow[]> {
-  const admin = createAdminClient();
+  const db = getPool();
+  const [members, users] = await Promise.all([
+    listMembersOfChapter(db, chapterId),
+    listPublicUsers(db),
+  ]);
+  if (members.length === 0) return [];
 
-  const { data: pcRows, error: pcErr } = await admin
-    .from("profile_chapters")
-    .select("profile_id, role")
-    .eq("chapter_id", chapterId);
-  if (pcErr) throw new Error(pcErr.message);
-  if (!pcRows || pcRows.length === 0) return [];
+  const emailById = new Map(users.map((u) => [u.id, u.email]));
 
-  const emailById = new Map(
-    (await listAllAuthUsers(admin)).map((u) => [u.id, u.email]),
-  );
-
-  return pcRows
-    .map((r): ChapterMemberRow => {
-      const profileId = r.profile_id as string;
-      return {
-        profileId,
-        email: emailById.get(profileId) ?? "—",
-        role: r.role === "head" ? "head" : "member",
-      };
-    })
-    .sort((a, b) => a.email.localeCompare(b.email, undefined, { sensitivity: "base" }));
+  return members
+    .map(
+      (m): ChapterMemberRow => ({
+        profileId: m.profileId,
+        email: emailById.get(m.profileId) ?? "—",
+        role: m.role,
+      }),
+    )
+    .sort((a, b) =>
+      a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
+    );
 }

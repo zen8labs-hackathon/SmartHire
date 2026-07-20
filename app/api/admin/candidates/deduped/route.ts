@@ -1,5 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { queryDedupedCandidatesList } from "@/lib/candidates/candidates-dedup";
+import { getPool } from "@/lib/db/config/client";
 
 function parsePositiveInt(raw: string | null): number | undefined {
   if (raw == null || raw === "") return undefined;
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
-  const result = await queryDedupedCandidatesList(auth.supabase, {
+  const result = await queryDedupedCandidatesList(getPool(), {
     limit: parsePositiveInt(url.searchParams.get("limit")) ?? 50,
     offset: parsePositiveInt(url.searchParams.get("offset")) ?? 0,
     q: url.searchParams.get("q")?.trim() || undefined,

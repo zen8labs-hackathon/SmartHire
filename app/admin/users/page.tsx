@@ -8,7 +8,8 @@ import {
   type UsersListResult,
 } from "@/lib/admin/users-list-query";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { createClient } from "@/lib/supabase/server";
+import { getPool } from "@/lib/db/config/client";
+import { listChapters } from "@/lib/db/chapters";
 import { UsersTableWrapper } from "@/components/admin/users-table-wrapper";
 import { DataTableSkeleton } from "@/components/admin/shell/table-system";
 import { PageHeader } from "@/components/admin/shell/page-header";
@@ -25,19 +26,17 @@ const EMPTY_USERS_RESULT: UsersListResult = {
 };
 
 // Runs inside the Suspense boundary so the page shell renders immediately
-// after the auth check. Both queries run in parallel:
-//   - queryOrgUsersList: Auth Admin API + 3 DB queries
-//   - chapters: a single DB query
-// Previously chapters was awaited at the page level (before this component
-// could start), adding ~100ms of sequential latency on every page visit.
-async function TeamAccountsSection() {
-  const supabase = await createClient();
-
-  const [result, chaptersRes] = await Promise.all([
+// after the auth check. Both queries run in parallel.
+async function TeamAccountsSection({
+  currentUserId,
+}: {
+  currentUserId: string;
+}) {
+  const [result, chapters] = await Promise.all([
     queryOrgUsersList({ limit: USERS_LIST_DEFAULT_LIMIT, offset: 0 }).catch(
       () => EMPTY_USERS_RESULT,
     ),
-    supabase.from("chapters").select("id, name").order("name", { ascending: true }),
+    listChapters(getPool()),
   ]);
 
   return (
@@ -45,7 +44,8 @@ async function TeamAccountsSection() {
       initialUsers={result.users}
       initialPagination={result.pagination}
       initialCounts={result.counts}
-      chapters={chaptersRes.data ?? []}
+      chapters={chapters}
+      currentUserId={currentUserId}
     />
   );
 }
@@ -63,7 +63,7 @@ export default async function AdminUsersPage() {
       />
 
       <Suspense fallback={<DataTableSkeleton columnsCount={2} rowsCount={4} />}>
-        <TeamAccountsSection />
+        <TeamAccountsSection currentUserId={user.id} />
       </Suspense>
     </div>
   );

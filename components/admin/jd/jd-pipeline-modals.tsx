@@ -1,83 +1,367 @@
-import type { Dispatch, SetStateAction } from "react";
-import { Button, Input, Label, Modal } from "@heroui/react";
+import { useCallback, useEffect, useState } from "react";
+import { Button, Chip, Input, Label, Modal } from "@heroui/react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import {
   type CandidateDbRow,
-  candidateDbRowToTableRow,
+  campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
+import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
+import { jdMatchChipColor } from "@/lib/candidates/candidate-display";
+import {
+  jdRequirementSourceLabel,
+  jdRequirementVerdictStyle,
+  parseJdMatchRationale,
+  sortJdRequirements,
+  type JdRequirementCheck,
+} from "@/lib/candidates/jd-match-rationale";
+import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
-type OnboardingDatesModalProps = {
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-  onboardingDrafts: Record<string, string>;
-  setOnboardingDrafts: Dispatch<SetStateAction<Record<string, string>>>;
-  dbRows: CandidateDbRow[];
-  pipelineError: string | null;
-  pipelineBusy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
+type ScheduleHistoryItem = {
+  id: string;
+  round_label: string | null;
+  scheduled_at: string;
+  duration_minutes: number | null;
+  location: string | null;
+  status: string;
 };
 
-export function OnboardingDatesModal({
+function toLocalDatetimeInputValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+type InterviewScheduleModalProps = {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  row: JdPipelineApplicationRow | null;
+  canEdit: boolean;
+  onSaved: () => void;
+};
+
+/**
+ * Round label + date/time + duration + location, backed by `candidate_schedules`
+ * via the existing `PATCH /api/admin/candidates/[id]/timeline` contract (a
+ * reschedule creates a new row server-side; this modal just supplies the
+ * fields). Replaces the old single-datetime-field inline editor, which wrote
+ * to the now-dropped `candidates.interview_at` column.
+ */
+export function InterviewScheduleModal({
   isOpen,
   onOpenChange,
-  onboardingDrafts,
-  setOnboardingDrafts,
-  dbRows,
-  pipelineError,
-  pipelineBusy,
-  onCancel,
-  onConfirm,
-}: OnboardingDatesModalProps) {
+  row,
+  canEdit,
+  onSaved,
+}: InterviewScheduleModalProps) {
+  const [roundLabel, setRoundLabel] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState("");
+  const [location, setLocation] = useState("");
+  const [history, setHistory] = useState<ScheduleHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !row) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          schedules?: ScheduleHistoryItem[];
+          error?: string;
+        };
+        if (!res.ok) throw new Error(json.error ?? "Could not load schedule.");
+        if (cancelled) return;
+        const schedules = json.schedules ?? [];
+        setHistory(schedules);
+        const active = schedules.find(
+          (s) => s.status === "Scheduled" || s.status === "Confirmed",
+        );
+        setRoundLabel(active?.round_label ?? "");
+        setScheduledAt(
+          active ? toLocalDatetimeInputValue(active.scheduled_at) : "",
+        );
+        setDurationMinutes(
+          active?.duration_minutes != null ? String(active.duration_minutes) : "",
+        );
+        setLocation(active?.location ?? "");
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Could not load schedule.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, row]);
+
+  const handleSave = useCallback(async () => {
+    if (!row) return;
+    const iso = localDatetimeToIso(scheduledAt);
+    if (!iso) {
+      setError("Please set a valid date and time.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scheduledAt: iso,
+          roundLabel: roundLabel.trim() || undefined,
+          durationMinutes: durationMinutes.trim()
+            ? Number(durationMinutes)
+            : undefined,
+          location: location.trim() || undefined,
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to save schedule.");
+      onSaved();
+      onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save schedule.");
+    } finally {
+      setSaving(false);
+    }
+  }, [row, scheduledAt, roundLabel, durationMinutes, location, onSaved, onOpenChange]);
+
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
         <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4">
-            <Modal.Heading>Onboarding dates</Modal.Heading>
+            <Modal.Heading>Interview schedule</Modal.Heading>
           </Modal.Header>
-          <Modal.Body className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
-            <p className="text-sm text-muted">
-              Set the onboarding date and time for each selected candidate.
-            </p>
-            {Object.keys(onboardingDrafts).map((id) => {
-              const row = dbRows.find((x) => x.id === id);
-              const label = row
-                ? candidateDbRowToTableRow(row).name
-                : id.slice(0, 8);
-              return (
-                <div key={id} className="space-y-1">
-                  <Label className="text-xs font-medium">{label}</Label>
+          <Modal.Body className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
+            {loading ? (
+              <p className="text-sm text-muted">Loading…</p>
+            ) : (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Round label</Label>
                   <Input
-                    type="datetime-local"
-                    value={onboardingDrafts[id] ?? ""}
-                    onChange={(e) =>
-                      setOnboardingDrafts((d) => ({
-                        ...d,
-                        [id]: e.target.value,
-                      }))
-                    }
+                    value={roundLabel}
+                    onChange={(e) => setRoundLabel(e.target.value)}
+                    placeholder="e.g. Technical round"
+                    disabled={!canEdit}
                     className="w-full"
                   />
                 </div>
-              );
-            })}
-            {pipelineError && isOpen ? (
-              <p className="text-sm text-danger">{pipelineError}</p>
-            ) : null}
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Date &amp; time</Label>
+                  <Input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                    disabled={!canEdit}
+                    className="w-full"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">
+                      Duration (minutes)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(e.target.value)}
+                      disabled={!canEdit}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Location</Label>
+                    <Input
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      placeholder="e.g. Meet link, room"
+                      disabled={!canEdit}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+                {error ? <p className="text-sm text-danger">{error}</p> : null}
+                {history.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                      Past rounds
+                    </p>
+                    <ul className="space-y-1.5">
+                      {history.map((h) => (
+                        <li
+                          key={h.id}
+                          className="rounded-lg border border-divider bg-surface-secondary/20 px-3 py-2 text-xs"
+                        >
+                          <span className="font-medium text-foreground">
+                            {h.round_label ?? "Interview"}
+                          </span>{" "}
+                          <span className="text-muted">
+                            · {formatSchedule(h.scheduled_at) ?? h.scheduled_at} ·{" "}
+                            {h.status}
+                            {h.duration_minutes ? ` · ${h.duration_minutes}min` : ""}
+                            {h.location ? ` · ${h.location}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            )}
           </Modal.Body>
           <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
-            <Button variant="secondary" onPress={onCancel}>
-              Cancel
+            <Button variant="secondary" onPress={() => onOpenChange(false)}>
+              Close
             </Button>
-            <Button
-              variant="primary"
-              isDisabled={pipelineBusy}
-              onPress={onConfirm}
-            >
-              Confirm
+            {canEdit ? (
+              <Button
+                variant="primary"
+                isDisabled={saving || loading}
+                onPress={() => void handleSave()}
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            ) : null}
+          </Modal.Footer>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+  );
+}
+
+type RationaleModalProps = {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  row: JdPipelineApplicationRow | null;
+};
+
+/**
+ * One JD requirement and how the candidate measured up against it.
+ */
+function RequirementRow({ check }: { check: JdRequirementCheck }) {
+  const style = jdRequirementVerdictStyle(check.verdict);
+
+  return (
+    <li className="flex gap-3">
+      <Chip
+        size="sm"
+        variant="soft"
+        color={style.color}
+        className="mt-0.5 min-w-[1.75rem] shrink-0 justify-center font-bold"
+        aria-label={style.label}
+      >
+        {style.icon}
+      </Chip>
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-semibold text-foreground">
+          {check.requirement}
+          <span className="ml-2 text-xs font-normal text-muted">
+            {jdRequirementSourceLabel(check.source)}
+          </span>
+        </p>
+        {check.evidence ? (
+          <p className="text-sm text-muted">{check.evidence}</p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Read-only view of the AI's JD-match rationale for a candidate's active CV
+ * version (`campaign_applied.jd_match_rationale`), alongside the numeric
+ * score it explains.
+ *
+ * Runs scored before the per-requirement checklist shipped (and formula-only
+ * fallbacks, which never ran an LLM) hold plain prose in that column --
+ * `parseJdMatchRationale` returns those with no `requirements`, and they keep
+ * the original single-paragraph layout until someone rescores.
+ */
+export function RationaleModal({
+  isOpen,
+  onOpenChange,
+  row,
+}: RationaleModalProps) {
+  const score =
+    row?.jd_match_status === "completed" && row.jd_match_score != null
+      ? Math.round(row.jd_match_score)
+      : null;
+
+  const rationale = parseJdMatchRationale(row?.jd_match_rationale);
+  const requirements = rationale ? sortJdRequirements(rationale.requirements) : [];
+
+  return (
+    <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
+      <Modal.Container>
+        <Modal.Dialog className="w-full max-w-2xl overflow-hidden p-0">
+          <Modal.CloseTrigger />
+          <Modal.Header className="border-b border-divider px-5 py-4">
+            <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-foreground">
+              JD match reasoning
+              {score != null ? (
+                <Chip
+                  size="sm"
+                  variant="soft"
+                  color={jdMatchChipColor({ jdMatchScore: score })}
+                  className="min-w-[3.25rem] justify-center text-sm font-bold tabular-nums"
+                >
+                  {score}
+                </Chip>
+              ) : null}
+            </Modal.Heading>
+          </Modal.Header>
+          <Modal.Body className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+            {row?.jd_match_status === "failed" ? (
+              <p className="text-sm text-danger">
+                {row.jd_match_error ?? "Scoring failed."}
+              </p>
+            ) : rationale ? (
+              <>
+                {requirements.length > 0 ? (
+                  <ul className="space-y-3">
+                    {requirements.map((check, i) => (
+                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
+                    ))}
+                  </ul>
+                ) : null}
+                {rationale.summary ? (
+                  <p className="whitespace-pre-wrap border-t border-divider pt-4 text-sm text-foreground first:border-t-0 first:pt-0">
+                    {rationale.summary}
+                  </p>
+                ) : null}
+                {rationale.meta ? (
+                  <p className="whitespace-pre-wrap text-xs text-muted">
+                    {rationale.meta}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-sm text-muted">
+                No reasoning available for this candidate yet.
+              </p>
+            )}
+          </Modal.Body>
+          <Modal.Footer className="justify-end border-t border-divider px-5 py-4">
+            <Button variant="secondary" onPress={() => onOpenChange(false)}>
+              Close
             </Button>
           </Modal.Footer>
         </Modal.Dialog>
@@ -160,7 +444,14 @@ export function DeleteCandidateModal({
 type EditCandidateModalProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  row: CandidateDbRow | null;
+  /** Only the id/name are needed from the caller -- the full `CandidateDbRow`
+   * `CandidateProfileEditSection` requires is fetched below, mirroring the
+   * same `/api/admin/candidates/[id]` + `campaignAppliedToCandidateDbRow`
+   * pattern the global candidates dashboard's drawer already uses (see
+   * `use-candidate-pipeline-state.ts`). This JD-pipeline table only has the
+   * lighter `CampaignAppliedAdminRow` shape, so it can't be passed straight
+   * through. */
+  row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
 };
@@ -172,6 +463,48 @@ export function EditCandidateModal({
   canEdit,
   onSaved,
 }: EditCandidateModalProps) {
+  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    "loading",
+  );
+
+  useEffect(() => {
+    if (!isOpen || !row) {
+      setDbRow(null);
+      setDbLoadState("loading");
+      return;
+    }
+    const ac = new AbortController();
+    setDbRow(null);
+    setDbLoadState("loading");
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${row.id}`, {
+          credentials: "include",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const json = (await res.json()) as { candidate?: unknown };
+        if (ac.signal.aborted || !json.candidate) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const c =
+          json.candidate && typeof json.candidate === "object" && "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(json.candidate as any)
+            : (json.candidate as CandidateDbRow);
+        setDbRow(c);
+        setDbLoadState("ok");
+      } catch {
+        if (!ac.signal.aborted) setDbLoadState("error");
+      }
+    })();
+    return () => ac.abort();
+  }, [isOpen, row]);
+
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
@@ -179,20 +512,26 @@ export function EditCandidateModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              {row ? candidateDbRowToTableRow(row).name : "Edit candidate"}
+              {row?.name ?? "Edit candidate"}
             </Modal.Heading>
           </Modal.Header>
           <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
             {row ? (
-              <CandidateProfileEditSection
-                candidateId={row.id}
-                dbRow={row}
-                canEdit={canEdit}
-                isPreview={false}
-                dbLoadState="ok"
-                startInEditMode
-                onSaved={onSaved}
-              />
+              dbLoadState === "error" ? (
+                <p className="px-5 py-4 text-sm text-danger">
+                  Could not load this candidate's details. Close and try again.
+                </p>
+              ) : (
+                <CandidateProfileEditSection
+                  candidateId={row.id}
+                  dbRow={dbRow}
+                  canEdit={canEdit}
+                  isPreview={false}
+                  dbLoadState={dbLoadState}
+                  startInEditMode
+                  onSaved={onSaved}
+                />
+              )
             ) : null}
           </Modal.Body>
         </Modal.Dialog>

@@ -21,7 +21,7 @@ export function coerceJdStatus(value: string): JdStatus {
 
 /** DB row shape for public.job_descriptions */
 export type JobDescription = {
-  id: number;
+  id: string;
   position: string;
   department: string | null;
   /** From JD text (e.g. Fulltime) — not workflow JD status */

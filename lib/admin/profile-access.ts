@@ -1,93 +1,80 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-
-/** Canonical chapter value for full (HR) access. */
-export const HR_WORK_CHAPTER = "HR";
+import type { QueryExecutor } from "@/lib/db/config/client";
+import { listAllowedChaptersForJob } from "@/lib/db/job-permissions";
+import { listChapterIdsForUser, listMembershipsForUser } from "@/lib/db/profile-chapters";
+import { getPublicUserById, type ProfileRole } from "@/lib/db/users";
 
 export type StaffProfileAccess = {
   userId: string;
+  email: string;
+  role: ProfileRole;
+  /** Superuser for RBAC: `role === 'admin'`. */
   isAdmin: boolean;
-  workChapter: string | null;
-  /** Chapter memberships (recruiter scope); empty for HR-only or dashboard-only. */
-  chapterIds: string[];
-  /** Superuser for RBAC: DB admin or HR chapter. */
+  /** Superuser for recruiting RBAC: admin or `role === 'hr'`. */
   isHr: boolean;
-  /** May use /admin app (recruiter or HR). */
+  /** May use the /admin app. `role !== 'none'` covers hr/recruiter/admin by
+   * construction (see `syncRecruitingAccess`); the `chapterIds.length > 0`
+   * fallback is defense-in-depth against a `role='none'` row that somehow
+   * still has chapter memberships. */
   isStaff: boolean;
+  /** Chapter memberships (recruiter scope); empty for HR-only, admin, or dashboard-only. */
+  chapterIds: string[];
 };
 
 export async function getStaffProfileAccess(
-  supabase: SupabaseClient,
+  db: QueryExecutor,
   userId: string,
-  currentUser?: User | null,
 ): Promise<StaffProfileAccess | null> {
-  // Check if we can resolve from JWT app_metadata
-  const user = currentUser || (await supabase.auth.getUser()).data.user;
-  if (user && user.id === userId && user.app_metadata) {
-    const isAdmin = user.app_metadata.is_admin === true;
-    const workChapter = user.app_metadata.work_chapter as string | null;
-    const chapterIds = (user.app_metadata.chapter_ids as string[]) || [];
+  const user = await getPublicUserById(db, userId);
+  if (!user) return null;
 
-    if (user.app_metadata.is_admin !== undefined) {
-      const isStaff = isAdmin || workChapter != null || chapterIds.length > 0;
-      const isHr = isAdmin || workChapter === HR_WORK_CHAPTER;
-      return { userId, isAdmin, workChapter, chapterIds, isHr, isStaff };
-    }
-  }
+  const chapterIds = await listChapterIdsForUser(db, userId);
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("is_admin, work_chapter")
-    .eq("id", userId)
-    .maybeSingle();
+  const isAdmin = user.role === "admin";
+  const isHr = isAdmin || user.role === "hr";
+  const isStaff = user.role !== "none" || chapterIds.length > 0;
 
-  if (error || !data) return null;
-
-  const isAdmin = data.is_admin === true;
-  const raw = data.work_chapter as string | null;
-  const workChapter =
-    typeof raw === "string" && raw.trim() ? raw.trim() : null;
-
-  const { data: pcRows } = await supabase
-    .from("profile_chapters")
-    .select("chapter_id")
-    .eq("profile_id", userId);
-
-  const chapterIds = (pcRows ?? [])
-    .map((r) => r.chapter_id as string)
-    .filter((id) => typeof id === "string" && id.length > 0);
-
-  const isStaff =
-    isAdmin || workChapter != null || chapterIds.length > 0;
-  const isHr = isAdmin || workChapter === HR_WORK_CHAPTER;
-
-  return { userId, isAdmin, workChapter, chapterIds, isHr, isStaff };
+  return {
+    userId,
+    email: user.email,
+    role: user.role,
+    isAdmin,
+    isHr,
+    isStaff,
+    chapterIds,
+  };
 }
 
 export async function isProfileStaff(
-  supabase: SupabaseClient,
+  db: QueryExecutor,
   userId: string,
 ): Promise<boolean> {
-  const a = await getStaffProfileAccess(supabase, userId);
-  return a?.isStaff === true;
+  const access = await getStaffProfileAccess(db, userId);
+  return access?.isStaff === true;
 }
 
 /**
- * True if the caller (via `supabase`'s own session, so RLS-scoped) is a
- * chapter *head* of a chapter granted whole-chapter viewer access on this JD.
- * `job_description_viewer_chapters_select_own` only lets a row be read by a
- * profile_chapters member with role = 'head' for that chapter, so a
- * non-empty result here already proves head status — no extra join needed.
- * Callers should still check `isHr` separately; this only covers the
- * chapter-head branch.
+ * Replaces the pre-DB7X2K `isChapterHeadOnJobDescription`, which despite its
+ * name never actually checked headship -- it just checked "does any chapter
+ * have viewer access to this JD" (see DB7X2K log 09/10's "permission gap
+ * found" note). This version does what the name says: true only when the
+ * user is a `head` of a chapter that is itself granted access to the job
+ * (composing two separate join tables -- `profile_chapters.role` no longer
+ * lives on the same object as job-chapter grants under DB7X2K).
  */
-export async function isChapterHeadOnJobDescription(
-  supabase: SupabaseClient,
-  jobDescriptionId: number,
+export async function isChapterHeadOnJob(
+  db: QueryExecutor,
+  userId: string,
+  jobId: string,
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from("job_description_viewer_chapters")
-    .select("chapter_id")
-    .eq("job_description_id", jobDescriptionId)
-    .limit(1);
-  return (data?.length ?? 0) > 0;
+  const [memberships, allowedChapters] = await Promise.all([
+    listMembershipsForUser(db, userId),
+    listAllowedChaptersForJob(db, jobId),
+  ]);
+
+  const headChapterIds = new Set(
+    memberships.filter((m) => m.role === "head").map((m) => m.chapterId),
+  );
+  if (headChapterIds.size === 0) return false;
+
+  return allowedChapters.some((c) => headChapterIds.has(c.chapter_id));
 }

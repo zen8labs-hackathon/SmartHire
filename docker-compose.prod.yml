@@ -1,0 +1,131 @@
+# Production stack for EC2 (smart-hire.zen8labs.io).
+# Usage (on the server, from the repo root):
+#   cp .env.production.example .env   # then fill secrets
+#   docker compose -f docker-compose.prod.yml up -d db minio
+#   docker compose -f docker-compose.prod.yml up minio-init
+#   docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d --build app
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: smarthire_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smarthire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-smart_hire}
+    volumes:
+      - smarthire_pgdata:/var/lib/postgresql/data
+    # Only reachable from this host / compose network — not the public internet.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-smarthire} -d ${POSTGRES_DB:-smart_hire}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible object storage when you have no AWS S3 bucket.
+  # Browser uploads go: HTTPS → nginx /minio/ → 127.0.0.1:9000
+  minio:
+    image: minio/minio:latest
+    container_name: smarthire_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env (min 8 chars)}
+      # Free MinIO: bucket-level `mc cors` often fails — global API CORS is reliable.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOW_ORIGIN:-https://smart-hire.zen8labs.io}
+    volumes:
+      - smarthire_minio:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Create bucket + CORS once MinIO is healthy (idempotent).
+  minio-init:
+    image: minio/mc:latest
+    container_name: smarthire_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      S3_BUCKET: ${S3_BUCKET:-smart-hire-bucket}
+    volumes:
+      - ./deploy/minio/cors.json:/cors.json:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb -p "local/$$S3_BUCKET" || true
+        # JSON file needs set-json (set expects XML). Bucket CORS may be unsupported on
+        # free MinIO — non-fatal because MINIO_API_CORS_ALLOW_ORIGIN is set on the server.
+        mc cors set-json "local/$$S3_BUCKET" /cors.json || echo "WARN: bucket CORS skipped (using global MINIO_API_CORS_ALLOW_ORIGIN)"
+        echo "MinIO bucket $$S3_BUCKET ready"
+    restart: "no"
+
+  migrate:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      # Force compose DNS name even if .env still says localhost from a laptop copy.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npm install && npm run db:migrate"
+    profiles:
+      - migrate
+
+  app:
+    build: .
+    image: smart_hire:prod
+    container_name: smarthire_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      # App talks to Postgres on the compose network.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+      # MinIO credentials (same as root user). Override real-AWS IAM if both set.
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      # Public URL for browser presigned PUTs — same host, path-style /{bucket}/...
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire.zen8labs.io}
+    ports:
+      - "127.0.0.1:3100:3100"
+    # So the app container can call the public MinIO URL via host nginx.
+    extra_hosts:
+      - "smart-hire.zen8labs.io:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+volumes:
+  smarthire_pgdata:
+  smarthire_minio:

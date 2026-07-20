@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card } from "@heroui/react";
-import { getRequestAuth } from "@/lib/admin/request-auth";
-import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/admin/shell/page-header";
 import {
   Briefcase,
@@ -13,38 +11,52 @@ import {
   FileSpreadsheet,
   Lock,
 } from "lucide-react";
+import { getRequestAuth } from "@/lib/admin/request-auth";
+import { getPool } from "@/lib/db/config/client";
+import { getPublicUserById } from "@/lib/db/users";
 
-export const dynamic = "force-dynamic";
-
-type FeatureColor = "accent" | "blue" | "purple" | "warning" | "cyan" | "success";
+type FeatureColor =
+  | "accent"
+  | "blue"
+  | "purple"
+  | "warning"
+  | "cyan"
+  | "success";
 
 const COLOR_STYLES: Record<
   FeatureColor,
-  { iconBg: string; iconText: string; iconHover: string; badge: string; border: string; link: string }
+  {
+    iconBg: string;
+    iconText: string;
+    iconHover: string;
+    badge: string;
+    border: string;
+    link: string;
+  }
 > = {
   accent: {
     iconBg: "bg-accent/10",
     iconText: "text-accent",
-    iconHover: "group-hover:bg-accent group-hover:text-white",
+    iconHover: "group-hover:bg-accent group-hover:text-accent-foreground",
     badge: "bg-accent/10 text-accent",
     border: "hover:border-accent/35",
     link: "text-accent",
   },
   blue: {
-    iconBg: "bg-blue-500/10",
-    iconText: "text-blue-600 dark:text-blue-400",
-    iconHover: "group-hover:bg-blue-600 group-hover:text-white",
-    badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    border: "hover:border-blue-500/35",
-    link: "text-blue-600 dark:text-blue-400",
+    iconBg: "bg-accent/10",
+    iconText: "text-accent",
+    iconHover: "group-hover:bg-accent group-hover:text-accent-foreground",
+    badge: "bg-accent/10 text-accent",
+    border: "hover:border-accent/35",
+    link: "text-accent",
   },
   purple: {
-    iconBg: "bg-purple-500/10",
-    iconText: "text-purple-600 dark:text-purple-400",
-    iconHover: "group-hover:bg-purple-600 group-hover:text-white",
-    badge: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-    border: "hover:border-purple-500/35",
-    link: "text-purple-600 dark:text-purple-400",
+    iconBg: "bg-brand-gold/15",
+    iconText: "text-brand-green dark:text-brand-gold",
+    iconHover: "group-hover:bg-brand-gold group-hover:text-brand-gold-foreground",
+    badge: "bg-brand-gold/15 text-brand-green dark:text-brand-gold",
+    border: "hover:border-brand-gold/60",
+    link: "text-brand-green dark:text-brand-gold",
   },
   warning: {
     iconBg: "bg-warning/10",
@@ -55,12 +67,12 @@ const COLOR_STYLES: Record<
     link: "text-warning",
   },
   cyan: {
-    iconBg: "bg-cyan-500/10",
-    iconText: "text-cyan-600 dark:text-cyan-400",
-    iconHover: "group-hover:bg-cyan-600 group-hover:text-white",
-    badge: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
-    border: "hover:border-cyan-500/35",
-    link: "text-cyan-600 dark:text-cyan-400",
+    iconBg: "bg-accent/10",
+    iconText: "text-accent",
+    iconHover: "group-hover:bg-accent group-hover:text-accent-foreground",
+    badge: "bg-accent/10 text-accent",
+    border: "hover:border-accent/35",
+    link: "text-accent",
   },
   success: {
     iconBg: "bg-success/10",
@@ -168,13 +180,8 @@ export default async function DashboardPage() {
 
   const isHr = access?.isHr === true;
 
-  // Only one additional query needed: the display name from profiles.
-  const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("id", user.id)
-    .maybeSingle();
+  // Only one additional query needed: the display name from the user row.
+  const profile = await getPublicUserById(getPool(), user.id);
 
   const displayName =
     profile?.username ?? user.email?.split("@")[0] ?? "Recruiter";

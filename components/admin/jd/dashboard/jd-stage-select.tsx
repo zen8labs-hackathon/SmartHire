@@ -172,7 +172,7 @@ export function JdPipelineStageSelect({
               >
                 <span className="truncate font-medium">{stage.label}</span>
                 {isSelected ? (
-                  <span className="size-4 shrink-0 rounded-full bg-accent text-white flex items-center justify-center text-[9px] font-bold">
+                  <span className="size-4 shrink-0 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-[9px] font-bold">
                     ✓
                   </span>
                 ) : (

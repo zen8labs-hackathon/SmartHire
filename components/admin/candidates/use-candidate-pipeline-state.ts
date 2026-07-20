@@ -1,53 +1,45 @@
 "use client";
 
 import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
-import type { Key } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RangeValue } from "react-aria-components";
 
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
-import { ADMIN_CANDIDATES_LIST_SELECT } from "@/lib/candidates/admin-select";
 import {
   type CandidateDbRow,
   candidateDbRowToTableRow,
+  campaignAppliedToCandidateDbRow,
 } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
   buildCandidatesListSearchParams,
   type CandidatesListQuery,
 } from "@/lib/candidates/candidates-list-query";
-import {
-  applyCandidatesRealtimeBatch,
-  CANDIDATES_REALTIME_DEBOUNCE_MS,
-  collectJobOpeningHydrateIds,
-  type CandidatesRealtimeChange,
-} from "@/lib/candidates/realtime-list-patch";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
+import type { CandidateRow } from "@/lib/candidates/types";
+import { allowedStageTargets } from "@/lib/pipelines/jd-pipeline-row-helpers";
 import {
-  PIPELINE_STATUS_DISPLAY_ORDER,
-  candidateStatusUiLabel,
-} from "@/lib/candidates/pipeline-phase";
-import {
-  allowedTargetsFromStatus,
-  isPipelineTransitionAllowed,
-} from "@/lib/candidates/pipeline-allowed-transitions";
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
-import { createClient } from "@/lib/supabase/client";
+  resolveCandidatePipelineIds,
+  wasCandidateStageOrphaned,
+  type StageMapping,
+  type SubStage,
+} from "@/lib/pipelines/transition-validator";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 
-type JobOpeningFilterOption = {
-  id: string;
-  label: string;
+export type PipelineConfigForJob = {
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
 };
 
-type JobOpeningApiRow = {
-  id: string;
-  title: string;
-  displayTitle?: string | null;
+export type ResolvedActivePipeline = {
+  stageMappingId: string | null;
+  subStateId: string | null;
+  stageMapping: StageMapping | null;
+  subStage: SubStage | null;
+  orphaned: boolean;
 };
 
 /** Local calendar day YYYY-MM-DD for upload timestamp (for date filter). */
@@ -78,15 +70,12 @@ export function useCandidatePipelineState(
   const listMode = options.listMode ?? "page";
   const initialListTotal = options.initialListTotal;
   const deduped = options.deduped ?? false;
-  const supabase = useMemo(() => createClient(), []);
   const [urlPage, setUrlPage] = usePageQueryParam();
   const [localPage, setLocalPage] = useState(1);
   const page = listMode === "page" ? urlPage : localPage;
   const setPage = listMode === "page" ? setUrlPage : setLocalPage;
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 350);
-  const [statusKey, setStatusKey] = useState<Key | null>("all");
-  const [jdFilterKey, setJdFilterKey] = useState<Key | null>("all");
   const [uploadDateRangeFilter, setUploadDateRangeFilter] =
     useState<RangeValue<CalendarDate> | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
@@ -101,16 +90,16 @@ export function useCandidatePipelineState(
   );
   const [deleteInProgress, setDeleteInProgress] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [statusUpdateBusy, setStatusUpdateBusy] = useState(false);
-  const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null);
+  const [stageUpdateBusy, setStageUpdateBusy] = useState(false);
+  const [stageUpdateError, setStageUpdateError] = useState<string | null>(null);
   const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
   const [cvVersions, setCvVersions] = useState<CvManagementVersionListItem[]>([]);
   const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
   const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
-  const [jobOpeningOptions, setJobOpeningOptions] = useState<JobOpeningFilterOption[]>([]);
-  const [jobOpeningsLoadState, setJobOpeningsLoadState] =
-    useState<"loading" | "error" | "ok">("loading");
+  const [pipelineConfigByJob, setPipelineConfigByJob] = useState<
+    Record<string, PipelineConfigForJob>
+  >({});
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     initialRows ? "ok" : "loading",
   );
@@ -124,25 +113,17 @@ export function useCandidatePipelineState(
     setPage(1);
   }, [setPage]);
 
-  const pendingRealtimeRef = useRef<CandidatesRealtimeChange[]>([]);
-  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
   const skipInitialPageResetRef = useRef(true);
 
   const buildListQuery = useCallback((): CandidatesListQuery => {
     const uploadFrom = uploadDateRangeFilter?.start.toString();
     const uploadTo = uploadDateRangeFilter?.end.toString();
-    const status =
-      statusKey != null && statusKey !== "all" ? String(statusKey) : undefined;
-    const jobOpeningId =
-      jdFilterKey != null && jdFilterKey !== "all" ? String(jdFilterKey) : undefined;
     const q = debouncedQuery.trim() || undefined;
 
     if (listMode === "all") {
       return {
         all: true,
-        status,
-        jobOpeningId,
         uploadFrom,
         uploadTo,
         q,
@@ -152,21 +133,11 @@ export function useCandidatePipelineState(
     return {
       limit: listPageSize,
       offset: (page - 1) * listPageSize,
-      status,
-      jobOpeningId,
       uploadFrom,
       uploadTo,
       q,
     };
-  }, [
-    debouncedQuery,
-    jdFilterKey,
-    listMode,
-    page,
-    statusKey,
-    uploadDateRangeFilter,
-    listPageSize,
-  ]);
+  }, [debouncedQuery, listMode, page, uploadDateRangeFilter, listPageSize]);
 
   const fetchCandidates = useCallback(async () => {
     setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
@@ -185,16 +156,23 @@ export function useCandidatePipelineState(
         const params = buildCandidatesListSearchParams(buildListQuery());
         url = `/api/admin/candidates?${params}`;
       }
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, { credentials: "include", cache: "no-store" });
       if (!res.ok) {
         setDbLoadState("error");
         return;
       }
       const json = (await res.json()) as {
-        candidates?: CandidateDbRow[];
+        candidates?: any[];
         pagination?: { total: number };
       };
-      setDbRows(json.candidates ?? []);
+      const rawCandidates = json.candidates ?? [];
+      const mapped = rawCandidates.map((c) => {
+        if (c && "candidate_id" in c) {
+          return campaignAppliedToCandidateDbRow(c);
+        }
+        return c;
+      });
+      setDbRows(mapped);
       setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
       setDbLoadState("ok");
     } catch {
@@ -202,115 +180,47 @@ export function useCandidatePipelineState(
     }
   }, [buildListQuery, deduped]);
 
-  const fetchJobOpenings = useCallback(async () => {
-    try {
-      const res = await fetch("/api/admin/job-openings", { credentials: "include" });
-      if (!res.ok) {
-        setJobOpeningsLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as { jobOpenings?: JobOpeningApiRow[] };
-      const rows = json.jobOpenings ?? [];
-      const baseItems = rows.map((row) => ({
-        id: row.id,
-        label: (row.displayTitle ?? row.title ?? "—").trim() || "—",
-      }));
-      const labelCounts = new Map<string, number>();
-      for (const item of baseItems) {
-        const key = item.label.toLocaleLowerCase();
-        labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
-      }
-      const mapped = baseItems
-        .map((item) => {
-          const key = item.label.toLocaleLowerCase();
-          const duplicated = (labelCounts.get(key) ?? 0) > 1;
-          return {
-            id: item.id,
-            label: duplicated ? `${item.label} (${item.id.slice(0, 6)})` : item.label,
-          };
-        })
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-      setJobOpeningOptions(mapped);
-      setJobOpeningsLoadState("ok");
-    } catch {
-      setJobOpeningsLoadState("error");
-    }
-  }, []);
-
-  const flushRealtimeUpdates = useCallback(async () => {
-    const batch = pendingRealtimeRef.current.splice(0);
-    if (batch.length === 0) return;
-
-    if (deduped || batch.length > 20) {
-      await fetchCandidates();
-      return;
-    }
-
-    let nextRows: CandidateDbRow[] = [];
-    setDbRows((prev) => {
-      nextRows = applyCandidatesRealtimeBatch(prev, batch);
-      setDbLoadState("ok");
-      return nextRows;
-    });
-
-    const hydrateIds = collectJobOpeningHydrateIds(nextRows);
-    if (hydrateIds.length === 0) return;
-
-    const { data, error } = await supabase
-      .from("candidates")
-      .select(ADMIN_CANDIDATES_LIST_SELECT)
-      .in("id", hydrateIds);
-
-    if (error || !data?.length) return;
-
-    const enriched = await enrichCandidatesWithJobOpenings(
-      supabase,
-      data as unknown as CandidateDbRow[],
-    );
-    const byId = new Map(enriched.map((r) => [r.id, r]));
-
-    setDbRows((current) =>
-      current.map((r) => {
-        const fresh = byId.get(r.id);
-        if (!fresh) return r;
-        return {
-          ...fresh,
-          parsed_payload: r.parsed_payload ?? fresh.parsed_payload,
-        };
-      }),
-    );
-  }, [fetchCandidates, supabase, deduped]);
-
-  const scheduleRealtimeUpdate = useCallback(
-    (change: CandidatesRealtimeChange) => {
-      pendingRealtimeRef.current.push(change);
-      if (realtimeTimerRef.current) {
-        clearTimeout(realtimeTimerRef.current);
-      }
-      realtimeTimerRef.current = setTimeout(() => {
-        realtimeTimerRef.current = null;
-        void flushRealtimeUpdates();
-      }, CANDIDATES_REALTIME_DEBOUNCE_MS);
-    },
-    [flushRealtimeUpdates],
+  // Each row can belong to a different job with a different custom pipeline
+  // (unlike the JD-scoped pipeline table, which only ever needs one job's
+  // config) -- fetch every distinct job's stage/sub-stage config the
+  // currently-loaded rows actually reference, in one batched request, and
+  // skip ids already cached from a prior fetch.
+  const jobIdsOnPage = useMemo(
+    () => [...new Set(dbRows.map((r) => r.job_opening_id).filter((id): id is string => !!id))],
+    [dbRows],
   );
 
   useEffect(() => {
-    void fetchJobOpenings();
-  }, [fetchJobOpenings]);
+    const missing = jobIdsOnPage.filter((id) => !(id in pipelineConfigByJob));
+    if (missing.length === 0) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/candidates/pipeline-config?jobIds=${missing.map(encodeURIComponent).join(",")}`,
+          { credentials: "include", signal: ac.signal },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { configs?: Record<string, PipelineConfigForJob> };
+        if (!json.configs) return;
+        setPipelineConfigByJob((prev) => ({ ...prev, ...json.configs }));
+      } catch {
+        // ignore abort / network — the stage dropdown just stays disabled for these rows
+      }
+    })();
+    return () => ac.abort();
+  }, [jobIdsOnPage, pipelineConfigByJob]);
 
   const listFilterKey = useMemo(
     () =>
       JSON.stringify({
         listMode,
         query: debouncedQuery,
-        statusKey,
-        jdFilterKey,
         uploadFrom: uploadDateRangeFilter?.start.toString() ?? null,
         uploadTo: uploadDateRangeFilter?.end.toString() ?? null,
         listPageSize,
       }),
-    [debouncedQuery, jdFilterKey, listMode, statusKey, uploadDateRangeFilter, listPageSize],
+    [debouncedQuery, listMode, uploadDateRangeFilter, listPageSize],
   );
 
   useEffect(() => {
@@ -328,32 +238,6 @@ export function useCandidatePipelineState(
     }
     void fetchCandidates();
   }, [fetchCandidates, listFilterKey, page]);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel("candidates-admin-table")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "candidates" },
-        (payload) => {
-          scheduleRealtimeUpdate({
-            eventType: payload.eventType as CandidatesRealtimeChange["eventType"],
-            new: (payload.new as Record<string, unknown> | null) ?? null,
-            old: (payload.old as Record<string, unknown> | null) ?? null,
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      if (realtimeTimerRef.current) {
-        clearTimeout(realtimeTimerRef.current);
-        realtimeTimerRef.current = null;
-      }
-      pendingRealtimeRef.current = [];
-      void supabase.removeChannel(channel);
-    };
-  }, [supabase, scheduleRealtimeUpdate]);
 
   useEffect(() => {
     if (uploadDateRangeFilter?.start) {
@@ -436,9 +320,12 @@ export function useCandidatePipelineState(
           signal: ac.signal,
         });
         if (!res.ok) return;
-        const json = (await res.json()) as { candidate?: CandidateDbRow };
-        const c = json.candidate;
-        if (!c || ac.signal.aborted) return;
+        const json = (await res.json()) as { candidate?: any };
+        const rawCandidate = json.candidate;
+        if (!rawCandidate || ac.signal.aborted) return;
+        const c = "candidate_id" in rawCandidate
+          ? campaignAppliedToCandidateDbRow(rawCandidate)
+          : (rawCandidate as CandidateDbRow);
         setDbRows((prev) =>
           prev.map((r) => {
             if (r.id !== c.id) return r;
@@ -481,18 +368,7 @@ export function useCandidatePipelineState(
     [fetchCvHistoryForCandidate],
   );
 
-  const allowedJobOpeningIds = useMemo(
-    () => new Set(jobOpeningOptions.map((opt) => opt.id)),
-    [jobOpeningOptions],
-  );
-
   const tableSourceRows = useMemo(() => {
-    const isAllowedJob = (jobOpeningId: string | null) => {
-      if (!jobOpeningId) return false;
-      if (jobOpeningsLoadState !== "ok") return true;
-      return allowedJobOpeningIds.has(jobOpeningId);
-    };
-
     if (dbLoadState === "error") {
       const rows = [...CANDIDATE_ROWS];
       rows.sort((a, b) => {
@@ -501,7 +377,7 @@ export function useCandidatePipelineState(
         if (bs !== as) return bs - as;
         return a.name.localeCompare(b.name);
       });
-      return rows.filter((row) => isAllowedJob(row.jobOpeningId));
+      return rows;
     }
     if (dbLoadState !== "ok") {
       return [];
@@ -511,60 +387,8 @@ export function useCandidatePipelineState(
       const tb = new Date(b.cv_uploaded_at ?? b.created_at).getTime();
       return tb - ta;
     });
-    const mapped = sortedDb.map(candidateDbRowToTableRow);
-    // In page mode the server already applied all filters — skip client-side
-    // job-opening filter so the displayed count matches the fetched page size.
-    if (listMode === "page" || deduped) return mapped;
-    return mapped.filter((row) => isAllowedJob(row.jobOpeningId));
-  }, [allowedJobOpeningIds, dbLoadState, dbRows, jobOpeningsLoadState, listMode]);
-
-  // Stable reference across re-renders (in "page" mode the option set never
-  // depends on the currently-loaded rows) so consumers like the memoized
-  // filters card don't re-render every time the table data refreshes.
-  const pageModeStatusFilterOptions = useMemo(
-    () => [
-      { id: "all", label: "Status: All" },
-      ...PIPELINE_STATUS_DISPLAY_ORDER.map((status) => ({
-        id: status,
-        label: candidateStatusUiLabel(status),
-      })),
-    ],
-    [],
-  );
-
-  const statusFilterOptions = useMemo(() => {
-    if (listMode === "page") {
-      return pageModeStatusFilterOptions;
-    }
-    const available = new Set<CandidateStatus>();
-    for (const row of tableSourceRows) {
-      available.add(row.status);
-    }
-    return [
-      { id: "all", label: "Status: All" },
-      ...PIPELINE_STATUS_DISPLAY_ORDER.filter((status) => available.has(status)).map((status) => ({
-        id: status,
-        label: candidateStatusUiLabel(status),
-      })),
-    ];
-  }, [listMode, tableSourceRows, pageModeStatusFilterOptions]);
-
-  const jdFilterOptions = useMemo(
-    () => [{ id: "all", label: "JD: All" }, ...jobOpeningOptions],
-    [jobOpeningOptions],
-  );
-
-  useEffect(() => {
-    if (statusKey == null || statusKey === "all") return;
-    const isValid = statusFilterOptions.some((opt) => opt.id === statusKey);
-    if (!isValid) setStatusKey("all");
-  }, [statusFilterOptions, statusKey]);
-
-  useEffect(() => {
-    if (jdFilterKey == null || jdFilterKey === "all") return;
-    const isValid = jdFilterOptions.some((opt) => opt.id === jdFilterKey);
-    if (!isValid) setJdFilterKey("all");
-  }, [jdFilterKey, jdFilterOptions]);
+    return sortedDb.map(candidateDbRowToTableRow);
+  }, [dbLoadState, dbRows]);
 
   const filteredRows = useMemo(() => tableSourceRows, [tableSourceRows]);
 
@@ -579,63 +403,97 @@ export function useCandidatePipelineState(
     filteredRows.length === 0;
 
   const openRow = useCallback((row: CandidateRow) => {
-    setStatusUpdateError(null);
+    setStageUpdateError(null);
     setActiveRow(row);
     setDrawerOpen(true);
   }, []);
 
-  const drawerStatusOptions = useMemo(() => {
-    if (!activeRow) return [];
-    return allowedTargetsFromStatus(activeRow.status);
-  }, [activeRow]);
+  const activeJobPipelineConfig = activeDbRow?.job_opening_id
+    ? (pipelineConfigByJob[activeDbRow.job_opening_id] ?? null)
+    : null;
 
-  const patchCandidateStatus = useCallback(
-    async (candidateId: string, next: CandidateStatus) => {
-      const current = dbRows.find((r) => r.id === candidateId);
-      if (!current) return;
-      const currentStatus = candidateDbRowToTableRow(current).status;
-      if (currentStatus === next) return;
+  const resolvedActivePipeline: ResolvedActivePipeline | null = useMemo(() => {
+    if (!activeDbRow || !activeJobPipelineConfig) return null;
+    const { stageMappings, subStages } = activeJobPipelineConfig;
+    const { stageMappingId, subStateId } = resolveCandidatePipelineIds(
+      activeDbRow,
+      stageMappings,
+      subStages,
+    );
+    return {
+      stageMappingId,
+      subStateId,
+      stageMapping: stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
+      subStage: subStages.find((ss) => ss.id === subStateId) ?? null,
+      orphaned: wasCandidateStageOrphaned(activeDbRow, stageMappings, subStages),
+    };
+  }, [activeDbRow, activeJobPipelineConfig]);
 
-      if (!isPipelineTransitionAllowed(currentStatus, next)) {
-        setStatusUpdateError(
-          "That move is not allowed. Try another column or switch phase tabs.",
-        );
-        return;
-      }
+  const drawerStageOptions = useMemo(() => {
+    if (!activeJobPipelineConfig || !resolvedActivePipeline) return [];
+    const { stageMappingId, subStateId } = resolvedActivePipeline;
+    if (!stageMappingId || !subStateId) return [];
+    return allowedStageTargets(
+      stageMappingId,
+      subStateId,
+      activeJobPipelineConfig.stageMappings,
+      activeJobPipelineConfig.subStages,
+    );
+  }, [activeJobPipelineConfig, resolvedActivePipeline]);
 
-      setStatusUpdateError(null);
-      setStatusUpdateBusy(true);
+  const patchCandidateStage = useCallback(
+    async (
+      campaignAppliedId: string,
+      target: { toStageMappingId: string; toSubStateId: string },
+    ) => {
+      setStageUpdateError(null);
+      setStageUpdateBusy(true);
       try {
-        const res = await fetch(`/api/admin/candidates/${candidateId}`, {
+        const res = await fetch(`/api/admin/candidates/${campaignAppliedId}`, {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: next }),
+          body: JSON.stringify({
+            current_job_stage_mapping_id: target.toStageMappingId,
+            current_sub_state_id: target.toSubStateId,
+          }),
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
           };
-          setStatusUpdateError(body.error ?? "Could not update status.");
+          setStageUpdateError(body.error ?? "Could not update pipeline stage.");
           return;
         }
-        const json = (await res.json()) as { candidate?: CandidateDbRow };
+        const json = (await res.json()) as {
+          candidate?: {
+            current_job_stage_mapping_id: string | null;
+            current_sub_state_id: string | null;
+          };
+        };
         const c = json.candidate;
         if (!c) {
           await fetchCandidates();
           return;
         }
-        setDbRows((prev) => prev.map((r) => (r.id === c.id ? c : r)));
-        setActiveRow((prev) =>
-          prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
+        setDbRows((prev) =>
+          prev.map((r) =>
+            r.id === campaignAppliedId
+              ? {
+                  ...r,
+                  current_job_stage_mapping_id: c.current_job_stage_mapping_id,
+                  current_sub_state_id: c.current_sub_state_id,
+                }
+              : r,
+          ),
         );
       } catch {
-        setStatusUpdateError("Could not update status.");
+        setStageUpdateError("Could not update pipeline stage.");
       } finally {
-        setStatusUpdateBusy(false);
+        setStageUpdateBusy(false);
       }
     },
-    [dbRows, fetchCandidates],
+    [fetchCandidates],
   );
 
   const confirmDeleteCandidate = useCallback(async () => {
@@ -673,10 +531,6 @@ export function useCandidatePipelineState(
     setPage,
     query,
     setQuery,
-    statusKey,
-    setStatusKey,
-    jdFilterKey,
-    setJdFilterKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -695,16 +549,14 @@ export function useCandidatePipelineState(
     deleteInProgress,
     deleteError,
     setDeleteError,
-    statusUpdateBusy,
-    statusUpdateError,
+    stageUpdateBusy,
+    stageUpdateError,
     cvHistoryRows,
     cvVersions,
     cvHistoryLoading,
     cvHistoryError,
     refreshCvHistoryForCandidate,
     dbRows,
-    jobOpeningOptions,
-    jobOpeningsLoadState,
     dbLoadState,
     fetchCandidates,
     listTotal,
@@ -712,14 +564,13 @@ export function useCandidatePipelineState(
     changeListPageSize,
     listMode,
     tableSourceRows,
-    statusFilterOptions,
-    jdFilterOptions,
     filteredRows,
     activeDbRow,
     noResultsForUploadDate,
     openRow,
-    drawerStatusOptions,
-    patchCandidateStatus,
+    resolvedActivePipeline,
+    drawerStageOptions,
+    patchCandidateStage,
     confirmDeleteCandidate,
   };
 }

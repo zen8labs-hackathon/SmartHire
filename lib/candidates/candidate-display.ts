@@ -1,4 +1,4 @@
-import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import type { CandidateStatus } from "@/lib/candidates/types";
 
 export function candidateDisplayInitials(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -7,9 +7,9 @@ export function candidateDisplayInitials(name: string) {
   return `${a}${b}`.toUpperCase() || "?";
 }
 
-export function jdMatchChipColor(
-  row: CandidateRow,
-): "success" | "accent" | "danger" | "default" {
+export function jdMatchChipColor(row: {
+  jdMatchScore: number | null;
+}): "success" | "accent" | "danger" | "default" {
   if (row.jdMatchScore == null) return "default";
   if (row.jdMatchScore >= 75) return "success";
   if (row.jdMatchScore >= 50) return "accent";

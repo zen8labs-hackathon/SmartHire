@@ -129,9 +129,9 @@ function CandidatePipelineTableImpl({
                   </Table.Cell>
                   <Table.Cell className="py-3.5">
                     <div className="flex flex-wrap gap-1.5 max-w-[320px]">
-                      {row.skills.map((s) => (
+                      {row.skills.map((s, idx) => (
                         <Chip
-                          key={s}
+                          key={`${s}-${idx}`}
                           size="sm"
                           variant="soft"
                           color="accent"

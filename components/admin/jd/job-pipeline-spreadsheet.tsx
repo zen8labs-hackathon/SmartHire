@@ -1,21 +1,19 @@
 "use client";
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import Link from "next/link";
 
-import {
-  AddCandidateModal,
-  type JdPipelineCampaignOption,
-} from "@/components/admin/candidates/add-candidate-modal";
+import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
 import {
   JobPipelineDataPanel,
   type JobPipelineDataPanelHandle,
 } from "@/components/admin/jd/job-pipeline-data-panel";
 import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skeleton";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
+import { FileText } from "lucide-react";
 import { Alert, Breadcrumbs } from "@heroui/react";
 
 function PipelineErrorFallback() {
@@ -33,15 +31,13 @@ function PipelineErrorFallback() {
 }
 
 type Props = {
-  jobDescriptionId: number;
   jobId: string;
   jobTitle: string;
-  linkedJobOpeningId: string | null;
-  linkedJobOpeningTitle: string | null;
+  hasJdSourceFile: boolean;
   canEditPipeline: boolean;
   canAddCandidates: boolean;
   pipelineDataPromise: Promise<{
-    rows: CandidateDbRow[];
+    rows: JdPipelineApplicationRow[];
     fetchFailed: boolean;
     stageMappings: StageMapping[];
     subStages: SubStage[];
@@ -49,11 +45,9 @@ type Props = {
 };
 
 export function JobPipelineSpreadsheet({
-  jobDescriptionId,
   jobId,
   jobTitle,
-  linkedJobOpeningId,
-  linkedJobOpeningTitle,
+  hasJdSourceFile,
   canEditPipeline,
   canAddCandidates,
   pipelineDataPromise,
@@ -61,16 +55,10 @@ export function JobPipelineSpreadsheet({
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
 
-  const jdPipelineCampaign: JdPipelineCampaignOption | undefined =
-    useMemo(() => {
-      if (linkedJobOpeningId && linkedJobOpeningTitle) {
-        return {
-          jobOpeningId: linkedJobOpeningId,
-          title: linkedJobOpeningTitle,
-        };
-      }
-      return "no_opening_linked";
-    }, [linkedJobOpeningId, linkedJobOpeningTitle]);
+  // DB7X2K merged `job_openings` into `jobs` -- every job is its own single
+  // campaign now (see the JD create-flow's "no Draft status by design"
+  // decision), so there's no more "no opening linked" case to represent.
+  const jdPipelineCampaign = { jobOpeningId: jobId, title: jobTitle };
 
   return (
     <div className="relative flex flex-col gap-6">
@@ -79,9 +67,22 @@ export function JobPipelineSpreadsheet({
           <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
           <Breadcrumbs.Item>{jobTitle}</Breadcrumbs.Item>
         </Breadcrumbs>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          {jobTitle} pipeline
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {jobTitle} pipeline
+          </h1>
+          {hasJdSourceFile ? (
+            <a
+              href={`/api/admin/job-descriptions/${jobId}/jd-download`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-tertiary"
+            >
+              <FileText className="size-3.5" />
+              View JD file
+            </a>
+          ) : null}
+        </div>
         <p className="max-w-2xl text-sm text-muted">
           Filter and sort by CV upload time.
           {canEditPipeline
@@ -94,7 +95,6 @@ export function JobPipelineSpreadsheet({
         <Suspense fallback={<PipelineTableSkeleton />}>
           <JobPipelineDataPanel
             ref={pipelinePanelRef}
-            jobDescriptionId={jobDescriptionId}
             jobId={jobId}
             pipelineDataPromise={pipelineDataPromise}
             canEditPipeline={canEditPipeline}
@@ -107,7 +107,15 @@ export function JobPipelineSpreadsheet({
       {canAddCandidates ? (
         <AddCandidateModal
           open={addCandidatesOpen}
-          onOpenChange={setAddCandidatesOpen}
+          onOpenChange={(open) => {
+            setAddCandidatesOpen(open);
+            // Uploads still "processing" when the modal is closed stop being
+            // polled (AddCandidateModal's status poll only runs while open),
+            // so without this the pipeline table can go stale until a manual
+            // page refresh -- always resync on close, not just on the
+            // in-modal completion callbacks below.
+            if (!open) pipelinePanelRef.current?.refetch(true);
+          }}
           jdPipelineCampaign={jdPipelineCampaign}
           onCandidatesChanged={() => pipelinePanelRef.current?.refetch(true)}
           onDuplicateMergedToExisting={() =>

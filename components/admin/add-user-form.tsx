@@ -1,16 +1,17 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useState } from "react";
 import { useFormStatus } from "react-dom";
 
+import { adminAddUser, type AdminUserFormState } from "@/app/admin/actions";
 import {
-  adminAddUser,
-  type AdminUserFormState,
-} from "@/app/admin/actions";
-import { ChapterRolePicker, type ChapterOption } from "@/components/admin/chapter-role-picker";
+  ChapterRolePicker,
+  type ChapterOption,
+} from "@/components/admin/chapter-role-picker";
 import {
   Alert,
   Button,
+  Checkbox,
   Description,
   FieldError,
   Input,
@@ -46,20 +47,20 @@ export function AddUserForm({
   chapters: readonly AddUserChapterOption[];
   onSuccess?: () => void;
 }) {
-  const [state, formAction] = useActionState<AdminUserFormState, FormData>(
-    adminAddUser,
-    null,
-  );
+  const [state, setState] = useState<AdminUserFormState>(null);
   const { success: triggerSuccess } = useToast();
 
-  useEffect(() => {
-    if (state?.message) {
-      triggerSuccess(state.message);
+  const handleAction = async (formData: FormData) => {
+    const res = await adminAddUser(null, formData);
+    setState(res);
+    if (res?.message) {
+      triggerSuccess(res.message);
       if (onSuccess) {
         onSuccess();
       }
     }
-  }, [state, triggerSuccess, onSuccess]);
+  };
+  const [ssoOnly, setSsoOnly] = useState(false);
   const [recruitingAccess, setRecruitingAccess] =
     useState<RecruitingAccessKey>("chapter");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
@@ -82,13 +83,19 @@ export function AddUserForm({
   }
 
   return (
-    <form action={formAction} className="flex w-full flex-col gap-4">
+    <form action={handleAction} className="flex w-full flex-col gap-4">
+      <input type="hidden" name="sso_only" value={ssoOnly ? "true" : "false"} />
       <input type="hidden" name="recruiting_access" value={recruitingAccess} />
       {selectedChapterIds.map((id) => (
         <input key={id} type="hidden" name="chapter_ids" value={id} />
       ))}
       {headChapterIds.map((id) => (
-        <input key={`head-${id}`} type="hidden" name="chapter_head_ids" value={id} />
+        <input
+          key={`head-${id}`}
+          type="hidden"
+          name="chapter_head_ids"
+          value={id}
+        />
       ))}
       {state?.error ? (
         <Alert status="danger">
@@ -127,18 +134,36 @@ export function AddUserForm({
         <FieldError />
       </TextField>
 
-      <TextField
-        isRequired
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={8}
-      >
-        <Label>Initial password</Label>
-        <Input placeholder="••••••••" />
-        <Description>At least 8 characters. Share it securely with the user.</Description>
-        <FieldError />
-      </TextField>
+      <Checkbox isSelected={ssoOnly} onChange={setSsoOnly}>
+        <Checkbox.Content>
+          <Checkbox.Control className="border-2 border-slate-600 dark:border-slate-400 rounded-md">
+            <Checkbox.Indicator />
+          </Checkbox.Control>
+          <span>Sign in with Microsoft (no password)</span>
+        </Checkbox.Content>
+      </Checkbox>
+
+      {!ssoOnly ? (
+        <TextField
+          isRequired
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+        >
+          <Label>Initial password</Label>
+          <Input placeholder="••••••••" />
+          <Description>
+            At least 8 characters. Share it securely with the user.
+          </Description>
+          <FieldError />
+        </TextField>
+      ) : (
+        <Description>
+          This user will link their SmartHire account on first "Sign in with
+          Microsoft" using this email address.
+        </Description>
+      )}
 
       <div className="space-y-2">
         <Label className="text-sm font-medium text-foreground">
@@ -175,8 +200,8 @@ export function AddUserForm({
           </Select.Popover>
         </Select>
         <Description>
-          Chapter recruiters need at least one chapter and must be granted on each
-          job (by email or whole chapter) to open that job.
+          Chapter recruiters need at least one chapter and must be granted on
+          each job (by email or whole chapter) to open that job.
         </Description>
       </div>
 

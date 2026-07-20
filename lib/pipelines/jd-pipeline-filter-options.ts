@@ -1,9 +1,4 @@
-import type { CandidateStatus } from "@/lib/candidates/types";
-import {
-  legacyStatusForStageSubStage,
-  type StageMapping,
-  type SubStage,
-} from "@/lib/pipelines/transition-validator";
+import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 /** One (stageMapping, subStage) pair the JD pipeline status filter can select. */
 export type PipelineStageSubStageFilterOption = {
@@ -11,8 +6,6 @@ export type PipelineStageSubStageFilterOption = {
   id: string;
   stageMapping: StageMapping;
   subStage: SubStage;
-  /** The matching legacy `CandidateStatus`, or null when this pair has no legacy analog. */
-  legacyStatus: CandidateStatus | null;
 };
 
 /**
@@ -37,10 +30,6 @@ export function buildPipelineStageSubStageFilterOptions(
         id: `${stageMapping.id}:${subStage.id}`,
         stageMapping,
         subStage,
-        legacyStatus: legacyStatusForStageSubStage(
-          stageMapping.pipeline_stages?.code ?? "",
-          subStage.code,
-        ),
       });
     }
   }

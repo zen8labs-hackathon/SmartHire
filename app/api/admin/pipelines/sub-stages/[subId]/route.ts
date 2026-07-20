@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { getPool } from "@/lib/db/config/client";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { softDeletePipelineSubStage, updatePipelineSubStage } from "@/lib/db/pipeline-stages";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -53,32 +56,31 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   const { code, label, sequence_number, is_default, is_passed } = parsed.data;
 
-  const { data, error } = await auth.supabase
-    .from("pipeline_sub_stages")
-    .update({ code, label, sequence_number, is_default, is_passed })
-    .eq("id", subId)
-    .is("deleted_at", null)
-    .select("id, pipeline_stage_id, code, label, sequence_number, is_default, is_passed, created_at")
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === "23505") {
+  try {
+    const subStage = await updatePipelineSubStage(getPool(), subId, {
+      code,
+      label,
+      sequenceNumber: sequence_number,
+      isDefault: is_default,
+      isPassed: is_passed,
+    });
+    if (!subStage) {
+      return Response.json(
+        { error: "Sub-stage not found or already deleted." },
+        { status: 404 },
+      );
+    }
+    return Response.json({ subStage });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
       return Response.json(
         { error: `A sub-stage with code '${code}' already exists in this stage.` },
         { status: 409 },
       );
     }
-    return Response.json({ error: error.message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Could not update sub-stage.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  if (!data) {
-    return Response.json(
-      { error: "Sub-stage not found or already deleted." },
-      { status: 404 },
-    );
-  }
-
-  return Response.json({ subStage: data });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
@@ -90,20 +92,8 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid sub-stage ID." }, { status: 400 });
   }
 
-  // Soft delete: update deleted_at
-  const { data, error } = await auth.supabase
-    .from("pipeline_sub_stages")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", subId)
-    .is("deleted_at", null)
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  if (!data) {
+  const subStage = await softDeletePipelineSubStage(getPool(), subId);
+  if (!subStage) {
     return Response.json(
       { error: "Sub-stage not found or already deleted." },
       { status: 404 },

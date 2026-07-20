@@ -7,7 +7,6 @@ import { Header } from "./header";
 export type DashboardLayoutProps = {
   userEmail: string;
   isHr: boolean;
-  workChapter: string | null;
   chapterIds: string[];
   children: React.ReactNode;
 };
@@ -15,7 +14,6 @@ export type DashboardLayoutProps = {
 export function DashboardLayout({
   userEmail,
   isHr,
-  workChapter,
   chapterIds,
   children,
 }: DashboardLayoutProps) {
@@ -27,7 +25,6 @@ export function DashboardLayout({
       <Sidebar
         userEmail={userEmail}
         isHr={isHr}
-        workChapter={workChapter}
         chapterIds={chapterIds}
         collapsed={sidebarCollapsed}
       />
@@ -43,7 +40,7 @@ export function DashboardLayout({
         />
 
         {/* Scrollable page body */}
-        <main className="flex-1 overflow-y-auto bg-surface-secondary/20 p-6 md:p-8">
+        <main className="flex-1 overflow-y-auto bg-background p-6 md:p-8">
           <div className="mx-auto w-full max-w-7xl animate-in fade-in slide-in-from-bottom-2 duration-300">
             {children}
           </div>

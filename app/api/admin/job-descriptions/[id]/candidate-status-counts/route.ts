@@ -1,56 +1,34 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { ALL_PIPELINE_STATUSES } from "@/lib/candidates/pipeline-allowed-transitions";
+import { countCampaignAppliedByStageForJob } from "@/lib/db/campaign-applied-list";
+import { countActiveApplicationsByJobIds } from "@/lib/db/campaign-applied";
+import { getPool } from "@/lib/db/config/client";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/**
+ * Applicant counts broken down by every (stage, sub-stage) pair configured
+ * on this job's pipeline. Replaces the old fixed-`CandidateStatus`-enum tally
+ * (`ALL_PIPELINE_STATUSES`) -- a custom pipeline's stages aren't a static
+ * global set under DB7X2K, so the response is an ordered list, not a
+ * `Record<CandidateStatus, number>`.
+ */
 export async function GET(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { id: raw } = await params;
-  const jdId = Number(raw);
-  if (!Number.isInteger(jdId) || jdId <= 0) {
-    return Response.json({ error: "Invalid job description id." }, { status: 400 });
+  const { id: jobId } = await params;
+  if (!jobId || !UUID_RE.test(jobId)) {
+    return Response.json({ error: "Invalid job id." }, { status: 400 });
   }
 
-  const { data: openings, error: openingsError } = await auth.supabase
-    .from("job_openings")
-    .select("id")
-    .eq("job_description_id", jdId);
-
-  if (openingsError) {
-    return Response.json({ error: openingsError.message }, { status: 500 });
-  }
-
-  const openingIds = (openings ?? [])
-    .map((o) => o.id as string)
-    .filter(Boolean);
-
-  const counts: Record<string, number> = {};
-  for (const s of ALL_PIPELINE_STATUSES) {
-    counts[s] = 0;
-  }
-
-  if (openingIds.length === 0) {
-    return Response.json({ counts });
-  }
-
-  const { data: rows, error } = await auth.supabase
-    .from("candidates")
-    .select("status")
-    .in("job_opening_id", openingIds);
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  const allowed = new Set<string>(ALL_PIPELINE_STATUSES);
-  for (const row of rows ?? []) {
-    const st = String((row as { status: string }).status);
-    if (allowed.has(st)) {
-      counts[st] += 1;
-    }
-  }
-
-  return Response.json({ counts });
+  const db = getPool();
+  const [counts, totalByJob] = await Promise.all([
+    countCampaignAppliedByStageForJob(db, jobId),
+    countActiveApplicationsByJobIds(db, [jobId]),
+  ]);
+  const total = totalByJob.get(jobId) ?? 0;
+  return Response.json({ counts, total });
 }

@@ -4,20 +4,12 @@ import { cn } from "@heroui/react";
 
 import { asCandidateStatus } from "@/lib/candidates/db-row";
 import {
-  getStageColorClasses,
-  getStageColorStyles,
-  getSubStageTextColorClass,
-  getSubStageTextColorStyle,
   pipelineStatusLabelParts,
   pipelineStatusSurfaceClass,
   pipelineStatusTextClass,
 } from "@/lib/candidates/pipeline-status-styles";
 import type { CandidateStatus } from "@/lib/candidates/types";
-import {
-  stageSubStageCodesForLegacyStatus,
-  type StageMapping,
-  type SubStage,
-} from "@/lib/pipelines/transition-validator";
+import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 type Props = {
   status: CandidateStatus | string;
@@ -26,54 +18,30 @@ type Props = {
   className?: string;
   uppercase?: boolean;
   /**
-   * The JD's configured pipeline stages/sub-stages. When provided, the badge
-   * and detail-text colors are resolved from `pipeline_stages.color` (this
-   * legacy status's matching stage/sub-stage) instead of the fixed palette.
+   * Accepted but currently unused: DB7X2K's candidates-domain migration
+   * dropped the legacy-status<->stage/sub-stage mapping this used to resolve
+   * DB-configured colors through (`stageSubStageCodesForLegacyStatus` no
+   * longer exists -- green-field schema, no legacy `CandidateStatus` to map
+   * from). Kept on the prop signature only because the not-yet-migrated
+   * `jd-applied-candidates-pipeline.tsx` still passes them; this component
+   * now always falls back to the fixed legacy-status palette. Remove these
+   * props once that caller's own migration slice stops passing them.
    */
   stageMappings?: StageMapping[];
   subStages?: SubStage[];
 };
-
-function resolveDbStageForLegacyStatus(
-  status: CandidateStatus,
-  stageMappings: StageMapping[] | undefined,
-  subStages: SubStage[] | undefined,
-): { stageColor: string | null; subStage: SubStage } | null {
-  if (!stageMappings?.length || !subStages?.length) return null;
-  const codes = stageSubStageCodesForLegacyStatus(status);
-  if (!codes) return null;
-  const stageMapping = stageMappings.find(
-    (sm) => (sm.pipeline_stages?.code ?? "").toLowerCase() === codes.stage,
-  );
-  if (!stageMapping) return null;
-  const subStage = subStages.find(
-    (ss) =>
-      ss.pipeline_stage_id === stageMapping.pipeline_stage_id &&
-      ss.code.toLowerCase() === codes.sub,
-  );
-  if (!subStage) return null;
-  return { stageColor: stageMapping.pipeline_stages?.color ?? null, subStage };
-}
 
 export function PipelineStatusLabel({
   status: rawStatus,
   variant = "badge",
   className,
   uppercase = true,
-  stageMappings,
-  subStages,
 }: Props) {
   const status =
     typeof rawStatus === "string" ? asCandidateStatus(rawStatus) : rawStatus;
   const label = pipelineStatusLabelParts(status);
-  const dbStage = resolveDbStageForLegacyStatus(status, stageMappings, subStages);
 
-  const surfaceClass = dbStage
-    ? getStageColorClasses(dbStage.stageColor, "badge")
-    : pipelineStatusSurfaceClass(status, "badge");
-  const surfaceStyle = dbStage
-    ? getStageColorStyles(dbStage.stageColor, "badge")
-    : undefined;
+  const surfaceClass = pipelineStatusSurfaceClass(status, "badge");
 
   const rootClass = cn(
     "inline-flex max-w-full items-center font-medium",
@@ -91,33 +59,15 @@ export function PipelineStatusLabel({
   );
 
   const textSize = variant === "badge" ? "text-[10px]" : "text-xs";
-
-  const detailClass = dbStage
-    ? getSubStageTextColorClass(
-        dbStage.subStage.code,
-        dbStage.subStage.is_passed,
-        dbStage.subStage.is_default,
-        dbStage.stageColor,
-      )
-    : pipelineStatusTextClass(status);
-  const detailStyle = dbStage
-    ? getSubStageTextColorStyle(
-        dbStage.subStage.code,
-        dbStage.subStage.is_passed,
-        dbStage.subStage.is_default,
-        dbStage.stageColor,
-      )
-    : undefined;
+  const detailClass = pipelineStatusTextClass(status);
 
   return (
-    <span className={rootClass} style={surfaceStyle}>
+    <span className={rootClass}>
       <span className={cn(textSize, "text-foreground")}>{label.phase}</span>
       {label.detail ? (
         <>
           <span className={cn("mx-1 text-muted", textSize)}>·</span>
-          <span className={cn(textSize, detailClass)} style={detailStyle}>
-            {label.detail}
-          </span>
+          <span className={cn(textSize, detailClass)}>{label.detail}</span>
         </>
       ) : null}
     </span>

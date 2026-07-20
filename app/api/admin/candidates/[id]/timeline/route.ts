@@ -1,122 +1,158 @@
 import { z } from "zod";
 
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import type { CandidateStatus } from "@/lib/candidates/types";
-import { INTERVIEW_SCHEDULE_STATUSES } from "@/lib/candidates/pipeline-phase";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
+import {
+  createCandidateSchedule,
+  listCandidateSchedulesByCampaignApplied,
+  updateCandidateSchedule,
+  type CandidateScheduleRow,
+} from "@/lib/db/candidate-schedules";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { getJobStageMappingById, getPipelineStageById } from "@/lib/db/pipeline-stages";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isoDateTime = z.string().refine(
   (s) => s.length > 0 && Number.isFinite(Date.parse(s)),
   "Invalid ISO datetime",
 );
 
-const bodySchema = z.object({
-  jobDescriptionId: z.coerce.number().int().positive(),
-  interview_at: z.union([isoDateTime, z.null()]).optional(),
-  onboarding_at: z.union([isoDateTime, z.null()]).optional(),
-});
+const bodySchema = z
+  .object({
+    scheduledAt: isoDateTime,
+    roundLabel: z.string().max(200).optional(),
+    durationMinutes: z.number().int().positive().optional(),
+    location: z.string().max(500).optional(),
+  })
+  .strict();
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/** Schedule history for the row's "past rounds" list — most recent first (see `listCandidateSchedulesByCampaignApplied`'s ORDER BY). */
+export async function GET(request: Request, { params }: RouteContext) {
+  const auth = await requireStaffForRequest(request);
+  if (!auth.ok) return auth.response;
+
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const schedules = await listCandidateSchedulesByCampaignApplied(
+    getPool(),
+    campaignAppliedId,
+  );
+  return Response.json({ schedules });
+}
+
+/**
+ * Sets/reschedules the application's interview time as a `candidate_schedules`
+ * row. Replaces the old flat `candidates.interview_at`/`onboarding_at`
+ * columns, both dropped in DB7X2K (see
+ * SmartHire/logs/DB7X2K-schema-redesign-2026-07-10/06-...-slice1.md): interview
+ * scheduling now has a real home in `candidate_schedules`, and onboarding-date
+ * tracking isn't carried forward at all (no replacement -- only `hired_at` on
+ * `campaign_applied` remains as a cache column for when that's implemented).
+ *
+ * A change to an already-scheduled interview creates a *new* schedule row
+ * linked back via `rescheduled_from_id` and marks the old one `"Rescheduled"`,
+ * per this table's own design comment ("a reschedule creates a new row"), not
+ * an in-place timestamp overwrite -- this preserves a reschedule history the
+ * old single-column design couldn't.
+ */
 export async function PATCH(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { id: candidateId } = await params;
-  if (!candidateId) {
-    return Response.json({ error: "Missing candidate id." }, { status: 400 });
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
+    return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  let body: unknown;
+  let rawBody: unknown;
   try {
-    body = await request.json();
+    rawBody = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const parsed = bodySchema.safeParse(body);
+  const parsed = bodySchema.safeParse(rawBody);
   if (!parsed.success) {
     return Response.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid body." },
       { status: 400 },
     );
   }
+  const { scheduledAt, roundLabel, durationMinutes, location } = parsed.data;
 
-  const { jobDescriptionId, interview_at, onboarding_at } = parsed.data;
-  if (interview_at === undefined && onboarding_at === undefined) {
+  const db = getPool();
+
+  const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!campaignApplied) {
+    return Response.json({ error: "Application not found." }, { status: 404 });
+  }
+
+  if (!campaignApplied.current_job_stage_mapping_id) {
     return Response.json(
-      { error: "Provide interview_at and/or onboarding_at." },
+      { error: "Application has no pipeline stage assigned." },
       { status: 400 },
     );
   }
 
-  const { data: openings, error: openingsError } = await auth.supabase
-    .from("job_openings")
-    .select("id")
-    .eq("job_description_id", jobDescriptionId);
-
-  if (openingsError) {
-    return Response.json({ error: openingsError.message }, { status: 500 });
-  }
-
-  const allowedOpeningIds = new Set(
-    (openings ?? []).map((o) => o.id as string).filter(Boolean),
+  const stageMapping = await getJobStageMappingById(
+    db,
+    campaignApplied.current_job_stage_mapping_id,
   );
-  if (allowedOpeningIds.size === 0) {
+  const stage = stageMapping ? await getPipelineStageById(db, stageMapping.pipeline_stage_id) : null;
+  if (stage?.code !== "interview") {
     return Response.json(
-      { error: "No job opening is linked to this job description." },
+      { error: "Interview time can only be set while the application is in the Interview stage." },
       { status: 400 },
     );
   }
 
-  const { data: row, error: rowErr } = await auth.supabase
-    .from("candidates")
-    .select("id, job_opening_id, status")
-    .eq("id", candidateId)
-    .maybeSingle();
+  const schedules = await listCandidateSchedulesByCampaignApplied(db, campaignAppliedId);
+  const active = schedules.find((s) => s.status === "Scheduled" || s.status === "Confirmed");
 
-  if (rowErr || !row) {
-    return Response.json({ error: "Candidate not found." }, { status: 404 });
-  }
+  const scheduledAtChanged =
+    !active || active.scheduled_at.toISOString() !== new Date(scheduledAt).toISOString();
 
-  const jo = row.job_opening_id as string | null;
-  if (!jo || !allowedOpeningIds.has(jo)) {
-    return Response.json({ error: "Forbidden." }, { status: 403 });
-  }
-
-  const status = String(row.status);
-  const patch: Record<string, unknown> = {};
-
-  if (interview_at !== undefined) {
-    if (!INTERVIEW_SCHEDULE_STATUSES.has(status as CandidateStatus)) {
-      return Response.json(
-        {
-          error:
-            "Interview time can only be set when status is Interview or Interview Passed.",
-        },
-        { status: 400 },
-      );
+  let result: CandidateScheduleRow;
+  try {
+    if (!active) {
+      result = await createCandidateSchedule(db, {
+        campaignAppliedId,
+        jobStageMappingId: campaignApplied.current_job_stage_mapping_id,
+        roundLabel,
+        scheduledAt,
+        durationMinutes,
+        location,
+        createdBy: auth.userId,
+      });
+    } else if (!scheduledAtChanged) {
+      result = await updateCandidateSchedule(db, active.id, { roundLabel, durationMinutes, location }) ?? active;
+    } else {
+      result = await withTransaction(async (tx) => {
+        await updateCandidateSchedule(tx, active.id, { status: "Rescheduled" });
+        return createCandidateSchedule(tx, {
+          campaignAppliedId,
+          jobStageMappingId: campaignApplied.current_job_stage_mapping_id,
+          roundLabel,
+          scheduledAt,
+          durationMinutes,
+          location,
+          rescheduledFromId: active.id,
+          createdBy: auth.userId,
+        });
+      });
     }
-    patch.interview_at = interview_at;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to save interview schedule.";
+    return Response.json({ error: msg }, { status: 500 });
   }
 
-  if (onboarding_at !== undefined) {
-    if (status !== "Offer") {
-      return Response.json(
-        { error: "Onboarding time can only be set when status is Offer." },
-        { status: 400 },
-      );
-    }
-    patch.onboarding_at = onboarding_at;
-  }
-
-  const { error: upErr } = await auth.supabase
-    .from("candidates")
-    .update(patch)
-    .eq("id", candidateId);
-
-  if (upErr) {
-    return Response.json({ error: upErr.message }, { status: 500 });
-  }
-
-  return Response.json({ ok: true });
+  return Response.json({ schedule: result });
 }

@@ -3,12 +3,17 @@ import {
   parseViewerChapterIds,
   parseViewerEmailInput,
   replaceJobDescriptionViewerChapters,
+  replaceJobDescriptionViewers,
   resolveViewerEmailsToUserIds,
-  syncJobDescriptionViewersFromEmails,
 } from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { createJob, type CreateJobInput } from "@/lib/db/jobs";
+import {
+  listPipelineStages,
+  reconcileJobStageMappings,
+} from "@/lib/db/pipeline-stages";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -22,44 +27,19 @@ import {
   type JobDescriptionFormData,
 } from "@/lib/jd/types";
 
-/** Shape returned by sanitize() in POST /api/admin/job-descriptions */
-type SanitizedJdInsertPayload = {
-  position: string;
-  department: string | null;
-  employment_status: string | null;
-  update_note: string | null;
-  work_location: string | null;
-  reporting: string | null;
-  role_overview: string | null;
-  duties_and_responsibilities: string | null;
-  experience_requirements_must_have: string | null;
-  experience_requirements_nice_to_have: string | null;
-  what_we_offer: string | null;
-  status: string;
-  start_date: string | null;
-  end_date: string | null;
-  hiring_deadline: string | null;
-};
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(s: string) {
-  return UUID_RE.test(s);
-}
-
 type CreateBody = Partial<JobDescriptionFormData> & {
-  jdDraftJobOpeningId?: string | null;
-  /** Recruiter accounts that may open this JD (must already exist in Auth). */
+  /** S3 key from a prior POST /api/admin/job-openings/sign-upload + direct PUT to the returned signedUrl. */
+  jdStoragePath?: string | null;
+  jdOriginalFilename?: string | null;
+  jdMimeType?: string | null;
+  /** Recruiter accounts that may open this JD (must already exist). */
   viewerEmails?: string[] | string | null;
   /** Chapter ids: all members of these chapters may open this JD. */
   viewerChapterIds?: string[] | null;
   pipelineStages?: string[] | null;
 };
 
-function sanitize(
-  body: Partial<JobDescriptionFormData>,
-): SanitizedJdInsertPayload {
+function sanitizeCreate(body: Partial<JobDescriptionFormData>): CreateJobInput {
   const status =
     body.status !== undefined && isJdStatus(String(body.status))
       ? (body.status as JdStatus)
@@ -69,23 +49,23 @@ function sanitize(
   return {
     position: requiredLine(body.position, 50),
     department: optionalToDb(body.department, 50),
-    employment_status: optionalToDb(body.employment_status, 50),
+    employmentStatus: optionalToDb(body.employment_status, 50),
     status,
-    update_note: optionalToDb(body.update_note, 50),
-    work_location: optionalToDb(body.work_location, 255),
+    updateNote: optionalToDb(body.update_note, 50),
+    workLocation: optionalToDb(body.work_location, 255),
     reporting: optionalToDb(body.reporting, 255),
-    role_overview: optionalToDb(body.role_overview, 255),
-    duties_and_responsibilities: optionalToDb(body.duties_and_responsibilities),
-    experience_requirements_must_have: optionalToDb(
+    roleOverview: optionalToDb(body.role_overview, 255),
+    dutiesAndResponsibilities: optionalToDb(body.duties_and_responsibilities),
+    experienceRequirementsMustHave: optionalToDb(
       body.experience_requirements_must_have,
     ),
-    experience_requirements_nice_to_have: optionalToDb(
+    experienceRequirementsNiceToHave: optionalToDb(
       body.experience_requirements_nice_to_have,
     ),
-    what_we_offer: optionalToDb(body.what_we_offer),
-    start_date: optionalDateToDb(body.start_date),
-    end_date: endDate,
-    hiring_deadline: optionalDateToDb(body.hiring_deadline),
+    whatWeOffer: optionalToDb(body.what_we_offer),
+    startDate: optionalDateToDb(body.start_date),
+    endDate,
+    hiringDeadline: optionalDateToDb(body.hiring_deadline),
   };
 }
 
@@ -110,19 +90,24 @@ export async function GET(request: Request) {
   const offset =
     offsetRaw != null ? Math.max(0, Number(offsetRaw) || 0) : undefined;
 
-  const { jobDescriptions, pagination, statusCounts, error } =
-    await queryJobDescriptionsWithEnrichment(auth.supabase, {
-      status,
-      q,
-      startFrom,
-      startTo,
-      limit,
-      offset,
-    });
-  if (error) return Response.json({ error }, { status: 500 });
-
-  return Response.json({ jobDescriptions, pagination, statusCounts });
+  try {
+    const { jobDescriptions, pagination, statusCounts } =
+      await queryJobDescriptionsWithEnrichment(getPool(), {
+        status,
+        q,
+        startFrom,
+        startTo,
+        limit,
+        offset,
+      });
+    return Response.json({ jobDescriptions, pagination, statusCounts });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to load job descriptions.";
+    return Response.json({ error: message }, { status: 500 });
+  }
 }
+
+const DEFAULT_PIPELINE_STAGE_CODES = ["cv_scan", "interview", "offer"];
 
 export async function POST(request: Request) {
   const auth = await requireAdminForRequest(request);
@@ -135,204 +120,117 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  const jdDraftJobOpeningIdRaw =
-    typeof body.jdDraftJobOpeningId === "string"
-      ? body.jdDraftJobOpeningId.trim()
-      : "";
-  const jdDraftJobOpeningId =
-    jdDraftJobOpeningIdRaw && isUuid(jdDraftJobOpeningIdRaw)
-      ? jdDraftJobOpeningIdRaw
-      : null;
-
   const {
-    jdDraftJobOpeningId: _ignore,
+    jdStoragePath: jdStoragePathRaw,
+    jdOriginalFilename,
+    jdMimeType,
     viewerEmails: viewerEmailsRaw,
     viewerChapterIds: viewerChapterIdsRaw,
-    pipelineStages,
+    pipelineStages: pipelineStagesRaw,
     ...formFields
   } = body;
-  void _ignore;
+
+  const jdStoragePath =
+    typeof jdStoragePathRaw === "string" && jdStoragePathRaw.length > 0
+      ? jdStoragePathRaw
+      : null;
+  if (!jdStoragePath) {
+    return Response.json(
+      { error: "Attaching a JD document is required to create a new definition." },
+      { status: 400 },
+    );
+  }
+
+  const db = getPool();
 
   const viewerEmails = parseViewerEmailInput(viewerEmailsRaw);
   const viewerChapterIds = parseViewerChapterIds(
     viewerChapterIdsRaw ?? undefined,
   );
 
-  const needsAdminClient =
-    viewerEmails.length > 0 || viewerChapterIds.length > 0;
-  let adminForViewers: ReturnType<typeof createAdminClient> | null = null;
-  if (needsAdminClient) {
-    try {
-      adminForViewers = createAdminClient();
-    } catch {
+  let viewerUserIds: string[] = [];
+  if (viewerEmails.length > 0) {
+    const { idByEmail, notFound } = await resolveViewerEmailsToUserIds(
+      db,
+      viewerEmails,
+    );
+    if (notFound.length > 0) {
       return Response.json(
-        { error: "Server missing service role key for viewer lookup." },
-        { status: 500 },
+        {
+          error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
+        },
+        { status: 400 },
       );
     }
-    if (viewerEmails.length > 0) {
-      const { notFound } = await resolveViewerEmailsToUserIds(
-        adminForViewers,
-        viewerEmails,
+    viewerUserIds = viewerEmails.map((e) => idByEmail.get(e)!);
+  }
+
+  if (viewerChapterIds.length > 0) {
+    const chapterCheck = await assertChapterIdsExist(db, viewerChapterIds);
+    if (!chapterCheck.ok) {
+      return Response.json(
+        {
+          error: `Unknown chapter id(s): ${chapterCheck.unknownIds.join(", ")}.`,
+        },
+        { status: 400 },
       );
-      if (notFound.length > 0) {
-        return Response.json(
-          {
-            error: `Unknown account email(s): ${notFound.join(", ")}. Create the user first.`,
-          },
-          { status: 400 },
-        );
-      }
-    }
-    if (viewerChapterIds.length > 0) {
-      const chapterCheck = await assertChapterIdsExist(
-        adminForViewers,
-        viewerChapterIds,
-      );
-      if (!chapterCheck.ok) {
-        return Response.json(
-          {
-            error: `Unknown chapter id(s): ${chapterCheck.unknownIds.join(", ")}.`,
-          },
-          { status: 400 },
-        );
-      }
     }
   }
 
-  const payload = sanitize(formFields);
-  if (!payload.position) {
+  const input = sanitizeCreate(formFields as Partial<JobDescriptionFormData>);
+  if (!input.position) {
     return Response.json({ error: "position is required." }, { status: 400 });
   }
-
-  if (payload.status !== "Pending") {
-    if (!payload.start_date) {
+  if (input.status !== "Pending") {
+    if (!input.startDate) {
       return Response.json({ error: "Start date is required." }, { status: 400 });
     }
-    if (!payload.hiring_deadline) {
+    if (!input.hiringDeadline) {
       return Response.json({ error: "Hiring deadline is required." }, { status: 400 });
     }
   }
+  input.jdStoragePath = jdStoragePath;
+  input.jdOriginalFilename =
+    typeof jdOriginalFilename === "string" ? jdOriginalFilename : null;
+  input.jdMimeType = typeof jdMimeType === "string" ? jdMimeType : null;
+  input.createdBy = auth.userId;
 
-  if (!jdDraftJobOpeningId) {
-    return Response.json(
-      { error: "Attaching a JD document is required to create a new definition." },
-      { status: 400 }
-    );
-  }
+  try {
+    const job = await withTransaction(async (client) => {
+      const created = await createJob(client, input);
 
-  const { data: jo, error: joErr } = await auth.supabase
-    .from("job_openings")
-    .select("id, status, jd_storage_path, job_description_id")
-    .eq("id", jdDraftJobOpeningId)
-    .maybeSingle();
-
-  if (joErr) {
-    return Response.json({ error: joErr.message }, { status: 500 });
-  }
-  if (
-    !jo ||
-    jo.status !== "Draft" ||
-    !jo.jd_storage_path ||
-    jo.job_description_id != null
-  ) {
-    return Response.json(
-      {
-        error:
-          "Invalid draft job opening: must be Draft with a JD file and not already linked.",
-      },
-      { status: 400 },
-    );
-  }
-
-  const { data, error } = await auth.supabase
-    .from("job_descriptions")
-    .insert({ ...payload, created_by: auth.userId, updated_by: auth.userId })
-    .select()
-    .single();
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  if (data) {
-    const { error: linkErr } = await auth.supabase
-      .from("job_openings")
-      .update({
-        job_description_id: data.id,
-        title: data.position,
-      })
-      .eq("id", jdDraftJobOpeningId)
-      .eq("status", "Draft");
-
-    if (linkErr) {
-      await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
-      return Response.json(
-        { error: `Saved JD but could not link file: ${linkErr.message}` },
-        { status: 500 },
-      );
-    }
-
-    // Insert pipeline stage mappings
-    let resolvedStages = pipelineStages;
-    if (!resolvedStages || resolvedStages.length === 0) {
-      const { data: allStages } = await auth.supabase
-        .from("pipeline_stages")
-        .select("id, code")
-        .is("deleted_at", null);
-      const defaultCodes = ["cv_scan", "interview", "offer"];
-      resolvedStages = defaultCodes
-        .map((code) => allStages?.find((s) => s.code === code)?.id)
-        .filter(Boolean) as string[];
-    }
-
-    if (resolvedStages && resolvedStages.length > 0) {
-      const mappings = resolvedStages.map((stageId: string, idx: number) => ({
-        job_opening_id: jdDraftJobOpeningId,
-        pipeline_stage_id: stageId,
-        sequence_number: idx + 1,
-      }));
-
-      const { error: mapErr } = await auth.supabase
-        .from("job_stage_mappings")
-        .insert(mappings);
-
-      if (mapErr) {
-        await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
-        return Response.json(
-          {
-            error: `Saved JD but could not insert stage mappings: ${mapErr.message}`,
-          },
-          { status: 500 },
-        );
+      let resolvedStages = pipelineStagesRaw ?? undefined;
+      if (!resolvedStages || resolvedStages.length === 0) {
+        const allStages = await listPipelineStages(client);
+        resolvedStages = DEFAULT_PIPELINE_STAGE_CODES.map(
+          (code) => allStages.find((s) => s.code === code)?.id,
+        ).filter((id): id is string => Boolean(id));
       }
-    }
-  }
+      if (resolvedStages.length > 0) {
+        await reconcileJobStageMappings(client, created.id, resolvedStages);
+      }
 
-  if (
-    data?.id != null &&
-    (viewerEmails.length > 0 || viewerChapterIds.length > 0)
-  ) {
-    try {
-      const admin = adminForViewers ?? createAdminClient();
-      if (viewerEmails.length > 0) {
-        await syncJobDescriptionViewersFromEmails(admin, {
-          jobDescriptionId: data.id as number,
-          emails: viewerEmails,
+      if (viewerUserIds.length > 0) {
+        await replaceJobDescriptionViewers(client, {
+          jobId: created.id,
+          userIds: viewerUserIds,
           grantedBy: auth.userId,
         });
       }
       if (viewerChapterIds.length > 0) {
-        await replaceJobDescriptionViewerChapters(admin, {
-          jobDescriptionId: data.id as number,
+        await replaceJobDescriptionViewerChapters(client, {
+          jobId: created.id,
           chapterIds: viewerChapterIds,
           grantedBy: auth.userId,
         });
       }
-    } catch (e) {
-      await auth.supabase.from("job_descriptions").delete().eq("id", data.id);
-      const msg = e instanceof Error ? e.message : "Viewer sync failed.";
-      return Response.json({ error: msg }, { status: 500 });
-    }
-  }
 
-  return Response.json({ jobDescription: data }, { status: 201 });
+      return created;
+    });
+
+    return Response.json({ jobDescription: job }, { status: 201 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to create job description.";
+    return Response.json({ error: message }, { status: 500 });
+  }
 }

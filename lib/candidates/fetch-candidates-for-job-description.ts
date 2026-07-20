@@ -1,26 +1,23 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import { queryCandidatesList } from "@/lib/candidates/candidates-list-query";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import type { QueryExecutor } from "@/lib/db/config/client";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 
 export type FetchCandidatesForJdResult = {
-  rows: CandidateDbRow[];
+  rows: CampaignAppliedAdminRow[];
   error: string | null;
 };
 
 /**
- * Loads all active candidates tied to this job description via job_openings.
- * Mirrors `GET /api/admin/candidates?jobDescriptionId=…&all=true`.
+ * Loads every application tied to this job. Mirrors
+ * `GET /api/admin/candidates?jobId=…&all=true`.
  */
 export async function fetchCandidatesForJobDescription(
-  supabase: SupabaseClient,
-  jobDescriptionId: number,
-  options?: { contactFieldsOnly?: boolean },
+  db: QueryExecutor,
+  jobId: string,
 ): Promise<FetchCandidatesForJdResult> {
-  const { candidates, error } = await queryCandidatesList(supabase, {
-    jobDescriptionId,
+  const { candidates, error } = await queryCandidatesList(db, {
+    jobId,
     all: true,
-    contactFieldsOnly: options?.contactFieldsOnly,
   });
 
   return { rows: candidates, error };

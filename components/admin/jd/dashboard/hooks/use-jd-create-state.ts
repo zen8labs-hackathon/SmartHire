@@ -1,10 +1,8 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useOverlayState } from "@heroui/react";
-import { createClient } from "@/lib/supabase/client";
 import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
-import { JD_BUCKET, MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
+import { MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
 import { useToast } from "@/components/admin/toast-provider";
 
 const DEFAULT_FORM: JobDescriptionFormData = {
@@ -24,11 +22,12 @@ const DEFAULT_FORM: JobDescriptionFormData = {
   hiring_deadline: "",
 };
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export function useJdCreateState(
   loadDescriptions: () => Promise<void>,
   allPipelineStages: readonly { id: string; label: string; code: string; color: string }[]
 ) {
-  const supabase = useMemo(() => createClient(), []);
   const jdFileInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -42,7 +41,8 @@ export function useJdCreateState(
 
   const [jdUploadPhase, setJdUploadPhase] = useState<"idle" | "uploading" | "extracting" | "done" | "error">("idle");
   const [jdUploadError, setJdUploadError] = useState<string | null>(null);
-  const [jdDraftJobOpeningId, setJdDraftJobOpeningId] = useState<string | null>(null);
+  const [jdDraftStoragePath, setJdDraftStoragePath] = useState<string | null>(null);
+  const [jdDraftMimeType, setJdDraftMimeType] = useState<string | null>(null);
   const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(null);
   const [jdDragOver, setJdDragOver] = useState(false);
 
@@ -57,26 +57,18 @@ export function useJdCreateState(
     return ids;
   }, [allPipelineStages]);
 
-  const authHeaders = useCallback(async () => {
-    const h = await getSessionAuthorizationHeaders(supabase);
-    return { "Content-Type": "application/json", ...h };
-  }, [supabase]);
-
-  const deleteJdDraftOnServer = useCallback(
-    async (jobOpeningId: string) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      await fetch(
-        `/api/admin/job-openings/sign-upload?jobOpeningId=${encodeURIComponent(jobOpeningId)}`,
-        { method: "DELETE", credentials: "include", headers: { ...h } },
-      );
-    },
-    [supabase],
-  );
+  const deleteJdDraftOnServer = useCallback(async (storagePath: string) => {
+    await fetch(
+      `/api/admin/job-openings/sign-upload?path=${encodeURIComponent(storagePath)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+  }, []);
 
   const resetUploadState = useCallback(() => {
     setJdUploadPhase("idle");
     setJdUploadError(null);
-    setJdDraftJobOpeningId(null);
+    setJdDraftStoragePath(null);
+    setJdDraftMimeType(null);
     setJdSelectedFileName(null);
     setJdDragOver(false);
     if (jdFileInputRef.current) jdFileInputRef.current.value = "";
@@ -126,44 +118,39 @@ export function useJdCreateState(
       }
       setJdUploadError(null);
       setJdUploadPhase("uploading");
-      let newJobId: string | undefined;
+      let newStoragePath: string | undefined;
       try {
-        const h = await getSessionAuthorizationHeaders(supabase);
-        if (!h.Authorization) {
-          const msg = "Session expired. Sign in again.";
-          setJdUploadError(msg);
-          setJdUploadPhase("error");
-          toast.error(msg);
-          return;
-        }
         const signRes = await fetch("/api/admin/job-openings/sign-upload", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", ...h },
+          headers: JSON_HEADERS,
           body: JSON.stringify({
             filename: file.name,
             mimeType: file.type || null,
-            replaceJobOpeningId: jdDraftJobOpeningId,
+            replacePath: jdDraftStoragePath,
           }),
         });
         const signJson = (await signRes.json()) as {
           error?: string;
-          jobOpeningId?: string;
           path?: string;
-          token?: string;
+          signedUrl?: string;
         };
-        if (!signRes.ok || !signJson.jobOpeningId || !signJson.path || !signJson.token) {
+        if (!signRes.ok || !signJson.path || !signJson.signedUrl) {
           throw new Error(signJson.error ?? "Could not start upload.");
         }
-        newJobId = signJson.jobOpeningId;
-        const { error: upErr } = await supabase.storage
-          .from(JD_BUCKET)
-          .uploadToSignedUrl(signJson.path, signJson.token, file, {
-            contentType: file.type || undefined,
-          });
-        if (upErr) throw new Error(upErr.message);
+        newStoragePath = signJson.path;
 
-        setJdDraftJobOpeningId(signJson.jobOpeningId);
+        const putRes = await fetch(signJson.signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: file.type ? { "Content-Type": file.type } : undefined,
+        });
+        if (!putRes.ok) {
+          throw new Error("Could not upload file to storage.");
+        }
+
+        setJdDraftStoragePath(signJson.path);
+        setJdDraftMimeType(file.type || null);
         setJdSelectedFileName(file.name);
         setJdUploadPhase("extracting");
         setJdUploadError(null);
@@ -172,8 +159,8 @@ export function useJdCreateState(
           const exRes = await fetch("/api/admin/job-descriptions/extract", {
             method: "POST",
             credentials: "include",
-            headers: { "Content-Type": "application/json", ...h },
-            body: JSON.stringify({ jobOpeningId: signJson.jobOpeningId }),
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ storagePath: signJson.path }),
           });
           const exJson = (await exRes.json()) as {
             error?: string;
@@ -199,41 +186,39 @@ export function useJdCreateState(
         setJdUploadError(msg);
         setJdUploadPhase("error");
         toast.error(`Upload failed: ${msg}`);
-        if (newJobId) {
-          await deleteJdDraftOnServer(newJobId);
-          setJdDraftJobOpeningId(null);
+        if (newStoragePath) {
+          await deleteJdDraftOnServer(newStoragePath);
+          setJdDraftStoragePath(null);
         }
       }
     },
-    [deleteJdDraftOnServer, jdDraftJobOpeningId, supabase, toast],
+    [deleteJdDraftOnServer, jdDraftStoragePath, toast],
   );
 
   const discardJdDraft = useCallback(async () => {
-    if (jdDraftJobOpeningId) await deleteJdDraftOnServer(jdDraftJobOpeningId);
+    if (jdDraftStoragePath) await deleteJdDraftOnServer(jdDraftStoragePath);
     resetUploadState();
     jdModal.close();
-  }, [deleteJdDraftOnServer, jdDraftJobOpeningId, jdModal, resetUploadState]);
+  }, [deleteJdDraftOnServer, jdDraftStoragePath, jdModal, resetUploadState]);
 
   const handleSave = useCallback(
-    async (asDraft: boolean) => {
+    async () => {
       setFormSubmitting(true);
       setFormError(null);
-      if (!jdDraftJobOpeningId) {
+      if (!jdDraftStoragePath) {
         const msg = "Attaching a JD document is required.";
         setFormError(msg);
         toast.error(msg);
         setFormSubmitting(false);
         return;
       }
-      if (!asDraft) {
-        const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
-        if (!form.start_date) fieldErrs.start_date = "Start date is required.";
-        if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
-        if (Object.keys(fieldErrs).length > 0) {
-          setCreateFieldErrors(fieldErrs);
-          setFormSubmitting(false);
-          return;
-        }
+      const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
+      if (!form.start_date) fieldErrs.start_date = "Start date is required.";
+      if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
+      if (Object.keys(fieldErrs).length > 0) {
+        setCreateFieldErrors(fieldErrs);
+        setFormSubmitting(false);
+        return;
       }
       const positionFromFile =
         jdSelectedFileName?.replace(/\.[^./\\]+$/i, "").trim().slice(0, 50) ||
@@ -243,34 +228,29 @@ export function useJdCreateState(
       const payload: JobDescriptionFormData = {
         ...form,
         position: resolvedPosition,
-        status: asDraft
-          ? "Pending"
-          : form.status === "Pending"
-            ? "Hiring"
-            : form.status,
+        status: form.status === "Pending" ? "Hiring" : form.status,
       };
-      const postBodyBase = jdDraftJobOpeningId
-        ? { ...payload, jdDraftJobOpeningId }
-        : payload;
       const postBody = {
-        ...postBodyBase,
+        ...payload,
+        jdStoragePath: jdDraftStoragePath,
+        jdOriginalFilename: jdSelectedFileName,
+        jdMimeType: jdDraftMimeType,
         viewerEmails: createViewerEmails,
         viewerChapterIds: createViewerChapterIds,
         pipelineStages: selectedStageIds,
       };
       try {
-        const headers = await authHeaders();
         const res = await fetch("/api/admin/job-descriptions", {
           method: "POST",
           credentials: "include",
-          headers,
+          headers: JSON_HEADERS,
           body: JSON.stringify(postBody),
         });
         const json = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(json.error ?? "Save failed.");
         jdModal.close();
         await loadDescriptions();
-        toast.success(asDraft ? "Draft saved successfully." : "Job description created successfully.");
+        toast.success("Job description created successfully.");
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error.";
         setFormError(msg);
@@ -280,11 +260,11 @@ export function useJdCreateState(
       }
     },
     [
-      authHeaders,
       createViewerChapterIds,
       createViewerEmails,
       form,
-      jdDraftJobOpeningId,
+      jdDraftMimeType,
+      jdDraftStoragePath,
       jdModal,
       jdSelectedFileName,
       loadDescriptions,

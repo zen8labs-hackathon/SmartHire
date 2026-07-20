@@ -1,7 +1,8 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
-import { extensionFromFilename, JD_BUCKET } from "@/lib/jd/upload-constants";
+import { extensionFromFilename } from "@/lib/jd/upload-constants";
+import { getPool } from "@/lib/db/config/client";
+import { getJobById, type JobRow } from "@/lib/db/jobs";
+import { downloadObject } from "@/lib/storage/s3";
 
 function mimeFromJdFilename(filename: string | null | undefined): string {
   const ext = filename ? extensionFromFilename(filename) : null;
@@ -12,7 +13,7 @@ function mimeFromJdFilename(filename: string | null | undefined): string {
   return "text/plain";
 }
 
-function structuredJdToText(row: Record<string, unknown>): string {
+function structuredJdToText(row: JobRow): string {
   const parts: string[] = [];
   const push = (label: string, v: unknown) => {
     if (typeof v === "string" && v.trim()) {
@@ -33,57 +34,33 @@ function structuredJdToText(row: Record<string, unknown>): string {
 }
 
 /**
- * Best-effort plain text for the job opening’s JD (structured row and/or uploaded file).
+ * Best-effort plain text for the job's JD (structured row and/or uploaded file).
  */
-export async function resolveJobDescriptionText(
-  supabase: SupabaseClient,
-  jobOpeningId: string,
-): Promise<string | null> {
-  const { data: jo, error } = await supabase
-    .from("job_openings")
-    .select(
-      "id, jd_storage_path, jd_original_filename, jd_mime_type, job_description_id",
-    )
-    .eq("id", jobOpeningId)
-    .maybeSingle();
-
-  if (error || !jo) {
-    return null;
-  }
+export async function resolveJobDescriptionText(jobId: string): Promise<string | null> {
+  const job = await getJobById(getPool(), jobId);
+  if (!job) return null;
 
   const chunks: string[] = [];
 
-  if (jo.job_description_id != null) {
-    const { data: jdRow } = await supabase
-      .from("job_descriptions")
-      .select(
-        "position, department, employment_status, work_location, reporting, role_overview, duties_and_responsibilities, experience_requirements_must_have, experience_requirements_nice_to_have, what_we_offer",
-      )
-      .eq("id", jo.job_description_id)
-      .maybeSingle();
-
-    if (jdRow) {
-      const t = structuredJdToText(jdRow as Record<string, unknown>);
-      if (t) chunks.push(t);
-    }
+  const structuredText = structuredJdToText(job);
+  if (structuredText) {
+    chunks.push(structuredText);
   }
 
-  if (jo.jd_storage_path) {
-    const { data: blob, error: dlErr } = await supabase.storage
-      .from(JD_BUCKET)
-      .download(jo.jd_storage_path);
-
-    if (!dlErr && blob) {
-      const ab = await blob.arrayBuffer();
-      const buf = Buffer.from(ab);
+  if (job.jd_storage_path) {
+    try {
+      const buf = await downloadObject(job.jd_storage_path);
       const mime =
-        typeof jo.jd_mime_type === "string" && jo.jd_mime_type.trim()
-          ? jo.jd_mime_type
-          : mimeFromJdFilename(jo.jd_original_filename as string | null);
+        job.jd_mime_type?.trim()
+          ? job.jd_mime_type
+          : mimeFromJdFilename(job.jd_original_filename);
+
       const raw = await extractTextFromBuffer(buf, mime);
       if (raw.trim()) {
         chunks.push(raw.trim());
       }
+    } catch {
+      // Best-effort download/extract; fall back to structured text
     }
   }
 

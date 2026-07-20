@@ -28,24 +28,23 @@ import {
   today,
   getLocalTimeZone,
   type CalendarDate,
-  type CalendarDateTime,
 } from "@internationalized/date";
 import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
 
-import { PipelineStatusLabel } from "@/components/admin/candidates/pipeline-status-label";
 import { useToast } from "@/components/admin/toast-provider";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
 import {
-  OnboardingDatesModal,
+  InterviewScheduleModal,
   DeleteCandidateModal,
   EditCandidateModal,
+  RationaleModal,
 } from "@/components/admin/jd/jd-pipeline-modals";
 import {
-  type CandidateDbRow,
-  candidateDbRowToTableRow,
-} from "@/lib/candidates/db-row";
+  campaignAppliedAdminRowToTableRow,
+  type JdPipelineApplicationRow,
+} from "@/lib/candidates/campaign-applied-table-row";
 import { isEligibleForBulkMoveToInterview } from "@/lib/candidates/pipeline-phase";
 import {
   type StageMapping,
@@ -53,21 +52,16 @@ import {
 } from "@/lib/pipelines/transition-validator";
 import {
   buildPipelineStageSubStageFilterOptions,
-  countByStageMappingId,
   type PipelineStageSubStageFilterOption,
 } from "@/lib/pipelines/jd-pipeline-filter-options";
 import {
-  calendarDateTimeToIso,
   findFailSubStage,
-  isoToCalendarDateTime,
-  localDatetimeToIso,
   resolveRowPipeline,
-  rowMatchesSearch,
-  rowMatchesUploadDateRange,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
-import { createClient } from "@/lib/supabase/client";
-import { getSessionAuthorizationHeaders } from "@/lib/supabase/session-auth-headers";
-import { buildCandidatesListSearchParams } from "@/lib/candidates/candidates-list-query";
+import {
+  buildCandidatesListSearchParams,
+  type CandidatesListSortColumn,
+} from "@/lib/candidates/candidates-list-query";
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 1, label: "Jan" },
@@ -88,10 +82,18 @@ const YEAR_OPTIONS = Array.from(
   (_, i) => 1990 + i,
 );
 
+/** Shape of `/api/admin/job-descriptions/[id]/candidate-status-counts`'s `counts` entries. */
+type StageCount = {
+  stage_code: string;
+  stage_label: string;
+  sub_stage_code: string;
+  sub_stage_label: string;
+  count: number;
+};
+
 type Props = {
-  jobDescriptionId: number;
   jobId: string;
-  dbRows: CandidateDbRow[];
+  dbRows: JdPipelineApplicationRow[];
   loadState: "idle" | "loading" | "error" | "ok";
   onRefetch: (silent?: boolean) => void;
   /** HR may change pipeline status and schedule; chapter recruiters are view-only here. */
@@ -103,7 +105,6 @@ type Props = {
 };
 
 export function JdAppliedCandidatesPipeline({
-  jobDescriptionId,
   jobId,
   dbRows,
   loadState,
@@ -114,10 +115,9 @@ export function JdAppliedCandidatesPipeline({
   canAddCandidates = false,
   onAddCandidates,
 }: Props) {
-  const supabase = useMemo(() => createClient(), []);
-
   const resolveRow = useCallback(
-    (r: CandidateDbRow) => resolveRowPipeline(r, stageMappings, subStages),
+    (r: JdPipelineApplicationRow) =>
+      resolveRowPipeline(r, stageMappings, subStages),
     [stageMappings, subStages],
   );
 
@@ -190,11 +190,10 @@ export function JdAppliedCandidatesPipeline({
   const toast = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pipelineBusy, setPipelineBusy] = useState(false);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [rowUpdating, setRowUpdating] = useState<string | null>(null);
 
   const [rowPendingDelete, setRowPendingDelete] =
-    useState<CandidateDbRow | null>(null);
+    useState<JdPipelineApplicationRow | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -207,15 +206,48 @@ export function JdAppliedCandidatesPipeline({
     },
   });
 
-  const [rowPendingEdit, setRowPendingEdit] = useState<CandidateDbRow | null>(
-    null,
-  );
+  const [rowPendingEdit, setRowPendingEdit] =
+    useState<JdPipelineApplicationRow | null>(null);
 
   const editModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) setRowPendingEdit(null);
     },
   });
+
+  const [rowPendingSchedule, setRowPendingSchedule] =
+    useState<JdPipelineApplicationRow | null>(null);
+
+  const scheduleModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingSchedule(null);
+    },
+  });
+
+  const openSchedule = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setRowPendingSchedule(r);
+      scheduleModal.open();
+    },
+    [scheduleModal],
+  );
+
+  const [rowPendingRationale, setRowPendingRationale] =
+    useState<JdPipelineApplicationRow | null>(null);
+
+  const rationaleModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingRationale(null);
+    },
+  });
+
+  const openRationale = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setRowPendingRationale(r);
+      rationaleModal.open();
+    },
+    [rationaleModal],
+  );
 
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 350);
@@ -227,28 +259,15 @@ export function JdAppliedCandidatesPipeline({
     );
   const [uploadDateRange, setUploadDateRange] =
     useState<RangeValue<CalendarDate> | null>(null);
+  const [sortDescriptor, setSortDescriptor] = useState<{
+    column: CandidatesListSortColumn;
+    direction: "ascending" | "descending";
+  } | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
     () => today(getLocalTimeZone()),
   );
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
-
-  const [onboardingDrafts, setOnboardingDrafts] = useState<
-    Record<string, string>
-  >({});
-
-  const [interviewDrafts, setInterviewDrafts] = useState<
-    Record<string, CalendarDateTime | null>
-  >({});
-
-  const offerModal = useOverlayState({
-    onOpenChange: (open) => {
-      if (!open) {
-        setOnboardingDrafts({});
-        setPipelineError(null);
-      }
-    },
-  });
 
   const [pageSize, setPageSize] = useState(10);
 
@@ -270,7 +289,7 @@ export function JdAppliedCandidatesPipeline({
       return;
     }
     setPage(1);
-  }, [debouncedQuery, statusFilter, uploadDateRange]);
+  }, [debouncedQuery, statusFilter, uploadDateRange, sortDescriptor]);
 
   // If the selected filter's stage/sub-stage was removed by a JD pipeline
   // edit (stale composite id), reset to "all" instead of silently showing
@@ -288,43 +307,80 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [uploadDateRange]);
 
-  // Stage-count summary row: derived from the full `dbRows` (all=true, every
-  // candidate for this JD) fetch, filtered by search/date only — not by the
-  // stage/sub-stage filter itself, so selecting one stage doesn't zero out
-  // every other stage's card.
-  const statsSourceRows = useMemo(() => {
-    let rows = dbRows;
-    if (debouncedQuery.trim()) {
-      rows = rows.filter((r) => rowMatchesSearch(r, debouncedQuery));
+  // Stage-count summary row: the `dbRows` full-list fetch caps out at 200
+  // rows server-side (see `CANDIDATES_LIST_MAX_ALL`/`MAX_LIST_LIMIT`), so
+  // deriving stat-card totals from it silently under-counts any job with
+  // more applicants than that. These come from a dedicated `COUNT(*)`
+  // endpoint instead, scoped to the whole job (not the search/date filters,
+  // which only affect the table itself) so the numbers always match the
+  // database regardless of how many rows happen to be loaded client-side.
+  const [statusCounts, setStatusCounts] = useState<StageCount[]>([]);
+  const [totalCandidates, setTotalCandidates] = useState(0);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/admin/job-descriptions/${jobId}/candidate-status-counts`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        counts?: StageCount[];
+        total?: number;
+      };
+      setStatusCounts(json.counts ?? []);
+      setTotalCandidates(json.total ?? 0);
+    } catch {
+      // Stat cards are non-critical; keep the last-known counts on failure.
     }
-    rows = rows.filter((r) => rowMatchesUploadDateRange(r, uploadDateRange));
-    return rows;
-  }, [dbRows, debouncedQuery, uploadDateRange]);
+  }, [jobId]);
 
-  const stageMappingCounts = useMemo(
-    () =>
-      countByStageMappingId(
-        statsSourceRows.map((r) => resolveRow(r).stageMappingId),
-        stageMappings,
-      ),
-    [statsSourceRows, resolveRow, stageMappings],
-  );
+  // Re-synced whenever the parent's full-list fetch resolves with a new
+  // `dbRows` reference (i.e. after any mutation via `onRefetch`), so the
+  // cards don't go stale after a status change/delete/add.
+  useEffect(() => {
+    void fetchStats();
+  }, [fetchStats, dbRows]);
 
-  // The rendered table is its own backend-paginated query (scoped by
-  // jobDescriptionId + the same filters, including the stage/sub-stage
-  // filter), independent of the `dbRows` full fetch used for stats above.
-  const [pageRows, setPageRows] = useState<CandidateDbRow[]>([]);
+  const stageMappingCounts = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const sm of stageMappings) {
+      const code = (sm.pipeline_stages?.code ?? "").toLowerCase();
+      totals[sm.id] = statusCounts
+        .filter((c) => c.stage_code.toLowerCase() === code)
+        .reduce((sum, c) => sum + c.count, 0);
+    }
+    return totals;
+  }, [statusCounts, stageMappings]);
+
+  // The rendered table is its own backend-paginated query (scoped by jobId +
+  // the same filters, including the stage/sub-stage filter), independent of
+  // the `dbRows` full fetch used for stats above.
+  const [pageRows, setPageRows] = useState<JdPipelineApplicationRow[]>([]);
   const [pageTotal, setPageTotal] = useState(0);
   const [pageLoadState, setPageLoadState] = useState<
     "loading" | "error" | "ok"
   >("loading");
 
+  /**
+   * Every mutation handler below already calls `fetchPage()` directly after
+   * its own `onRefetch(...)` -- so a `dbRows` dependency here (to re-fire via
+   * the effect below once the parent's full-list refetch resolves) was pure
+   * redundancy: two unsequenced requests per mutation, no `AbortController`,
+   * so whichever response happened to land last won, sometimes clobbering a
+   * fresher page with a stale one (the likely source of transient/duplicate
+   * rows in the table). `fetchPageSeqRef` guards what's left of that race --
+   * concurrent calls from fast repeated clicks -- by dropping any response
+   * that isn't from the most recently *issued* request.
+   */
+  const fetchPageSeqRef = useRef(0);
+
   const fetchPage = useCallback(async () => {
+    const seq = ++fetchPageSeqRef.current;
     setPageLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const params = buildCandidatesListSearchParams({
-        jobDescriptionId,
+        jobId,
         limit: pageSize,
         offset: (page - 1) * pageSize,
         q: debouncedQuery.trim() || undefined,
@@ -332,34 +388,40 @@ export function JdAppliedCandidatesPipeline({
         uploadTo: uploadDateRange?.end.toString(),
         stageMappingId: selectedFilterOption?.stageMapping.id,
         subStateId: selectedFilterOption?.subStage.id,
-        legacyStatus: selectedFilterOption?.legacyStatus ?? undefined,
-        contactFieldsOnly: true,
+        sortBy: sortDescriptor?.column,
+        sortDir: sortDescriptor
+          ? sortDescriptor.direction === "ascending"
+            ? "asc"
+            : "desc"
+          : undefined,
       });
       const res = await fetch(`/api/admin/candidates?${params}`, {
         credentials: "include",
-        headers: { ...h },
+        cache: "no-store",
       });
+      if (seq !== fetchPageSeqRef.current) return;
       if (!res.ok) {
         setPageLoadState("error");
         return;
       }
       const json = (await res.json()) as {
-        candidates?: CandidateDbRow[];
+        candidates?: JdPipelineApplicationRow[];
         pagination?: { total: number };
       };
+      if (seq !== fetchPageSeqRef.current) return;
       setPageRows(json.candidates ?? []);
       setPageTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
       setPageLoadState("ok");
     } catch {
-      setPageLoadState("error");
+      if (seq === fetchPageSeqRef.current) setPageLoadState("error");
     }
   }, [
-    supabase,
-    jobDescriptionId,
+    jobId,
     page,
     debouncedQuery,
     uploadDateRange,
     selectedFilterOption,
+    sortDescriptor,
     pageSize,
   ]);
 
@@ -372,13 +434,9 @@ export function JdAppliedCandidatesPipeline({
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch(`/api/admin/candidates/${rowPendingDelete.id}`, {
         method: "DELETE",
         credentials: "include",
-        headers: {
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
       });
       if (!res.ok) {
         const json = (await res.json()) as { error?: string };
@@ -396,7 +454,7 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setDeleteBusy(false);
     }
-  }, [rowPendingDelete, deleteModal, onRefetch, supabase, toast, fetchPage]);
+  }, [rowPendingDelete, deleteModal, onRefetch, toast, fetchPage]);
 
   const paginatedRows = pageRows;
   const totalPages = Math.max(1, Math.ceil(pageTotal / pageSize));
@@ -424,26 +482,22 @@ export function JdAppliedCandidatesPipeline({
 
   const postPipeline = useCallback(
     async (updates: unknown[]) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
       const res = await fetch("/api/admin/candidates/pipeline", {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
-        body: JSON.stringify({ jobDescriptionId, updates }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, updates }),
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Update failed.");
     },
-    [jobDescriptionId, supabase],
+    [jobId],
   );
 
   const selectedRows = useMemo(() => {
     return [...selected]
       .map((id) => dbRows.find((r) => r.id === id))
-      .filter(Boolean) as CandidateDbRow[];
+      .filter(Boolean) as JdPipelineApplicationRow[];
   }, [selected, dbRows]);
 
   const bulkInterviewEligible = useMemo(
@@ -484,76 +538,35 @@ export function JdAppliedCandidatesPipeline({
     [selectedRows, resolveRow, stageMappings, subStages],
   );
 
-  const openOfferModal = useCallback(() => {
-    const ids = selectedRows
-      .filter((r) => {
-        const { stageMapping, subStage } = resolveRow(r);
-        return (
-          (stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
-            "interview" && subStage?.is_passed === true
-        );
-      })
-      .map((r) => r.id);
-    if (ids.length === 0) return;
-    const drafts: Record<string, string> = {};
-    for (const id of ids) drafts[id] = "";
-    setOnboardingDrafts(drafts);
-    offerModal.open();
-  }, [selectedRows, offerModal, resolveRow]);
-
-  const confirmOffer = useCallback(async () => {
+  const moveSelectedToOffer = useCallback(async () => {
+    if (!bulkOfferEligible) return;
     if (!offerStageMapping || !offerDefaultSubStage) {
-      setPipelineError("Offer stage is not configured for this job.");
+      toast.error("Offer stage is not configured for this job.");
       return;
     }
-    const entries = Object.entries(onboardingDrafts);
-    for (const [, v] of entries) {
-      if (!v?.trim()) {
-        setPipelineError(
-          "Please set onboarding date and time for every candidate.",
-        );
-        return;
-      }
-    }
-    const updates: {
-      id: string;
-      current_job_stage_mapping_id: string;
-      current_sub_state_id: string;
-      onboarding_at: string;
-    }[] = [];
-    for (const [id, local] of entries) {
-      const iso = localDatetimeToIso(local);
-      if (!iso) {
-        setPipelineError("One or more onboarding times are invalid.");
-        return;
-      }
-      updates.push({
-        id,
-        current_job_stage_mapping_id: offerStageMapping.id,
-        current_sub_state_id: offerDefaultSubStage.id,
-        onboarding_at: iso,
-      });
-    }
-    setPipelineError(null);
     setPipelineBusy(true);
     try {
-      await postPipeline(updates);
-      offerModal.close();
+      await postPipeline(
+        selectedRows.map((r) => ({
+          id: r.id,
+          current_job_stage_mapping_id: offerStageMapping.id,
+          current_sub_state_id: offerDefaultSubStage.id,
+        })),
+      );
       onRefetch(true);
       void fetchPage();
-      toast.success("Offer confirmed for selected candidates.");
+      toast.success("Selected candidates moved to Offer.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
     }
   }, [
-    onboardingDrafts,
-    offerModal,
+    bulkOfferEligible,
     onRefetch,
     postPipeline,
+    selectedRows,
     offerStageMapping,
     offerDefaultSubStage,
     fetchPage,
@@ -563,11 +576,10 @@ export function JdAppliedCandidatesPipeline({
   const moveSelectedToInterview = useCallback(async () => {
     if (!bulkInterviewEligible) return;
     if (!interviewStageMapping || !interviewDefaultSubStage) {
-      setPipelineError("Interview stage is not configured for this job.");
+      toast.error("Interview stage is not configured for this job.");
       return;
     }
     setPipelineBusy(true);
-    setPipelineError(null);
     try {
       await postPipeline(
         selectedRows.map((r) => ({
@@ -581,7 +593,6 @@ export function JdAppliedCandidatesPipeline({
       toast.success("Selected candidates moved to Interview.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
@@ -600,7 +611,6 @@ export function JdAppliedCandidatesPipeline({
   const markSelectedFailed = useCallback(async () => {
     if (!bulkFailEligible) return;
     setPipelineBusy(true);
-    setPipelineError(null);
     try {
       const updates = selectedRows.map((r) => {
         const { stageMappingId } = resolveRow(r);
@@ -626,7 +636,6 @@ export function JdAppliedCandidatesPipeline({
       toast.success("Selected candidates marked as failed.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Update failed.";
-      setPipelineError(message);
       toast.error(message);
     } finally {
       setPipelineBusy(false);
@@ -643,13 +652,57 @@ export function JdAppliedCandidatesPipeline({
     fetchPage,
   ]);
 
+  /**
+   * `runJdMatchForCandidate` (called per id server-side) already self-guards
+   * via its own CAS lock. Completed scores are preserved, while genuinely
+   * ineligible rows (e.g. parsing not done) also come back as skipped.
+   */
+  const runJdMatchForSelected = useCallback(async () => {
+    if (selectedRows.length === 0) return;
+    setPipelineBusy(true);
+    try {
+      const res = await fetch("/api/admin/candidates/jd-match/bulk", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: selectedRows.map((r) => r.id),
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        results?: {
+          id: string;
+          ok: boolean;
+          skipped?: boolean;
+          score?: number;
+        }[];
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "AI JD-match run failed.");
+      }
+      const results = json.results ?? [];
+      const scored = results.filter((r) => r.ok && !r.skipped).length;
+      const skipped = results.filter((r) => r.ok && r.skipped).length;
+      const failed = results.filter((r) => !r.ok).length;
+      onRefetch(true);
+      void fetchPage();
+      toast.success(`${scored} scored, ${skipped} skipped, ${failed} failed.`);
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "AI JD-match run failed.";
+      toast.error(message);
+    } finally {
+      setPipelineBusy(false);
+    }
+  }, [selectedRows, onRefetch, fetchPage, toast]);
+
   const onStatusChange = useCallback(
     async (
       id: string,
       next: { toStageMappingId: string; toSubStateId: string },
     ) => {
       setRowUpdating(id);
-      setPipelineError(null);
       try {
         await postPipeline([
           {
@@ -663,7 +716,6 @@ export function JdAppliedCandidatesPipeline({
         toast.success("Candidate status updated.");
       } catch (e) {
         const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
         toast.error(message);
       } finally {
         setRowUpdating(null);
@@ -672,90 +724,36 @@ export function JdAppliedCandidatesPipeline({
     [onRefetch, postPipeline, fetchPage, toast],
   );
 
-  const patchTimeline = useCallback(
-    async (
-      id: string,
-      body: { interview_at?: string | null; onboarding_at?: string | null },
-    ) => {
-      const h = await getSessionAuthorizationHeaders(supabase);
-      const res = await fetch(`/api/admin/candidates/${id}/timeline`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(h.Authorization ? { Authorization: h.Authorization } : {}),
-        },
-        body: JSON.stringify({ jobDescriptionId, ...body }),
-      });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Update failed.");
-    },
-    [jobDescriptionId, supabase],
-  );
-
-  const saveInterviewTime = useCallback(
-    async (id: string, value: CalendarDateTime | null) => {
-      setPipelineError(null);
-      setRowUpdating(id);
+  const retryParsing = useCallback(
+    async (row: JdPipelineApplicationRow) => {
+      setRowUpdating(row.id);
       try {
-        const iso = calendarDateTimeToIso(value);
-        await patchTimeline(id, { interview_at: iso });
+        const response = await fetch(
+          `/api/admin/candidates/${row.id}/process`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ runJdMatch: true }),
+          },
+        );
+        const json = (await response.json()) as { error?: string };
+        if (!response.ok) {
+          throw new Error(json.error ?? "CV processing retry failed.");
+        }
         onRefetch(true);
-        void fetchPage();
-        toast.success("Interview time saved.");
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
-        toast.error(message);
+        await fetchPage();
+        toast.success("CV processed successfully.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "CV processing retry failed.",
+        );
       } finally {
         setRowUpdating(null);
       }
     },
-    [onRefetch, patchTimeline, fetchPage, toast],
+    [fetchPage, onRefetch, toast],
   );
-
-  const saveOnboardingTime = useCallback(
-    async (id: string, value: CalendarDateTime | null) => {
-      setPipelineError(null);
-      setRowUpdating(id);
-      try {
-        const iso = calendarDateTimeToIso(value);
-        await patchTimeline(id, { onboarding_at: iso });
-        onRefetch(true);
-        void fetchPage();
-        toast.success("Onboarding time saved.");
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Update failed.";
-        setPipelineError(message);
-        toast.error(message);
-      } finally {
-        setRowUpdating(null);
-      }
-    },
-    [onRefetch, patchTimeline, fetchPage, toast],
-  );
-
-  useEffect(() => {
-    setInterviewDrafts((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const r of dbRows) {
-        if (
-          (r.status === "Interview" || r.status === "InterviewPassed") &&
-          next[r.id] === undefined
-        ) {
-          next[r.id] = isoToCalendarDateTime(r.interview_at);
-          changed = true;
-        }
-        const obKey = `ob-${r.id}`;
-        if (r.status === "Offer" && next[obKey] === undefined) {
-          next[obKey] = isoToCalendarDateTime(r.onboarding_at);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [dbRows]);
 
   const filtersElement = (
     <Select
@@ -773,20 +771,10 @@ export function JdAppliedCandidatesPipeline({
     >
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {statusFilter !== "all" && selectedFilterOption ? (
-          selectedFilterOption.legacyStatus ? (
-            <PipelineStatusLabel
-              status={selectedFilterOption.legacyStatus}
-              variant="inline"
-              uppercase={false}
-              stageMappings={stageMappings}
-              subStages={subStages}
-            />
-          ) : (
-            <PipelineStageSubStageInlineLabel
-              stageMapping={selectedFilterOption.stageMapping}
-              subStage={selectedFilterOption.subStage}
-            />
-          )
+          <PipelineStageSubStageInlineLabel
+            stageMapping={selectedFilterOption.stageMapping}
+            subStage={selectedFilterOption.subStage}
+          />
         ) : (
           <Select.Value />
         )}
@@ -809,20 +797,10 @@ export function JdAppliedCandidatesPipeline({
               textValue={`${opt.stageMapping.pipeline_stages?.label ?? opt.stageMapping.pipeline_stages?.code} - ${opt.subStage.label}`}
               className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
             >
-              {opt.legacyStatus ? (
-                <PipelineStatusLabel
-                  status={opt.legacyStatus}
-                  variant="inline"
-                  uppercase={false}
-                  stageMappings={stageMappings}
-                  subStages={subStages}
-                />
-              ) : (
-                <PipelineStageSubStageInlineLabel
-                  stageMapping={opt.stageMapping}
-                  subStage={opt.subStage}
-                />
-              )}
+              <PipelineStageSubStageInlineLabel
+                stageMapping={opt.stageMapping}
+                subStage={opt.subStage}
+              />
               <ListBox.ItemIndicator />
             </ListBox.Item>
           ))}
@@ -961,7 +939,7 @@ export function JdAppliedCandidatesPipeline({
           <Button
             size="sm"
             variant="primary"
-            className="bg-accent text-white"
+            className="bg-accent text-accent-foreground"
             isDisabled={
               !canEditPipeline || pipelineBusy || !bulkInterviewEligible
             }
@@ -972,11 +950,11 @@ export function JdAppliedCandidatesPipeline({
           <Button
             size="sm"
             variant="primary"
-            className="bg-accent text-white"
+            className="bg-accent text-accent-foreground"
             isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
-            onPress={openOfferModal}
+            onPress={() => void moveSelectedToOffer()}
           >
-            Move to offer…
+            Move to offer
           </Button>
           <Button
             size="sm"
@@ -987,6 +965,15 @@ export function JdAppliedCandidatesPipeline({
           >
             Mark failed
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="border border-divider bg-surface-primary"
+            isDisabled={!canEditPipeline || pipelineBusy}
+            onPress={() => void runJdMatchForSelected()}
+          >
+            Run AI JD Match
+          </Button>
         </div>
       </div>
     ) : null;
@@ -994,7 +981,7 @@ export function JdAppliedCandidatesPipeline({
   const pipelineStats = [
     {
       label: "Total Candidates",
-      value: dbRows.length,
+      value: totalCandidates,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
       description: "Applied to opening",
     },
@@ -1013,14 +1000,12 @@ export function JdAppliedCandidatesPipeline({
 
   return (
     <div className="mt-3 flex flex-col gap-4">
-      {pipelineError ? (
-        <p className="text-sm text-danger">{pipelineError}</p>
-      ) : null}
+      <DataTableStats stats={pipelineStats} />
 
       <DataTableToolbar
         searchQuery={query}
         onSearchChange={setQuery}
-        searchPlaceholder="Search by name, role, school, or degree…"
+        searchPlaceholder="Search by name or school…"
         filters={filtersElement}
         dateRange={dateRangeElement}
         onRefresh={() => {
@@ -1030,6 +1015,7 @@ export function JdAppliedCandidatesPipeline({
         isRefreshing={loadState === "loading" || pageLoadState === "loading"}
         actions={
           <Button
+            isDisabled={true}
             variant="outline"
             className="h-9 px-3.5 rounded-xl border border-divider hover:bg-surface-secondary text-foreground font-semibold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer text-xs"
           >
@@ -1043,13 +1029,22 @@ export function JdAppliedCandidatesPipeline({
 
       {bulkActionsElement}
 
-      <DataTableStats stats={pipelineStats} />
-
       <Table>
         <Table.ScrollContainer>
           <Table.Content
             aria-label="Candidates for this job description"
             className="min-w-[900px]"
+            sortDescriptor={sortDescriptor ?? undefined}
+            onSortChange={(next) =>
+              setSortDescriptor(
+                next.column
+                  ? {
+                      column: next.column as CandidatesListSortColumn,
+                      direction: next.direction,
+                    }
+                  : null,
+              )
+            }
           >
             <Table.Header>
               <Table.Column className="w-10" textValue="Select">
@@ -1090,15 +1085,55 @@ export function JdAppliedCandidatesPipeline({
                 })()}
               </Table.Column>
               <Table.Column isRowHeader>Candidate &amp; Role</Table.Column>
-              <Table.Column className="text-center">Exp.</Table.Column>
+              <Table.Column
+                id="experience"
+                allowsSorting
+                className="text-center"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "experience"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  Exp.
+                </Table.SortableColumnHeader>
+              </Table.Column>
               <Table.Column>Education</Table.Column>
-              <Table.Column className="text-center">JD match</Table.Column>
+              <Table.Column
+                id="jdMatchScore"
+                allowsSorting
+                className="text-center"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "jdMatchScore"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  JD match
+                </Table.SortableColumnHeader>
+              </Table.Column>
               <Table.Column>Pipeline</Table.Column>
-              <Table.Column className="whitespace-nowrap">
-                Uploaded at
+              <Table.Column
+                id="uploadDate"
+                allowsSorting
+                className="whitespace-nowrap"
+              >
+                <Table.SortableColumnHeader
+                  sortDirection={
+                    sortDescriptor?.column === "uploadDate"
+                      ? sortDescriptor.direction
+                      : undefined
+                  }
+                >
+                  Uploaded at
+                </Table.SortableColumnHeader>
               </Table.Column>
               <Table.Column>Schedule</Table.Column>
-              <Table.Column className="text-center w-[110px]">
+              <Table.Column className="text-center w-[140px]">
                 Action
               </Table.Column>
             </Table.Header>
@@ -1167,10 +1202,9 @@ export function JdAppliedCandidatesPipeline({
                     subStages={subStages}
                     offerStageSubStateIds={offerStageSubStateIds}
                     onStatusChange={onStatusChange}
-                    interviewDrafts={interviewDrafts}
-                    setInterviewDrafts={setInterviewDrafts}
-                    saveInterviewTime={saveInterviewTime}
-                    saveOnboardingTime={saveOnboardingTime}
+                    onRetryParsing={retryParsing}
+                    onOpenSchedule={openSchedule}
+                    onOpenRationale={openRationale}
                     setRowPendingEdit={setRowPendingEdit}
                     openEditModal={editModal.open}
                     setRowPendingDelete={setRowPendingDelete}
@@ -1203,16 +1237,22 @@ export function JdAppliedCandidatesPipeline({
         </p>
       ) : null}
 
-      <OnboardingDatesModal
-        isOpen={offerModal.isOpen}
-        onOpenChange={offerModal.setOpen}
-        onboardingDrafts={onboardingDrafts}
-        setOnboardingDrafts={setOnboardingDrafts}
-        dbRows={dbRows}
-        pipelineError={pipelineError}
-        pipelineBusy={pipelineBusy}
-        onCancel={offerModal.close}
-        onConfirm={() => void confirmOffer()}
+      <RationaleModal
+        isOpen={rationaleModal.isOpen}
+        onOpenChange={rationaleModal.setOpen}
+        row={rowPendingRationale}
+      />
+
+      <InterviewScheduleModal
+        isOpen={scheduleModal.isOpen}
+        onOpenChange={scheduleModal.setOpen}
+        row={rowPendingSchedule}
+        canEdit={canEditPipeline}
+        onSaved={() => {
+          onRefetch(true);
+          void fetchPage();
+          toast.success("Interview schedule saved.");
+        }}
       />
 
       <DeleteCandidateModal
@@ -1220,7 +1260,7 @@ export function JdAppliedCandidatesPipeline({
         onOpenChange={deleteModal.setOpen}
         candidateName={
           rowPendingDelete
-            ? candidateDbRowToTableRow(rowPendingDelete).name
+            ? campaignAppliedAdminRowToTableRow(rowPendingDelete).name
             : null
         }
         deleteError={deleteError}
@@ -1232,7 +1272,14 @@ export function JdAppliedCandidatesPipeline({
       <EditCandidateModal
         isOpen={editModal.isOpen}
         onOpenChange={editModal.setOpen}
-        row={rowPendingEdit}
+        row={
+          rowPendingEdit
+            ? {
+                id: rowPendingEdit.id,
+                name: campaignAppliedAdminRowToTableRow(rowPendingEdit).name,
+              }
+            : null
+        }
         canEdit={!!canEditPipeline}
         onSaved={() => {
           editModal.close();

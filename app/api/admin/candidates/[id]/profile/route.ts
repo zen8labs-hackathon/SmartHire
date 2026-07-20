@@ -1,42 +1,27 @@
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
-import { ADMIN_CANDIDATES_SELECT } from "@/lib/candidates/admin-select";
+import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
+import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
+import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
 import {
   candidateProfilePatchSchema,
   mergeProfileIntoParsedPayload,
   patchInputToMergeFields,
 } from "@/lib/candidates/candidate-profile-patch";
-import {
-  CV_DETAIL_SNAPSHOT_SELECT,
-  snapshotFromCandidateRow,
-} from "@/lib/candidates/cv-detail-version-snapshot";
-import {
-  isMissingCvDetailVersionColumn,
-  isMissingCvVersionEventsTable,
-  versioningMigrationRequiredResponse,
-} from "@/lib/candidates/cv-versioning-schema-guard";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { enrichCandidatesWithJobOpenings } from "@/lib/candidates/enrich-candidates-job-openings";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-type CandidateProfileExistingRow = {
-  id: string;
-  is_active: boolean;
-  cv_detail_version: number | null;
-  parsed_payload: unknown;
-  source?: string | null;
-  source_other?: string | null;
-};
-
 export async function PATCH(request: Request, { params }: RouteContext) {
   const auth = await requireAdminForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { id: candidateId } = await params;
-  if (!candidateId || !UUID_RE.test(candidateId)) {
+  const { id: campaignAppliedId } = await params;
+  if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
@@ -56,50 +41,32 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const patch = parsed.data;
-  const changeSummary =
-    patch.change_summary !== undefined ? patch.change_summary : null;
+  const db = getPool();
 
-  const loadSelect = [
-    "id",
-    "is_active",
-    "cv_detail_version",
-    CV_DETAIL_SNAPSHOT_SELECT,
-  ].join(", ");
-
-  const { data: existing, error: loadError } = await auth.supabase
-    .from("candidates")
-    .select(loadSelect)
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (loadError) {
-    if (isMissingCvDetailVersionColumn(loadError)) {
-      return versioningMigrationRequiredResponse();
-    }
-    return Response.json({ error: loadError.message }, { status: 500 });
-  }
-  if (!existing) {
-    return Response.json({ error: "Not found." }, { status: 404 });
+  const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!campaignApplied) {
+    return Response.json({ error: "Application not found." }, { status: 404 });
   }
 
-  const ex = existing as unknown as CandidateProfileExistingRow;
-
-  if (!ex.is_active) {
-    return Response.json(
-      { error: "Archived candidate cannot be updated." },
-      { status: 409 },
-    );
+  if (!campaignApplied.active_cv_version_id) {
+    return Response.json({ error: "No CV file on record." }, { status: 404 });
   }
 
-  const nextSource =
-    patch.source !== undefined ? patch.source : String(ex.source ?? "Other");
-  const existingOther = ex.source_other;
-  const nextSourceOther =
-    patch.source_other !== undefined ? patch.source_other : existingOther;
+  const cvVersion = await getCvDetailVersionById(db, campaignApplied.active_cv_version_id);
+  if (!cvVersion) {
+    return Response.json({ error: "Active CV version not found." }, { status: 404 });
+  }
+
+  const candidate = await getCandidateById(db, campaignApplied.candidate_id);
+  if (!candidate) {
+    return Response.json({ error: "Candidate not found." }, { status: 404 });
+  }
+
+  const nextSource = patch.source !== undefined ? patch.source : campaignApplied.source;
+  const nextSourceOther = patch.source_other !== undefined ? patch.source_other : campaignApplied.source_other;
 
   if (nextSource === "Other") {
-    const detail =
-      typeof nextSourceOther === "string" ? nextSourceOther.trim() : "";
+    const detail = typeof nextSourceOther === "string" ? nextSourceOther.trim() : "";
     if (!detail) {
       return Response.json(
         {
@@ -111,104 +78,87 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
   }
 
-  const rowUpdate: Record<string, unknown> = {};
-  if (patch.name !== undefined) rowUpdate.name = patch.name;
-  if (patch.role !== undefined) rowUpdate.role = patch.role;
-  if (patch.degree !== undefined) rowUpdate.degree = patch.degree;
-  if (patch.school !== undefined) rowUpdate.school = patch.school;
-  if (patch.experience_years !== undefined) {
-    rowUpdate.experience_years = patch.experience_years;
-  }
-  if (patch.skills !== undefined) rowUpdate.skills = patch.skills;
-  if (patch.source !== undefined) rowUpdate.source = patch.source;
-  if (patch.source !== undefined && patch.source !== "Other") {
-    rowUpdate.source_other = null;
-  } else if (patch.source_other !== undefined) {
-    rowUpdate.source_other = patch.source_other;
-  }
-
   const mergeFields = patchInputToMergeFields(patch);
+  let mergedPayload = cvVersion.parsed_payload;
   if (Object.keys(mergeFields).length > 0) {
-    const mergedPayload = mergeProfileIntoParsedPayload(
-      ex.parsed_payload,
+    mergedPayload = mergeProfileIntoParsedPayload(
+      cvVersion.parsed_payload,
       mergeFields,
     );
-    rowUpdate.parsed_payload = mergedPayload;
   }
 
-  if (Object.keys(rowUpdate).length === 0) {
-    return Response.json({ error: "No updates to apply." }, { status: 400 });
-  }
+  try {
+    const nextVersionNum = await getNextCvVersionNumber(db, campaignAppliedId);
 
-  const currentVersionRaw = (ex as { cv_detail_version?: unknown })
-    .cv_detail_version;
-  const currentVersion =
-    typeof currentVersionRaw === "number" &&
-    Number.isFinite(currentVersionRaw) &&
-    currentVersionRaw >= 1
-      ? currentVersionRaw
-      : 1;
+    await withTransaction(async (tx) => {
+      // 1. Create a new version representing the profile edit
+      const nextVersion = await createCvDetailVersion(tx, {
+        campaignAppliedId,
+        versionNumber: nextVersionNum,
+        sourceEvent: "manual_edit",
+        cvStoragePath: cvVersion.cv_storage_path,
+        originalFilename: cvVersion.original_filename,
+        mimeType: cvVersion.mime_type,
+        cvFileSha256: cvVersion.cv_file_sha256,
+        cvContentSha256: cvVersion.cv_content_sha256,
+        parsingStatus: cvVersion.parsing_status,
+        parsingError: cvVersion.parsing_error,
+        parsedPayload: mergedPayload,
+        skills: patch.skills !== undefined ? patch.skills : cvVersion.skills,
+        role: patch.role !== undefined ? patch.role : cvVersion.role,
+        degree: patch.degree !== undefined ? patch.degree : cvVersion.degree,
+        education: patch.school !== undefined ? patch.school : cvVersion.education,
+        experienceYears: patch.experience_years !== undefined ? patch.experience_years : (cvVersion.experience_years ? parseFloat(cvVersion.experience_years) : null),
+        gpa: cvVersion.gpa,
+        englishLevel: cvVersion.english_level,
+        dateOfBirth: dbDateToIso(cvVersion.date_of_birth),
+        studentYears: cvVersion.student_years,
+        matchedOn: cvVersion.matched_on,
+        changeSummary: patch.change_summary ?? null,
+        createdBy: auth.userId,
+      });
 
-  const preImageSnap = snapshotFromCandidateRow(
-    existing as unknown as Record<string, unknown>,
-  );
+      // 2. Update campaign_applied active CV version and source fields
+      await updateCampaignApplied(tx, campaignAppliedId, {
+        activeCvVersionId: nextVersion.id,
+        source: nextSource,
+        sourceOther: nextSource === "Other" ? nextSourceOther : null,
+      });
 
-  const { error: evErr } = await auth.supabase
-    .from("candidate_cv_detail_version_events")
-    .insert({
-      active_candidate_id: candidateId,
-      version: currentVersion,
-      event_type: "profile_edit",
-      change_summary: changeSummary,
-      snapshot: preImageSnap,
+      // 3. Update candidate (person) fields (name, email, phone)
+      const candidatePatch: Parameters<typeof updateCandidate>[2] = {};
+      if (patch.name !== undefined) candidatePatch.name = patch.name;
+      if (patch.email !== undefined) candidatePatch.email = patch.email;
+      if (patch.phone !== undefined) candidatePatch.phone = patch.phone;
+
+      if (Object.keys(candidatePatch).length > 0) {
+        await updateCandidate(tx, campaignApplied.candidate_id, candidatePatch);
+      }
+
+      // 4. Sync aggregate fields
+      await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
     });
 
-  if (evErr) {
-    if (isMissingCvVersionEventsTable(evErr)) {
-      return versioningMigrationRequiredResponse();
+    const enriched = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
+    if (!enriched) {
+      return Response.json(
+        { error: "Could not load updated candidate." },
+        { status: 500 },
+      );
     }
-    return Response.json({ error: evErr.message }, { status: 500 });
-  }
 
-  rowUpdate.cv_detail_version = currentVersion + 1;
-
-  const { error: upErr } = await auth.supabase
-    .from("candidates")
-    .update(rowUpdate)
-    .eq("id", candidateId);
-
-  if (upErr) {
-    if (isMissingCvDetailVersionColumn(upErr)) {
-      return versioningMigrationRequiredResponse();
+    return Response.json({ candidate: enriched });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      return Response.json(
+        {
+          error:
+            "Another candidate already uses this email or phone number. Use the duplicate-merge flow instead of editing this profile directly.",
+        },
+        { status: 409 },
+      );
     }
-    return Response.json({ error: upErr.message }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Failed to update profile.";
+    return Response.json({ error: msg }, { status: 500 });
   }
-
-  const { data: row, error: selErr } = await auth.supabase
-    .from("candidates")
-    .select(ADMIN_CANDIDATES_SELECT)
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (selErr) {
-    if (isMissingCvDetailVersionColumn(selErr)) {
-      return versioningMigrationRequiredResponse();
-    }
-    return Response.json(
-      { error: selErr.message ?? "Could not load updated candidate." },
-      { status: 500 },
-    );
-  }
-  if (!row) {
-    return Response.json(
-      { error: "Could not load updated candidate." },
-      { status: 500 },
-    );
-  }
-
-  const [enriched] = await enrichCandidatesWithJobOpenings(auth.supabase, [
-    row as unknown as CandidateDbRow,
-  ]);
-
-  return Response.json({ candidate: enriched });
 }

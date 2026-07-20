@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { Output } from "ai";
 import { z } from "zod";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
 import { normalizeFormText } from "@/lib/jd/normalize-text";
@@ -16,6 +16,7 @@ import {
 import { SYSTEM_PROMPT } from "@/lib/ai/extract-jd-system-prompt";
 import { looksLikePdfBinary } from "@/lib/jd/extract-document-text";
 import {
+  generateTextWithFallback,
   getConfiguredLanguageModel,
   getJdExtractModelId,
   isLlmInferenceConfigured,
@@ -247,7 +248,7 @@ export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
   const truncated =
     text.length > 12_000 ? text.slice(0, 12_000) + "\n…[truncated]" : text;
 
-  const { output } = await generateText({
+  const { output } = await generateTextWithFallback({
     model,
     output: Output.object({
       name: "job_description_extraction",

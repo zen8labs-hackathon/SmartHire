@@ -1,5 +1,5 @@
 import "@/lib/ai/pdf-node-polyfill";
-import { generateText, Output } from "ai";
+import { Output } from "ai";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { PDFDocument, PDFDropdown, PDFTextField, rgb } from "pdf-lib";
 import {
@@ -10,7 +10,11 @@ import {
   structuredEvaluationToDocumentSections,
 } from "@/lib/evaluation/evaluation-section-template";
 import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
-import { getConfiguredLanguageModel, isLlmInferenceConfigured } from "@/lib/llm";
+import {
+  generateTextWithFallback,
+  getConfiguredLanguageModel,
+  isLlmInferenceConfigured,
+} from "@/lib/llm";
 import { z } from "zod";
 
 const UNICODE_FONT_ERROR =
@@ -93,7 +97,7 @@ ${fieldList}
 
 Map interview insights into the appropriate fields. Use "N/A" or "—" where not applicable. Max ${MAX_EVAL_SECTION_CHARS} characters per value.`;
 
-      const { output } = await generateText({
+      const { output } = await generateTextWithFallback({
         model,
         output: Output.object({
           name: "evaluation_form_fill",
@@ -147,7 +151,7 @@ Optional (omit the key or use empty string if not applicable):
 
 Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
 
-    const { output } = await generateText({
+    const { output } = await generateTextWithFallback({
       model,
       output: Output.object({
         name: "structured_evaluation",

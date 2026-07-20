@@ -1,67 +1,35 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { JD_BUCKET } from "@/lib/jd/upload-constants";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getJobById } from "@/lib/db/jobs";
+import { getPool } from "@/lib/db/config/client";
+import { createSignedDownloadUrl } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(_request);
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function GET(request: Request, { params }: RouteContext) {
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { id: idParam } = await params;
-  const jdId = Number(idParam);
-  if (!Number.isInteger(jdId) || jdId <= 0) {
+  const { id: jobId } = await params;
+  if (!UUID_RE.test(jobId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const { data: jd } = await auth.supabase
-    .from("job_descriptions")
-    .select("id")
-    .eq("id", jdId)
-    .maybeSingle();
-
-  if (!jd) {
+  const job = await getJobById(getPool(), jobId);
+  if (!job) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
-
-  const { data: opening, error } = await auth.supabase
-    .from("job_openings")
-    .select("jd_storage_path")
-    .eq("job_description_id", jdId)
-    .not("jd_storage_path", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
-
-  const path = opening?.jd_storage_path as string | undefined;
-  if (!path) {
+  if (!job.jd_storage_path) {
     return Response.json({ error: "No JD file on record." }, { status: 404 });
   }
 
-  let admin;
   try {
-    admin = createAdminClient();
-  } catch {
-    return Response.json(
-      { error: "Server cannot sign storage URLs." },
-      { status: 500 },
-    );
+    const signedUrl = await createSignedDownloadUrl(job.jd_storage_path, 120);
+    return Response.redirect(signedUrl, 302);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not create download link.";
+    return Response.json({ error: message }, { status: 500 });
   }
-
-  const { data: signed, error: signErr } = await admin.storage
-    .from(JD_BUCKET)
-    .createSignedUrl(path, 120);
-
-  if (signErr || !signed?.signedUrl) {
-    return Response.json(
-      { error: signErr?.message ?? "Could not create download link." },
-      { status: 500 },
-    );
-  }
-
-  return Response.redirect(signed.signedUrl, 302);
 }

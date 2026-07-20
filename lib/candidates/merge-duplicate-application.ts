@@ -1,0 +1,178 @@
+import {
+  createCvDetailVersion,
+  getCvDetailVersionById,
+  getNextCvVersionNumber,
+  type CvMatchedOn,
+} from "@/lib/db/cv-detail-versions";
+import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
+import { syncCandidateAggregateFields } from "@/lib/db/candidates";
+import { getPool, withTransaction } from "@/lib/db/config/client";
+import { dbDateToIso } from "@/lib/db/query-helpers";
+
+export type MergeDuplicateApplicationResult =
+  | { ok: true }
+  | { ok: false; error: string; status: number };
+
+/**
+ * Merges a throwaway "duplicate upload" application into an existing one:
+ * copies the duplicate's active CV file into a new `file_replaced` version on
+ * the existing application, then deletes the duplicate's `campaign_applied`
+ * and `candidates` rows. Safe because `POST .../temp-upload/confirm` always
+ * creates a brand new, single-application `candidates` row per upload (see
+ * app/api/admin/candidates/temp-upload/confirm/route.ts) -- the duplicate
+ * person row being deleted here never has any other application to orphan.
+ *
+ * Shared by `POST /api/admin/candidates/[id]/replace` (HR intentionally
+ * re-uploads a CV for a known candidate) and
+ * `PUT /api/admin/candidates/[id]/update-with-history` (HR confirms a
+ * system-detected duplicate should merge) -- both flows collapse to the same
+ * operation under this schema.
+ */
+export async function mergeDuplicateApplicationIntoExisting(
+  existingCampaignAppliedId: string,
+  duplicateCampaignAppliedId: string,
+  matchedOn: CvMatchedOn | null,
+  createdBy: string,
+): Promise<MergeDuplicateApplicationResult> {
+  const db = getPool();
+
+  const existingCampaign = await getCampaignAppliedById(db, existingCampaignAppliedId);
+  if (!existingCampaign) {
+    return { ok: false, error: "Existing application not found.", status: 404 };
+  }
+
+  const duplicateCampaign = await getCampaignAppliedById(db, duplicateCampaignAppliedId);
+  if (!duplicateCampaign) {
+    return { ok: false, error: "New application not found.", status: 404 };
+  }
+
+  if (!duplicateCampaign.active_cv_version_id) {
+    return { ok: false, error: "New application has no active CV.", status: 400 };
+  }
+
+  const duplicateCvVersion = await getCvDetailVersionById(db, duplicateCampaign.active_cv_version_id);
+  if (!duplicateCvVersion) {
+    return { ok: false, error: "New CV version not found.", status: 404 };
+  }
+
+  const nextVersionNum = await getNextCvVersionNumber(db, existingCampaignAppliedId);
+
+  await withTransaction(async (tx) => {
+    // 1. Re-associate the duplicate's CV file with the existing application as a new version
+    const mergedCvVersion = await createCvDetailVersion(tx, {
+      campaignAppliedId: existingCampaignAppliedId,
+      versionNumber: nextVersionNum,
+      sourceEvent: "file_replaced",
+      cvStoragePath: duplicateCvVersion.cv_storage_path,
+      originalFilename: duplicateCvVersion.original_filename,
+      mimeType: duplicateCvVersion.mime_type,
+      cvFileSha256: duplicateCvVersion.cv_file_sha256,
+      cvContentSha256: duplicateCvVersion.cv_content_sha256,
+      parsingStatus: duplicateCvVersion.parsing_status,
+      parsingError: duplicateCvVersion.parsing_error,
+      parsedPayload: duplicateCvVersion.parsed_payload,
+      skills: duplicateCvVersion.skills,
+      role: duplicateCvVersion.role,
+      degree: duplicateCvVersion.degree,
+      education: duplicateCvVersion.education,
+      experienceYears: duplicateCvVersion.experience_years
+        ? parseFloat(duplicateCvVersion.experience_years)
+        : null,
+      gpa: duplicateCvVersion.gpa,
+      englishLevel: duplicateCvVersion.english_level,
+      dateOfBirth: dbDateToIso(duplicateCvVersion.date_of_birth),
+      studentYears: duplicateCvVersion.student_years,
+      matchedOn,
+      createdBy,
+    });
+
+    // 2. Point the existing application's active CV at the new version.
+    // Also clear the cached JD-match result: it was computed against the
+    // *previous* CV, and leaving `jd_match_status: "completed"` in place
+    // would both show a stale score for the new CV and make
+    // `runJdMatchForCandidate`'s "already_scored" guard silently skip any
+    // future re-score attempt. JD-match itself stays opt-in (not re-run
+    // here) -- HR re-triggers it explicitly via "Run AI JD Match", same as
+    // for a brand-new upload.
+    await updateCampaignApplied(tx, existingCampaignAppliedId, {
+      activeCvVersionId: mergedCvVersion.id,
+      jdMatchStatus: "pending",
+      jdMatchScore: null,
+      jdMatchError: null,
+      jdMatchRationale: null,
+    });
+
+    // 3. Delete the throwaway duplicate application + its person row
+    await tx.query("DELETE FROM campaign_applied WHERE id = $1", [duplicateCampaignAppliedId]);
+    await tx.query("DELETE FROM candidates WHERE id = $1", [duplicateCampaign.candidate_id]);
+
+    // 4. Refresh the existing person's pool-search aggregate fields
+    await syncCandidateAggregateFields(tx, existingCampaign.candidate_id);
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Repoints a freshly-uploaded, already-parsed application onto an existing
+ * person instead of the blank `candidates` row `temp-upload/confirm` created
+ * for it -- used when a CV upload turns out to be a duplicate of someone who already
+ * applied to a *different* job. Unlike {@link mergeDuplicateApplicationIntoExisting},
+ * the new application is kept (it's a legitimate new job application), only
+ * its person identity changes; the throwaway blank candidate row is deleted
+ * once nothing references it anymore.
+ */
+export async function linkApplicationToExistingCandidate(
+  newCampaignAppliedId: string,
+  existingCandidateId: string,
+): Promise<MergeDuplicateApplicationResult> {
+  const db = getPool();
+
+  const application = await getCampaignAppliedById(db, newCampaignAppliedId);
+  if (!application) {
+    return { ok: false, error: "Application not found.", status: 404 };
+  }
+  if (application.candidate_id === existingCandidateId) {
+    return { ok: true };
+  }
+
+  const orphanCandidateId = application.candidate_id;
+
+  await withTransaction(async (tx) => {
+    await tx.query(
+      `UPDATE campaign_applied SET candidate_id = $2, updated_at = now() WHERE id = $1`,
+      [newCampaignAppliedId, existingCandidateId],
+    );
+    await tx.query("DELETE FROM candidates WHERE id = $1", [orphanCandidateId]);
+    await syncCandidateAggregateFields(tx, existingCandidateId);
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Hard-deletes a throwaway duplicate-upload application and its blank
+ * `candidates` row together -- used only when discarding a CV upload that
+ * the duplicate-candidate modal flagged (a fresh, single-application
+ * candidate created by `temp-upload/confirm`, same invariant as the merge/link
+ * helpers above). Distinct from `softDeleteCampaignApplied`, which is the
+ * general-purpose "remove an application" action and must never touch the
+ * person row (a real candidate may have other live applications).
+ */
+export async function discardDuplicateApplication(
+  campaignAppliedId: string,
+): Promise<MergeDuplicateApplicationResult> {
+  const db = getPool();
+
+  const application = await getCampaignAppliedById(db, campaignAppliedId);
+  if (!application) {
+    return { ok: false, error: "Application not found.", status: 404 };
+  }
+
+  await withTransaction(async (tx) => {
+    await tx.query("DELETE FROM campaign_applied WHERE id = $1", [campaignAppliedId]);
+    await tx.query("DELETE FROM candidates WHERE id = $1", [application.candidate_id]);
+  });
+
+  return { ok: true };
+}

@@ -1,59 +1,26 @@
-import { Card, Table } from "@heroui/react";
+import { Breadcrumbs } from "@heroui/react";
 
-const LOADING_ROW_IDS = [
-  "pipeline-loading-1",
-  "pipeline-loading-2",
-  "pipeline-loading-3",
-  "pipeline-loading-4",
-  "pipeline-loading-5",
-];
+import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skeleton";
 
 export default function Loading() {
   return (
-    <div className="flex flex-col gap-8">
-      <div className="animate-pulse">
-        <div className="h-7 w-64 rounded bg-default-200" />
-        <div className="mt-2 h-4 w-80 max-w-full rounded bg-default-100" />
-      </div>
+    <div className="relative flex flex-col gap-6">
+      <header className="space-y-2">
+        <Breadcrumbs className="text-xs text-muted">
+          <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
+          <Breadcrumbs.Item>
+            <span className="inline-block h-3 w-32 animate-pulse rounded bg-default-200 align-middle" />
+          </Breadcrumbs.Item>
+        </Breadcrumbs>
+        <div className="h-8 w-72 max-w-full animate-pulse rounded bg-default-200" />
+        <div className="h-4 w-full max-w-2xl animate-pulse rounded bg-default-100" />
+      </header>
 
-      <Card variant="secondary" className="border-divider animate-pulse">
-        <Card.Content className="p-0">
-          <Table aria-label="Loading pipeline candidates">
-            <Table.ScrollContainer>
-              <Table.Content>
-                <Table.Header>
-                  <Table.Column isRowHeader>Candidate</Table.Column>
-                  <Table.Column>Stage</Table.Column>
-                  <Table.Column>Sub-stage</Table.Column>
-                  <Table.Column>Match</Table.Column>
-                  <Table.Column>Updated</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  {LOADING_ROW_IDS.map((id) => (
-                    <Table.Row key={id} id={id}>
-                      <Table.Cell>
-                        <div className="my-1 h-4 w-40 rounded bg-default-200" />
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="my-1 h-4 w-20 rounded bg-default-100" />
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="my-1 h-4 w-24 rounded bg-default-100" />
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="my-1 h-4 w-12 rounded bg-default-100" />
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="my-1 h-4 w-24 rounded bg-default-100" />
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-        </Card.Content>
-      </Card>
+      <PipelineTableSkeleton />
+
+      <div className="flex justify-center">
+        <div className="h-10 w-40 animate-pulse rounded-xl border border-divider bg-surface-secondary" />
+      </div>
     </div>
   );
 }
