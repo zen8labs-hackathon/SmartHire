@@ -1,6 +1,10 @@
 import type { QueryExecutor } from "@/lib/db/config/client";
 import type { PaginatedResult, PaginationParams } from "@/lib/db/query-helpers";
-import { clampLimit, clampOffset, extractWindowTotal } from "@/lib/db/query-helpers";
+import {
+  clampLimit,
+  clampOffset,
+  extractWindowTotal,
+} from "@/lib/db/query-helpers";
 
 /**
  * One row of the admin candidates list/pipeline view: a `campaign_applied`
@@ -176,7 +180,7 @@ export async function listOtherApplicationsForCandidate(
      JOIN jobs j ON j.id = ca.job_id
      LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL
-     ORDER BY ca.created_at DESC`,
+     ORDER BY ca.id DESC`,
     [candidateId, excludeCampaignAppliedId],
   );
   return rows;
@@ -212,11 +216,15 @@ export async function listCampaignAppliedForAdmin(
   }
   if (filters.uploadFrom) {
     values.push(filters.uploadFrom);
-    conditions.push(`COALESCE(cv.created_at, ca.created_at) >= $${values.length}`);
+    conditions.push(
+      `COALESCE(cv.created_at, ca.created_at) >= $${values.length}`,
+    );
   }
   if (filters.uploadTo) {
     values.push(filters.uploadTo);
-    conditions.push(`COALESCE(cv.created_at, ca.created_at) < ($${values.length}::date + 1)`);
+    conditions.push(
+      `COALESCE(cv.created_at, ca.created_at) < ($${values.length}::date + 1)`,
+    );
   }
   if (filters.q) {
     values.push(`%${filters.q}%`);
@@ -232,7 +240,9 @@ export async function listCampaignAppliedForAdmin(
   const orderBy =
     SORT_COLUMN_SQL[filters.sortBy ?? "uploadDate"][filters.sortDir ?? "desc"];
 
-  const { rows } = await db.query<CampaignAppliedAdminRow & { total_count: string }>(
+  const { rows } = await db.query<
+    CampaignAppliedAdminRow & { total_count: string }
+  >(
     `SELECT ${ADMIN_ROW_SELECT}, count(*) OVER() AS total_count
      ${ADMIN_ROW_JOIN}
      WHERE ${conditions.join(" AND ")}
@@ -278,7 +288,9 @@ export async function countCampaignAppliedByStageForJob(
   db: QueryExecutor,
   jobId: string,
 ): Promise<CampaignAppliedStageCountRow[]> {
-  const { rows } = await db.query<CampaignAppliedStageCountRow & { count: string }>(
+  const { rows } = await db.query<
+    CampaignAppliedStageCountRow & { count: string }
+  >(
     `SELECT ps.code AS stage_code, ps.label AS stage_label,
             pss.code AS sub_stage_code, pss.label AS sub_stage_label,
             count(ca.id) AS count

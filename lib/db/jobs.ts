@@ -161,7 +161,7 @@ export async function listJobs(
     `SELECT *, count(*) OVER() AS total_count
      FROM jobs
      WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at DESC
+     ORDER BY id DESC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );

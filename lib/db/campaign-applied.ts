@@ -104,7 +104,7 @@ export async function listCampaignAppliedByCandidate(
     `SELECT *, count(*) OVER() AS total_count
      FROM campaign_applied
      WHERE candidate_id = $1 AND deleted_at IS NULL
-     ORDER BY created_at DESC
+     ORDER BY id DESC
      LIMIT $2 OFFSET $3`,
     [candidateId, limit, offset],
   );
@@ -146,7 +146,7 @@ export async function listCampaignAppliedByJob(
     `SELECT *, count(*) OVER() AS total_count
      FROM campaign_applied
      WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at DESC
+     ORDER BY id DESC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );
@@ -272,7 +272,10 @@ export type CreateApplicationWithInitialCvInput = {
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;
-  cv: Omit<CreateCvDetailVersionInput, "campaignAppliedId" | "versionNumber" | "cvStoragePath"> & {
+  cv: Omit<
+    CreateCvDetailVersionInput,
+    "campaignAppliedId" | "versionNumber" | "cvStoragePath"
+  > & {
     /**
      * The S3 key nests under `{candidateId}/{applicationId}/...` for
      * readability, but the application id only exists once the
