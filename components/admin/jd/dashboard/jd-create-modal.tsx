@@ -1,4 +1,4 @@
-import React, { type DragEvent, type ChangeEvent } from "react";
+import React, { useMemo, type DragEvent, type ChangeEvent } from "react";
 import {
   Modal,
   Card,
@@ -6,10 +6,18 @@ import {
   TextField,
   Label,
   Input,
+  DateField,
+  DateRangePicker,
+  RangeCalendar,
 } from "@heroui/react";
+import { Dialog, type RangeValue } from "react-aria-components";
+import { parseDate, type CalendarDate } from "@internationalized/date";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
-import { CheckCircle as CheckCircleIcon } from "lucide-react";
+import {
+  CheckCircle as CheckCircleIcon,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 import { useJdDashboard } from "./context";
 import { JdPipelineStageSelect } from "./jd-stage-select";
 
@@ -40,6 +48,23 @@ export function JdCreateModal() {
     selectedStageIds,
     setSelectedStageIds,
   } = useJdDashboard();
+
+  const dateRangeValue = useMemo<RangeValue<CalendarDate> | null>(() => {
+    if (
+      !form.start_date ||
+      !form.hiring_deadline ||
+      form.start_date > form.hiring_deadline
+    )
+      return null;
+    try {
+      return {
+        start: parseDate(form.start_date),
+        end: parseDate(form.hiring_deadline),
+      };
+    } catch {
+      return null;
+    }
+  }, [form.start_date, form.hiring_deadline]);
 
   return (
     <Modal.Backdrop
@@ -173,41 +198,102 @@ export function JdCreateModal() {
                   <Input placeholder="e.g. Solutions Team" />
                 </TextField>
 
-                <div className="flex flex-col gap-1">
-                  <TextField
-                    value={form.start_date}
-                    onChange={(v) => setField("start_date", v)}
-                    isRequired
-                    isInvalid={!!createFieldErrors.start_date}
+                <div className="flex flex-col gap-1 md:col-span-1">
+                  <Label className="text-xs font-medium text-foreground">
+                    Hiring Date{" "}
+                    <span className="font-normal text-danger">*</span>
+                  </Label>
+                  <DateRangePicker
+                    value={dateRangeValue}
+                    onChange={(val) => {
+                      if (val?.start && val?.end) {
+                        setField("start_date", val.start.toString());
+                        setField("hiring_deadline", val.end.toString());
+                      } else {
+                        setField("start_date", "");
+                        setField("hiring_deadline", "");
+                      }
+                    }}
+                    isInvalid={
+                      !!(
+                        createFieldErrors.start_date ||
+                        createFieldErrors.hiring_deadline
+                      )
+                    }
+                    className="w-full"
                   >
-                    <Label>Start date</Label>
-                    <Input type="date" />
-                  </TextField>
-                  {createFieldErrors.start_date && (
+                    <DateField.Group
+                      fullWidth
+                      variant="primary"
+                      className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-10 rounded-xl py-1 px-3 text-sm"
+                    >
+                      <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+                        <DateField.Input slot="start" className="outline-none">
+                          {(segment) => <DateField.Segment segment={segment} />}
+                        </DateField.Input>
+                        <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted">
+                          –
+                        </DateRangePicker.RangeSeparator>
+                        <DateField.Input slot="end" className="outline-none">
+                          {(segment) => <DateField.Segment segment={segment} />}
+                        </DateField.Input>
+                      </DateField.InputContainer>
+                      <DateField.Suffix>
+                        <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
+                          <CalendarIcon className="h-3.5 w-3.5" />
+                        </DateRangePicker.Trigger>
+                      </DateField.Suffix>
+                    </DateField.Group>
+                    <DateRangePicker.Popover>
+                      <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
+                        <RangeCalendar>
+                          <RangeCalendar.Header className="flex items-center justify-between mb-2">
+                            <RangeCalendar.NavButton slot="previous" />
+                            <RangeCalendar.Heading className="text-xs font-bold" />
+                            <RangeCalendar.NavButton slot="next" />
+                          </RangeCalendar.Header>
+                          <RangeCalendar.Grid
+                            weekdayStyle="short"
+                            className="border-collapse"
+                          >
+                            <RangeCalendar.GridHeader>
+                              {(day) => (
+                                <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">
+                                  {day}
+                                </RangeCalendar.HeaderCell>
+                              )}
+                            </RangeCalendar.GridHeader>
+                            <RangeCalendar.GridBody>
+                              {(date) => (
+                                <RangeCalendar.Cell
+                                  date={date}
+                                  className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0"
+                                >
+                                  {({ formattedDate }) => (
+                                    <>
+                                      <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
+                                      <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">
+                                        {formattedDate}
+                                      </span>
+                                    </>
+                                  )}
+                                </RangeCalendar.Cell>
+                              )}
+                            </RangeCalendar.GridBody>
+                          </RangeCalendar.Grid>
+                        </RangeCalendar>
+                      </Dialog>
+                    </DateRangePicker.Popover>
+                  </DateRangePicker>
+                  {(createFieldErrors.start_date ||
+                    createFieldErrors.hiring_deadline) && (
                     <p className="text-xs text-danger">
-                      {createFieldErrors.start_date}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <TextField
-                    value={form.hiring_deadline}
-                    onChange={(v) => setField("hiring_deadline", v)}
-                    isRequired
-                    isInvalid={!!createFieldErrors.hiring_deadline}
-                  >
-                    <Label>Hiring deadline</Label>
-                    <Input type="date" />
-                  </TextField>
-                  {createFieldErrors.hiring_deadline && (
-                    <p className="text-xs text-danger">
-                      {createFieldErrors.hiring_deadline}
+                      {createFieldErrors.start_date ||
+                        createFieldErrors.hiring_deadline}
                     </p>
                   )}
                 </div>
               </div>
-
             </div>
 
             <div className="space-y-3">

@@ -197,6 +197,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "Hiring deadline is required." }, { status: 400 });
     }
   }
+  if (
+    input.startDate &&
+    input.hiringDeadline &&
+    input.hiringDeadline < input.startDate
+  ) {
+    return Response.json(
+      { error: "Hiring deadline must be on or after the start date." },
+      { status: 400 },
+    );
+  }
   input.jdStoragePath = jdStoragePath;
   input.jdOriginalFilename =
     typeof jdOriginalFilename === "string" ? jdOriginalFilename : null;
