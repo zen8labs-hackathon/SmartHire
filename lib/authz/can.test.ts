@@ -17,6 +17,7 @@ function access(
     isHr,
     isStaff: role !== "none",
     chapterIds: [],
+    headedChapterIds: [],
     ...overrides,
     role,
   };
@@ -86,11 +87,29 @@ describe("can", () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
-  it("denies job.manage for recruiter", async () => {
+  it("denies job.manage for recruiter without jobId when not a chapter head", async () => {
     const db = fakeDb();
     await expect(
       can(db, access({ role: "recruiter" }), "job.manage"),
     ).resolves.toBe(false);
+  });
+
+  it("allows job.manage without jobId for chapter head", async () => {
+    const db = fakeDb();
+    await expect(
+      can(
+        db,
+        access({ role: "recruiter", headedChapterIds: ["c-1"] }),
+        "job.manage",
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("allows job.manage for recruiter when ACL grants the job", async () => {
+    const db = fakeDb([[{ ok: 1 }]]);
+    await expect(
+      can(db, access({ role: "recruiter" }), "job.manage", { jobId: "job-1" }),
+    ).resolves.toBe(true);
   });
 
   it("allows job.manage for admin", async () => {

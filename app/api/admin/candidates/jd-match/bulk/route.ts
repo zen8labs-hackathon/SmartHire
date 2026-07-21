@@ -1,6 +1,8 @@
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
 
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+
 import { runJdMatchForCandidate, type JdMatchRunResult } from "@/lib/candidates/jd-match";
 
 const bodySchema = z.object({
@@ -20,7 +22,7 @@ type BulkResult = { id: string } & JdMatchRunResult;
  * batches (not all at once) to bound concurrent LLM calls.
  */
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: unknown;
@@ -39,6 +41,15 @@ export async function POST(request: Request) {
   }
   const { ids, force } = parsed.data;
   const uniqueIds = [...new Set(ids)];
+
+  for (const id of uniqueIds) {
+    const manageAccess = await requirePermissionForApplication(
+      auth.access,
+      "candidate.manage",
+      id,
+    );
+    if (!manageAccess.ok) return manageAccess.response;
+  }
 
   const results: BulkResult[] = [];
   for (let i = 0; i < uniqueIds.length; i += CONCURRENCY) {

@@ -1,5 +1,7 @@
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+
 import { mergeDuplicateApplicationIntoExisting } from "@/lib/candidates/merge-duplicate-application";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 
@@ -16,13 +18,20 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: newCampaignAppliedId } = await params;
   if (!newCampaignAppliedId || !UUID_RE.test(newCampaignAppliedId)) {
     return Response.json({ error: "Invalid candidate id." }, { status: 400 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    newCampaignAppliedId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let rawBody: unknown;
   try {

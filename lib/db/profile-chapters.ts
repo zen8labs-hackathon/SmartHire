@@ -22,6 +22,19 @@ export async function listChapterIdsForUser(
   return rows.map((r) => r.chapter_id);
 }
 
+/** Chapter ids where the user is `head` (not merely member). */
+export async function listHeadedChapterIdsForUser(
+  db: QueryExecutor,
+  userId: string,
+): Promise<string[]> {
+  const { rows } = await db.query<{ chapter_id: string }>(
+    `SELECT chapter_id FROM profile_chapters
+     WHERE profile_id = $1 AND role = 'head'`,
+    [userId],
+  );
+  return rows.map((r) => r.chapter_id);
+}
+
 export async function listMembershipsForUser(
   db: QueryExecutor,
   userId: string,

@@ -1,4 +1,6 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
+
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import { getCandidateById } from "@/lib/db/candidates";
 import { listCvDetailVersionsByCampaignApplied } from "@/lib/db/cv-detail-versions";
@@ -12,13 +14,19 @@ const UUID_RE =
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Invalid candidate id." }, { status: 400 });
   }
+
+  const viewAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!viewAccess.ok) return viewAccess.response;
 
   const db = getPool();
 

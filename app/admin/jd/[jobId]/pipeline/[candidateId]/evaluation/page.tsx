@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 import { PipelineCandidateEvaluationClient } from "@/components/admin/jd/pipeline-candidate-evaluation-client";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { canViewJob, canViewSalary } from "@/lib/authz/can";
+import { can, canViewJob, canViewSalary } from "@/lib/authz/can";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 import { campaignAppliedAdminRowToEvaluationRow } from "@/lib/jd/campaign-applied-to-evaluation-row";
@@ -35,10 +35,11 @@ export default async function PipelineCandidateEvaluationPage({
   const allowed = await canViewJob(db, access, jobId);
   if (!allowed) redirect("/admin/jd");
 
-  const [row, viewSalary, pipelineConfig] = await Promise.all([
+  const [row, viewSalary, pipelineConfig, canEditProfile] = await Promise.all([
     getCampaignAppliedAdminRowById(db, candidateId),
     canViewSalary(db, access, jobId),
     fetchJobPipelineConfig(db, jobId),
+    can(db, access, "candidate.manage", { jobId }),
   ]);
   if (!row || row.job_id !== jobId) notFound();
 
@@ -55,7 +56,7 @@ export default async function PipelineCandidateEvaluationPage({
       candidate={candidate}
       currentUserId={user.id}
       isAdmin={access.isAdmin}
-      canEditProfile={access.isHr}
+      canEditProfile={canEditProfile}
     />
   );
 }

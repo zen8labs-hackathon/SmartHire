@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import {
   listCampaignAppliedByIds,
   updateCampaignApplied,
@@ -29,7 +30,7 @@ const bodySchema = z.object({
  * transitioned and others not.
  */
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: unknown;
@@ -47,6 +48,13 @@ export async function POST(request: Request) {
     );
   }
   const { jobId, updates } = parsed.data;
+
+  const manageAccess = await requirePermissionOnJob(
+    auth.access,
+    "candidate.manage",
+    jobId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   try {
     await withTransaction(async (db) => {

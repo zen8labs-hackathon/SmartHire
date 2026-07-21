@@ -30,6 +30,7 @@ export function hasAdminAccess(access: StaffProfileAccess): boolean {
  * Central authorization check.
  *
  * - Global manage permissions: HR/admin via role / `isHr`.
+ * - `job.manage` with `jobId`: HR/admin, or ACL viewer (chapter head / email grant).
  * - `job.view` / `candidate.view` / `candidate.manage` with `jobId`:
  *   HR bypasses ACL; otherwise profile grant or chapter-head grant.
  * - `salary.view` with `jobId`: role has `salary.view` (HR/admin) OR chapter
@@ -47,12 +48,16 @@ export async function can(
     return hasAdminAccess(access);
   }
 
-  if (
-    permission === "job.manage" ||
-    permission === "users.manage" ||
-    permission === "pipelines.manage"
-  ) {
+  if (permission === "users.manage" || permission === "pipelines.manage") {
     return access.isHr || hasRolePermission(access, permission);
+  }
+
+  // Create without jobId: HR, or any chapter head (they own new JDs via chapter grant).
+  // Per-job manage: HR/admin, or ACL viewer (chapter head / email grant).
+  if (permission === "job.manage") {
+    if (access.isHr || hasRolePermission(access, permission)) return true;
+    if (!jobId) return access.headedChapterIds.length > 0;
+    return canViewJobViaAcl(db, access.userId, jobId);
   }
 
   if (permission === "salary.view") {
@@ -92,4 +97,22 @@ export async function canViewSalary(
   jobId: string,
 ): Promise<boolean> {
   return can(db, access, "salary.view", { jobId });
+}
+
+/** Create new JDs — HR or any chapter head. */
+export function canCreateJobs(access: StaffProfileAccess): boolean {
+  return access.isHr || access.headedChapterIds.length > 0;
+}
+
+/**
+ * Delete JD / change viewer grants on a job — HR, or chapter head granted on
+ * that job (email-only viewers cannot).
+ */
+export async function canAdministerJobAcl(
+  db: QueryExecutor,
+  access: StaffProfileAccess,
+  jobId: string,
+): Promise<boolean> {
+  if (access.isHr) return true;
+  return isChapterHeadGrantedOnJob(db, access.userId, jobId);
 }
