@@ -10,6 +10,7 @@ import { listPublicUsers } from "@/lib/db/users";
 import { listPipelineStages } from "@/lib/db/pipeline-stages";
 import { listCampaignAppliedForAdmin } from "@/lib/db/campaign-applied-list";
 import { listRecentCvDetailVersionsForAdmin } from "@/lib/db/cv-detail-versions";
+import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 import { PageHeader } from "@/components/admin/shell/page-header";
 import {
   Briefcase,
@@ -78,9 +79,6 @@ async function DashboardStats() {
 async function RecentJobs() {
   const { rows } = await listJobs(getPool(), { limit: 5 });
 
-  const formatDate = (date: Date) =>
-    new Date(date).toLocaleDateString([], { month: "short", day: "numeric" });
-
   return (
     <div className="divide-y divide-divider">
       {rows.length === 0 ? (
@@ -102,7 +100,7 @@ async function RecentJobs() {
               </Link>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted">
                 <Calendar className="h-3 w-3" />
-                <span>{formatDate(job.created_at)}</span>
+                <span>{formatDisplayDate(job.created_at)}</span>
               </div>
             </div>
             <span
@@ -181,10 +179,7 @@ async function RecentActivities() {
     return `New CV uploaded ${target}`;
   };
 
-  const formatDateTime = (date: Date) => ({
-    date: new Date(date).toLocaleDateString([], { month: "short", day: "numeric" }),
-    time: new Date(date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-  });
+  const formatDateTime = (date: Date) => formatDisplayDateTime(date);
 
   if (activities.length === 0) {
     return (
@@ -200,7 +195,7 @@ async function RecentActivities() {
   return (
     <div className="relative border-l-2 border-divider pl-4 ml-2 space-y-5 py-1">
       {activities.map((activity) => {
-        const { date, time } = formatDateTime(activity.created_at);
+        const when = formatDateTime(activity.created_at);
         return (
           <div key={activity.id} className="relative group">
             <span className="absolute -left-[21px] top-1.5 flex h-2 w-2 rounded-full bg-accent ring-4 ring-background" />
@@ -210,7 +205,7 @@ async function RecentActivities() {
               </p>
               <div className="flex items-center gap-1.5 text-xs text-muted shrink-0 mt-0.5 sm:mt-0 font-medium">
                 <Clock className="h-3.5 w-3.5" />
-                <span>{date} at {time}</span>
+                <span>{when}</span>
               </div>
             </div>
           </div>

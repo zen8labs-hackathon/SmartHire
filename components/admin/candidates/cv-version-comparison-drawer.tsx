@@ -22,6 +22,7 @@ import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 import { groupSkillsForDisplay } from "@/lib/candidates/group-skills-for-display";
 import type { CandidateRow } from "@/lib/candidates/types";
+import { formatDisplayDate } from "@/lib/format-date";
 import {
   getStageColorClasses,
   getStageColorStyles,
@@ -42,14 +43,7 @@ type OtherApplicationItem = {
 };
 
 function formatDayMonthYear(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatDisplayDate(iso);
 }
 
 
@@ -538,13 +532,7 @@ export function CvVersionComparisonDrawer({
                                 {app.cvUploadedAt ? (
                                   <p className="text-xs text-muted">
                                     Uploaded:{" "}
-                                    {new Date(
-                                      app.cvUploadedAt,
-                                    ).toLocaleDateString(undefined, {
-                                      day: "numeric",
-                                      month: "long",
-                                      year: "numeric",
-                                    })}
+                                    {formatDisplayDate(app.cvUploadedAt)}
                                   </p>
                                 ) : null}
                               </div>

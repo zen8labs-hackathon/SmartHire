@@ -47,6 +47,8 @@ next-env.d.ts
 .specstory
 .vscode
 .agents/*
+.claude/*
+.playwright-mcp/*
 
 # blue-green state on server (symlink + slot name)
 deploy/.active-slot

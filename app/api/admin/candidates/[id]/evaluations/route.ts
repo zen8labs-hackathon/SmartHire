@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
 import {
   buildEvaluationFillPayload,
@@ -51,6 +52,12 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
+
   const [latest] = await listCandidateEvaluationReviewsByCampaignApplied(
     getPool(),
     campaignAppliedId,
@@ -94,6 +101,12 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
   let body: z.infer<typeof postBodySchema>;
   try {

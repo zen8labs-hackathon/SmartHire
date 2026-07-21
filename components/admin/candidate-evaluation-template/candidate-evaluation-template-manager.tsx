@@ -19,6 +19,7 @@ import {
   MAX_CANDIDATE_EVAL_TEMPLATE_BYTES,
   MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN,
 } from "@/lib/admin/candidate-evaluation-template-constants";
+import { formatDisplayDateTime } from "@/lib/format-date";
 
 export type EvaluationTemplateJobOption = {
   id: string;
@@ -248,10 +249,7 @@ export function CandidateEvaluationTemplateManager({
 
   const updatedLabel =
     info?.updatedAt != null
-      ? new Date(info.updatedAt).toLocaleString(undefined, {
-          dateStyle: "medium",
-          timeStyle: "short",
-        })
+      ? formatDisplayDateTime(info.updatedAt)
       : null;
 
   const selectedJob = jobs.find((j) => j.id === jobId) ?? null;

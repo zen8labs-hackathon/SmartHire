@@ -23,6 +23,8 @@ import {
 
 export interface JdDashboardContextValue {
   canManageJds: boolean;
+  /** Create / delete JD and edit viewer grants — HR only. */
+  canAdministerJds: boolean;
   chapters: readonly { id: string; name: string }[];
   allPipelineStages: readonly {
     id: string;
@@ -79,6 +81,7 @@ export interface JdDashboardContextValue {
   drawerViewersLoading: boolean;
   drawerViewersBusy: boolean;
   drawerViewersError: string | null;
+  drawerViewersSuccess: string | null;
   saveDrawerViewers: () => Promise<void>;
 
   // Create Modal / Form
@@ -147,6 +150,7 @@ export function useJdDashboard() {
 
 interface JdDashboardProviderProps {
   canManageJds: boolean;
+  canAdministerJds: boolean;
   chapters: readonly { id: string; name: string }[];
   allPipelineStages: readonly {
     id: string;
@@ -160,6 +164,7 @@ interface JdDashboardProviderProps {
 
 export function JdDashboardProvider({
   canManageJds,
+  canAdministerJds,
   chapters,
   allPipelineStages,
   initialRowsPromise,
@@ -192,7 +197,7 @@ export function JdDashboardProvider({
     allPipelineStages,
   );
   const editState = useJdEditState(listState.loadDescriptions);
-  const drawerState = useJdDrawerState(canManageJds);
+  const drawerState = useJdDrawerState(canAdministerJds);
 
   // Gluing status updates to active drawer item
   const updateJdStatus = useCallback(
@@ -232,6 +237,7 @@ export function JdDashboardProvider({
     <JdDashboardContext.Provider
       value={{
         canManageJds,
+        canAdministerJds,
         chapters,
         allPipelineStages,
 
@@ -284,6 +290,7 @@ export function JdDashboardProvider({
         drawerViewersLoading: drawerState.drawerViewersLoading,
         drawerViewersBusy: drawerState.drawerViewersBusy,
         drawerViewersError: drawerState.drawerViewersError,
+        drawerViewersSuccess: drawerState.drawerViewersSuccess,
         saveDrawerViewers: drawerState.saveDrawerViewers,
 
         // Creation state

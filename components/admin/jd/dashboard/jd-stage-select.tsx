@@ -18,7 +18,10 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, Loader2 } from "lucide-react";
 import { Button, cn } from "@heroui/react";
-import { getStageColorClasses, getStageColorStyles } from "@/lib/candidates/pipeline-status-styles";
+import {
+  getStageColorClasses,
+  getStageColorStyles,
+} from "@/lib/candidates/pipeline-status-styles";
 
 interface PipelineStage {
   id: string;
@@ -70,10 +73,7 @@ function SortableStageItem({
       className="flex cursor-grab items-center justify-between gap-3 rounded-xl border border-divider bg-background p-3 transition-colors hover:border-default-400 active:cursor-grabbing"
     >
       <div className="flex items-center gap-3 min-w-0 flex-1">
-        <div
-          className="text-muted p-1 rounded"
-          aria-label="Drag to reorder"
-        >
+        <div className="text-muted p-1 rounded" aria-label="Drag to reorder">
           <GripVertical className="h-4 w-4" />
         </div>
 
@@ -146,7 +146,9 @@ export function JdPipelineStageSelect({
     return (
       <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-divider bg-surface-secondary/20">
         <Loader2 className="h-6 w-6 animate-spin text-accent" />
-        <span className="text-xs text-muted">Loading pipeline configuration…</span>
+        <span className="text-xs text-muted">
+          Loading pipeline configuration…
+        </span>
       </div>
     );
   }
@@ -154,7 +156,9 @@ export function JdPipelineStageSelect({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <label className="text-xs font-semibold text-foreground">Select Pipeline Stages</label>
+        <label className="text-xs font-semibold text-foreground">
+          Select Pipeline Stages
+        </label>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {allPipelineStages.map((stage) => {
             const isSelected = selectedStageIds.includes(stage.id);
@@ -164,10 +168,10 @@ export function JdPipelineStageSelect({
                 type="button"
                 onClick={() => handleToggle(stage.id)}
                 className={cn(
-                  "flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all text-xs",
+                  "flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all text-xs hover:cursor-pointer",
                   isSelected
                     ? "border-accent bg-accent/5 font-medium text-foreground"
-                    : "border-divider bg-background text-muted hover:border-default-400 hover:text-foreground"
+                    : "border-divider bg-background text-muted hover:border-default-400 hover:text-foreground",
                 )}
               >
                 <span className="truncate font-medium">{stage.label}</span>
@@ -185,7 +189,9 @@ export function JdPipelineStageSelect({
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs font-semibold text-foreground">Stage Sequence (Drag to Reorder)</label>
+        <label className="text-xs font-semibold text-foreground">
+          Stage Sequence (Drag to Reorder)
+        </label>
         {selectedStageIds.length === 0 ? (
           <div className="rounded-xl border border-dashed border-divider p-6 text-center text-xs text-muted">
             No stages selected. Select stages above to build the pipeline.

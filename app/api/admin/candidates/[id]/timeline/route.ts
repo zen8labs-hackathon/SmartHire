@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import {
   createCandidateSchedule,
@@ -41,6 +43,12 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
+
   const schedules = await listCandidateSchedulesByCampaignApplied(
     getPool(),
     campaignAppliedId,
@@ -64,13 +72,20 @@ export async function GET(request: Request, { params }: RouteContext) {
  * old single-column design couldn't.
  */
 export async function PATCH(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    campaignAppliedId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let rawBody: unknown;
   try {

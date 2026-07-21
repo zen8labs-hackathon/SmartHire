@@ -1,4 +1,6 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
+
 import { discardDuplicateApplication } from "@/lib/candidates/merge-duplicate-application";
 
 const UUID_RE =
@@ -16,13 +18,20 @@ type RouteContext = { params: Promise<{ id: string }> };
  * have other live applications).
  */
 export async function DELETE(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Invalid candidate id." }, { status: 400 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    campaignAppliedId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   try {
     const result = await discardDuplicateApplication(campaignAppliedId);
