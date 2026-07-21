@@ -1,6 +1,9 @@
 import { isChapterHeadGrantedOnJob } from "@/lib/authz/job-access";
 import type { QueryExecutor } from "@/lib/db/config/client";
-import { listChapterIdsForUser } from "@/lib/db/profile-chapters";
+import {
+  listChapterIdsForUser,
+  listHeadedChapterIdsForUser,
+} from "@/lib/db/profile-chapters";
 import { getPublicUserById, type ProfileRole } from "@/lib/db/users";
 
 export type StaffProfileAccess = {
@@ -18,6 +21,8 @@ export type StaffProfileAccess = {
   isStaff: boolean;
   /** Chapter memberships (recruiter scope); empty for HR-only, admin, or dashboard-only. */
   chapterIds: string[];
+  /** Chapters where this user is head (create JD / administer viewers+delete). */
+  headedChapterIds: string[];
 };
 
 export async function getStaffProfileAccess(
@@ -27,7 +32,10 @@ export async function getStaffProfileAccess(
   const user = await getPublicUserById(db, userId);
   if (!user) return null;
 
-  const chapterIds = await listChapterIdsForUser(db, userId);
+  const [chapterIds, headedChapterIds] = await Promise.all([
+    listChapterIdsForUser(db, userId),
+    listHeadedChapterIdsForUser(db, userId),
+  ]);
 
   const isAdmin = user.role === "admin";
   const isHr = isAdmin || user.role === "hr";
@@ -41,6 +49,7 @@ export async function getStaffProfileAccess(
     isHr,
     isStaff,
     chapterIds,
+    headedChapterIds,
   };
 }
 

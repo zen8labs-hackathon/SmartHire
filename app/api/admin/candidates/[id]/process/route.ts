@@ -1,4 +1,6 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
+
 import {
   duplicateNewUploadPreviewFromRow,
   findDuplicateCandidateHits,
@@ -212,10 +214,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     return Response.json({ error: "Missing candidate id" }, { status: 400 });
   }
 
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) {
     return auth.response;
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    campaignAppliedId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let body: ProcessRequestBody = {};
   try {

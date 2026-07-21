@@ -58,17 +58,19 @@ Bảng `permissions` (seed trong migration `*_permissions-catalog.sql`):
 
 Map TypeScript (phải khớp seed): [`lib/authz/permissions.ts`](../lib/authz/permissions.ts).
 
-## Job ACL — ai được xem job?
+## Job ACL — ai được xem / sửa job?
 
 | Điều kiện | Kết quả |
 |-----------|---------|
-| `admin` / `hr` | Xem mọi job (bypass ACL) |
-| Có trong `job_allowed_profiles` | Xem job đó |
-| Là `head` của chapter trong `job_allowed_chapters` | Xem job đó |
-| Chỉ là `member` của chapter được grant | **Không** xem (cần profile grant riêng) |
+| `admin` / `hr` | Full trên mọi job (bypass ACL) |
+| Là `head` của chapter trong `job_allowed_chapters` | Xem + edit JD/CV + lương; **tạo JD**; **xóa JD** và **thêm/sửa/xóa viewers** trên job đó |
+| Có trong `job_allowed_profiles` (email grant) | Xem + edit JD/CV trên job đó (**không** lương; **không** tạo/xóa JD / đổi viewers) |
+| Chỉ là `member` của chapter được grant | **Không** (cần profile grant riêng) |
 | Không grant | List rỗng; deep-link → 403 / redirect `/admin/jd` |
 
-HR cấu hình viewers khi tạo/sửa JD (`viewerEmails`, `viewerChapterIds`) qua [`lib/admin/jd-viewer-sync.ts`](../lib/admin/jd-viewer-sync.ts).
+HR / chapter head cấu hình viewers khi tạo/sửa JD (`viewerEmails`, `viewerChapterIds`) qua [`lib/admin/jd-viewer-sync.ts`](../lib/admin/jd-viewer-sync.ts). Khi chapter head tạo JD, chapter(s) họ làm head được **tự thêm** vào `job_allowed_chapters`.
+
+UI viewers nằm trong drawer JD (**Recruiter access**): thêm/xóa email, chọn chapter, Save — đã có sẵn; trước đây khóa HR, giờ mở cho chapter head trên JD họ quản lý.
 
 ## Salary (`expected_salary`)
 
@@ -87,6 +89,7 @@ Redact ở API list/detail và pipeline RSC: [`lib/authz/redact-salary.ts`](../l
 | [`lib/authz/can.ts`](../lib/authz/can.ts) | `can()`, `canViewJob()`, `canViewSalary()`, `hasAdminAccess()` |
 | [`lib/authz/job-access.ts`](../lib/authz/job-access.ts) | SQL ACL + `canViewJobViaAcl` |
 | [`lib/authz/require-job-view.ts`](../lib/authz/require-job-view.ts) | Guard theo `jobId` |
+| [`lib/authz/require-permission.ts`](../lib/authz/require-permission.ts) | Guard `job.manage` / `candidate.manage` theo job hoặc application |
 | [`lib/authz/require-application-job-view.ts`](../lib/authz/require-application-job-view.ts) | Guard theo `campaign_applied` id |
 | [`lib/admin/require-staff-request.ts`](../lib/admin/require-staff-request.ts) | `requireStaffForRequest`, `requireHrForRequest` |
 | [`lib/admin/require-admin-request.ts`](../lib/admin/require-admin-request.ts) | **Deprecated** alias = HR (không phải admin-only) |

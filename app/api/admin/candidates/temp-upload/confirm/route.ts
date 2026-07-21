@@ -1,4 +1,6 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionOnJob } from "@/lib/authz/require-permission";
+
 import { runDedupePrecheck } from "@/lib/candidates/check-duplicate-precheck";
 import { cvContentSha256Hex, cvFileSha256Hex } from "@/lib/candidates/cv-hash";
 import { extractContactFromText } from "@/lib/candidates/regex-contact-extraction";
@@ -52,7 +54,7 @@ function trimOrNull(value: unknown): string | null {
  * from this response -- no separate "confirmed" flag needed.
  */
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: Body;
@@ -73,6 +75,13 @@ export async function POST(request: Request) {
   }
   const { filename, ext, baseName, jobId, source, sourceOther, expectedSalary, mimeType } =
     validated.value;
+
+  const manageAccess = await requirePermissionOnJob(
+    auth.access,
+    "candidate.manage",
+    jobId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let bytes;
   try {

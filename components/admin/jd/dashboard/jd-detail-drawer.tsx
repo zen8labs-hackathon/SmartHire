@@ -18,6 +18,7 @@ export function JdDetailDrawer() {
     drawerStatusCountsError,
     drawerStatusCounts,
     canManageJds,
+    canAdministerJds,
     openEdit,
     drawerViewersLoading,
     authHeaders,
@@ -361,7 +362,7 @@ export function JdDetailDrawer() {
                   </>
                 )}
 
-                {canManageJds ? (
+                {canAdministerJds ? (
                   <>
                     <Separator />
                     <section className="space-y-3">

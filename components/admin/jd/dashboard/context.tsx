@@ -23,6 +23,8 @@ import {
 
 export interface JdDashboardContextValue {
   canManageJds: boolean;
+  /** Create / delete JD and edit viewer grants — HR only. */
+  canAdministerJds: boolean;
   chapters: readonly { id: string; name: string }[];
   allPipelineStages: readonly {
     id: string;
@@ -147,6 +149,7 @@ export function useJdDashboard() {
 
 interface JdDashboardProviderProps {
   canManageJds: boolean;
+  canAdministerJds: boolean;
   chapters: readonly { id: string; name: string }[];
   allPipelineStages: readonly {
     id: string;
@@ -160,6 +163,7 @@ interface JdDashboardProviderProps {
 
 export function JdDashboardProvider({
   canManageJds,
+  canAdministerJds,
   chapters,
   allPipelineStages,
   initialRowsPromise,
@@ -192,7 +196,7 @@ export function JdDashboardProvider({
     allPipelineStages,
   );
   const editState = useJdEditState(listState.loadDescriptions);
-  const drawerState = useJdDrawerState(canManageJds);
+  const drawerState = useJdDrawerState(canAdministerJds);
 
   // Gluing status updates to active drawer item
   const updateJdStatus = useCallback(
@@ -232,6 +236,7 @@ export function JdDashboardProvider({
     <JdDashboardContext.Provider
       value={{
         canManageJds,
+        canAdministerJds,
         chapters,
         allPipelineStages,
 

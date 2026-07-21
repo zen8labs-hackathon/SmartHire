@@ -1,4 +1,5 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import {
   extensionFromFilename,
   isAllowedJdFilename,
@@ -24,8 +25,10 @@ function isJdKey(key: string): boolean {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
+  const createAccess = requireCanCreateJobs(auth.access);
+  if (!createAccess.ok) return createAccess.response;
 
   let body: PostBody;
   try {
@@ -79,8 +82,10 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
+  const createAccess = requireCanCreateJobs(auth.access);
+  if (!createAccess.ok) return createAccess.response;
 
   const url = new URL(request.url);
   const path = url.searchParams.get("path")?.trim() ?? "";

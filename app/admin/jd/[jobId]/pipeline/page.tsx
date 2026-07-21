@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import type { StaffProfileAccess } from "@/lib/admin/profile-access";
-import { canViewJob, canViewSalary } from "@/lib/authz/can";
+import { can, canViewJob, canViewSalary } from "@/lib/authz/can";
 import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
@@ -74,6 +74,9 @@ export default async function JobPipelinePage({ params }: PageProps) {
   const job = await getJobById(db, jobId);
   if (!job) notFound();
 
+  const canEditPipeline = await can(db, access, "candidate.manage", {
+    jobId: job.id,
+  });
   const pipelineDataPromise = getPipelineData(job.id, access);
 
   return (
@@ -83,8 +86,8 @@ export default async function JobPipelinePage({ params }: PageProps) {
       jobTitle={job.position}
       hasJdSourceFile={!!job.jd_storage_path}
       pipelineDataPromise={pipelineDataPromise}
-      canEditPipeline={access.isHr}
-      canAddCandidates={access.isStaff}
+      canEditPipeline={canEditPipeline}
+      canAddCandidates={canEditPipeline}
     />
   );
 }

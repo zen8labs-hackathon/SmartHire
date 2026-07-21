@@ -1,6 +1,6 @@
 import { JdManagementDashboard } from "@/components/admin/jd/jd-management-dashboard";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { hasRolePermission } from "@/lib/authz/can";
+import { canCreateJobs, hasRolePermission } from "@/lib/authz/can";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -63,8 +63,9 @@ export default async function AdminJdPage() {
     <JdManagementDashboard
       canManageJds={
         access != null &&
-        (access.isHr || hasRolePermission(access, "job.manage"))
+        (access.isHr || hasRolePermission(access, "job.view"))
       }
+      canAdministerJds={access != null && canCreateJobs(access)}
       chapters={chapterRows}
       allPipelineStages={pipelineStages}
       initialRowsPromise={jdListPromise}
