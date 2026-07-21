@@ -1,4 +1,7 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { canViewSalary } from "@/lib/authz/can";
+import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import {
   parseCandidatesListQuery,
   queryCandidatesList,
@@ -23,14 +26,32 @@ export async function GET(request: Request) {
     );
   }
 
-  const result = await queryCandidatesList(getPool(), query);
+  if (query.jobId) {
+    const jobAccess = await requireJobViewAccess(auth.access, query.jobId);
+    if (!jobAccess.ok) return jobAccess.response;
+  }
+
+  const db = getPool();
+  const result = await queryCandidatesList(db, query);
 
   if (result.error) {
     return Response.json({ error: result.error }, { status: 500 });
   }
 
+  // Redact expected_salary unless HR or chapter head on that job.
+  // For multi-job HR lists, check per row; for single-job lists, one check.
+  let candidates = result.candidates;
+  if (query.jobId) {
+    const viewSalary = await canViewSalary(db, auth.access, query.jobId);
+    candidates = candidates.map((row) => redactAdminRowSalary(row, viewSalary));
+  } else if (!auth.access.isHr) {
+    candidates = candidates.map((row) => redactAdminRowSalary(row, false));
+  } else {
+    // HR: keep salary on all rows
+  }
+
   return Response.json({
-    candidates: result.candidates,
+    candidates,
     pagination: result.pagination,
   });
 }

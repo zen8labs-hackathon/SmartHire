@@ -159,6 +159,7 @@ sequenceDiagram
 | `components/` | UI (`admin/*`, `auth/*`) |
 | `lib/db/` | Repository SQL (`QueryExecutor`, transactions) |
 | `lib/auth/` | JWT, session cookies, refresh tokens, password, Azure OAuth |
+| `lib/authz/` | Permission catalog helpers, `can()`, job ACL, salary redact |
 | `lib/admin/` | Request auth DAL, RBAC guards |
 | `lib/candidates/`, `lib/jd/`, `lib/pipelines/`, `lib/evaluation/` | Domain services |
 | `lib/ai/`, `lib/llm/` | Parse CV/JD, match, fill evaluation, provider config |
@@ -251,7 +252,8 @@ erDiagram
 | `campaign_applied` | Ứng viên × job; cache JD match + vị trí pipeline |
 | `cv_detail_versions` | Phiên bản CV bất biến (hash, parse, match snapshot) |
 | `candidate_notes`, `candidate_schedules` (+ interviewers) | Ghi chú / lịch |
-| `job_allowed_profiles`, `job_allowed_chapters` | ACL theo job |
+| `job_allowed_profiles`, `job_allowed_chapters` | ACL theo job (profile grant; chapter grant = **head only**) |
+| `permissions`, `role_permissions`, `group_permissions` | Catalog permission + gán theo role / chapter (group seed rỗng ban đầu) |
 | `job_evaluate_templates`, `candidate_evaluation_reviews` | Evaluation criteria + bản đánh giá + `preview_token` |
 | `refresh_tokens` | Opaque refresh (hash SHA-256) |
 
@@ -313,19 +315,38 @@ sequenceDiagram
 
 ### 7.3 Authorization (RBAC)
 
-| Capability | Ai có |
-|------------|--------|
-| `isHr` (`admin` / `hr`) | Quản lý gần như toàn bộ product |
-| Staff + chapter | Recruiter scoped theo chapter / job ACL |
-| `none` | Chỉ dashboard (trừ khi có chapter membership) |
-| Job ACL | `job_allowed_profiles` + `job_allowed_chapters`; chapter head cho một số thao tác JD |
+> Chi tiết đầy đủ: [docs/rbac.md](./rbac.md).
+
+Phân quyền là **app-layer** (không RLS). Catalog permission nằm trong Postgres; logic kiểm tra tập trung ở `lib/authz/`.
+
+**Permission catalog** (`permissions` + `role_permissions`):
+
+| Permission | `admin`/`hr` | `recruiter` | Ý nghĩa |
+|------------|--------------|-------------|---------|
+| `admin.access` | ✓ | ✓ | Vào `/admin` |
+| `job.view` | ✓ (mọi job) | ✓ scoped | Xem JD / pipeline |
+| `job.manage` | ✓ | — | CRUD JD + viewer grants |
+| `candidate.view` / `candidate.manage` | ✓ | ✓ scoped | Ứng viên trên job được phép |
+| `salary.view` | ✓ | —* | Xem `expected_salary` |
+| `users.manage` / `pipelines.manage` | ✓ | — | Setup HR |
+
+\* Chapter **head** trên JD được grant chapter vẫn xem salary qua `can(..., 'salary.view', { jobId })`, dù role không có `salary.view`.
+
+**Job ACL** (`job_allowed_profiles` / `job_allowed_chapters`):
+
+- Recruiter xem job khi: có grant email **hoặc** là `head` của chapter trong `job_allowed_chapters`.
+- Chapter **member** (không head) **không** được access chỉ nhờ chapter grant — cần profile grant riêng.
+- HR/admin bypass ACL (thấy mọi job).
+- List rỗng nếu recruiter không có grant; deep-link jobId → 403 / redirect.
+
+**API chính:** `can()`, `canViewJob()`, `canViewSalary()` trong `lib/authz/`; guard `requireJobViewAccess` / `requireJobViewForApplication`.
 
 **Lớp enforce:**
 
-1. `proxy.ts` — role ≠ `none` cho `/admin`; refresh session cho `/api/admin`
-2. `app/admin/layout.tsx` — `getRequestAuth()` → `isStaff`
-3. API — `requireAdminForRequest` / `requireStaffForRequest` / `requireHrForRequest`
-4. UI — khóa card theo role trên dashboard
+1. `proxy.ts` — chỉ yêu cầu đăng nhập cho `/admin` (không chặn theo JWT `role`; staff thật sự do layout/DB quyết định)
+2. `app/admin/layout.tsx` — `hasAdminAccess()` / `isStaff`
+3. API — `requireStaffForRequest` / `requireHrForRequest` (`requireAdminForRequest` là alias deprecated = HR); job-scoped thêm `requireJobViewAccess`
+4. UI — khóa card/nav theo `job.manage` / `isHr`; redacted `expected_salary` khi thiếu `salary.view`
 
 ---
 

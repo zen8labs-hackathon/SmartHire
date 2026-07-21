@@ -1,6 +1,4 @@
-import { getStaffProfileAccess } from "@/lib/admin/profile-access";
-import { resolveAccessClaims } from "@/lib/admin/resolve-access-claims";
-import { getPool } from "@/lib/db/config/client";
+import { requireHrForRequest } from "@/lib/admin/require-staff-request";
 
 export type AdminRequestAuthResult =
   | {
@@ -12,27 +10,20 @@ export type AdminRequestAuthResult =
   | { ok: false; response: Response };
 
 /**
- * HR-level auth (full product management): `role === 'admin' | 'hr'`.
- * Prefers `Authorization: Bearer` and falls back to the access-token cookie.
+ * @deprecated Prefer {@link requireHrForRequest}. This name historically meant
+ * "HR-level" (`admin` | `hr`), not admin-only. True admin-only checks use
+ * `requireAdminApi` / `access.isAdmin`.
+ *
+ * Kept as a thin adapter so existing HR-gated API routes keep working.
  */
 export async function requireAdminForRequest(
   request: Request,
 ): Promise<AdminRequestAuthResult> {
-  const claims = await resolveAccessClaims(request);
-  if (!claims) {
-    return {
-      ok: false,
-      response: Response.json({ error: "Unauthorized" }, { status: 401 }),
-    };
-  }
-
-  const access = await getStaffProfileAccess(getPool(), claims.sub);
-  if (!access?.isHr) {
-    return {
-      ok: false,
-      response: Response.json({ error: "Forbidden" }, { status: 403 }),
-    };
-  }
-
-  return { ok: true, userId: claims.sub, userEmail: access.email };
+  const auth = await requireHrForRequest(request);
+  if (!auth.ok) return auth;
+  return {
+    ok: true,
+    userId: auth.userId,
+    userEmail: auth.access.email,
+  };
 }

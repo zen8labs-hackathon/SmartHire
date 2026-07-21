@@ -9,6 +9,7 @@ import {
 } from "@/lib/admin/jd-viewer-sync";
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
 import {
@@ -141,6 +142,9 @@ export async function GET(request: Request, { params }: RouteContext) {
   const { id } = await params;
   const jobId = parseId(id);
   if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
+
+  const jobAccess = await requireJobViewAccess(auth.access, jobId);
+  if (!jobAccess.ok) return jobAccess.response;
 
   const db = getPool();
   const job = await getJobById(db, jobId);

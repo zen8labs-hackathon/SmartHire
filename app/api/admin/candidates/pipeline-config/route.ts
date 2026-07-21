@@ -1,4 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getPool } from "@/lib/db/config/client";
 import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
 
@@ -33,9 +34,15 @@ export async function GET(request: Request) {
     return Response.json({ error: `Too many job ids (max ${MAX_JOB_IDS}).` }, { status: 400 });
   }
 
+  const allowedIds: string[] = [];
+  for (const jobId of jobIds) {
+    const jobAccess = await requireJobViewAccess(auth.access, jobId);
+    if (jobAccess.ok) allowedIds.push(jobId);
+  }
+
   const db = getPool();
   const entries = await Promise.all(
-    jobIds.map(async (jobId) => [jobId, await fetchJobPipelineConfig(db, jobId)] as const),
+    allowedIds.map(async (jobId) => [jobId, await fetchJobPipelineConfig(db, jobId)] as const),
   );
 
   return Response.json({ configs: Object.fromEntries(entries) });
