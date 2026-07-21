@@ -1,6 +1,9 @@
+import { isChapterHeadGrantedOnJob } from "@/lib/authz/job-access";
 import type { QueryExecutor } from "@/lib/db/config/client";
-import { listAllowedChaptersForJob } from "@/lib/db/job-permissions";
-import { listChapterIdsForUser, listMembershipsForUser } from "@/lib/db/profile-chapters";
+import {
+  listChapterIdsForUser,
+  listHeadedChapterIdsForUser,
+} from "@/lib/db/profile-chapters";
 import { getPublicUserById, type ProfileRole } from "@/lib/db/users";
 
 export type StaffProfileAccess = {
@@ -18,6 +21,8 @@ export type StaffProfileAccess = {
   isStaff: boolean;
   /** Chapter memberships (recruiter scope); empty for HR-only, admin, or dashboard-only. */
   chapterIds: string[];
+  /** Chapters where this user is head (create JD / administer viewers+delete). */
+  headedChapterIds: string[];
 };
 
 export async function getStaffProfileAccess(
@@ -27,7 +32,10 @@ export async function getStaffProfileAccess(
   const user = await getPublicUserById(db, userId);
   if (!user) return null;
 
-  const chapterIds = await listChapterIdsForUser(db, userId);
+  const [chapterIds, headedChapterIds] = await Promise.all([
+    listChapterIdsForUser(db, userId),
+    listHeadedChapterIdsForUser(db, userId),
+  ]);
 
   const isAdmin = user.role === "admin";
   const isHr = isAdmin || user.role === "hr";
@@ -41,6 +49,7 @@ export async function getStaffProfileAccess(
     isHr,
     isStaff,
     chapterIds,
+    headedChapterIds,
   };
 }
 
@@ -53,28 +62,13 @@ export async function isProfileStaff(
 }
 
 /**
- * Replaces the pre-DB7X2K `isChapterHeadOnJobDescription`, which despite its
- * name never actually checked headship -- it just checked "does any chapter
- * have viewer access to this JD" (see DB7X2K log 09/10's "permission gap
- * found" note). This version does what the name says: true only when the
- * user is a `head` of a chapter that is itself granted access to the job
- * (composing two separate join tables -- `profile_chapters.role` no longer
- * lives on the same object as job-chapter grants under DB7X2K).
+ * True when the user is a `head` of a chapter granted on the job
+ * (`job_allowed_chapters` ∩ `profile_chapters` where role = head).
  */
 export async function isChapterHeadOnJob(
   db: QueryExecutor,
   userId: string,
   jobId: string,
 ): Promise<boolean> {
-  const [memberships, allowedChapters] = await Promise.all([
-    listMembershipsForUser(db, userId),
-    listAllowedChaptersForJob(db, jobId),
-  ]);
-
-  const headChapterIds = new Set(
-    memberships.filter((m) => m.role === "head").map((m) => m.chapterId),
-  );
-  if (headChapterIds.size === 0) return false;
-
-  return allowedChapters.some((c) => headChapterIds.has(c.chapter_id));
+  return isChapterHeadGrantedOnJob(db, userId, jobId);
 }

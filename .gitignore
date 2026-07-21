@@ -34,6 +34,7 @@ yarn-error.log*
 .env*
 !.env.example
 !.env.production.example
+!.env.develop.example
 
 # vercel
 .vercel
@@ -47,6 +48,8 @@ next-env.d.ts
 .specstory
 .vscode
 .agents/*
+.claude/*
+.playwright-mcp/*
 
 # blue-green state on server (symlink + slot name)
 deploy/.active-slot

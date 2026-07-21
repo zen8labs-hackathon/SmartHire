@@ -22,6 +22,7 @@ import {
   getSubStageTextColorClass,
   getSubStageTextColorStyle,
 } from "@/lib/candidates/pipeline-status-styles";
+import { formatDisplayDateTime } from "@/lib/format-date";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 
@@ -536,7 +537,7 @@ export function PipelineCandidateEvaluationClient({
           {latest ? (
             <SectionCard
               title="Latest generated evaluation"
-              description={`Generated ${new Date(latest.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}. Add more interview notes below and regenerate to include them.`}
+              description={`Generated ${formatDisplayDateTime(latest.createdAt)}. Add more interview notes below and regenerate to include them.`}
             >
               <div className="flex flex-col gap-3 pt-2">
                 <div>
@@ -637,10 +638,7 @@ export function PipelineCandidateEvaluationClient({
                         <div className="flex items-center justify-between gap-2 mb-1.5">
                           <p className="text-[10px] font-bold text-muted uppercase tracking-wider">
                             {n.author_username ?? (n.author_id ? n.author_id.slice(0, 8) : "Unknown")} ·{" "}
-                            {new Date(n.created_at).toLocaleString(undefined, {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
+                            {formatDisplayDateTime(n.created_at)}
                             {wasEdited ? " · edited" : ""}
                           </p>
                           {canEdit && !isEditing ? (

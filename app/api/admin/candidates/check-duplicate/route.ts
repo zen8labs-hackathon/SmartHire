@@ -1,4 +1,6 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionOnJob } from "@/lib/authz/require-permission";
+
 import {
   runDedupePrecheck,
   type PrecheckSignals,
@@ -14,7 +16,7 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: Body;
@@ -24,11 +26,21 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const jobOpeningId =
+    typeof body.jobOpeningId === "string" && body.jobOpeningId.length > 0
+      ? body.jobOpeningId
+      : null;
+  if (jobOpeningId) {
+    const manageAccess = await requirePermissionOnJob(
+      auth.access,
+      "candidate.manage",
+      jobOpeningId,
+    );
+    if (!manageAccess.ok) return manageAccess.response;
+  }
+
   const signals: PrecheckSignals = {
-    jobOpeningId:
-      typeof body.jobOpeningId === "string" && body.jobOpeningId.length > 0
-        ? body.jobOpeningId
-        : null,
+    jobOpeningId,
     email: typeof body.email === "string" && body.email.trim() ? body.email.trim() : null,
     phone: typeof body.phone === "string" && body.phone.trim() ? body.phone.trim() : null,
     cvFileSha256:

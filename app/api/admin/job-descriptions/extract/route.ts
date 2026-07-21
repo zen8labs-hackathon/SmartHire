@@ -1,4 +1,5 @@
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { extractJdFromDocument } from "@/lib/ai/extract-jd";
 import {
   extractTextFromBuffer,
@@ -23,8 +24,10 @@ function isJdKey(key: string): boolean {
  * returns pre-filled form data.
  */
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
+  const createAccess = requireCanCreateJobs(auth.access);
+  if (!createAccess.ok) return createAccess.response;
 
   let body: { storagePath?: string };
   try {

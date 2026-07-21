@@ -1,4 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { countCampaignAppliedByStageForJob } from "@/lib/db/campaign-applied-list";
 import { countActiveApplicationsByJobIds } from "@/lib/db/campaign-applied";
 import { getPool } from "@/lib/db/config/client";
@@ -23,6 +24,9 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!jobId || !UUID_RE.test(jobId)) {
     return Response.json({ error: "Invalid job id." }, { status: 400 });
   }
+
+  const jobAccess = await requireJobViewAccess(auth.access, jobId);
+  if (!jobAccess.ok) return jobAccess.response;
 
   const db = getPool();
   const [counts, totalByJob] = await Promise.all([

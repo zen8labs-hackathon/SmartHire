@@ -1,4 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getJobById } from "@/lib/db/jobs";
 import { getPool } from "@/lib/db/config/client";
 import { createSignedDownloadUrl } from "@/lib/storage/s3";
@@ -16,6 +17,9 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!UUID_RE.test(jobId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const jobAccess = await requireJobViewAccess(auth.access, jobId);
+  if (!jobAccess.ok) return jobAccess.response;
 
   const job = await getJobById(getPool(), jobId);
   if (!job) {

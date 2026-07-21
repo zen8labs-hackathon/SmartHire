@@ -29,6 +29,7 @@ export function JdTable() {
     startIdx,
     endIdx,
     canManageJds,
+    canAdministerJds,
     statusUpdatingId,
     updateJdStatus,
     setActiveRow,
@@ -203,24 +204,26 @@ export function JdTable() {
                                 <p>Edit details</p>
                               </Tooltip.Content>
                             </Tooltip>
-                            <Tooltip delay={0}>
-                              <Button
-                                aria-label={`Delete ${row.position}`}
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 min-w-0 p-0 rounded-lg text-danger hover:bg-danger/10"
-                                onPress={() => {
-                                  setDeletingId(row.id);
-                                  deleteModal.open();
-                                }}
-                              >
-                                <TrashIcon className="size-4" />
-                              </Button>
-                              <Tooltip.Content placement="top" showArrow>
-                                <Tooltip.Arrow />
-                                <p>Delete</p>
-                              </Tooltip.Content>
-                            </Tooltip>
+                            {canAdministerJds ? (
+                              <Tooltip delay={0}>
+                                <Button
+                                  aria-label={`Delete ${row.position}`}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 min-w-0 p-0 rounded-lg text-danger hover:bg-danger/10"
+                                  onPress={() => {
+                                    setDeletingId(row.id);
+                                    deleteModal.open();
+                                  }}
+                                >
+                                  <TrashIcon className="size-4" />
+                                </Button>
+                                <Tooltip.Content placement="top" showArrow>
+                                  <Tooltip.Arrow />
+                                  <p>Delete</p>
+                                </Tooltip.Content>
+                              </Tooltip>
+                            ) : null}
                           </>
                         ) : null}
                       </div>

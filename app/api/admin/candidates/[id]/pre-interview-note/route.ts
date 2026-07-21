@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import {
   createCandidateNote,
   listCandidateNotesByCampaignApplied,
@@ -41,6 +42,12 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
+
   const note = await getExistingNote(campaignAppliedId);
   return Response.json({ preInterviewNote: note?.body ?? "" });
 }
@@ -53,6 +60,12 @@ export async function PUT(request: Request, { params }: RouteContext) {
   if (!campaignAppliedId || !UUID_RE.test(campaignAppliedId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
   const parsed = putBodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
