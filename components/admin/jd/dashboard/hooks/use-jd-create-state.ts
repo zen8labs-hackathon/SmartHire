@@ -220,6 +220,14 @@ export function useJdCreateState(
       const fieldErrs: { start_date?: string; hiring_deadline?: string } = {};
       if (!form.start_date) fieldErrs.start_date = "Start date is required.";
       if (!form.hiring_deadline) fieldErrs.hiring_deadline = "Hiring deadline is required.";
+      if (
+        form.start_date &&
+        form.hiring_deadline &&
+        form.hiring_deadline < form.start_date
+      ) {
+        fieldErrs.hiring_deadline =
+          "Hiring deadline must be on or after the start date.";
+      }
       if (Object.keys(fieldErrs).length > 0) {
         setCreateFieldErrors(fieldErrs);
         setFormSubmitting(false);
