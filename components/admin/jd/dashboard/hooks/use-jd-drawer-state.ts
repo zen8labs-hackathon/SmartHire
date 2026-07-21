@@ -1,29 +1,44 @@
 import { useState, useEffect, useCallback } from "react";
 import type { JobDescription } from "@/lib/jd/types";
 import type { CampaignAppliedStageCountRow } from "@/lib/db/campaign-applied-list";
-import { useToast } from "@/components/admin/toast-provider";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export type StageSubStageCount = CampaignAppliedStageCountRow;
 
 export function useJdDrawerState(canManageJds: boolean) {
-  const toast = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
-  
+
   const [drawerStatusCounts, setDrawerStatusCounts] = useState<
     StageSubStageCount[] | null
   >(null);
-  const [drawerStatusCountsError, setDrawerStatusCountsError] = useState<string | null>(null);
+  const [drawerStatusCountsError, setDrawerStatusCountsError] = useState<
+    string | null
+  >(null);
 
   const [drawerViewerEmails, setDrawerViewerEmails] = useState<string[]>([]);
-  const [drawerViewerChapterIds, setDrawerViewerChapterIds] = useState<string[]>([]);
+  const [drawerViewerChapterIds, setDrawerViewerChapterIds] = useState<
+    string[]
+  >([]);
   const [drawerViewersLoading, setDrawerViewersLoading] = useState(false);
   const [drawerViewersBusy, setDrawerViewersBusy] = useState(false);
-  const [drawerViewersError, setDrawerViewersError] = useState<string | null>(null);
+  const [drawerViewersError, setDrawerViewersError] = useState<string | null>(
+    null,
+  );
+  const [drawerViewersSuccess, setDrawerViewersSuccess] = useState<
+    string | null
+  >(null);
 
   const authHeaders = useCallback(async () => JSON_HEADERS, []);
+
+  useEffect(() => {
+    if (!drawerViewersSuccess) return;
+    const timer = window.setTimeout(() => {
+      setDrawerViewersSuccess(null);
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [drawerViewersSuccess]);
 
   // Load viewers
   useEffect(() => {
@@ -31,12 +46,14 @@ export function useJdDrawerState(canManageJds: boolean) {
       setDrawerViewerEmails([]);
       setDrawerViewerChapterIds([]);
       setDrawerViewersError(null);
+      setDrawerViewersSuccess(null);
       setDrawerViewersLoading(false);
       return;
     }
     let cancelled = false;
     setDrawerViewersLoading(true);
     setDrawerViewersError(null);
+    setDrawerViewersSuccess(null);
     void (async () => {
       try {
         const res = await fetch(
@@ -115,6 +132,7 @@ export function useJdDrawerState(canManageJds: boolean) {
     if (!activeRow) return;
     setDrawerViewersBusy(true);
     setDrawerViewersError(null);
+    setDrawerViewersSuccess(null);
     try {
       const headers = await authHeaders();
       const res = await fetch(`/api/admin/job-descriptions/${activeRow.id}`, {
@@ -138,15 +156,15 @@ export function useJdDrawerState(canManageJds: boolean) {
       if (json.viewerChapterIds) {
         setDrawerViewerChapterIds(json.viewerChapterIds);
       }
-      toast.success("Saved successfully.");
+      setDrawerViewersSuccess("Recruiter access saved.");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Save failed.";
-      setDrawerViewersError(msg);
-      toast.error(msg);
+      setDrawerViewersError(
+        e instanceof Error ? e.message : "Save failed.",
+      );
     } finally {
       setDrawerViewersBusy(false);
     }
-  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerEmails, toast]);
+  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerEmails]);
 
   return {
     drawerOpen,
@@ -162,6 +180,7 @@ export function useJdDrawerState(canManageJds: boolean) {
     drawerViewersLoading,
     drawerViewersBusy,
     drawerViewersError,
+    drawerViewersSuccess,
     saveDrawerViewers,
   };
 }
