@@ -31,6 +31,8 @@ function buildCvSummary(
     degree: string | null;
     school: string | null;
     experience_years: number | string | null;
+    english_level: string | null;
+    gpa: string | null;
     parsed_payload: unknown;
   },
 ): string {
@@ -45,6 +47,10 @@ function buildCvSummary(
     skills && `Skills: ${skills}`,
     row.degree && `Education: ${row.degree}`,
     row.school && `School: ${row.school}`,
+    /* Hiring criteria routinely name an English level or GPA threshold; without
+       these the requirement checklist can only ever answer "unclear". */
+    row.english_level && `English level: ${row.english_level}`,
+    row.gpa && `GPA: ${row.gpa}`,
     p?.experienceSummary && `Experience summary: ${p.experienceSummary}`,
     p?.email && `Email: ${p.email}`,
     p?.phone && `Phone: ${p.phone}`,
@@ -155,6 +161,8 @@ export async function runJdMatchForCandidate(
       degree: cvVersion.degree,
       school: cvVersion.education,
       experience_years: cvVersion.experience_years,
+      english_level: cvVersion.english_level,
+      gpa: cvVersion.gpa,
       parsed_payload: cvVersion.parsed_payload,
     });
 
