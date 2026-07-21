@@ -162,11 +162,21 @@ const SOURCE_ORDER: Record<JdRequirementSource, number> = {
   nice_to_have: 3,
 };
 
+/** Within a source group: wins first, gaps last. */
+const VERDICT_ORDER: Record<JdRequirementVerdict, number> = {
+  met: 0,
+  partial: 1,
+  unclear: 2,
+  missing: 3,
+};
+
 export function sortJdRequirements(
   requirements: JdRequirementCheck[],
 ): JdRequirementCheck[] {
   return [...requirements].sort(
-    (a, b) => SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source],
+    (a, b) =>
+      SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source] ||
+      VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict],
   );
 }
 

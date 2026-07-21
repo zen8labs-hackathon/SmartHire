@@ -256,38 +256,54 @@ type RationaleModalProps = {
 /**
  * One JD requirement and how the candidate measured up against it.
  */
-const REQUIREMENT_BADGE_CLASS: Record<
+/** Card accent + badge tint per verdict colour. */
+const REQUIREMENT_STYLE: Record<
   ReturnType<typeof jdRequirementVerdictStyle>["color"],
-  string
+  { card: string; badge: string }
 > = {
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-danger/10 text-danger",
-  default: "bg-muted/10 text-muted",
+  success: {
+    card: "border-l-success bg-success/[0.04]",
+    badge: "bg-success/10 text-success",
+  },
+  warning: {
+    card: "border-l-warning bg-warning/[0.04]",
+    badge: "bg-warning/10 text-warning",
+  },
+  danger: {
+    card: "border-l-danger bg-danger/[0.04]",
+    badge: "bg-danger/10 text-danger",
+  },
+  default: {
+    card: "border-l-divider bg-muted/[0.04]",
+    badge: "bg-muted/10 text-muted",
+  },
 };
 
 function RequirementRow({ check }: { check: JdRequirementCheck }) {
   const style = jdRequirementVerdictStyle(check.verdict);
+  const tone = REQUIREMENT_STYLE[style.color];
 
   return (
-    <li className="flex gap-3">
-      <span
-        aria-label={style.label}
-        className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold leading-none ${REQUIREMENT_BADGE_CLASS[style.color]}`}
-      >
-        {style.icon}
-      </span>
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-sm font-semibold text-foreground">
-          {check.requirement}
-          <span className="ml-2 text-xs font-normal text-muted">
-            {jdRequirementSourceLabel(check.source)}
-          </span>
-        </p>
-        {check.evidence ? (
-          <p className="text-sm text-muted">{check.evidence}</p>
-        ) : null}
+    <li className={`rounded-lg border-l-4 px-4 py-3 ${tone.card}`}>
+      <div className="flex items-center gap-2">
+        <span
+          aria-label={style.label}
+          className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold leading-none ${tone.badge}`}
+        >
+          {style.icon}
+        </span>
+        <span className="whitespace-nowrap text-[0.6875rem] font-bold uppercase tracking-wide text-muted">
+          {jdRequirementSourceLabel(check.source)}
+        </span>
       </div>
+      <p className="mt-1.5 text-sm font-semibold leading-snug text-foreground">
+        {check.requirement}
+      </p>
+      {check.evidence ? (
+        <p className="mt-2 rounded-md bg-background/60 px-3 py-2 text-sm leading-snug text-muted">
+          {check.evidence}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -347,17 +363,17 @@ export function RationaleModal({
                     {rationale.summary}
                   </p>
                 ) : null}
-                {requirements.length > 0 ? (
-                  <ul className="space-y-3 border-t border-divider pt-4 first:border-t-0 first:pt-0">
-                    {requirements.map((check, i) => (
-                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
-                    ))}
-                  </ul>
-                ) : null}
                 {rationale.meta ? (
                   <p className="whitespace-pre-wrap text-xs text-muted">
                     {rationale.meta}
                   </p>
+                ) : null}
+                {requirements.length > 0 ? (
+                  <ul className="space-y-2 border-t border-divider pt-4 first:border-t-0 first:pt-0">
+                    {requirements.map((check, i) => (
+                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
+                    ))}
+                  </ul>
                 ) : null}
               </>
             ) : (
