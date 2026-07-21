@@ -81,6 +81,7 @@ export interface JdDashboardContextValue {
   drawerViewersLoading: boolean;
   drawerViewersBusy: boolean;
   drawerViewersError: string | null;
+  drawerViewersSuccess: string | null;
   saveDrawerViewers: () => Promise<void>;
 
   // Create Modal / Form
@@ -289,6 +290,7 @@ export function JdDashboardProvider({
         drawerViewersLoading: drawerState.drawerViewersLoading,
         drawerViewersBusy: drawerState.drawerViewersBusy,
         drawerViewersError: drawerState.drawerViewersError,
+        drawerViewersSuccess: drawerState.drawerViewersSuccess,
         saveDrawerViewers: drawerState.saveDrawerViewers,
 
         // Creation state

@@ -28,6 +28,7 @@ export function JdDetailDrawer() {
     drawerViewerChapterIds,
     setDrawerViewerChapterIds,
     drawerViewersError,
+    drawerViewersSuccess,
     drawerViewersBusy,
     saveDrawerViewers,
   } = useJdDashboard();
@@ -399,14 +400,24 @@ export function JdDetailDrawer() {
                           {drawerViewersError}
                         </p>
                       ) : null}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={drawerViewersBusy || drawerViewersLoading}
-                        onPress={() => void saveDrawerViewers()}
-                      >
-                        {drawerViewersBusy ? "Saving…" : "Save viewers"}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={drawerViewersBusy || drawerViewersLoading}
+                          onPress={() => void saveDrawerViewers()}
+                        >
+                          {drawerViewersBusy ? "Saving…" : "Save viewers"}
+                        </Button>
+                        {drawerViewersSuccess ? (
+                          <p
+                            className="text-sm font-medium text-success"
+                            role="status"
+                          >
+                            {drawerViewersSuccess}
+                          </p>
+                        ) : null}
+                      </div>
                     </section>
                   </>
                 ) : null}
