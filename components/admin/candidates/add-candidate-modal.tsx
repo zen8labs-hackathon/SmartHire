@@ -22,6 +22,7 @@ import type {
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import {
   MAX_CV_BYTES,
   isAllowedCvFilename,
@@ -99,10 +100,7 @@ function formatBytes(n: number) {
 }
 
 function formatDate(ts: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(ts));
+  return formatDisplayDateTime(ts);
 }
 
 const BULK_AI_CONCURRENCY = 3;

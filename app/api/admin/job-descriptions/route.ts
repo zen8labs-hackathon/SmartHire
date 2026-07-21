@@ -6,8 +6,8 @@ import {
   replaceJobDescriptionViewers,
   resolveViewerEmailsToUserIds,
 } from "@/lib/admin/jd-viewer-sync";
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { createJob, type CreateJobInput } from "@/lib/db/jobs";
 import {
@@ -34,7 +34,7 @@ type CreateBody = Partial<JobDescriptionFormData> & {
   jdMimeType?: string | null;
   /** Recruiter accounts that may open this JD (must already exist). */
   viewerEmails?: string[] | string | null;
-  /** Chapter ids: all members of these chapters may open this JD. */
+  /** Chapter ids: chapter *heads* of these chapters may open this JD (members need a profile grant). */
   viewerChapterIds?: string[] | null;
   pipelineStages?: string[] | null;
 };
@@ -99,6 +99,7 @@ export async function GET(request: Request) {
         startTo,
         limit,
         offset,
+        visibleToUserId: auth.access.isHr ? undefined : auth.userId,
       });
     return Response.json({ jobDescriptions, pagination, statusCounts });
   } catch (e) {
@@ -110,8 +111,11 @@ export async function GET(request: Request) {
 const DEFAULT_PIPELINE_STAGE_CODES = ["cv_scan", "interview", "offer"];
 
 export async function POST(request: Request) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
+
+  const createAccess = requireCanCreateJobs(auth.access);
+  if (!createAccess.ok) return createAccess.response;
 
   let body: CreateBody;
   try {
@@ -144,9 +148,13 @@ export async function POST(request: Request) {
   const db = getPool();
 
   const viewerEmails = parseViewerEmailInput(viewerEmailsRaw);
-  const viewerChapterIds = parseViewerChapterIds(
-    viewerChapterIdsRaw ?? undefined,
-  );
+  // Chapter heads always retain access via their headed chapters.
+  const viewerChapterIds = [
+    ...new Set([
+      ...parseViewerChapterIds(viewerChapterIdsRaw ?? undefined),
+      ...auth.access.headedChapterIds,
+    ]),
+  ];
 
   let viewerUserIds: string[] = [];
   if (viewerEmails.length > 0) {
@@ -188,6 +196,16 @@ export async function POST(request: Request) {
     if (!input.hiringDeadline) {
       return Response.json({ error: "Hiring deadline is required." }, { status: 400 });
     }
+  }
+  if (
+    input.startDate &&
+    input.hiringDeadline &&
+    input.hiringDeadline < input.startDate
+  ) {
+    return Response.json(
+      { error: "Hiring deadline must be on or after the start date." },
+      { status: 400 },
+    );
   }
   input.jdStoragePath = jdStoragePath;
   input.jdOriginalFilename =

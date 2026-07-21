@@ -18,6 +18,7 @@ export function JdDetailDrawer() {
     drawerStatusCountsError,
     drawerStatusCounts,
     canManageJds,
+    canAdministerJds,
     openEdit,
     drawerViewersLoading,
     authHeaders,
@@ -27,6 +28,7 @@ export function JdDetailDrawer() {
     drawerViewerChapterIds,
     setDrawerViewerChapterIds,
     drawerViewersError,
+    drawerViewersSuccess,
     drawerViewersBusy,
     saveDrawerViewers,
   } = useJdDashboard();
@@ -361,7 +363,7 @@ export function JdDetailDrawer() {
                   </>
                 )}
 
-                {canManageJds ? (
+                {canAdministerJds ? (
                   <>
                     <Separator />
                     <section className="space-y-3">
@@ -383,7 +385,7 @@ export function JdDetailDrawer() {
                           />
                           <div className="space-y-2">
                             <Label className="text-xs text-muted">
-                              Viewer chapters (whole chapter)
+                              Viewer chapters (chapter heads)
                             </Label>
                             <ChapterPicker
                               chapters={chapters}
@@ -398,14 +400,24 @@ export function JdDetailDrawer() {
                           {drawerViewersError}
                         </p>
                       ) : null}
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={drawerViewersBusy || drawerViewersLoading}
-                        onPress={() => void saveDrawerViewers()}
-                      >
-                        {drawerViewersBusy ? "Saving…" : "Save viewers"}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          isDisabled={drawerViewersBusy || drawerViewersLoading}
+                          onPress={() => void saveDrawerViewers()}
+                        >
+                          {drawerViewersBusy ? "Saving…" : "Save viewers"}
+                        </Button>
+                        {drawerViewersSuccess ? (
+                          <p
+                            className="text-sm font-medium text-success"
+                            role="status"
+                          >
+                            {drawerViewersSuccess}
+                          </p>
+                        ) : null}
+                      </div>
                     </section>
                   </>
                 ) : null}

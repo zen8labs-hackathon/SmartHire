@@ -6,6 +6,7 @@ import {
   clampOffset,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
+import { jobAclVisibleSql } from "@/lib/authz/job-access";
 
 export type JobStatus = "Done" | "Hiring" | "Pending" | "Closed";
 
@@ -93,6 +94,11 @@ export type ListJobsFilters = PaginationParams & {
   /** Inclusive lower/upper bound (YYYY-MM-DD) on `start_date`. */
   startFrom?: string;
   startTo?: string;
+  /**
+   * When set, only jobs visible to this user via job ACL (profile grant or
+   * chapter-head grant). Omit for HR/admin unrestricted lists.
+   */
+  visibleToUserId?: string;
 };
 
 /** Same q/date-range filters as `listJobs`, scoped by everything except `status` itself -- for status-tab counts. */
@@ -100,6 +106,8 @@ export type CountJobsByStatusFilters = {
   q?: string;
   startFrom?: string;
   startTo?: string;
+  /** Same ACL scope as {@link ListJobsFilters.visibleToUserId}. */
+  visibleToUserId?: string;
 };
 
 export async function getJobById(
@@ -138,6 +146,10 @@ export async function listJobs(
   if (filters.startTo) {
     values.push(filters.startTo);
     conditions.push(`start_date <= $${values.length}`);
+  }
+  if (filters.visibleToUserId) {
+    values.push(filters.visibleToUserId);
+    conditions.push(jobAclVisibleSql(values.length, "id"));
   }
 
   values.push(limit);
@@ -181,6 +193,10 @@ export async function countJobsByStatus(
   if (filters.startTo) {
     values.push(filters.startTo);
     conditions.push(`start_date <= $${values.length}`);
+  }
+  if (filters.visibleToUserId) {
+    values.push(filters.visibleToUserId);
+    conditions.push(jobAclVisibleSql(values.length, "id"));
   }
 
   const { rows } = await db.query<{ status: JobStatus; count: string }>(

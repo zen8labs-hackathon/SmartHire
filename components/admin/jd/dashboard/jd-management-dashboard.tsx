@@ -17,6 +17,7 @@ import { JdDetailDrawer } from "./jd-detail-drawer";
 
 interface JdManagementDashboardProps {
   canManageJds?: boolean;
+  canAdministerJds?: boolean;
   chapters?: readonly { id: string; name: string }[];
   allPipelineStages?: readonly {
     id: string;
@@ -59,6 +60,7 @@ function JdDashboardBody() {
 
 export function JdManagementDashboard({
   canManageJds = true,
+  canAdministerJds = true,
   chapters = [],
   allPipelineStages = [],
   initialRowsPromise,
@@ -71,6 +73,7 @@ export function JdManagementDashboard({
         <Suspense fallback={<JdListSkeleton />}>
           <JdDashboardProvider
             canManageJds={canManageJds}
+            canAdministerJds={canAdministerJds}
             chapters={chapters}
             allPipelineStages={allPipelineStages}
             initialRowsPromise={initialRowsPromise}

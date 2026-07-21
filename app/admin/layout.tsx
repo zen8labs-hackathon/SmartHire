@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardLayout } from "@/components/admin/shell/dashboard-layout";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import { hasAdminAccess, hasRolePermission } from "@/lib/authz/can";
 
 export default async function AdminLayout({
   children,
@@ -16,14 +17,17 @@ export default async function AdminLayout({
   if (!user) {
     redirect("/login?next=/admin");
   }
-  if (!access?.isStaff) {
+  if (!access || !hasAdminAccess(access)) {
     redirect("/dashboard");
   }
+
+  const canManage =
+    access.isHr || hasRolePermission(access, "job.manage");
 
   return (
     <DashboardLayout
       userEmail={user.email ?? ""}
-      isHr={access.isHr}
+      isHr={canManage}
       chapterIds={access.chapterIds}
     >
       {children}

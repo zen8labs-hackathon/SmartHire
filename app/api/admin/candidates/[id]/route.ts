@@ -1,12 +1,14 @@
 import { z } from "zod";
 
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { canViewSalary } from "@/lib/authz/can";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
+import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import {
   getCampaignAppliedAdminRowById,
 } from "@/lib/db/campaign-applied-list";
 import {
-  getCampaignAppliedById,
   softDeleteCampaignApplied,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
@@ -37,12 +39,17 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const row = await getCampaignAppliedAdminRowById(getPool(), candidateId);
+  const db = getPool();
+  const row = await getCampaignAppliedAdminRowById(db, candidateId);
   if (!row) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  return Response.json({ candidate: row });
+  const jobAccess = await requireJobViewAccess(auth.access, row.job_id);
+  if (!jobAccess.ok) return jobAccess.response;
+
+  const viewSalary = await canViewSalary(db, auth.access, row.job_id);
+  return Response.json({ candidate: redactAdminRowSalary(row, viewSalary) });
 }
 
 /**
@@ -50,13 +57,21 @@ export async function GET(request: Request, { params }: RouteContext) {
  * transition rules as PATCH /api/admin/candidates/pipeline.
  */
 export async function PATCH(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;
   if (!candidateId || !UUID_RE.test(candidateId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    candidateId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
+  const existing = manageAccess.application;
 
   let body: unknown;
   try {
@@ -75,11 +90,6 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   const { current_job_stage_mapping_id, current_sub_state_id } = parsed.data;
 
   const db = getPool();
-
-  const existing = await getCampaignAppliedById(db, candidateId);
-  if (!existing) {
-    return Response.json({ error: "Not found." }, { status: 404 });
-  }
 
   const { stageMappings, subStages } = await fetchJobPipelineConfig(
     db,
@@ -136,13 +146,20 @@ export async function PATCH(request: Request, { params }: RouteContext) {
  * constraint instead of surfacing the duplicate-candidate flow.
  */
 export async function DELETE(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;
   if (!candidateId || !UUID_RE.test(candidateId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    candidateId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   const deleted = await withTransaction(async (tx) => {
     const row = await softDeleteCampaignApplied(tx, candidateId);
