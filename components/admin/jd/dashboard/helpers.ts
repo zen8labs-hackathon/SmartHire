@@ -1,4 +1,5 @@
 import type { JdStatus } from "@/lib/jd/types";
+import { formatDisplayDate } from "@/lib/format-date";
 
 export const LEGACY_HIRE_TYPE_VI_TO_EN: Record<string, string> = {
   "Tuyển mới": "New hire",
@@ -71,22 +72,10 @@ export function jdRowDate(value: unknown): string | null {
 export function formatJdCalendarDate(value: string | null | undefined): string {
   if (value == null || value === "") return "—";
   const ymd = value.slice(0, 10);
-  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return "—";
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  return new Date(y, mo - 1, d).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "—";
+  return formatDisplayDate(ymd);
 }
 
 export function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return formatDisplayDate(iso);
 }
