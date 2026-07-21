@@ -1,12 +1,5 @@
 import React, { type DragEvent, type ChangeEvent } from "react";
-import {
-  Modal,
-  Card,
-  Button,
-  TextField,
-  Label,
-  Input,
-} from "@heroui/react";
+import { Modal, Card, Button, TextField, Label, Input } from "@heroui/react";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
@@ -207,7 +200,6 @@ export function JdCreateModal() {
                   )}
                 </div>
               </div>
-
             </div>
 
             <div className="space-y-3">
@@ -256,7 +248,7 @@ export function JdCreateModal() {
                 jdUploadPhase === "extracting"
               }
             >
-              Discard draft
+              Close
             </Button>
             <div className="flex gap-2">
               <Button

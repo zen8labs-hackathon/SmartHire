@@ -74,9 +74,16 @@ export function useJdCreateState(
     if (jdFileInputRef.current) jdFileInputRef.current.value = "";
   }, []);
 
+  const skipDraftCleanupRef = useRef(false);
+
   const jdModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) {
+        if (skipDraftCleanupRef.current) {
+          skipDraftCleanupRef.current = false;
+        } else if (jdDraftStoragePath) {
+          void deleteJdDraftOnServer(jdDraftStoragePath);
+        }
         resetUploadState();
         setFormError(null);
         setForm(DEFAULT_FORM);
@@ -196,10 +203,8 @@ export function useJdCreateState(
   );
 
   const discardJdDraft = useCallback(async () => {
-    if (jdDraftStoragePath) await deleteJdDraftOnServer(jdDraftStoragePath);
-    resetUploadState();
     jdModal.close();
-  }, [deleteJdDraftOnServer, jdDraftStoragePath, jdModal, resetUploadState]);
+  }, [jdModal]);
 
   const handleSave = useCallback(
     async () => {
@@ -248,6 +253,7 @@ export function useJdCreateState(
         });
         const json = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(json.error ?? "Save failed.");
+        skipDraftCleanupRef.current = true;
         jdModal.close();
         await loadDescriptions();
         toast.success("Job description created successfully.");
