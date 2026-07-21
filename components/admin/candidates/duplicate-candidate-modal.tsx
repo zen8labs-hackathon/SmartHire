@@ -9,6 +9,7 @@ import type {
   DuplicateCandidateHit,
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
+import { formatDisplayDate } from "@/lib/format-date";
 
 function dash(v: string | null | undefined): string {
   if (v == null || String(v).trim() === "") return "—";
@@ -60,10 +61,7 @@ function DiffNew({
 }
 
 function formatExistingApplied(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(d);
+  return formatDisplayDate(iso);
 }
 
 function WarningIcon({ className }: { className?: string }) {

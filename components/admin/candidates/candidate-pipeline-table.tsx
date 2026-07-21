@@ -4,17 +4,12 @@ import { memo } from "react";
 import { Avatar, Button, Chip, Table, Tooltip } from "@heroui/react";
 import { candidateDisplayInitials } from "@/lib/candidates/candidate-display";
 import type { CandidateRow } from "@/lib/candidates/types";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import { DataTablePagination } from "@/components/admin/shell/table-system";
 import { Trash2 } from "lucide-react";
 
 function formatUploadedAtDisplay(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return formatDisplayDateTime(iso);
 }
 
 export type CandidatePipelineTableProps = {

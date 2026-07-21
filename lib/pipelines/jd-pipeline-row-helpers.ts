@@ -9,6 +9,7 @@ import type { RangeValue } from "react-aria-components";
 
 import { type JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import { isFailSubStageCode } from "@/lib/candidates/pipeline-phase";
+import { formatDisplayDateTime } from "@/lib/format-date";
 import {
   isCustomTransitionAllowed,
   resolveCandidatePipelineIds,
@@ -104,10 +105,8 @@ export function formatSchedule(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(t));
+  const formatted = formatDisplayDateTime(new Date(t));
+  return formatted === "—" ? null : formatted;
 }
 
 export function localDatetimeToIso(local: string): string | null {

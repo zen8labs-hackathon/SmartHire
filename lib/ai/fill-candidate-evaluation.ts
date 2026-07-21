@@ -10,6 +10,7 @@ import {
   structuredEvaluationToDocumentSections,
 } from "@/lib/evaluation/evaluation-section-template";
 import { tryEmbedNotoSans } from "@/lib/evaluation/noto-fonts-for-pdf";
+import { formatDisplayDate } from "@/lib/format-date";
 import {
   generateTextWithFallback,
   getConfiguredLanguageModel,
@@ -286,11 +287,7 @@ async function renderStandaloneEvaluationPdf(params: {
 
   const titleMain = clean("Interview evaluation");
   const candLine = clean(`Candidate: ${params.candidateName}`);
-  const genDate = new Date().toLocaleDateString("en-GB", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const genDate = formatDisplayDate(new Date());
   const dateLine = clean(`Generated: ${genDate}`);
 
   drawBlock(wrapLines(titleMain, bold, 16, maxW), 16, bold, rgb(0.07, 0.12, 0.18));
