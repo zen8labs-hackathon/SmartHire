@@ -8,6 +8,13 @@ import {
 } from "@/lib/candidates/db-row";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import { jdMatchChipColor } from "@/lib/candidates/candidate-display";
+import {
+  jdRequirementSourceLabel,
+  jdRequirementVerdictStyle,
+  parseJdMatchRationale,
+  sortJdRequirements,
+  type JdRequirementCheck,
+} from "@/lib/candidates/jd-match-rationale";
 import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
 type ScheduleHistoryItem = {
@@ -247,9 +254,46 @@ type RationaleModalProps = {
 };
 
 /**
+ * One JD requirement and how the candidate measured up against it.
+ */
+function RequirementRow({ check }: { check: JdRequirementCheck }) {
+  const style = jdRequirementVerdictStyle(check.verdict);
+
+  return (
+    <li className="flex gap-3">
+      <Chip
+        size="sm"
+        variant="soft"
+        color={style.color}
+        className="mt-0.5 min-w-[1.75rem] shrink-0 justify-center font-bold"
+        aria-label={style.label}
+      >
+        {style.icon}
+      </Chip>
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-semibold text-foreground">
+          {check.requirement}
+          <span className="ml-2 text-xs font-normal text-muted">
+            {jdRequirementSourceLabel(check.source)}
+          </span>
+        </p>
+        {check.evidence ? (
+          <p className="text-sm text-muted">{check.evidence}</p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/**
  * Read-only view of the AI's JD-match rationale for a candidate's active CV
  * version (`campaign_applied.jd_match_rationale`), alongside the numeric
  * score it explains.
+ *
+ * Runs scored before the per-requirement checklist shipped (and formula-only
+ * fallbacks, which never ran an LLM) hold plain prose in that column --
+ * `parseJdMatchRationale` returns those with no `requirements`, and they keep
+ * the original single-paragraph layout until someone rescores.
  */
 export function RationaleModal({
   isOpen,
@@ -261,10 +305,13 @@ export function RationaleModal({
       ? Math.round(row.jd_match_score)
       : null;
 
+  const rationale = parseJdMatchRationale(row?.jd_match_rationale);
+  const requirements = rationale ? sortJdRequirements(rationale.requirements) : [];
+
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
-        <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
+        <Modal.Dialog className="w-full max-w-2xl overflow-hidden p-0">
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4">
             <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-foreground">
@@ -281,15 +328,31 @@ export function RationaleModal({
               ) : null}
             </Modal.Heading>
           </Modal.Header>
-          <Modal.Body className="max-h-[60vh] overflow-y-auto px-5 py-4">
+          <Modal.Body className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
             {row?.jd_match_status === "failed" ? (
               <p className="text-sm text-danger">
                 {row.jd_match_error ?? "Scoring failed."}
               </p>
-            ) : row?.jd_match_rationale ? (
-              <p className="whitespace-pre-wrap text-sm text-foreground">
-                {row.jd_match_rationale}
-              </p>
+            ) : rationale ? (
+              <>
+                {requirements.length > 0 ? (
+                  <ul className="space-y-3">
+                    {requirements.map((check, i) => (
+                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
+                    ))}
+                  </ul>
+                ) : null}
+                {rationale.summary ? (
+                  <p className="whitespace-pre-wrap border-t border-divider pt-4 text-sm text-foreground first:border-t-0 first:pt-0">
+                    {rationale.summary}
+                  </p>
+                ) : null}
+                {rationale.meta ? (
+                  <p className="whitespace-pre-wrap text-xs text-muted">
+                    {rationale.meta}
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-sm text-muted">
                 No reasoning available for this candidate yet.
