@@ -342,7 +342,7 @@ export function JdCreateModal() {
                 jdUploadPhase === "extracting"
               }
             >
-              Discard draft
+              Close
             </Button>
             <div className="flex gap-2">
               <Button
