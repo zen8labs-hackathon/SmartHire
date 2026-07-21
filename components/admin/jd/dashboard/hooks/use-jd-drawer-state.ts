@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import type { JobDescription } from "@/lib/jd/types";
 import type { CampaignAppliedStageCountRow } from "@/lib/db/campaign-applied-list";
+import { useToast } from "@/components/admin/toast-provider";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export type StageSubStageCount = CampaignAppliedStageCountRow;
 
 export function useJdDrawerState(canManageJds: boolean) {
+  const toast = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<JobDescription | null>(null);
   
@@ -136,14 +138,15 @@ export function useJdDrawerState(canManageJds: boolean) {
       if (json.viewerChapterIds) {
         setDrawerViewerChapterIds(json.viewerChapterIds);
       }
+      toast.success("Saved successfully.");
     } catch (e) {
-      setDrawerViewersError(
-        e instanceof Error ? e.message : "Save failed.",
-      );
+      const msg = e instanceof Error ? e.message : "Save failed.";
+      setDrawerViewersError(msg);
+      toast.error(msg);
     } finally {
       setDrawerViewersBusy(false);
     }
-  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerEmails]);
+  }, [activeRow, authHeaders, drawerViewerChapterIds, drawerViewerEmails, toast]);
 
   return {
     drawerOpen,
