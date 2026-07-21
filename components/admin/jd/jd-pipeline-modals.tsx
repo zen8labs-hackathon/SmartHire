@@ -256,20 +256,27 @@ type RationaleModalProps = {
 /**
  * One JD requirement and how the candidate measured up against it.
  */
+const REQUIREMENT_BADGE_CLASS: Record<
+  ReturnType<typeof jdRequirementVerdictStyle>["color"],
+  string
+> = {
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  danger: "bg-danger/10 text-danger",
+  default: "bg-muted/10 text-muted",
+};
+
 function RequirementRow({ check }: { check: JdRequirementCheck }) {
   const style = jdRequirementVerdictStyle(check.verdict);
 
   return (
     <li className="flex gap-3">
-      <Chip
-        size="sm"
-        variant="soft"
-        color={style.color}
-        className="mt-0.5 min-w-[1.75rem] shrink-0 justify-center font-bold"
+      <span
         aria-label={style.label}
+        className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold leading-none ${REQUIREMENT_BADGE_CLASS[style.color]}`}
       >
         {style.icon}
-      </Chip>
+      </span>
       <div className="min-w-0 space-y-0.5">
         <p className="text-sm font-semibold text-foreground">
           {check.requirement}
@@ -335,17 +342,17 @@ export function RationaleModal({
               </p>
             ) : rationale ? (
               <>
+                {rationale.summary ? (
+                  <p className="whitespace-pre-wrap text-sm text-foreground">
+                    {rationale.summary}
+                  </p>
+                ) : null}
                 {requirements.length > 0 ? (
-                  <ul className="space-y-3">
+                  <ul className="space-y-3 border-t border-divider pt-4 first:border-t-0 first:pt-0">
                     {requirements.map((check, i) => (
                       <RequirementRow key={`${check.requirement}-${i}`} check={check} />
                     ))}
                   </ul>
-                ) : null}
-                {rationale.summary ? (
-                  <p className="whitespace-pre-wrap border-t border-divider pt-4 text-sm text-foreground first:border-t-0 first:pt-0">
-                    {rationale.summary}
-                  </p>
                 ) : null}
                 {rationale.meta ? (
                   <p className="whitespace-pre-wrap text-xs text-muted">
