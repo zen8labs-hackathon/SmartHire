@@ -7,8 +7,12 @@ import {
   replaceJobDescriptionViewerChapters,
   syncJobDescriptionViewersFromEmails,
 } from "@/lib/admin/jd-viewer-sync";
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import {
+  requireAdministerJobAcl,
+  requirePermissionOnJob,
+} from "@/lib/authz/require-permission";
+import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
 import {
@@ -142,6 +146,9 @@ export async function GET(request: Request, { params }: RouteContext) {
   const jobId = parseId(id);
   if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
 
+  const jobAccess = await requireJobViewAccess(auth.access, jobId);
+  if (!jobAccess.ok) return jobAccess.response;
+
   const db = getPool();
   const job = await getJobById(db, jobId);
   if (!job) return Response.json({ error: "Not found." }, { status: 404 });
@@ -167,12 +174,19 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const jobId = parseId(id);
   if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
+
+  const manageAccess = await requirePermissionOnJob(
+    auth.access,
+    "job.manage",
+    jobId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let raw: Record<string, unknown>;
   try {
@@ -210,6 +224,11 @@ export async function PUT(request: Request, { params }: RouteContext) {
     !hasPipelineStages
   ) {
     return Response.json({ error: "No updates provided." }, { status: 400 });
+  }
+
+  if (hasViewerKey || hasViewerChapterKey) {
+    const aclAdmin = await requireAdministerJobAcl(auth.access, jobId);
+    if (!aclAdmin.ok) return aclAdmin.response;
   }
 
   const db = getPool();
@@ -335,12 +354,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const jobId = parseId(id);
   if (!jobId) return Response.json({ error: "Invalid id." }, { status: 400 });
+
+  const aclAdmin = await requireAdministerJobAcl(auth.access, jobId);
+  if (!aclAdmin.ok) return aclAdmin.response;
 
   const deleted = await softDeleteJob(getPool(), jobId);
   if (!deleted) return Response.json({ error: "Not found." }, { status: 404 });

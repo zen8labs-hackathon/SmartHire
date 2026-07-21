@@ -19,6 +19,7 @@ import { Calendar } from "lucide-react";
 export function JdFilters() {
   const {
     canManageJds,
+    canAdministerJds,
     loading,
     loadDescriptions,
     jdModal,
@@ -140,8 +141,8 @@ export function JdFilters() {
       dateRange={dateRangeElement}
       onRefresh={loadDescriptions}
       isRefreshing={loading}
-      createButtonLabel={canManageJds ? "New Position" : undefined}
-      onCreate={canManageJds ? jdModal.open : undefined}
+      createButtonLabel={canAdministerJds ? "New Position" : undefined}
+      onCreate={canAdministerJds ? jdModal.open : undefined}
     />
   );
 }

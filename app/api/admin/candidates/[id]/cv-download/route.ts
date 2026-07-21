@@ -1,5 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
+import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { getCvDetailVersionById } from "@/lib/db/cv-detail-versions";
 import { getPool } from "@/lib/db/config/client";
 import { createSignedDownloadUrl } from "@/lib/storage/s3";
@@ -18,18 +18,21 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const db = getPool();
+  const appAccess = await requireJobViewForApplication(
+    auth.access,
+    campaignAppliedId,
+  );
+  if (!appAccess.ok) return appAccess.response;
 
-  const campaign = await getCampaignAppliedById(db, campaignAppliedId);
-  if (!campaign) {
-    return Response.json({ error: "Application not found." }, { status: 404 });
-  }
-
+  const campaign = appAccess.application;
   if (!campaign.active_cv_version_id) {
     return Response.json({ error: "No CV file on record." }, { status: 404 });
   }
 
-  const cvVersion = await getCvDetailVersionById(db, campaign.active_cv_version_id);
+  const cvVersion = await getCvDetailVersionById(
+    getPool(),
+    campaign.active_cv_version_id,
+  );
   if (!cvVersion || !cvVersion.cv_storage_path) {
     return Response.json({ error: "CV version file not found." }, { status: 404 });
   }

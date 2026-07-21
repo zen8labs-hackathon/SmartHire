@@ -1,5 +1,7 @@
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
-import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
+
 import { mergeDuplicateApplicationIntoExisting } from "@/lib/candidates/merge-duplicate-application";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
@@ -20,13 +22,20 @@ const bodySchema = z
   .strict();
 
 export async function PUT(request: Request, { params }: RouteContext) {
-  const auth = await requireAdminForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: existingCampaignAppliedId } = await params;
   if (!existingCampaignAppliedId || !UUID_RE.test(existingCampaignAppliedId)) {
     return Response.json({ error: "Invalid candidate id." }, { status: 400 });
   }
+
+  const manageAccess = await requirePermissionForApplication(
+    auth.access,
+    "candidate.manage",
+    existingCampaignAppliedId,
+  );
+  if (!manageAccess.ok) return manageAccess.response;
 
   let rawBody: unknown;
   try {

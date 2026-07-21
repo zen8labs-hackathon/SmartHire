@@ -1,5 +1,6 @@
 import { JdManagementDashboard } from "@/components/admin/jd/jd-management-dashboard";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import { canCreateJobs, hasRolePermission } from "@/lib/authz/can";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -24,10 +25,9 @@ export type JdListInitialData = {
   statusCounts: Record<JdStatus, number>;
 };
 
-// Matches the default client-side filter state (page 1, no search/status
-// filter, last-3-months start-date range) so the first paint doesn't need an
-// immediate client refetch to stay in sync.
-async function getJobDescriptionsList(): Promise<JdListInitialData> {
+async function getJobDescriptionsList(
+  visibleToUserId: string | undefined,
+): Promise<JdListInitialData> {
   const { from, to } = defaultJdStartDateRangeIso();
   const { jobDescriptions, pagination, statusCounts } =
     await queryJobDescriptionsWithEnrichment(getPool(), {
@@ -35,6 +35,7 @@ async function getJobDescriptionsList(): Promise<JdListInitialData> {
       startTo: to,
       limit: JD_LIST_PAGE_SIZE,
       offset: 0,
+      visibleToUserId,
     });
   return { jobDescriptions, pagination: pagination!, statusCounts };
 }
@@ -42,9 +43,9 @@ async function getJobDescriptionsList(): Promise<JdListInitialData> {
 export default async function AdminJdPage() {
   const { access } = await getRequestAuth();
 
-  // Kick off all 3 queries simultaneously so jdListPromise doesn't have to
-  // wait for the reference data (chapters, pipeline_stages) to finish first.
-  const jdListPromise = getJobDescriptionsList();
+  const jdListPromise = getJobDescriptionsList(
+    access && !access.isHr ? access.userId : undefined,
+  );
 
   const db = getPool();
   const [chapterRows, pipelineStageRows] = await Promise.all([
@@ -60,7 +61,11 @@ export default async function AdminJdPage() {
 
   return (
     <JdManagementDashboard
-      canManageJds={access?.isHr === true}
+      canManageJds={
+        access != null &&
+        (access.isHr || hasRolePermission(access, "job.view"))
+      }
+      canAdministerJds={access != null && canCreateJobs(access)}
       chapters={chapterRows}
       allPipelineStages={pipelineStages}
       initialRowsPromise={jdListPromise}

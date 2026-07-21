@@ -114,13 +114,9 @@ export async function proxy(request: NextRequest) {
         pendingCookies,
       );
     }
-    // Coarse gate only (role from the JWT, no DB hit): `role === 'none'` can
-    // never be staff. The precise check -- including `profile_chapters`
-    // membership -- runs deeper via `getStaffProfileAccess` (app/admin/layout.tsx),
-    // which is the actual authority for RBAC scoping.
-    if (user.role === "none") {
-      return applyCookies(redirectTo(request, "/dashboard"), pendingCookies);
-    }
+    // Auth only here. Staff vs dashboard-only (including `role=none` users who
+    // still have chapter memberships) is decided by `getStaffProfileAccess` in
+    // `app/admin/layout.tsx` — JWT `role` alone is not authoritative.
   }
 
   if (path.startsWith("/dashboard") && !user) {

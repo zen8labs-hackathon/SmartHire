@@ -12,6 +12,7 @@ import {
   Lock,
 } from "lucide-react";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import { hasRolePermission } from "@/lib/authz/can";
 import { getPool } from "@/lib/db/config/client";
 import { getPublicUserById } from "@/lib/db/users";
 
@@ -178,7 +179,11 @@ export default async function DashboardPage() {
     redirect("/login?next=/dashboard");
   }
 
-  const isHr = access?.isHr === true;
+  const isHr =
+    access != null &&
+    (access.isHr ||
+      hasRolePermission(access, "job.manage") ||
+      hasRolePermission(access, "users.manage"));
 
   // Only one additional query needed: the display name from the user row.
   const profile = await getPublicUserById(getPool(), user.id);

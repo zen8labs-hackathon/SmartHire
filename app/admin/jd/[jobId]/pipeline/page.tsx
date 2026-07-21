@@ -8,6 +8,9 @@ export const metadata: Metadata = {
 
 import { JobPipelineSpreadsheet } from "@/components/admin/jd/job-pipeline-spreadsheet";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import type { StaffProfileAccess } from "@/lib/admin/profile-access";
+import { can, canViewJob, canViewSalary } from "@/lib/authz/can";
+import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { fetchCandidatesForJobDescription } from "@/lib/candidates/fetch-candidates-for-job-description";
@@ -35,19 +38,21 @@ export type PipelineData = {
   subStages: SubStage[];
 };
 
-// Mirrors the page's prior behavior: a candidates-fetch failure is a soft
-// failure (surfaced as `fetchFailed`, not a thrown error), while
-// `fetchJobPipelineConfig`'s own errors are allowed to propagate like every
-// other `lib/db` caller (DB7X2K is green-field, no legacy fallback to reconcile).
-async function getPipelineData(jobId: string): Promise<PipelineData> {
+async function getPipelineData(
+  jobId: string,
+  access: StaffProfileAccess,
+): Promise<PipelineData> {
   const db = getPool();
-  const [candidatesResult, pipelineConfig] = await Promise.all([
+  const [candidatesResult, pipelineConfig, viewSalary] = await Promise.all([
     fetchCandidatesForJobDescription(db, jobId),
     fetchJobPipelineConfig(db, jobId),
+    canViewSalary(db, access, jobId),
   ]);
 
   return {
-    rows: candidatesResult.rows.map(toJdPipelineApplicationRow),
+    rows: candidatesResult.rows.map((r) =>
+      toJdPipelineApplicationRow(redactAdminRowSalary(r, viewSalary)),
+    ),
     fetchFailed: candidatesResult.error != null,
     stageMappings: pipelineConfig.stageMappings,
     subStages: pipelineConfig.subStages,
@@ -62,15 +67,17 @@ export default async function JobPipelinePage({ params }: PageProps) {
   if (!user) redirect("/login?next=/admin/jd");
   if (!access?.isStaff) redirect("/dashboard");
 
-  const job = await getJobById(getPool(), jobId);
+  const db = getPool();
+  const allowed = await canViewJob(db, access, jobId);
+  if (!allowed) redirect("/admin/jd");
+
+  const job = await getJobById(db, jobId);
   if (!job) notFound();
 
-  // Kick off the combined candidates + pipeline-config fetch but don't await
-  // it here, so the header (breadcrumbs, title, Add candidates buttons)
-  // renders immediately. The Suspense boundary inside JobPipelineSpreadsheet
-  // only gates the data-panel region, which is the part that actually needs
-  // this data.
-  const pipelineDataPromise = getPipelineData(job.id);
+  const canEditPipeline = await can(db, access, "candidate.manage", {
+    jobId: job.id,
+  });
+  const pipelineDataPromise = getPipelineData(job.id, access);
 
   return (
     <JobPipelineSpreadsheet
@@ -79,8 +86,8 @@ export default async function JobPipelinePage({ params }: PageProps) {
       jobTitle={job.position}
       hasJdSourceFile={!!job.jd_storage_path}
       pipelineDataPromise={pipelineDataPromise}
-      canEditPipeline={access.isHr}
-      canAddCandidates={access.isStaff}
+      canEditPipeline={canEditPipeline}
+      canAddCandidates={canEditPipeline}
     />
   );
 }

@@ -1,15 +1,18 @@
-import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { searchUsersByEmail } from "@/lib/db/users";
 
 const MAX_RESULTS = 25;
 
 /**
- * Search existing users by email substring (HR autocomplete for JD viewers).
+ * Search existing users by email substring (autocomplete for JD viewers).
  */
 export async function GET(request: Request) {
-  const auth = await requireHrForRequest(request);
+  const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
+  const createAccess = requireCanCreateJobs(auth.access);
+  if (!createAccess.ok) return createAccess.response;
 
   const q = new URL(request.url).searchParams.get("q")?.trim().toLowerCase() ?? "";
   if (q.length < 2) {
