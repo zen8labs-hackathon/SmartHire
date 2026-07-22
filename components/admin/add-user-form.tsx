@@ -135,10 +135,10 @@ export function AddUserForm({
       </TextField>
 
       <Checkbox isSelected={ssoOnly} onChange={setSsoOnly}>
+        <Checkbox.Control className="border-2 border-slate-600 dark:border-slate-400 rounded-md">
+          <Checkbox.Indicator />
+        </Checkbox.Control>
         <Checkbox.Content>
-          <Checkbox.Control className="border-2 border-slate-600 dark:border-slate-400 rounded-md">
-            <Checkbox.Indicator />
-          </Checkbox.Control>
           <span>Sign in with Microsoft (no password)</span>
         </Checkbox.Content>
       </Checkbox>

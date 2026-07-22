@@ -10,11 +10,12 @@ import {
 } from "@/components/admin/jd/job-pipeline-data-panel";
 import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skeleton";
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
+import { JdFilePreviewModal } from "@/components/admin/jd/jd-file-preview-modal";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
 
 import { FileText } from "lucide-react";
-import { Alert, Breadcrumbs } from "@heroui/react";
+import { Alert, Breadcrumbs, useOverlayState } from "@heroui/react";
 
 function PipelineErrorFallback() {
   return (
@@ -54,6 +55,7 @@ export function JobPipelineSpreadsheet({
 }: Props) {
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
+  const jdFileModal = useOverlayState();
 
   // DB7X2K merged `job_openings` into `jobs` -- every job is its own single
   // campaign now (see the JD create-flow's "no Draft status by design"
@@ -72,15 +74,14 @@ export function JobPipelineSpreadsheet({
             {jobTitle} pipeline
           </h1>
           {hasJdSourceFile ? (
-            <a
-              href={`/api/admin/job-descriptions/${jobId}/jd-download`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={jdFileModal.open}
               className="inline-flex items-center gap-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-tertiary"
             >
               <FileText className="size-3.5" />
               View JD file
-            </a>
+            </button>
           ) : null}
         </div>
         <p className="max-w-2xl text-sm text-muted">
@@ -136,6 +137,12 @@ export function JobPipelineSpreadsheet({
           Back to Jobs list
         </Link>
       </div>
+
+      <JdFilePreviewModal
+        isOpen={jdFileModal.isOpen}
+        onOpenChange={jdFileModal.setOpen}
+        jobId={hasJdSourceFile ? jobId : null}
+      />
     </div>
   );
 }

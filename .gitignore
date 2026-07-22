@@ -54,3 +54,6 @@ next-env.d.ts
 # blue-green state on server (symlink + slot name)
 deploy/.active-slot
 deploy/nginx/active-app-upstream.conf
+
+# floci (local AWS emulator) persistent state
+/floci-data

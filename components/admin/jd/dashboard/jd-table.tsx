@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Table, Select, ListBox, Tooltip, Button } from "@heroui/react";
+import { Table, Select, ListBox, Tooltip, Button, useOverlayState } from "@heroui/react";
 import {
   EditIcon,
   Eye as EyeIcon,
@@ -18,6 +18,7 @@ import { useJdDashboard } from "./context";
 import { JD_STATUS_OPTIONS, type JdStatus } from "@/lib/jd/types";
 import { DataTablePagination } from "@/components/admin/shell/table-system";
 import { SectionCard } from "@/components/admin/shell/cards";
+import { JdFilePreviewModal } from "@/components/admin/jd/jd-file-preview-modal";
 
 export function JdTable() {
   const {
@@ -44,6 +45,13 @@ export function JdTable() {
     pageSize,
     setPageSize,
   } = useJdDashboard();
+
+  const [previewJobId, setPreviewJobId] = React.useState<string | null>(null);
+  const jdFileModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setPreviewJobId(null);
+    },
+  });
 
   return (
     <SectionCard>
@@ -107,14 +115,16 @@ export function JdTable() {
                           {row.position}
                         </Link>
                         {row.has_jd_source_file ? (
-                          <a
-                            href={`/api/admin/job-descriptions/${row.id}/jd-download`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewJobId(String(row.id));
+                              jdFileModal.open();
+                            }}
                             className="inline-flex items-center rounded-lg bg-surface-secondary border border-divider px-1.5 py-0.5 text-[10px] font-bold text-muted hover:text-foreground"
                           >
                             JD file
-                          </a>
+                          </button>
                         ) : null}
                       </div>
                     </Table.Cell>
@@ -246,6 +256,12 @@ export function JdTable() {
         itemTypeLabel="positions"
         pageSize={pageSize}
         setPageSize={setPageSize}
+      />
+
+      <JdFilePreviewModal
+        isOpen={jdFileModal.isOpen}
+        onOpenChange={jdFileModal.setOpen}
+        jobId={previewJobId}
       />
     </SectionCard>
   );
