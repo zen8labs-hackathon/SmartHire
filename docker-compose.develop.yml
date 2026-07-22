@@ -1,0 +1,121 @@
+# Develop stack on the same EC2 as production (isolated ports / volumes / containers).
+# Usage (on the server, from /opt/smarthire/app-develop):
+#   cp .env.develop.example .env   # then fill secrets
+#   ./deploy/deploy-develop.sh develop
+#
+# Public URL (after DNS + certbot): https://smart-hire-dev.zen8labs.io
+# Without DNS: SSM port-forward to 127.0.0.1:3200 (see docs/ci-cd-ec2.md)
+
+name: smarthire_dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: smarthire_dev_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smarthire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-smart_hire_dev}
+    volumes:
+      - smarthire_dev_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-smarthire} -d ${POSTGRES_DB:-smart_hire_dev}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: smarthire_dev_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env (min 8 chars)}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOW_ORIGIN:-https://smart-hire-dev.zen8labs.io}
+    volumes:
+      - smarthire_dev_minio:/data
+    ports:
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: smarthire_dev_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      S3_BUCKET: ${S3_BUCKET:-smart-hire-dev-bucket}
+    volumes:
+      - ./deploy/minio/cors.json:/cors.json:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb -p "local/$$S3_BUCKET" || true
+        mc cors set-json "local/$$S3_BUCKET" /cors.json || echo "WARN: bucket CORS skipped (using global MINIO_API_CORS_ALLOW_ORIGIN)"
+        echo "MinIO bucket $$S3_BUCKET ready"
+    restart: "no"
+
+  migrate:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npm install && npm run db:migrate"
+    profiles:
+      - migrate
+
+  app:
+    build: .
+    image: smart_hire:develop
+    container_name: smarthire_dev_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3200"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire-dev.zen8labs.io}
+    ports:
+      - "127.0.0.1:3200:3200"
+    extra_hosts:
+      - "smart-hire-dev.zen8labs.io:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+volumes:
+  smarthire_dev_pgdata:
+  smarthire_dev_minio:
