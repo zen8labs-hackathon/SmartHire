@@ -23,8 +23,6 @@ import {
   type CandidateProfileFormSnapshot,
   diffProfileSnapshotsToPatch,
 } from "@/lib/candidates/candidate-profile-patch";
-import type { DuplicateProfileMatch } from "@/lib/candidates/duplicate-detection";
-import { DuplicateProfileWarningModal } from "@/components/admin/candidates/duplicate-profile-warning-modal";
 import {
   CANDIDATE_SOURCE_VALUES,
   isCandidateSource,
@@ -176,15 +174,6 @@ export function CandidateProfileEditSection({
   const [error, setError] = useState<string | null>(null);
   const autoStartedRef = useRef(false);
 
-  const [duplicateMatches, setDuplicateMatches] = useState<
-    DuplicateProfileMatch[] | null
-  >(null);
-  const [pendingPatchBody, setPendingPatchBody] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
-  const [mergeBusy, setMergeBusy] = useState(false);
-
   const [pipelineConfig, setPipelineConfig] = useState<{
     jobId: string;
     stageMappings: StageMapping[];
@@ -242,8 +231,6 @@ export function CandidateProfileEditSection({
     setEditing(false);
     setBaseline(null);
     setError(null);
-    setDuplicateMatches(null);
-    setPendingPatchBody(null);
     autoStartedRef.current = false;
   }, [candidateId]);
 
@@ -336,8 +323,6 @@ export function CandidateProfileEditSection({
     setError(null);
     setStageBaseline(null);
     setStageDraft(null);
-    setDuplicateMatches(null);
-    setPendingPatchBody(null);
   }, [snapFromDb]);
 
   const stageOptions = useMemo(() => {
@@ -406,8 +391,6 @@ export function CandidateProfileEditSection({
       setChangeSummary("");
       setStageBaseline(null);
       setStageDraft(null);
-      setDuplicateMatches(null);
-      setPendingPatchBody(null);
       return true;
     },
     [candidateId, onSaved, stageBaseline, stageDraft],
@@ -473,14 +456,7 @@ export function CandidateProfileEditSection({
         }
         const json = (await res.json()) as {
           candidate?: CandidateDbRow;
-          duplicate?: boolean;
-          matches?: DuplicateProfileMatch[];
         };
-        if (json.duplicate) {
-          setPendingPatchBody(patchBody);
-          setDuplicateMatches(json.matches ?? []);
-          return;
-        }
         if (!json.candidate) {
           setError("Save succeeded but response was incomplete.");
           return;
@@ -504,59 +480,6 @@ export function CandidateProfileEditSection({
     stageBaseline,
     stageDraft,
   ]);
-
-  const handleMergeDuplicate = useCallback(async () => {
-    const target = duplicateMatches?.[0];
-    if (!target || !pendingPatchBody) return;
-    setMergeBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/admin/candidates/${candidateId}/profile/merge-duplicate`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            patch: pendingPatchBody,
-            existingCandidateId: target.candidateId,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        setError(body.error ?? "Could not merge candidate.");
-        return;
-      }
-      const json = (await res.json()) as { candidate?: CandidateDbRow };
-      if (!json.candidate) {
-        setError("Merge succeeded but response was incomplete.");
-        return;
-      }
-      await finishSave(json.candidate);
-    } catch {
-      setError("Could not merge candidate.");
-    } finally {
-      setMergeBusy(false);
-    }
-  }, [candidateId, duplicateMatches, finishSave, pendingPatchBody]);
-
-  const handleDiscardDuplicate = useCallback(() => {
-    setDuplicateMatches(null);
-    setPendingPatchBody(null);
-    // `startEdit`, not `cancelEdit` + `setEditing(true)`: `cancelEdit` sets
-    // `baseline` to null and nothing else repopulates it, which left "Save
-    // changes" silently no-op'ing (`save()` bails out on `!baseline`) for
-    // the rest of this edit session after a discard.
-    startEdit();
-  }, [startEdit]);
-
-  const handleCancelDuplicate = useCallback(() => {
-    setDuplicateMatches(null);
-    setPendingPatchBody(null);
-  }, []);
 
   if (!canEdit) return null;
 
@@ -905,19 +828,6 @@ export function CandidateProfileEditSection({
           </div>
         </Card.Content>
       </Card>
-      {duplicateMatches ? (
-        <DuplicateProfileWarningModal
-          open={duplicateMatches !== null}
-          onOpenChange={(o) => {
-            if (!o) handleCancelDuplicate();
-          }}
-          matches={duplicateMatches}
-          isSubmitting={mergeBusy}
-          onMerge={handleMergeDuplicate}
-          onDiscard={handleDiscardDuplicate}
-          onCancel={handleCancelDuplicate}
-        />
-      ) : null}
     </>
   );
 }
