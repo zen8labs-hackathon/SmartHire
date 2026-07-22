@@ -55,7 +55,7 @@ export async function listCandidateEvaluationReviewsByCampaignApplied(
   const { rows } = await db.query<CandidateEvaluationReviewRow>(
     `SELECT * FROM candidate_evaluation_reviews
      WHERE campaign_applied_id = $1
-     ORDER BY created_at DESC`,
+     ORDER BY id DESC`,
     [campaignAppliedId],
   );
   return rows;
