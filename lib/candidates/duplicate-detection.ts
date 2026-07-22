@@ -56,6 +56,17 @@ export type DuplicateNewUploadPreview = {
   cvUploadedAt: string | null;
 };
 
+/** A different existing candidate whose email/phone matches an in-progress profile edit. */
+export type DuplicateProfileMatch = {
+  candidateId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  jobOpeningTitle: string;
+  status: string;
+  campaignAppliedId: string;
+};
+
 export function roleFromPayload(payload: unknown): string | null {
   const p =
     payload && typeof payload === "object"
