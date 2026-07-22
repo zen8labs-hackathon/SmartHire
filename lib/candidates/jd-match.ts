@@ -76,7 +76,15 @@ async function saveJdMatchResult(
   cvPatch: UpdateCvJdMatchResultInput,
 ): Promise<void> {
   await withTransaction(async (tx) => {
-    await updateCampaignApplied(tx, campaignAppliedId, campaignPatch);
+    // Guarded so a scoring call for a CV version that's since been
+    // superseded (e.g. a second duplicate merged into this application
+    // while this call was in flight) can't overwrite a newer version's
+    // result -- the cv_detail_versions write below still records this
+    // version's own result regardless, since that table is an immutable
+    // per-version history rather than a "current" cache.
+    await updateCampaignApplied(tx, campaignAppliedId, campaignPatch, {
+      guardActiveCvVersionId: cvVersionId,
+    });
     await updateCvDetailVersionJdMatchResult(tx, cvVersionId, cvPatch);
   });
 }
