@@ -1,6 +1,10 @@
 import type { QueryExecutor } from "@/lib/db/config/client";
 import type { PaginatedResult, PaginationParams } from "@/lib/db/query-helpers";
-import { clampLimit, clampOffset, extractWindowTotal } from "@/lib/db/query-helpers";
+import {
+  clampLimit,
+  clampOffset,
+  extractWindowTotal,
+} from "@/lib/db/query-helpers";
 
 /**
  * One existing application whose person or CV file matches a submitted
@@ -120,7 +124,7 @@ export async function findCandidatesByDedupeSignals(
      WHERE ca.deleted_at IS NULL
        AND (${matchClauses.join(" OR ")})
        ${excludeClause}
-     ORDER BY ca.created_at DESC`,
+     ORDER BY ca.id DESC`,
     values,
   );
   return rows;
@@ -195,11 +199,15 @@ export async function listDedupedCandidatesForAdmin(
 
   if (filters.uploadFrom) {
     values.push(filters.uploadFrom);
-    conditions.push(`COALESCE(cv.created_at, la.created_at) >= $${values.length}`);
+    conditions.push(
+      `COALESCE(cv.created_at, la.created_at) >= $${values.length}`,
+    );
   }
   if (filters.uploadTo) {
     values.push(filters.uploadTo);
-    conditions.push(`COALESCE(cv.created_at, la.created_at) < ($${values.length}::date + 1)`);
+    conditions.push(
+      `COALESCE(cv.created_at, la.created_at) < ($${values.length}::date + 1)`,
+    );
   }
   if (filters.q) {
     values.push(`%${filters.q}%`);
@@ -214,12 +222,14 @@ export async function listDedupedCandidatesForAdmin(
   values.push(offset);
   const offsetIdx = values.length;
 
-  const { rows } = await db.query<DedupedCandidateAdminRow & { total_count: string }>(
+  const { rows } = await db.query<
+    DedupedCandidateAdminRow & { total_count: string }
+  >(
     `WITH latest_apps AS (
        SELECT DISTINCT ON (candidate_id) *
        FROM campaign_applied
        WHERE deleted_at IS NULL
-       ORDER BY candidate_id, created_at DESC
+       ORDER BY candidate_id, id DESC
      )
      SELECT
        c.id, c.name, c.email, c.phone, c.degree, c.education, c.role,
@@ -242,7 +252,7 @@ export async function listDedupedCandidatesForAdmin(
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      LEFT JOIN pipeline_sub_stages pss ON pss.id = la.current_sub_state_id
      WHERE ${conditions.join(" AND ")}
-     ORDER BY COALESCE(cv.created_at, la.created_at) DESC, c.created_at DESC, c.id ASC
+     ORDER BY COALESCE(cv.created_at, la.created_at) DESC, c.id DESC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );

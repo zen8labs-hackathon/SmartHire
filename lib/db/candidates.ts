@@ -96,7 +96,7 @@ export async function listCandidates(
     `SELECT *, count(*) OVER() AS total_count
      FROM candidates
      WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at DESC
+     ORDER BY id DESC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     values,
   );
@@ -192,7 +192,7 @@ export async function syncCandidateAggregateFields(
      FROM cv_detail_versions cv
      JOIN campaign_applied ca ON ca.active_cv_version_id = cv.id
      WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
-     ORDER BY cv.created_at DESC`,
+     ORDER BY cv.id DESC`,
     [candidateId],
   );
 

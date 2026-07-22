@@ -132,7 +132,7 @@ export async function listRecentCvDetailVersionsForAdmin(
      JOIN campaign_applied ca ON ca.id = cv.campaign_applied_id
      JOIN candidates c ON c.id = ca.candidate_id
      JOIN jobs j ON j.id = ca.job_id
-     ORDER BY cv.created_at DESC
+     ORDER BY cv.id DESC
      LIMIT $1`,
     [limit],
   );

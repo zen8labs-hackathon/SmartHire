@@ -24,7 +24,9 @@ describe("findCandidatesByDedupeSignals", () => {
   it("returns [] when phoneVariants is an empty array", async () => {
     const db = fakeDb([]);
 
-    const result = await findCandidatesByDedupeSignals(db, { phoneVariants: [] });
+    const result = await findCandidatesByDedupeSignals(db, {
+      phoneVariants: [],
+    });
 
     expect(result).toEqual([]);
     expect(db.query).not.toHaveBeenCalled();
@@ -40,10 +42,12 @@ describe("findCandidatesByDedupeSignals", () => {
       cvContentSha256: "contenthash",
     });
 
-    expect(db.query).toHaveBeenCalledWith(
-      expect.any(String),
-      ["foo@example.com", ["0912345678", "84912345678"], "filehash", "contenthash"],
-    );
+    expect(db.query).toHaveBeenCalledWith(expect.any(String), [
+      "foo@example.com",
+      ["0912345678", "84912345678"],
+      "filehash",
+      "contenthash",
+    ]);
   });
 
   it("adds an exclusion clause when excludeCampaignAppliedId is given", async () => {
@@ -64,7 +68,9 @@ describe("findCandidatesByDedupeSignals", () => {
     const [sql] = db.query.mock.calls[0];
     expect(sql).toContain("ps.label AS stage_label");
     expect(sql).toContain("pss.label AS sub_stage_label");
-    expect(sql).toContain("LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id");
+    expect(sql).toContain(
+      "LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id",
+    );
   });
 
   it("joins only the active CV version, not every historical version", async () => {
@@ -79,7 +85,9 @@ describe("findCandidatesByDedupeSignals", () => {
     await findCandidatesByDedupeSignals(db, { email: "a@b.com" });
 
     const [sql] = db.query.mock.calls[0];
-    expect(sql).toContain("LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id");
+    expect(sql).toContain(
+      "LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id",
+    );
     expect(sql).not.toContain("cv.campaign_applied_id = ca.id");
   });
 });
@@ -93,13 +101,19 @@ describe("dedupeMatchStatusLabel", () => {
 
   it("combines stage and sub-stage labels", () => {
     expect(
-      dedupeMatchStatusLabel({ stage_label: "Interview", sub_stage_label: "Passed" }),
+      dedupeMatchStatusLabel({
+        stage_label: "Interview",
+        sub_stage_label: "Passed",
+      }),
     ).toBe("Interview · Passed");
   });
 
   it("falls back to just the stage label when there is no sub-stage", () => {
     expect(
-      dedupeMatchStatusLabel({ stage_label: "Interview", sub_stage_label: null }),
+      dedupeMatchStatusLabel({
+        stage_label: "Interview",
+        sub_stage_label: null,
+      }),
     ).toBe("Interview");
   });
 });
@@ -108,7 +122,10 @@ describe("listDedupedCandidatesForAdmin", () => {
   it("paginates and strips the window total from rows", async () => {
     const db = fakeDb([{ id: "cand-1", total_count: "1" }]);
 
-    const result = await listDedupedCandidatesForAdmin(db, { limit: 10, offset: 0 });
+    const result = await listDedupedCandidatesForAdmin(db, {
+      limit: 10,
+      offset: 0,
+    });
 
     expect(result).toEqual({
       rows: [{ id: "cand-1" }],
@@ -133,7 +150,7 @@ describe("listDedupedCandidatesForAdmin", () => {
 
     const [sql] = db.query.mock.calls[0];
     expect(sql).toContain("SELECT DISTINCT ON (candidate_id) *");
-    expect(sql).toContain("ORDER BY candidate_id, created_at DESC");
+    expect(sql).toContain("ORDER BY candidate_id, id DESC");
   });
 
   it("inner-joins latest_apps/jobs so a person with no live application is excluded, not surfaced with a null campaign_applied_id", async () => {
@@ -181,7 +198,9 @@ describe("listDedupedCandidatesForAdmin", () => {
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE(cv.created_at, la.created_at) >= $1");
-    expect(sql).toContain("COALESCE(cv.created_at, la.created_at) < ($2::date + 1)");
+    expect(sql).toContain(
+      "COALESCE(cv.created_at, la.created_at) < ($2::date + 1)",
+    );
     expect(values.slice(0, 2)).toEqual(["2026-01-01", "2026-01-31"]);
   });
 });

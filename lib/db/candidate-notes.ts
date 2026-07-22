@@ -47,7 +47,7 @@ export async function listCandidateNotesByCampaignApplied(
   const { rows } = await db.query<CandidateNoteRow>(
     `SELECT * FROM candidate_notes
      WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at DESC`,
+     ORDER BY id DESC`,
     values,
   );
   return rows;

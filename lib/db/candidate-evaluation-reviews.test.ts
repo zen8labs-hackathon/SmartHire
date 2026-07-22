@@ -48,7 +48,7 @@ describe("listCandidateEvaluationReviewsByCampaignApplied", () => {
     const db = fakeDb([]);
     await listCandidateEvaluationReviewsByCampaignApplied(db, "app-1");
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ORDER BY created_at DESC"),
+      expect.stringContaining("ORDER BY id DESC"),
       ["app-1"],
     );
   });
