@@ -27,11 +27,6 @@ import {
   MAX_CV_BYTES,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
-import { DuplicateCandidateModal } from "@/components/admin/candidates/duplicate-candidate-modal";
-import {
-  CvReviewSubModal,
-  type CvReviewConfirmResult,
-} from "@/components/admin/candidates/cv-review-sub-modal";
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
 import { useToast } from "@/components/admin/toast-provider";
 
@@ -43,20 +38,18 @@ type JobOpening = {
   displayTitle: string;
 };
 
-type UploadPhase =
-  | "signing"
-  | "uploading"
-  | "awaiting-review"
-  | "invoking"
-  | "uploaded"
-  | "error";
+type UploadPhase = "signing" | "uploading" | "invoking" | "uploaded" | "error";
 
 type QueueRow = {
   /** Client-side stable id -- a `campaign_applied` row (and `candidateId`)
-   * only exists once the per-row review sub-modal's confirm succeeds. */
+   * only exists once the upload auto-confirms, right after the S3 PUT
+   * succeeds. */
   rowId: string;
   candidateId?: string;
   tempKey?: string;
+  /** Kept so a failed row can be retried without asking the user to
+   * re-select the file. */
+  file: File;
   mimeType: string | null;
   filename: string;
   size: number;
@@ -65,6 +58,10 @@ type QueueRow = {
   uploadError?: string;
   parsing_status: ParsingStatus;
   parsing_error?: string | null;
+  /** Best-known name/email/phone for this CV -- seeded from the client-side
+   * heuristic guess at ingest time, then overwritten with the authoritative
+   * AI-parsed values once `/process` finishes (see `refreshRowContactInfo`).
+   * Displayed as columns in the upload queue table. */
   prefillName?: string | null;
   prefillEmail?: string | null;
   prefillPhone?: string | null;
@@ -73,18 +70,6 @@ type QueueRow = {
    * "still working, N seconds in" instead of an indistinguishable stuck
    * "Scanning" with no sense of how long it's actually been. */
   processingStartedAt?: number;
-};
-
-type DuplicateFlowState = {
-  rowId: string;
-  /** Null while blocked pre-confirm (no row created yet) -- set once the row
-   * exists, either because this is the post-AI-parse safety-net hit or
-   * because a bypass-confirm already created it. */
-  candidateId: string | null;
-  email: string | null;
-  phone: string | null;
-  hits: DuplicateCandidateHit[];
-  newUpload: DuplicateNewUploadPreview;
 };
 
 type CommitAndProcessResult = {
@@ -103,46 +88,53 @@ function formatDate(ts: number) {
   return formatDisplayDateTime(ts);
 }
 
-const BULK_AI_CONCURRENCY = 3;
+function dash(v: string | null | undefined): string {
+  if (v == null || v.trim() === "") return "—";
+  return v;
+}
 
-async function runWithConcurrency(
-  items: readonly string[],
-  limit: number,
-  worker: (item: string) => Promise<void>,
-) {
-  let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (nextIndex < items.length) {
-        const item = items[nextIndex];
-        nextIndex += 1;
-        if (item) await worker(item);
+/** Caps how many `/process` calls (AI resume parsing + JD-match, both LLM
+ * calls) run at once. Every CV now auto-triggers processing the moment its
+ * upload finishes with no manual per-row/bulk confirm step to naturally
+ * pace it, so dropping many files at once used to fire one `/process` call
+ * per file in parallel and trip the LLM provider's rate limit -- this
+ * throttles just that fetch, not the (unrelated) sign/upload/confirm steps. */
+const AI_PROCESS_CONCURRENCY = 3;
+
+function createSemaphore(limit: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  function acquire(): Promise<void> {
+    if (active < limit) {
+      active++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => queue.push(resolve));
+  }
+
+  function release() {
+    const next = queue.shift();
+    if (next) {
+      next();
+    } else {
+      active--;
+    }
+  }
+
+  return {
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      await acquire();
+      try {
+        return await fn();
+      } finally {
+        release();
       }
     },
-  );
-  await Promise.all(workers);
+  };
 }
 
-function progressForRow(row: QueueRow): { pct: number; label: string } {
-  if (row.uploadPhase === "error") return { pct: 0, label: row.uploadError ?? "Upload failed" };
-  if (row.uploadPhase === "signing")
-    return { pct: 8, label: "Preparing upload…" };
-  if (row.uploadPhase === "uploading")
-    return { pct: 25, label: "Uploading file…" };
-  if (row.uploadPhase === "awaiting-review")
-    return { pct: 35, label: "Awaiting review…" };
-  if (row.uploadPhase === "invoking")
-    return { pct: 45, label: "Starting AI scan…" };
-  if (row.parsing_status === "failed")
-    return { pct: 100, label: "Parse failed" };
-  if (row.parsing_status === "completed") return { pct: 100, label: "Done" };
-  if (row.parsing_status === "processing") {
-    return { pct: 72, label: "Parsing skills & experience…" };
-  }
-  if (row.uploadPhase === "uploaded") return { pct: 100, label: "Done" };
-  return { pct: 45, label: "Queued for processing…" };
-}
+const aiProcessSemaphore = createSemaphore(AI_PROCESS_CONCURRENCY);
 
 function statusChip(row: QueueRow): {
   label: string;
@@ -153,12 +145,6 @@ function statusChip(row: QueueRow): {
   }
   if (row.parsing_status === "failed") {
     return { label: "Error", color: "danger" };
-  }
-  if (row.parsing_status === "completed") {
-    return { label: "Completed", color: "success" };
-  }
-  if (row.uploadPhase === "awaiting-review") {
-    return { label: "Review needed", color: "default" };
   }
   if (row.uploadPhase === "uploaded") {
     return { label: "Completed", color: "success" };
@@ -215,7 +201,6 @@ export function AddCandidateModal({
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queueRef = useRef<QueueRow[]>([]);
-  const duplicatePayloadRef = useRef<DuplicateFlowState | null>(null);
   /** Candidate ids currently being merged via "Update CV" — the modal's own
    * parsing-status realtime effect should not independently trigger a list
    * refresh for these; `onDuplicateMergedToExisting` already handles it once
@@ -236,24 +221,22 @@ export function AddCandidateModal({
   );
   const [sourceOther, setSourceOther] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
+  const [runJdMatchOnUpload, setRunJdMatchOnUpload] = useState(true);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [reviewingRowId, setReviewingRowId] = useState<string | null>(null);
-  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
-  const [duplicateFlow, setDuplicateFlow] = useState<DuplicateFlowState | null>(
-    null,
-  );
-  const [duplicateSubmitting, setDuplicateSubmitting] = useState(false);
-  /** The queue row currently going through "Update CV" or "Discard" from the
-   * duplicate-candidate modal -- kept set from the moment an action is
-   * chosen until it settles, spanning the gap after `closeDuplicateModal()`
-   * hides the modal but before the row's `uploadPhase` actually changes (it
-   * stays "awaiting-review" while the merge/discard request is in flight),
-   * so the row's own Review/Confirm buttons don't stay clickable underneath. */
-  const [duplicateResolvingRowId, setDuplicateResolvingRowId] = useState<
-    string | null
-  >(null);
+  /** Row ids currently being auto-resolved as a duplicate (merged as a new
+   * CV version onto an existing application for this job, or linked onto an
+   * existing person as a new application for this job) -- no modal, no user
+   * choice; kept only so the status chip can read "Resolving duplicate…"
+   * while the request is in flight. */
+  const [resolvingDuplicateRowIds, setResolvingDuplicateRowIds] = useState<
+    Set<string>
+  >(new Set());
   const [allSuccessToastShown, setAllSuccessToastShown] = useState(false);
+  /** True while "Retry all failed" is in flight, purely to disable the
+   * button and show a busy label -- each row it kicks off is otherwise a
+   * normal `retryRow` call. */
+  const [isRetryingAll, setIsRetryingAll] = useState(false);
   const { success: triggerSuccess, error: triggerError } = useToast();
   /** Ticks once a second while any row is mid-scan, purely to force a
    * re-render so the "Scanning… (Ns)" elapsed-time label stays live --
@@ -277,9 +260,12 @@ export function AddCandidateModal({
         const hasUnconfirmed = queueRef.current.some(
           (r) => !r.candidateId && r.uploadPhase !== "error",
         );
-        if (hasUnconfirmed && !confirm(
-          "Some uploaded CVs haven't been confirmed yet and will be discarded from this session if you close now. Close anyway?",
-        )) {
+        if (
+          hasUnconfirmed &&
+          !confirm(
+            "Some uploaded CVs haven't been confirmed yet and will be discarded from this session if you close now. Close anyway?",
+          )
+        ) {
           return;
         }
       }
@@ -301,14 +287,174 @@ export function AddCandidateModal({
   const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
   const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
 
-  const selectableRows = queue.filter((r) => r.uploadPhase === "awaiting-review");
-  const allSelected = selectableRows.length > 0 && selectableRows.every((r) => selectedRowIds.has(r.rowId));
+  /** Fetches this row's own latest name/email/phone (already AI-parsed by
+   * the time this is called, since `/process` awaits parsing before
+   * responding) and stores it on the queue row for the Name/Email/Phone
+   * columns -- called before any auto-resolve merge/link, since a same-job
+   * merge deletes this row's own `campaign_applied`/`candidates` rows and a
+   * later fetch would just 404. */
+  const refreshRowContactInfo = useCallback(
+    async (rowId: string, candidateId: string) => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${candidateId}`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { candidate?: CandidateDbRow };
+        const c = json.candidate;
+        if (!c) return;
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  prefillName: c.name ?? r.prefillName,
+                  prefillEmail: c.parsed_contact_email ?? r.prefillEmail,
+                  prefillPhone: c.parsed_contact_phone ?? r.prefillPhone,
+                }
+              : r,
+          ),
+        );
+      } catch {
+        // best-effort; the columns just keep showing the last-known values
+      }
+    },
+    [],
+  );
 
-  /** Unmounts the duplicate modal right away so the upload queue/progress
-   * underneath becomes visible while the merge/discard keeps running. */
-  const closeDuplicateModal = useCallback(() => {
-    setDuplicateFlow(null);
-  }, []);
+  /**
+   * Auto-resolves a dedupe hit with no modal/user choice: if any hit is for
+   * *this same job*, the new CV is saved as a new version on that existing
+   * application (mirrors the old "Update CV" action); otherwise the person
+   * doesn't have an application in this job yet, so the freshly-created
+   * application is repointed onto their existing identity, becoming a new
+   * CV for this job. Errors leave the row flagged in the queue.
+   */
+  const autoResolveDuplicate = useCallback(
+    async (
+      rowId: string,
+      candidateId: string,
+      hits: DuplicateCandidateHit[],
+    ) => {
+      if (hits.length === 0) return;
+      setResolvingDuplicateRowIds((prev) => new Set(prev).add(rowId));
+      try {
+        const sameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
+
+        if (!sameJobHit) {
+          // Cross-job duplicate: keep this application (it's for a different
+          // job), but repoint it onto the existing person instead of leaving
+          // it under the throwaway blank candidate created for it.
+          const existingCandidateId = hits[0]?.candidateId;
+          if (existingCandidateId) {
+            const linkRes = await fetch(
+              `/api/admin/candidates/${candidateId}/link-to-candidate`,
+              {
+                method: "PUT",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ existingCandidateId }),
+              },
+            );
+            if (!linkRes.ok) {
+              const linkJson = (await linkRes.json()) as { error?: string };
+              throw new Error(
+                linkJson.error ?? "Failed to link candidate profile",
+              );
+            }
+          }
+          setQueue((q) =>
+            q.map((r) =>
+              r.rowId === rowId
+                ? {
+                    ...r,
+                    uploadPhase: "uploaded" as const,
+                    parsing_status: "completed" as const,
+                  }
+                : r,
+            ),
+          );
+          onCandidatesChanged?.();
+          return;
+        }
+
+        duplicateMergeIdsRef.current.add(candidateId);
+        const repRes = await fetch(
+          `/api/admin/candidates/${sameJobHit.id}/update-with-history`,
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              newCandidateId: candidateId,
+              matchedOn: sameJobHit.matchedOn,
+            }),
+          },
+        );
+        const repJson = (await repRes.json()) as {
+          error?: string;
+          candidate?: CandidateDbRow;
+        };
+        if (!repRes.ok) {
+          throw new Error(
+            repJson.error ?? "Failed to merge duplicate into existing profile",
+          );
+        }
+
+        // Since we copy the duplicate's completed JD-match score/status
+        // to the existing application inside the merge database transaction
+        // (see mergeDuplicateApplicationIntoExisting), we do not need to
+        // run JD-match scoring a second time here.
+        if (onDuplicateMergedToExisting) {
+          await onDuplicateMergedToExisting(
+            sameJobHit.id,
+            repJson.candidate,
+            candidateId,
+          );
+        } else {
+          onCandidatesChanged?.();
+        }
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  uploadPhase: "uploaded" as const,
+                  parsing_status: "completed" as const,
+                }
+              : r,
+          ),
+        );
+      } catch (e) {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "Failed to resolve duplicate candidate";
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? { ...r, uploadPhase: "error", uploadError: msg }
+              : r,
+          ),
+        );
+        triggerError(msg);
+      } finally {
+        duplicateMergeIdsRef.current.delete(candidateId);
+        setResolvingDuplicateRowIds((prev) => {
+          const next = new Set(prev);
+          next.delete(rowId);
+          return next;
+        });
+      }
+    },
+    [
+      selectedJobId,
+      runJdMatchOnUpload,
+      onCandidatesChanged,
+      onDuplicateMergedToExisting,
+      triggerError,
+    ],
+  );
 
   /**
    * Marks a row processing and calls `POST .../[id]/process` (AI parse + JD
@@ -321,19 +467,22 @@ export function AddCandidateModal({
       setQueue((q) =>
         q.map((r) =>
           r.rowId === rowId
-            ? { ...r, uploadPhase: "invoking" as const, processingStartedAt: Date.now() }
+            ? {
+                ...r,
+                uploadPhase: "invoking" as const,
+                processingStartedAt: Date.now(),
+              }
             : r,
         ),
       );
       try {
-        const procRes = await fetch(
-          `/api/admin/candidates/${candidateId}/process`,
-          {
+        const procRes = await aiProcessSemaphore.run(() =>
+          fetch(`/api/admin/candidates/${candidateId}/process`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ runJdMatch }),
-          },
+          }),
         );
         const procJson = (await procRes.json()) as {
           error?: string;
@@ -345,24 +494,12 @@ export function AddCandidateModal({
         }
 
         const hits = procJson.duplicateCandidates ?? [];
+        // Contact info is only ever readable while this row's own
+        // application/candidate rows still exist -- capture it now, before
+        // a same-job auto-merge below deletes them.
+        await refreshRowContactInfo(rowId, candidateId);
         if (hits.length > 0) {
-          const newUpload: DuplicateNewUploadPreview =
-            procJson.duplicateNewUpload ?? {
-              email: null,
-              phone: null,
-              parsedRole: null,
-              cvUploadedAt: null,
-            };
-          const flow: DuplicateFlowState = {
-            rowId,
-            candidateId,
-            email: null,
-            phone: null,
-            hits,
-            newUpload,
-          };
-          duplicatePayloadRef.current = flow;
-          setDuplicateFlow(flow);
+          await autoResolveDuplicate(rowId, candidateId, hits);
           return;
         }
 
@@ -376,12 +513,14 @@ export function AddCandidateModal({
         const msg = e instanceof Error ? e.message : "Unknown error";
         setQueue((q) =>
           q.map((r) =>
-            r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
+            r.rowId === rowId
+              ? { ...r, uploadPhase: "error", uploadError: msg }
+              : r,
           ),
         );
       }
     },
-    [onCandidatesChanged],
+    [onCandidatesChanged, refreshRowContactInfo, autoResolveDuplicate],
   );
 
   /**
@@ -393,11 +532,14 @@ export function AddCandidateModal({
    */
   const commitAndProcessViaBypass = useCallback(
     async (
-      row: QueueRow,
+      rowId: string,
+      tempKey: string,
+      filename: string,
+      mimeType: string | null,
       email: string | null,
       phone: string | null,
+      runJdMatch: boolean,
     ): Promise<CommitAndProcessResult> => {
-      if (!row.tempKey) throw new Error("Missing uploaded file reference.");
       const confirmRes = await fetch(
         "/api/admin/candidates/temp-upload/confirm",
         {
@@ -405,9 +547,9 @@ export function AddCandidateModal({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tempKey: row.tempKey,
-            filename: row.filename,
-            mimeType: row.mimeType,
+            tempKey,
+            filename,
+            mimeType,
             jobId: selectedJobId,
             source: sourceKey,
             sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
@@ -429,14 +571,16 @@ export function AddCandidateModal({
       const candidateId = confirmJson.campaignAppliedId;
 
       setQueue((q) =>
-        q.map((r) =>
-          r.rowId === row.rowId ? { ...r, candidateId } : r,
-        ),
+        q.map((r) => (r.rowId === rowId ? { ...r, candidateId } : r)),
       );
 
-      const procRes = await fetch(
-        `/api/admin/candidates/${candidateId}/process`,
-        { method: "POST", credentials: "include" },
+      const procRes = await aiProcessSemaphore.run(() =>
+        fetch(`/api/admin/candidates/${candidateId}/process`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ runJdMatch }),
+        }),
       );
       const procJson = (await procRes.json()) as {
         error?: string;
@@ -455,178 +599,6 @@ export function AddCandidateModal({
     },
     [selectedJobId, sourceKey, sourceOther, expectedSalary],
   );
-
-  const runDuplicateMerge = useCallback(async () => {
-    const payload = duplicatePayloadRef.current;
-    if (!payload) return;
-    closeDuplicateModal();
-    setDuplicateSubmitting(true);
-    setDuplicateResolvingRowId(payload.rowId);
-    let candidateId = payload.candidateId;
-    try {
-      if (!candidateId) {
-        const row = queueRef.current.find((r) => r.rowId === payload.rowId);
-        if (!row) throw new Error("Missing uploaded file reference.");
-        const result = await commitAndProcessViaBypass(
-          row,
-          payload.email,
-          payload.phone,
-        );
-        candidateId = result.candidateId;
-      }
-      if (!candidateId) {
-        throw new Error("Missing uploaded candidate to merge.");
-      }
-
-      const sameJobHit = payload.hits.find(
-        (h) => h.jobOpeningId === selectedJobId,
-      );
-
-      if (!sameJobHit) {
-        // Cross-job duplicate: keep this application (it's for a different
-        // job), but repoint it onto the existing person instead of leaving
-        // it under the throwaway blank candidate created for it.
-        const existingCandidateId = payload.hits[0]?.candidateId;
-        if (existingCandidateId) {
-          const linkRes = await fetch(
-            `/api/admin/candidates/${candidateId}/link-to-candidate`,
-            {
-              method: "PUT",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ existingCandidateId }),
-            },
-          );
-          if (!linkRes.ok) {
-            const linkJson = (await linkRes.json()) as { error?: string };
-            throw new Error(
-              linkJson.error ?? "Failed to link candidate profile",
-            );
-          }
-        }
-        setQueue((q) =>
-          q.map((r) =>
-            r.rowId === payload.rowId
-              ? {
-                  ...r,
-                  uploadPhase: "uploaded" as const,
-                  parsing_status: "completed" as const,
-                }
-              : r,
-          ),
-        );
-        onCandidatesChanged?.();
-        return;
-      }
-
-      duplicateMergeIdsRef.current.add(candidateId);
-      const repRes = await fetch(
-        `/api/admin/candidates/${sameJobHit.id}/update-with-history`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            newCandidateId: candidateId,
-            matchedOn: sameJobHit.matchedOn,
-          }),
-        },
-      );
-      const repJson = (await repRes.json()) as {
-        error?: string;
-        candidate?: CandidateDbRow;
-      };
-      if (!repRes.ok) {
-        throw new Error(
-          repJson.error ?? "Failed to merge duplicate into existing profile",
-        );
-      }
-      if (onDuplicateMergedToExisting) {
-        await onDuplicateMergedToExisting(
-          sameJobHit.id,
-          repJson.candidate,
-          candidateId,
-        );
-      } else {
-        onCandidatesChanged?.();
-      }
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === payload.rowId
-            ? {
-                ...r,
-                uploadPhase: "uploaded" as const,
-                parsing_status: "completed" as const,
-              }
-            : r,
-        ),
-      );
-    } catch (e) {
-      triggerError(
-        e instanceof Error ? e.message : "Failed to update candidate profile",
-      );
-    } finally {
-      if (candidateId) duplicateMergeIdsRef.current.delete(candidateId);
-      setDuplicateSubmitting(false);
-      setDuplicateResolvingRowId(null);
-    }
-  }, [
-    closeDuplicateModal,
-    onCandidatesChanged,
-    onDuplicateMergedToExisting,
-    commitAndProcessViaBypass,
-    selectedJobId,
-  ]);
-
-  const runDiscardDuplicate = useCallback(async () => {
-    const payload = duplicatePayloadRef.current;
-    if (!payload) return;
-    closeDuplicateModal();
-    if (!payload.candidateId) {
-      // Pre-confirm block: nothing was ever created, so there's nothing to
-      // delete -- the abandoned temp object is left in place (cleanup
-      // deferred, see CV9X7R vault notes).
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === payload.rowId
-            ? { ...r, uploadPhase: "error", uploadError: "Discarded (duplicate)" }
-            : r,
-        ),
-      );
-      return;
-    }
-    setDuplicateSubmitting(true);
-    setDuplicateResolvingRowId(payload.rowId);
-    try {
-      const delRes = await fetch(
-        `/api/admin/candidates/${payload.candidateId}/discard-duplicate`,
-        { method: "DELETE", credentials: "include" },
-      );
-      if (!delRes.ok) {
-        const delJson = (await delRes.json()) as { error?: string };
-        throw new Error(
-          delJson.error ?? "Failed to discard new duplicate candidate record",
-        );
-      }
-      setQueue((prev) =>
-        prev.map((r) =>
-          r.rowId === payload.rowId
-            ? {
-                ...r,
-                uploadPhase: "error",
-                uploadError: "Removed due to duplicates",
-              }
-            : r,
-        ),
-      );
-      onCandidatesChanged?.();
-    } catch (e) {
-      triggerError(e instanceof Error ? e.message : "Đã có lỗi xảy ra");
-    } finally {
-      setDuplicateSubmitting(false);
-      setDuplicateResolvingRowId(null);
-    }
-  }, [closeDuplicateModal, onCandidatesChanged]);
 
   const loadJobs = useCallback(async () => {
     const res = await fetch("/api/admin/job-openings", {
@@ -674,37 +646,6 @@ export function AddCandidateModal({
   }, [open, hasRowMidScan]);
 
   /**
-   * A row leaves "awaiting-review" (confirmed via the per-row button, via the
-   * Review sub-modal, discarded, errored, merged as a duplicate...) from
-   * several different code paths. Pruning `selectedRowIds` here in one place
-   * -- rather than at each of those call sites -- keeps the bulk "Confirm &
-   * Start AI Check" button in sync: without this, confirming one bulk-checked
-   * row individually via the Review sub-modal left its id in the set, so the
-   * button kept showing a stale count, enabled, with no spinner, for a row
-   * that was already being processed.
-   */
-  useEffect(() => {
-    setSelectedRowIds((prev) => {
-      if (prev.size === 0) return prev;
-      const stillSelectable = new Set(
-        queue
-          .filter((r) => r.uploadPhase === "awaiting-review")
-          .map((r) => r.rowId),
-      );
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (stillSelectable.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [queue]);
-
-  /**
    * Scrolls a newly-added row into view as soon as it appears in the queue --
    * ref callbacks run before effects in the same commit, so by the time this
    * runs the row's `<tr>` is already mounted. Diffing against
@@ -713,7 +654,9 @@ export function AddCandidateModal({
    * re-trigger a scroll once it's already been shown.
    */
   useEffect(() => {
-    const newRows = queue.filter((r) => !scrolledRowIdsRef.current.has(r.rowId));
+    const newRows = queue.filter(
+      (r) => !scrolledRowIdsRef.current.has(r.rowId),
+    );
     if (newRows.length === 0) return;
     for (const r of newRows) scrolledRowIdsRef.current.add(r.rowId);
     const target = rowElRefs.current.get(newRows[newRows.length - 1].rowId);
@@ -731,17 +674,23 @@ export function AddCandidateModal({
     if (queue.length === 0) return;
     const allTerminal = queue.every(
       (r) =>
-        r.parsing_status === "completed" ||
+        r.uploadPhase === "uploaded" ||
         r.parsing_status === "failed" ||
-        r.uploadPhase === "error"
+        r.uploadPhase === "error",
     );
     if (allTerminal && !allSuccessToastShown) {
       setAllSuccessToastShown(true);
-      const successCount = queue.filter((r) => r.parsing_status === "completed").length;
-      const failCount = queue.filter((r) => r.parsing_status === "failed" || r.uploadPhase === "error").length;
+      const successCount = queue.filter(
+        (r) => r.uploadPhase === "uploaded",
+      ).length;
+      const failCount = queue.filter(
+        (r) => r.parsing_status === "failed" || r.uploadPhase === "error",
+      ).length;
 
       if (failCount > 0) {
-        triggerError(`CV upload completed: ${successCount} succeeded, ${failCount} failed.`);
+        triggerError(
+          `CV upload completed: ${successCount} succeeded, ${failCount} failed.`,
+        );
       } else {
         triggerSuccess("All CVs uploaded and processed successfully!");
       }
@@ -762,7 +711,8 @@ export function AddCandidateModal({
         .filter(
           (r) =>
             r.candidateId &&
-            (r.parsing_status === "pending" || r.parsing_status === "processing"),
+            (r.parsing_status === "pending" ||
+              r.parsing_status === "processing"),
         )
         .map((r) => r.candidateId!);
       if (pendingIds.length === 0) return;
@@ -788,9 +738,9 @@ export function AddCandidateModal({
                   ? r
                   : {
                       ...r,
-                      parsing_status: next.cv_parsing_status ?? r.parsing_status,
-                      parsing_error:
-                        next.cv_parsing_error ?? r.parsing_error,
+                      parsing_status:
+                        next.cv_parsing_status ?? r.parsing_status,
+                      parsing_error: next.cv_parsing_error ?? r.parsing_error,
                     },
               ),
             );
@@ -817,56 +767,14 @@ export function AddCandidateModal({
     };
   }, [open, onCandidatesChanged]);
 
-  const handleRowConfirmed = useCallback(
-    (rowId: string, result: CvReviewConfirmResult) => {
-      setReviewingRowId(null);
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === rowId ? { ...r, candidateId: result.campaignAppliedId } : r,
-        ),
-      );
-      void triggerProcessing(rowId, result.campaignAppliedId, result.runJdMatch);
-    },
-    [triggerProcessing],
-  );
-
-  const handleRowDuplicateFound = useCallback(
-    (
-      rowId: string,
-      hits: DuplicateCandidateHit[],
-      newUpload: DuplicateNewUploadPreview | null,
-      email: string | null,
-      phone: string | null,
-    ) => {
-      setReviewingRowId(null);
-      const flow: DuplicateFlowState = {
-        rowId,
-        candidateId: null,
-        email,
-        phone,
-        hits,
-        newUpload: newUpload ?? {
-          email,
-          phone,
-          parsedRole: null,
-          cvUploadedAt: null,
-        },
-      };
-      duplicatePayloadRef.current = flow;
-      setDuplicateFlow(flow);
-    },
-    [],
-  );
-
   /**
-   * Confirms a row without going through the review sub-modal -- used by
-   * both the plain per-row "Confirm" action and the bulk "Confirm & Start AI
-   * Check" action. `email`/`phone` here are only ever the unreviewed
-   * client-side heuristic guess, so `basicInfoReviewed` is deliberately left
-   * false/unset: `process/route.ts` then hands basic-info fully over to AI
-   * instead of locking in a guess nobody actually checked. `runJdMatch` is
-   * the caller's choice since the two buttons have different semantics (see
-   * their `onPress` handlers below).
+   * Confirms a row and kicks off AI processing automatically, right after
+   * its S3 upload finishes -- there is no manual review/confirm step.
+   * `email`/`phone` here are only ever the unreviewed client-side heuristic
+   * guess, so `basicInfoReviewed` is deliberately left false/unset:
+   * `process/route.ts` then hands basic-info fully over to AI instead of
+   * locking in a guess nobody actually checked. `runJdMatch` reflects the
+   * "Run AI JD-match scoring" toggle in the upload settings panel.
    */
   const confirmAndProcessRow = useCallback(
     async (
@@ -912,32 +820,33 @@ export function AddCandidateModal({
         };
 
         if (confirmRes.status === 409) {
-          setQueue((q) =>
-            q.map((r) =>
-              r.rowId === rowId
-                ? { ...r, uploadPhase: "awaiting-review" as const }
-                : r,
-            ),
-          );
-          handleRowDuplicateFound(
+          // A dedupe hit before any row exists -- bypass the gate (the hit
+          // itself is the confirmation) to create the row, then auto-resolve
+          // it against the same hits, with no user interaction.
+          const hits = confirmJson.duplicateCandidates ?? [];
+          const result = await commitAndProcessViaBypass(
             rowId,
-            confirmJson.duplicateCandidates ?? [],
-            confirmJson.duplicateNewUpload ?? null,
+            tempKey,
+            filename,
+            mimeType,
             email,
             phone,
+            runJdMatch,
           );
+          await refreshRowContactInfo(rowId, result.candidateId);
+          await autoResolveDuplicate(rowId, result.candidateId, hits);
           return;
         }
 
         if (!confirmRes.ok || !confirmJson.campaignAppliedId) {
-          throw new Error(confirmJson.error ?? "Could not confirm this upload.");
+          throw new Error(
+            confirmJson.error ?? "Could not confirm this upload.",
+          );
         }
 
         const candidateId = confirmJson.campaignAppliedId;
         setQueue((q) =>
-          q.map((r) =>
-            r.rowId === rowId ? { ...r, candidateId } : r,
-          ),
+          q.map((r) => (r.rowId === rowId ? { ...r, candidateId } : r)),
         );
 
         await triggerProcessing(rowId, candidateId, runJdMatch);
@@ -945,7 +854,9 @@ export function AddCandidateModal({
         const msg = e instanceof Error ? e.message : "Unknown error";
         setQueue((q) =>
           q.map((r) =>
-            r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
+            r.rowId === rowId
+              ? { ...r, uploadPhase: "error", uploadError: msg }
+              : r,
           ),
         );
       }
@@ -955,38 +866,153 @@ export function AddCandidateModal({
       sourceKey,
       sourceOther,
       expectedSalary,
-      handleRowDuplicateFound,
+      commitAndProcessViaBypass,
+      refreshRowContactInfo,
+      autoResolveDuplicate,
       triggerProcessing,
     ],
   );
 
-  const handleBulkConfirm = useCallback(async () => {
-    const ids = Array.from(selectedRowIds);
-    if (ids.length === 0) return;
-
-    setSelectedRowIds(new Set());
-
-    await runWithConcurrency(
-      ids,
-      BULK_AI_CONCURRENCY,
-      async (rowId) => {
-        const row = queueRef.current.find((r) => r.rowId === rowId);
-        if (row && row.tempKey && row.uploadPhase === "awaiting-review") {
-          await confirmAndProcessRow(
-            row.rowId,
-            row.tempKey,
-            row.filename,
-            row.mimeType,
-            row.prefillEmail ?? null,
-            row.prefillPhone ?? null,
-            // This button is explicitly labeled "...& Start AI Check", so
-            // unlike the plain per-row "Confirm" action, JD-match is expected.
-            true,
-          );
+  /**
+   * Signs a temp upload URL, PUTs the file to S3, then hands off to
+   * `confirmAndProcessRow` -- shared by the initial ingest and by retrying a
+   * row that failed before it ever got a `candidateId` (i.e. before
+   * `temp-upload/confirm` ever created a `campaign_applied` row for it, so
+   * redoing the whole thing from scratch can't create a duplicate).
+   */
+  const uploadAndConfirmRow = useCallback(
+    async (
+      rowId: string,
+      file: File,
+      prefillEmail: string | null,
+      prefillPhone: string | null,
+    ): Promise<boolean> => {
+      try {
+        const signRes = await fetch("/api/admin/candidates/temp-upload", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            mimeType: file.type || null,
+          }),
+        });
+        const signJson = (await signRes.json()) as {
+          error?: string;
+          tempKey?: string;
+          signedUrl?: string;
+        };
+        if (!signRes.ok || !signJson.tempKey || !signJson.signedUrl) {
+          throw new Error(signJson.error ?? "Could not start upload");
         }
-      },
-    );
-  }, [selectedRowIds, confirmAndProcessRow]);
+
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  uploadPhase: "uploading" as const,
+                  tempKey: signJson.tempKey,
+                }
+              : r,
+          ),
+        );
+
+        const putRes = await fetch(signJson.signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: file.type ? { "Content-Type": file.type } : undefined,
+        });
+        if (!putRes.ok) {
+          throw new Error("Could not upload file to storage.");
+        }
+
+        // No manual review/confirm step -- the CV goes straight to AI parsing
+        // (and JD-match scoring, if the toggle is on) as soon as it lands in
+        // storage.
+        void confirmAndProcessRow(
+          rowId,
+          signJson.tempKey,
+          file.name,
+          file.type || null,
+          prefillEmail,
+          prefillPhone,
+          runJdMatchOnUpload,
+        );
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? { ...r, uploadPhase: "error", uploadError: msg }
+              : r,
+          ),
+        );
+        return false;
+      }
+    },
+    [confirmAndProcessRow, runJdMatchOnUpload],
+  );
+
+  /**
+   * Retries a row stuck at `uploadPhase: "error"`. Whether that means
+   * re-doing the upload from scratch or just re-triggering AI processing
+   * depends on whether `temp-upload/confirm` ever ran successfully for it:
+   * once it has (`candidateId` is set), the `campaign_applied`/`candidates`
+   * rows already exist, so re-running confirm would create a second,
+   * duplicate application -- re-running `/process` alone is safe and
+   * sufficient (it's cheap to call again: parsing is a no-op if already
+   * `completed`, and it re-checks/re-resolves duplicates regardless).
+   */
+  const retryRow = useCallback(
+    async (rowId: string) => {
+      const row = queueRef.current.find((r) => r.rowId === rowId);
+      if (!row) return;
+
+      if (row.candidateId) {
+        await triggerProcessing(rowId, row.candidateId, runJdMatchOnUpload);
+        return;
+      }
+
+      setQueue((q) =>
+        q.map((r) =>
+          r.rowId === rowId
+            ? { ...r, uploadPhase: "signing" as const, uploadError: undefined }
+            : r,
+        ),
+      );
+      await uploadAndConfirmRow(
+        rowId,
+        row.file,
+        row.prefillEmail ?? null,
+        row.prefillPhone ?? null,
+      );
+    },
+    [triggerProcessing, uploadAndConfirmRow, runJdMatchOnUpload],
+  );
+
+  /**
+   * Retries every row currently sitting at `uploadPhase: "error"` at once,
+   * rather than making the user click each one individually. Each row still
+   * goes through `retryRow`'s own branching (re-upload from scratch vs.
+   * re-process only), and any row that needs a fresh `/process` call still
+   * goes through `aiProcessSemaphore` -- firing N retries in parallel here
+   * doesn't bypass the concurrency cap, it just queues them the same way N
+   * fresh uploads would.
+   */
+  const retryAllFailed = useCallback(async () => {
+    const failedRowIds = queueRef.current
+      .filter((r) => r.uploadPhase === "error")
+      .map((r) => r.rowId);
+    if (failedRowIds.length === 0) return;
+    setIsRetryingAll(true);
+    try {
+      await Promise.all(failedRowIds.map((id) => retryRow(id)));
+    } finally {
+      setIsRetryingAll(false);
+    }
+  }, [retryRow]);
 
   const ingestFile = async (file: File): Promise<boolean> => {
     if (isCampaignBlocked) {
@@ -1034,6 +1060,7 @@ export function AddCandidateModal({
       ...q,
       {
         rowId,
+        file,
         mimeType: file.type || null,
         filename: file.name,
         size: file.size,
@@ -1046,54 +1073,7 @@ export function AddCandidateModal({
       },
     ]);
 
-    try {
-      const signRes = await fetch("/api/admin/candidates/temp-upload", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, mimeType: file.type || null }),
-      });
-      const signJson = (await signRes.json()) as {
-        error?: string;
-        tempKey?: string;
-        signedUrl?: string;
-      };
-      if (!signRes.ok || !signJson.tempKey || !signJson.signedUrl) {
-        throw new Error(signJson.error ?? "Could not start upload");
-      }
-
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === rowId
-            ? { ...r, uploadPhase: "uploading" as const, tempKey: signJson.tempKey }
-            : r,
-        ),
-      );
-
-      const putRes = await fetch(signJson.signedUrl, {
-        method: "PUT",
-        body: file,
-        headers: file.type ? { "Content-Type": file.type } : undefined,
-      });
-      if (!putRes.ok) {
-        throw new Error("Could not upload file to storage.");
-      }
-
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === rowId ? { ...r, uploadPhase: "awaiting-review" as const } : r,
-        ),
-      );
-      return true;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      setQueue((q) =>
-        q.map((r) =>
-          r.rowId === rowId ? { ...r, uploadPhase: "error", uploadError: msg } : r,
-        ),
-      );
-      return false;
-    }
+    return uploadAndConfirmRow(rowId, file, prefillEmail, prefillPhone);
   };
 
   const handleFiles = async (files: FileList | File[]) => {
@@ -1104,115 +1084,68 @@ export function AddCandidateModal({
     if (successCount > 0) {
       triggerSuccess(
         successCount === 1
-          ? "CV uploaded successfully — ready for review."
-          : `${successCount} CVs uploaded successfully — ready for review.`,
+          ? "CV uploaded successfully — sending to AI…"
+          : `${successCount} CVs uploaded successfully — sending to AI…`,
       );
     }
   };
 
-  const reviewingRow = reviewingRowId
-    ? (queue.find((r) => r.rowId === reviewingRowId) ?? null)
-    : null;
-
   return (
-    <>
-      <Modal state={modalState}>
-        <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
-          <Modal.Container className="w-full">
-            <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
-              <Modal.CloseTrigger />
-              <Modal.Header className="border-b border-divider px-6 py-5">
-                <Modal.Heading className="text-xl">
-                  Add candidates
-                </Modal.Heading>
-                <p className="mt-1 text-sm text-muted">
-                  {isCampaignLocked
-                    ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
-                    : "Upload CVs to private storage; AI extracts profile fields in the background."}
-                </p>
-              </Modal.Header>
-              <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
-                {isCampaignBlocked ? (
-                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-                    <p className="font-semibold text-amber-900 dark:text-amber-100">
-                      No campaign linked yet
-                    </p>
-                    <p className="mt-1 text-muted">
-                      Create or link a job opening to this job description from{" "}
-                      <span className="font-medium text-foreground">
-                        Jobs list
-                      </span>{" "}
-                      so uploads can be tied to the JD (required for AI match
-                      scoring).
-                    </p>
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
-                  <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
-                    <div>
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Target campaign
-                        {!isCampaignLocked ? (
-                          <span className="ml-1 text-danger">*</span>
-                        ) : null}
-                      </Label>
-                      {isCampaignLocked &&
-                      typeof jdPipelineCampaign === "object" ? (
-                        <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
-                          <span className="font-medium">
-                            {jdPipelineCampaign.title}
-                          </span>
-                          <p className="mt-1 text-xs text-muted">
-                            Fixed for this job description — candidates are
-                            eligible for JD-based AI evaluation.
-                          </p>
-                        </div>
-                      ) : (
-                        <Select
-                          placeholder="Select a campaign…"
-                          value={jobKey}
-                          onChange={(key) => {
-                            if (typeof key === "string") setJobKey(key);
-                          }}
-                          className="mt-2"
-                        >
-                          <Select.Trigger className="w-full min-w-0">
-                            <Select.Value />
-                            <Select.Indicator />
-                          </Select.Trigger>
-                          <Select.Popover>
-                            <ListBox>
-                              {jobs.map((j) => (
-                                <ListBox.Item
-                                  key={j.id}
-                                  id={j.id}
-                                  textValue={j.displayTitle}
-                                >
-                                  {j.displayTitle}
-                                  <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                              ))}
-                            </ListBox>
-                          </Select.Popover>
-                        </Select>
-                      )}
-                      {isCampaignMissing ? (
-                        <p className="mt-1.5 text-xs text-muted">
-                          Required before you can upload CVs.
-                        </p>
+    <Modal state={modalState}>
+      <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
+        <Modal.Container className="w-full">
+          <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider px-6 py-5">
+              <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
+              <p className="mt-1 text-sm text-muted">
+                {isCampaignLocked
+                  ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
+                  : "Upload CVs to private storage; AI extracts profile fields in the background."}
+              </p>
+            </Modal.Header>
+            <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
+              {isCampaignBlocked ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                  <p className="font-semibold text-amber-900 dark:text-amber-100">
+                    No campaign linked yet
+                  </p>
+                  <p className="mt-1 text-muted">
+                    Create or link a job opening to this job description from{" "}
+                    <span className="font-medium text-foreground">
+                      Jobs list
+                    </span>{" "}
+                    so uploads can be tied to the JD (required for AI match
+                    scoring).
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
+                <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
+                  <div>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                      Target campaign
+                      {!isCampaignLocked ? (
+                        <span className="ml-1 text-danger">*</span>
                       ) : null}
-                    </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Sourced from
-                      </Label>
+                    </Label>
+                    {isCampaignLocked &&
+                    typeof jdPipelineCampaign === "object" ? (
+                      <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
+                        <span className="font-medium">
+                          {jdPipelineCampaign.title}
+                        </span>
+                        <p className="mt-1 text-xs text-muted">
+                          Fixed for this job description — candidates are
+                          eligible for JD-based AI evaluation.
+                        </p>
+                      </div>
+                    ) : (
                       <Select
-                        value={sourceKey}
-                        onChange={(k) => {
-                          const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-                          setSourceKey(next);
-                          if (next !== "Other") setSourceOther("");
+                        placeholder="Select a campaign…"
+                        value={jobKey}
+                        onChange={(key) => {
+                          if (typeof key === "string") setJobKey(key);
                         }}
                         className="mt-2"
                       >
@@ -1222,439 +1155,442 @@ export function AddCandidateModal({
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            {CANDIDATE_SOURCE_VALUES.map((s) => (
-                              <ListBox.Item key={s} id={s} textValue={s}>
-                                {s}
+                            {jobs.map((j) => (
+                              <ListBox.Item
+                                key={j.id}
+                                id={j.id}
+                                textValue={j.displayTitle}
+                              >
+                                {j.displayTitle}
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
                           </ListBox>
                         </Select.Popover>
                       </Select>
-                      {sourceKey === "Other" ? (
-                        <TextField className="mt-3">
-                          <Label className="text-xs text-muted">
-                            Describe the source
-                          </Label>
-                          <Input
-                            value={sourceOther}
-                            onChange={(e) => setSourceOther(e.target.value)}
-                            placeholder="e.g. University career fair, referral name…"
-                            className="mt-1"
-                          />
-                        </TextField>
-                      ) : null}
-                    </div>
+                    )}
+                    {isCampaignMissing ? (
+                      <p className="mt-1.5 text-xs text-muted">
+                        Required before you can upload CVs.
+                      </p>
+                    ) : null}
+                  </div>
 
-                    <div>
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Expected salary{" "}
-                        <span className="font-normal normal-case text-muted/70">
-                          (optional)
-                        </span>
-                      </Label>
-                      <TextField className="mt-2">
+                  <div>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                      Sourced from
+                    </Label>
+                    <Select
+                      value={sourceKey}
+                      onChange={(k) => {
+                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                        setSourceKey(next);
+                        if (next !== "Other") setSourceOther("");
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {CANDIDATE_SOURCE_VALUES.map((s) => (
+                            <ListBox.Item key={s} id={s} textValue={s}>
+                              {s}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    {sourceKey === "Other" ? (
+                      <TextField className="mt-3">
+                        <Label className="text-xs text-muted">
+                          Describe the source
+                        </Label>
                         <Input
-                          value={expectedSalary}
-                          onChange={(e) => setExpectedSalary(e.target.value)}
-                          placeholder="e.g. 18-20 triệu, negotiable…"
+                          value={sourceOther}
+                          onChange={(e) => setSourceOther(e.target.value)}
+                          placeholder="e.g. University career fair, referral name…"
+                          className="mt-1"
                         />
                       </TextField>
-                      <p className="mt-1.5 text-xs text-muted">
-                        Only visible to HR and the chapter head in the
-                        evaluation view.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Card variant="secondary">
-                        <Card.Content className="gap-1 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            CVs uploaded
-                          </p>
-                          <p className="text-2xl font-semibold tabular-nums text-foreground">
-                            {queue.length}
-                          </p>
-                          <p className="text-[10px] text-muted">
-                            This session
-                          </p>
-                        </Card.Content>
-                      </Card>
-                      <Card variant="secondary">
-                        <Card.Content className="gap-1 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                            Completed
-                          </p>
-                          <p className="text-2xl font-semibold tabular-nums text-foreground">
-                            {
-                              queue.filter(
-                                (r) => r.parsing_status === "completed",
-                              ).length
-                            }
-                          </p>
-                          <p className="text-[10px] text-muted">
-                            AI parsing finished
-                          </p>
-                        </Card.Content>
-                      </Card>
-                    </div>
+                    ) : null}
                   </div>
 
-                  <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
-                    <div
-                      className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
-                        isUploadDisabled
-                          ? "border-divider bg-content2/20 opacity-50"
-                          : dragOver
-                            ? "border-accent bg-accent/5"
-                            : "border-divider bg-content2/30"
-                      }`}
-                      onDragEnter={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragOver={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(false);
-                        void handleFiles(e.dataTransfer.files);
-                      }}
-                    >
-                      <p className="text-sm font-semibold text-foreground">
-                        {isCampaignMissing
-                          ? "Select a target campaign first"
-                          : "Drop CVs here to start ingestion"}
-                      </p>
-                      <p className="mt-2 max-w-sm text-xs text-muted">
-                        {isCampaignMissing
-                          ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                          : "Files land in a private staging area; review and confirm each one before AI parsing starts. Select or drop one or more PDF or DOCX files (max 25MB each)."}
-                      </p>
-                      <div className="mt-4 flex justify-center">
-                        <Button
-                          variant="primary"
-                          onPress={() => fileInputRef.current?.click()}
-                          isDisabled={isUploadDisabled}
-                        >
-                          Select files
-                        </Button>
-                      </div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files;
-                          if (f?.length) void handleFiles(f);
-                          e.target.value = "";
-                        }}
+                  <div>
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                      Expected salary{" "}
+                      <span className="font-normal normal-case text-muted/70">
+                        (optional)
+                      </span>
+                    </Label>
+                    <TextField className="mt-2">
+                      <Input
+                        value={expectedSalary}
+                        onChange={(e) => setExpectedSalary(e.target.value)}
+                        placeholder="e.g. 18-20 triệu, negotiable…"
                       />
-                    </div>
+                    </TextField>
+                    <p className="mt-1.5 text-xs text-muted">
+                      Only visible to HR and the chapter head in the evaluation
+                      view.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-divider accent-accent cursor-pointer"
+                        checked={runJdMatchOnUpload}
+                        onChange={(e) =>
+                          setRunJdMatchOnUpload(e.target.checked)
+                        }
+                      />
+                      Run AI JD-match scoring
+                    </label>
+                    <p className="mt-1.5 text-xs text-muted">
+                      Applies to every CV uploaded in this session, right after
+                      AI parsing finishes.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Card variant="secondary">
+                      <Card.Content className="gap-1 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                          CVs uploaded
+                        </p>
+                        <p className="text-2xl font-semibold tabular-nums text-foreground">
+                          {queue.length}
+                        </p>
+                        <p className="text-[10px] text-muted">This session</p>
+                      </Card.Content>
+                    </Card>
+                    <Card variant="secondary">
+                      <Card.Content className="gap-1 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                          Completed
+                        </p>
+                        <p className="text-2xl font-semibold tabular-nums text-foreground">
+                          {
+                            queue.filter(
+                              (r) => r.uploadPhase === "uploaded",
+                            ).length
+                          }
+                        </p>
+                        <p className="text-[10px] text-muted">
+                          AI parsing finished
+                        </p>
+                      </Card.Content>
+                    </Card>
                   </div>
                 </div>
 
-                <div>
-                  <div className="mb-3 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Active upload queue
-                      </h3>
-                      <p className="text-xs text-muted">
-                        Files awaiting review need your confirmation before AI
-                        parsing starts.
-                      </p>
-                    </div>
-                    {selectedRowIds.size > 0 && (
+                <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
+                  <div
+                    className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
+                      isUploadDisabled
+                        ? "border-divider bg-content2/20 opacity-50"
+                        : dragOver
+                          ? "border-accent bg-accent/5"
+                          : "border-divider bg-content2/30"
+                    }`}
+                    onDragEnter={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragOver={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(false);
+                      void handleFiles(e.dataTransfer.files);
+                    }}
+                  >
+                    <p className="text-sm font-semibold text-foreground">
+                      {isCampaignMissing
+                        ? "Select a target campaign first"
+                        : "Drop CVs here to start ingestion"}
+                    </p>
+                    <p className="mt-2 max-w-sm text-xs text-muted">
+                      {isCampaignMissing
+                        ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
+                        : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                    </p>
+                    <div className="mt-4 flex justify-center">
                       <Button
-                        size="sm"
                         variant="primary"
-                        onPress={handleBulkConfirm}
+                        onPress={() => fileInputRef.current?.click()}
+                        isDisabled={isUploadDisabled}
                       >
-                        Confirm & Start AI Check ({selectedRowIds.size})
+                        Select files
                       </Button>
-                    )}
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files;
+                        if (f?.length) void handleFiles(f);
+                        e.target.value = "";
+                      }}
+                    />
                   </div>
+                </div>
+              </div>
 
-                  <Card variant="secondary" className="overflow-hidden">
-                    <Card.Content className="gap-0 p-0">
-                      <Table>
-                        <Table.ScrollContainer>
-                          <Table.Content
-                            aria-label="Upload queue"
-                            className="min-w-[640px]"
-                          >
-                            <Table.Header>
-                              <Table.Column width={40}>
-                                <input
-                                  type="checkbox"
-                                  className="size-3.5 rounded border-divider accent-accent cursor-pointer"
-                                  checked={allSelected}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedRowIds(new Set(selectableRows.map((r) => r.rowId)));
-                                    } else {
-                                      setSelectedRowIds(new Set());
-                                    }
-                                  }}
-                                />
-                              </Table.Column>
-                              <Table.Column isRowHeader>File</Table.Column>
-                              <Table.Column>Upload date</Table.Column>
-                              <Table.Column>Progress</Table.Column>
-                              <Table.Column>Status</Table.Column>
-                            </Table.Header>
-                            <Table.Body>
-                              {queue.length === 0 ? (
-                                <Table.Row id="empty">
-                                  <Table.Cell
-                                    colSpan={5}
-                                    className="text-center text-sm text-muted"
-                                  >
-                                    No files in this session yet.
-                                  </Table.Cell>
-                                </Table.Row>
-                              ) : (
-                                queue.map((row) => {
-                                  // A row whose post-parse dedupe safety net (in
-                                  // `/process`) found a hit never leaves
-                                  // `uploadPhase: "invoking"` -- AI parsing has
-                                  // already finished by then (that's how the
-                                  // hit was found), but `progressForRow`/
-                                  // `statusChip` would otherwise keep showing
-                                  // "Starting AI scan…"/"Scanning" for as long
-                                  // as the duplicate modal sits unresolved,
-                                  // reading as a stuck/slow parse instead of
-                                  // "waiting on you to resolve the duplicate".
-                                  const isDuplicatePending =
-                                    duplicateFlow?.rowId === row.rowId ||
-                                    duplicateResolvingRowId === row.rowId;
-                                  const { pct, label } = isDuplicatePending
-                                    ? { pct: 90, label: "Duplicate found — resolve below" }
-                                    : progressForRow(row);
-                                  const baseChip = isDuplicatePending
-                                    ? ({ label: "Duplicate found", color: "default" } as const)
-                                    : statusChip(row);
-                                  // Elapsed-time readout for the generic "Scanning"
-                                  // fallback -- makes a genuinely slow AI/extraction
-                                  // call ("longer than usual" but still working)
-                                  // distinguishable from a silently stuck one, since
-                                  // both otherwise render identically.
-                                  const chip =
-                                    baseChip.label === "Scanning" &&
-                                    row.processingStartedAt != null
-                                      ? {
-                                          ...baseChip,
-                                          label: `Scanning… (${Math.max(
-                                            0,
-                                            Math.floor(
-                                              (scanClockTick - row.processingStartedAt) / 1000,
-                                            ),
-                                          )}s)`,
-                                        }
-                                      : baseChip;
-                                  return (
-                                    <Table.Row key={row.rowId} id={row.rowId}>
-                                      <Table.Cell
-                                        ref={(el: HTMLTableCellElement | null) => {
-                                          // `Table.Row` (react-aria-components) doesn't
-                                          // forward a plain `ref` prop to its rendered
-                                          // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
-                                          // forward it, so anchor here and walk up.
-                                          const tr = el?.closest("tr") ?? null;
-                                          if (tr) rowElRefs.current.set(row.rowId, tr);
-                                          else rowElRefs.current.delete(row.rowId);
-                                        }}
-                                      >
-                                        {row.uploadPhase === "awaiting-review" ? (
-                                          <input
-                                            type="checkbox"
-                                            className="size-3.5 rounded border-divider accent-accent cursor-pointer"
-                                            checked={selectedRowIds.has(row.rowId)}
-                                            onChange={(e) => {
-                                              const next = new Set(selectedRowIds);
-                                              if (e.target.checked) {
-                                                next.add(row.rowId);
-                                              } else {
-                                                next.delete(row.rowId);
-                                              }
-                                              setSelectedRowIds(next);
-                                            }}
-                                          />
-                                        ) : (
-                                          <div className="w-3.5" />
-                                        )}
-                                      </Table.Cell>
-                                      <Table.Cell>
-                                        <div className="flex items-center gap-3">
-                                          <FileIcon className="size-8 shrink-0 text-muted" />
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium text-foreground">
-                                              {row.filename}
-                                            </p>
-                                            <p className="text-[10px] text-muted">
-                                              {formatBytes(row.size)}
-                                              {row.uploadError &&
-                                              row.uploadPhase === "error"
-                                                ? ` · ${row.uploadError}`
-                                                : ""}
-                                            </p>
-                                          </div>
-                                        </div>
-                                      </Table.Cell>
-                                      <Table.Cell className="text-sm text-muted">
-                                        {formatDate(row.addedAt)}
-                                      </Table.Cell>
-                                      <Table.Cell>
-                                        <div className="max-w-[200px] space-y-1">
-                                          <div className="h-1.5 overflow-hidden rounded-full bg-content3">
-                                            <div
-                                              className="h-full rounded-full bg-accent transition-[width] duration-300"
-                                              style={{ width: `${pct}%` }}
-                                            />
-                                          </div>
-                                          <p className="text-[10px] font-bold uppercase tracking-tight text-muted">
-                                            {label}
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Active upload queue
+                    </h3>
+                    <p className="text-xs text-muted">
+                      CVs are sent to AI parsing automatically as soon as they
+                      finish uploading. Duplicates are resolved automatically:
+                      matched against an existing person, a CV becomes a new
+                      version for this job if they already applied here, or a
+                      new application if they haven't.
+                    </p>
+                  </div>
+                </div>
+
+                {queue.length > 0
+                  ? (() => {
+                      const totalCount = queue.length;
+                      const successCount = queue.filter(
+                        (r) => r.uploadPhase === "uploaded",
+                      ).length;
+                      const failedCount = queue.filter(
+                        (r) =>
+                          r.uploadPhase === "error" ||
+                          r.parsing_status === "failed",
+                      ).length;
+                      const inProgressCount =
+                        totalCount - successCount - failedCount;
+                      const successPct = (successCount / totalCount) * 100;
+                      const inProgressPct = (inProgressCount / totalCount) * 100;
+                      const failedPct = (failedCount / totalCount) * 100;
+
+                      return (
+                        <Card variant="secondary" className="mb-3">
+                          <Card.Content className="px-2 flex flex-col gap-2.5">
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="size-2 rounded-full bg-success" />
+                                  Completed{" "}
+                                  <span className="tabular-nums text-foreground">
+                                    {successCount}
+                                  </span>
+                                </span>
+                                {failedCount > 0 ? (
+                                  <span className="flex items-center gap-1.5 text-danger">
+                                    <span className="size-2 rounded-full bg-danger" />
+                                    Failed{" "}
+                                    <span className="tabular-nums">
+                                      {failedCount}
+                                    </span>
+                                  </span>
+                                ) : null}
+                                {inProgressCount > 0 ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="size-2 animate-pulse rounded-full bg-accent" />
+                                    In progress{" "}
+                                    <span className="tabular-nums text-foreground">
+                                      {inProgressCount}
+                                    </span>
+                                  </span>
+                                ) : null}
+                                <span className="text-muted/70">
+                                  {totalCount} total
+                                </span>
+                              </div>
+                              {failedCount > 0 ? (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  isDisabled={isRetryingAll}
+                                  onPress={() => void retryAllFailed()}
+                                >
+                                  {isRetryingAll
+                                    ? "Retrying…"
+                                    : `Retry all failed (${failedCount})`}
+                                </Button>
+                              ) : null}
+                            </div>
+                            <div className="flex h-2 overflow-hidden rounded-full bg-content3">
+                              <div
+                                className="h-full bg-success transition-[width] duration-300"
+                                style={{ width: `${successPct}%` }}
+                              />
+                              <div
+                                className="h-full bg-accent animate-pulse transition-[width] duration-300"
+                                style={{ width: `${inProgressPct}%` }}
+                              />
+                              <div
+                                className="h-full bg-danger transition-[width] duration-300"
+                                style={{ width: `${failedPct}%` }}
+                              />
+                            </div>
+                          </Card.Content>
+                        </Card>
+                      );
+                    })()
+                  : null}
+
+                <Card variant="secondary" className="overflow-hidden">
+                  <Card.Content className="gap-0 p-0">
+                    <Table>
+                      <Table.ScrollContainer>
+                        <Table.Content
+                          aria-label="Upload queue"
+                          className="min-w-[640px]"
+                        >
+                          <Table.Header>
+                            <Table.Column isRowHeader>File</Table.Column>
+                            <Table.Column>Name</Table.Column>
+                            <Table.Column>Email</Table.Column>
+                            <Table.Column>Phone</Table.Column>
+                            <Table.Column>Status</Table.Column>
+                            <Table.Column>Upload date</Table.Column>
+                          </Table.Header>
+                          <Table.Body>
+                            {queue.length === 0 ? (
+                              <Table.Row id="empty">
+                                <Table.Cell
+                                  colSpan={6}
+                                  className="text-center text-sm text-muted"
+                                >
+                                  No files in this session yet.
+                                </Table.Cell>
+                              </Table.Row>
+                            ) : (
+                              queue.map((row) => {
+                                // A row auto-resolving a dedupe hit never
+                                // leaves `uploadPhase: "invoking"` -- AI
+                                // parsing has already finished by then
+                                // (that's how the hit was found), but
+                                // `statusChip` would otherwise keep showing
+                                // "Scanning" for the whole merge/link call,
+                                // reading as a stuck/slow parse.
+                                const isResolvingDuplicate =
+                                  resolvingDuplicateRowIds.has(row.rowId);
+                                const baseChip = isResolvingDuplicate
+                                  ? ({
+                                      label: "Resolving duplicate",
+                                      color: "default",
+                                    } as const)
+                                  : statusChip(row);
+                                // Elapsed-time readout for the generic "Scanning"
+                                // fallback -- makes a genuinely slow AI/extraction
+                                // call ("longer than usual" but still working)
+                                // distinguishable from a silently stuck one, since
+                                // both otherwise render identically.
+                                const chip =
+                                  baseChip.label === "Scanning" &&
+                                  row.processingStartedAt != null
+                                    ? {
+                                        ...baseChip,
+                                        label: `Scanning… (${Math.max(
+                                          0,
+                                          Math.floor(
+                                            (scanClockTick -
+                                              row.processingStartedAt) /
+                                              1000,
+                                          ),
+                                        )}s)`,
+                                      }
+                                    : baseChip;
+                                return (
+                                  <Table.Row key={row.rowId} id={row.rowId}>
+                                    <Table.Cell
+                                      ref={(
+                                        el: HTMLTableCellElement | null,
+                                      ) => {
+                                        // `Table.Row` (react-aria-components) doesn't
+                                        // forward a plain `ref` prop to its rendered
+                                        // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
+                                        // forward it, so anchor here and walk up.
+                                        const tr = el?.closest("tr") ?? null;
+                                        if (tr)
+                                          rowElRefs.current.set(row.rowId, tr);
+                                        else
+                                          rowElRefs.current.delete(row.rowId);
+                                      }}
+                                      className="max-w-[200px]"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <FileIcon className="size-8 shrink-0 text-muted" />
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-medium text-foreground">
+                                            {row.filename}
+                                          </p>
+                                          <p className="text-[10px] text-muted">
+                                            {formatBytes(row.size)}
+                                            {row.uploadError &&
+                                            row.uploadPhase === "error"
+                                              ? ` · ${row.uploadError}`
+                                              : ""}
                                           </p>
                                         </div>
-                                      </Table.Cell>
-                                      <Table.Cell>
-                                        {row.uploadPhase === "awaiting-review" ? (
-                                          <div className="flex items-center gap-2">
-                                            <Button
-                                              size="sm"
-                                              variant="secondary"
-                                              isDisabled={
-                                                duplicateFlow?.rowId === row.rowId ||
-                                                duplicateResolvingRowId === row.rowId
-                                              }
-                                              onPress={() => setReviewingRowId(row.rowId)}
-                                            >
-                                              Review
-                                            </Button>
-                                            <Button
-                                              size="sm"
-                                              variant="primary"
-                                              isDisabled={
-                                                duplicateFlow?.rowId === row.rowId ||
-                                                duplicateResolvingRowId === row.rowId
-                                              }
-                                              onPress={() => {
-                                                if (row.tempKey) {
-                                                  void confirmAndProcessRow(
-                                                    row.rowId,
-                                                    row.tempKey,
-                                                    row.filename,
-                                                    row.mimeType,
-                                                    row.prefillEmail ?? null,
-                                                    row.prefillPhone ?? null,
-                                                    // Plain "Confirm" doesn't
-                                                    // advertise an AI check --
-                                                    // matches the review
-                                                    // sub-modal's opt-in
-                                                    // default of false.
-                                                    false,
-                                                  );
-                                                }
-                                              }}
-                                            >
-                                              Confirm
-                                            </Button>
-                                          </div>
-                                        ) : (
-                                          <Chip
-                                            size="sm"
-                                            variant="soft"
-                                            color={chip.color}
-                                            className="text-[10px] font-bold uppercase"
-                                          >
-                                            {chip.label}
-                                          </Chip>
-                                        )}
-                                      </Table.Cell>
-                                    </Table.Row>
-                                  );
-                                })
-                              )}
-                            </Table.Body>
-                          </Table.Content>
-                        </Table.ScrollContainer>
-                      </Table>
-                    </Card.Content>
-                  </Card>
-                </div>
-              </Modal.Body>
-              <Modal.Footer className="border-t border-divider px-6 py-4">
-                <Button slot="close" variant="secondary">
-                  Close
-                </Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
-      {reviewingRow && reviewingRow.tempKey ? (
-        <CvReviewSubModal
-          key={reviewingRow.rowId}
-          open
-          tempKey={reviewingRow.tempKey}
-          filename={reviewingRow.filename}
-          mimeType={reviewingRow.mimeType}
-          prefillName={reviewingRow.prefillName ?? null}
-          prefillEmail={reviewingRow.prefillEmail ?? null}
-          prefillPhone={reviewingRow.prefillPhone ?? null}
-          jobId={selectedJobId ?? ""}
-          source={sourceKey}
-          sourceOther={sourceKey === "Other" ? sourceOther.trim() : null}
-          expectedSalary={expectedSalary.trim() || null}
-          onConfirmed={(result) => handleRowConfirmed(reviewingRow.rowId, result)}
-          onDuplicateFound={(hits, newUpload, email, phone) =>
-            handleRowDuplicateFound(reviewingRow.rowId, hits, newUpload, email, phone)
-          }
-          onDiscard={() => {
-            setReviewingRowId(null);
-            setQueue((q) =>
-              q.map((r) =>
-                r.rowId === reviewingRow.rowId
-                  ? { ...r, uploadPhase: "error", uploadError: "Discarded" }
-                  : r,
-              ),
-            );
-          }}
-          onCancel={() => setReviewingRowId(null)}
-        />
-      ) : null}
-      {duplicateFlow ? (
-        <DuplicateCandidateModal
-          key={duplicateFlow.rowId}
-          open
-          onOpenChange={() => {}}
-          hits={duplicateFlow.hits}
-          newUpload={duplicateFlow.newUpload}
-          currentJobTitle={
-            jobs.find((j) => j.id === selectedJobId)?.displayTitle ||
-            (isCampaignLocked && typeof jdPipelineCampaign === "object"
-              ? jdPipelineCampaign.title
-              : "") ||
-            "Chiến dịch hiện tại"
-          }
-          isSubmitting={duplicateSubmitting}
-          willMergeIntoExisting={duplicateFlow.hits.some(
-            (h) => h.jobOpeningId === selectedJobId,
-          )}
-          onUpdateProfile={runDuplicateMerge}
-          onDiscard={runDiscardDuplicate}
-        />
-      ) : null}
-    </>
+                                      </div>
+                                    </Table.Cell>
+                                    <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
+                                      {dash(row.prefillName)}
+                                    </Table.Cell>
+                                    <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
+                                      {dash(row.prefillEmail)}
+                                    </Table.Cell>
+                                    <Table.Cell className="text-sm text-muted">
+                                      {dash(row.prefillPhone)}
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                      <Chip
+                                        size="sm"
+                                        variant="soft"
+                                        color={chip.color}
+                                        className="text-[10px] font-bold uppercase"
+                                      >
+                                        {chip.label}
+                                      </Chip>
+                                    </Table.Cell>
+                                    <Table.Cell className="text-sm text-muted">
+                                      {formatDate(row.addedAt)}
+                                    </Table.Cell>
+                                  </Table.Row>
+                                );
+                              })
+                            )}
+                          </Table.Body>
+                        </Table.Content>
+                      </Table.ScrollContainer>
+                    </Table>
+                  </Card.Content>
+                </Card>
+              </div>
+            </Modal.Body>
+            <Modal.Footer className="border-t border-divider px-6 py-4">
+              <Button slot="close" variant="secondary">
+                Close
+              </Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }

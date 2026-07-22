@@ -1,14 +1,12 @@
+import { z } from "zod";
+
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
-import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
+import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
 import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
-import {
-  dedupeMatchStatusLabel,
-  findCandidatesByDedupeSignals,
-} from "@/lib/db/candidates-dedupe";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
 import {
@@ -16,18 +14,29 @@ import {
   mergeProfileIntoParsedPayload,
   patchInputToMergeFields,
 } from "@/lib/candidates/candidate-profile-patch";
-import {
-  normalizeEmailFromPayload,
-  normalizePhoneFromPayload,
-  type DuplicateProfileMatch,
-} from "@/lib/candidates/duplicate-detection";
+import { deleteCandidateIfNoOtherApplications } from "@/lib/candidates/merge-duplicate-application";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function PATCH(request: Request, { params }: RouteContext) {
+const bodySchema = z
+  .object({
+    patch: candidateProfilePatchSchema,
+    existingCandidateId: z.string().regex(UUID_RE),
+  })
+  .strict();
+
+/**
+ * Confirms a duplicate flagged by `PATCH .../profile`'s pre-write check:
+ * applies the edited fields onto the *existing* candidate instead of the
+ * current one, repoints this application at that identity, and drops the
+ * now-orphaned candidate row (mirrors `linkApplicationToExistingCandidate`,
+ * but also carries the just-edited fields over instead of leaving them
+ * unapplied).
+ */
+export async function PUT(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
@@ -50,7 +59,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const parsed = candidateProfilePatchSchema.safeParse(body);
+  const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return Response.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid body." },
@@ -58,7 +67,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const patch = parsed.data;
+  const { patch, existingCandidateId } = parsed.data;
   const db = getPool();
 
   const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
@@ -80,6 +89,18 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Candidate not found." }, { status: 404 });
   }
 
+  if (existingCandidateId === candidate.id) {
+    return Response.json(
+      { error: "existingCandidateId must differ from the current candidate." },
+      { status: 400 },
+    );
+  }
+
+  const existingCandidate = await getCandidateById(db, existingCandidateId);
+  if (!existingCandidate) {
+    return Response.json({ error: "Existing candidate not found." }, { status: 404 });
+  }
+
   const nextSource = patch.source !== undefined ? patch.source : campaignApplied.source;
   const nextSourceOther = patch.source_other !== undefined ? patch.source_other : campaignApplied.source_other;
 
@@ -96,48 +117,6 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
   }
 
-  // Check for a *different* existing candidate whose email/phone now matches
-  // this edit before writing anything -- catching it here (instead of
-  // relying on the `candidates(email)`/`candidates(phone)` unique-violation
-  // catch below) means no throwaway `cv_detail_versions` row gets created
-  // for an edit that turns out to need the merge flow instead.
-  const nextEmail = patch.email !== undefined ? patch.email : candidate.email;
-  const nextPhone = patch.phone !== undefined ? patch.phone : candidate.phone;
-  const normalizedEmail = normalizeEmailFromPayload(nextEmail);
-  const { phone: normalizedPhone, variants: phoneVariants } =
-    normalizePhoneFromPayload(nextPhone);
-  if (normalizedEmail || normalizedPhone) {
-    const dedupeMatches = await findCandidatesByDedupeSignals(
-      db,
-      {
-        email: normalizedEmail,
-        phoneVariants: phoneVariants.length > 0 ? phoneVariants : undefined,
-      },
-      campaignAppliedId,
-    );
-    const otherPersonMatches = dedupeMatches.filter(
-      (m) => m.candidate_id !== candidate.id,
-    );
-    if (otherPersonMatches.length > 0) {
-      const seen = new Set<string>();
-      const matches: DuplicateProfileMatch[] = [];
-      for (const m of otherPersonMatches) {
-        if (seen.has(m.candidate_id)) continue;
-        seen.add(m.candidate_id);
-        matches.push({
-          candidateId: m.candidate_id,
-          name: m.candidate_name,
-          email: m.candidate_email,
-          phone: m.candidate_phone,
-          jobOpeningTitle: m.job_position,
-          status: dedupeMatchStatusLabel(m),
-          campaignAppliedId: m.campaign_applied_id,
-        });
-      }
-      return Response.json({ duplicate: true, matches });
-    }
-  }
-
   const mergeFields = patchInputToMergeFields(patch);
   let mergedPayload = cvVersion.parsed_payload;
   if (Object.keys(mergeFields).length > 0) {
@@ -149,6 +128,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   try {
     const nextVersionNum = await getNextCvVersionNumber(db, campaignAppliedId);
+    const oldCandidateId = candidate.id;
 
     await withTransaction(async (tx) => {
       // 1. Create a new version representing the profile edit
@@ -178,25 +158,41 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         createdBy: auth.userId,
       });
 
-      // 2. Update campaign_applied active CV version and source fields
-      await updateCampaignApplied(tx, campaignAppliedId, {
-        activeCvVersionId: nextVersion.id,
-        source: nextSource,
-        sourceOther: nextSource === "Other" ? nextSourceOther : null,
-      });
+      // 2. Update campaign_applied active CV version, source fields, and
+      // repoint it at the existing candidate's identity. `candidate_id`
+      // isn't part of `updateCampaignApplied`'s whitelist, so it needs its
+      // own statement here (same as `linkApplicationToExistingCandidate`).
+      await tx.query(
+        `UPDATE campaign_applied
+         SET active_cv_version_id = $2, source = $3, source_other = $4,
+             candidate_id = $5, updated_at = now()
+         WHERE id = $1 AND deleted_at IS NULL`,
+        [
+          campaignAppliedId,
+          nextVersion.id,
+          nextSource,
+          nextSource === "Other" ? nextSourceOther : null,
+          existingCandidateId,
+        ],
+      );
 
-      // 3. Update candidate (person) fields (name, email, phone)
+      // 3. Apply the edited name/email/phone (etc.) onto the existing
+      // candidate -- that's the identity this application now belongs to.
       const candidatePatch: Parameters<typeof updateCandidate>[2] = {};
       if (patch.name !== undefined) candidatePatch.name = patch.name;
       if (patch.email !== undefined) candidatePatch.email = patch.email;
       if (patch.phone !== undefined) candidatePatch.phone = patch.phone;
 
       if (Object.keys(candidatePatch).length > 0) {
-        await updateCandidate(tx, campaignApplied.candidate_id, candidatePatch);
+        await updateCandidate(tx, existingCandidateId, candidatePatch);
       }
 
-      // 4. Sync aggregate fields
-      await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+      // 4. Drop the old candidate row, but only if this was its last
+      // application (it may have others from different jobs).
+      await deleteCandidateIfNoOtherApplications(tx, oldCandidateId);
+
+      // 5. Sync aggregate fields on the surviving candidate
+      await syncCandidateAggregateFields(tx, existingCandidateId);
     });
 
     const enriched = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
@@ -213,12 +209,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       return Response.json(
         {
           error:
-            "Another candidate already uses this email or phone number. Use the duplicate-merge flow instead of editing this profile directly.",
+            "Another candidate already uses this email or phone number. Refresh and check for duplicates before retrying.",
         },
         { status: 409 },
       );
     }
-    const msg = err instanceof Error ? err.message : "Failed to update profile.";
+    const msg = err instanceof Error ? err.message : "Failed to merge candidate profile.";
     return Response.json({ error: msg }, { status: 500 });
   }
 }
