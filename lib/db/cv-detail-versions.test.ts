@@ -54,7 +54,7 @@ describe("listRecentCvDetailVersionsForAdmin", () => {
 
     expect(result).toEqual(rows);
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ORDER BY cv.created_at DESC"),
+      expect.stringContaining("ORDER BY cv.id DESC"),
       [5],
     );
   });
