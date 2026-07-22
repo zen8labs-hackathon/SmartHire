@@ -40,6 +40,7 @@ import {
   DeleteCandidateModal,
   EditCandidateModal,
   RationaleModal,
+  ConfirmRunJdMatchModal,
 } from "@/components/admin/jd/jd-pipeline-modals";
 import {
   campaignAppliedAdminRowToTableRow,
@@ -223,6 +224,8 @@ export function JdAppliedCandidatesPipeline({
       if (!open) setRowPendingSchedule(null);
     },
   });
+
+  const jdMatchConfirmModal = useOverlayState();
 
   const openSchedule = useCallback(
     (r: JdPipelineApplicationRow) => {
@@ -661,6 +664,7 @@ export function JdAppliedCandidatesPipeline({
     if (selectedRows.length === 0) return;
     setPipelineBusy(true);
     try {
+      jdMatchConfirmModal.close();
       const res = await fetch("/api/admin/candidates/jd-match/bulk", {
         method: "POST",
         credentials: "include",
@@ -970,7 +974,7 @@ export function JdAppliedCandidatesPipeline({
             variant="secondary"
             className="border border-divider bg-surface-primary"
             isDisabled={!canEditPipeline || pipelineBusy}
-            onPress={() => void runJdMatchForSelected()}
+            onPress={() => jdMatchConfirmModal.open()}
           >
             Run AI JD Match
           </Button>
@@ -1071,7 +1075,7 @@ export function JdAppliedCandidatesPipeline({
                         e.stopPropagation();
                         setSelected((prev) => {
                           const next = new Set(prev);
-                          if (allSelected) {
+                          if (allSelected || someSelected) {
                             paginatedRows.forEach((r) => next.delete(r.id));
                           } else {
                             paginatedRows.forEach((r) => next.add(r.id));
@@ -1253,6 +1257,15 @@ export function JdAppliedCandidatesPipeline({
           void fetchPage();
           toast.success("Interview schedule saved.");
         }}
+      />
+
+      <ConfirmRunJdMatchModal
+        isOpen={jdMatchConfirmModal.isOpen}
+        onOpenChange={jdMatchConfirmModal.setOpen}
+        candidateCount={selectedRows.length}
+        busy={pipelineBusy}
+        onCancel={jdMatchConfirmModal.close}
+        onConfirm={() => void runJdMatchForSelected()}
       />
 
       <DeleteCandidateModal
