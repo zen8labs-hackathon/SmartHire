@@ -182,6 +182,18 @@ export async function updateCampaignApplied(
   db: QueryExecutor,
   id: string,
   patch: UpdateCampaignAppliedInput,
+  options?: {
+    /**
+     * Guards the write with `AND active_cv_version_id = $N`, turning it into
+     * a no-op if a newer CV version has since become active. Used when
+     * saving a JD-match result computed against a specific CV version: two
+     * duplicate CVs merging into the same application can each kick off
+     * their own scoring call, and without this guard whichever call
+     * finishes last -- not necessarily the one scoring the currently active
+     * CV -- would win and overwrite the correct score.
+     */
+    guardActiveCvVersionId?: string;
+  },
 ): Promise<CampaignAppliedRow | null> {
   const { clause, values } = buildSetClause(
     {
@@ -201,12 +213,15 @@ export async function updateCampaignApplied(
   );
   if (!clause) return getCampaignAppliedById(db, id);
 
+  const guardId = options?.guardActiveCvVersionId;
+  const guardClause = guardId ? ` AND active_cv_version_id = $${values.length + 2}` : "";
+
   const { rows } = await db.query<CampaignAppliedRow>(
     `UPDATE campaign_applied
      SET ${clause}, updated_at = now()
-     WHERE id = $1 AND deleted_at IS NULL
+     WHERE id = $1 AND deleted_at IS NULL${guardClause}
      RETURNING *`,
-    [id, ...values],
+    guardId ? [id, ...values, guardId] : [id, ...values],
   );
   return rows[0] ?? null;
 }

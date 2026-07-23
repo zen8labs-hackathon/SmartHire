@@ -11,6 +11,7 @@ import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-vers
 import { CANDIDATES_LIST_DEFAULT_LIMIT } from "@/lib/candidates/candidates-list-query";
 import { useCandidatePipelineState } from "@/components/admin/candidates/use-candidate-pipeline-state";
 import { DataTableStats } from "@/components/admin/shell/table-system";
+import { useToast } from "@/components/admin/toast-provider";
 import {
   Users as UsersIcon,
   Layers as LayersIcon,
@@ -39,6 +40,7 @@ export const CandidatePipelineDashboard = forwardRef<
   Props
 >(function CandidatePipelineDashboard({ candidatesPromise }, ref) {
   const { rows: initialRows, total: initialListTotal } = use(candidatesPromise);
+  const toast = useToast();
   const {
     page,
     setPage,
@@ -287,6 +289,7 @@ export const CandidatePipelineDashboard = forwardRef<
               prev?.id === c.id ? candidateDbRowToTableRow(c) : prev,
             );
             void refreshCvHistoryForCandidate(c.id);
+            toast.success("Candidate profile updated.");
           }}
           onAfterCvDetailMutation={refreshCvDetailAfterMutation}
         />
