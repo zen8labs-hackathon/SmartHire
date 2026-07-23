@@ -5,6 +5,7 @@ import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import { getCandidateById } from "@/lib/db/candidates";
 import { listCvDetailVersionsByCampaignApplied } from "@/lib/db/cv-detail-versions";
 import { getPool } from "@/lib/db/config/client";
+import { dbDateToIso } from "@/lib/db/query-helpers";
 import type { CvManagementVersionListItem, CvManagementVersionKind } from "@/lib/candidates/cv-management-version-list";
 import type { CvDetailRollbackSnapshot } from "@/lib/candidates/cv-detail-version-snapshot";
 
@@ -76,6 +77,10 @@ export async function GET(request: Request, { params }: RouteContext) {
       jd_match_error: v.jd_match_error,
       jd_match_rationale: v.jd_match_rationale,
       avatar_url: null,
+      gpa: v.gpa,
+      english_level: v.english_level,
+      date_of_birth: dbDateToIso(v.date_of_birth),
+      student_years: v.student_years,
     };
 
     return {
