@@ -3,6 +3,8 @@
     {
       "AllowedOrigins": [
         "https://smart-hire.zen8labs.io",
+        "https://smart-hire-dev.zen8labs.io",
+        "http://localhost:3200",
         "http://localhost:3100",
         "http://localhost:3000"
       ],
