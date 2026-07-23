@@ -303,6 +303,10 @@ export function CandidateProfileEditSection({
   // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
   // while editing and no draft exists yet, but never overwrites in-progress
   // edits.
+  // may not be ready yet (the auto-start effect above starts editing before
+  // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
+  // while editing and no draft exists yet, but never overwrites in-progress
+  // edits.
   useEffect(() => {
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(
@@ -399,6 +403,11 @@ export function CandidateProfileEditSection({
       setChangeSummary("");
       setStageBaseline(null);
       setStageDraft(null);
+      // Same reasoning as `cancelEdit`: without this, `autoStartedRef` stays
+      // `true` for the rest of this candidateId's mount, so the auto-start
+      // effect never re-establishes `baseline` and every later `save()` call
+      // silently no-ops (`if (!dbRow || !baseline) return;`).
+      autoStartedRef.current = false;
       return true;
     },
     [candidateId, onSaved, stageBaseline, stageDraft],
