@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { useOverlayState } from "@heroui/react";
 import { extractedApiToFormPatch } from "@/lib/jd/extracted-to-form";
+import { matchChapterByName } from "@/lib/jd/match-chapter";
 import type { JobDescriptionFormData } from "@/lib/jd/types";
 import { MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
 import { useToast } from "@/components/admin/toast-provider";
@@ -26,7 +27,8 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export function useJdCreateState(
   loadDescriptions: () => Promise<void>,
-  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[]
+  allPipelineStages: readonly { id: string; label: string; code: string; color: string }[],
+  chapters: readonly { id: string; name: string }[],
 ) {
   const jdFileInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
@@ -36,8 +38,24 @@ export function useJdCreateState(
   const [formError, setFormError] = useState<string | null>(null);
   const [createFieldErrors, setCreateFieldErrors] = useState<{ start_date?: string; hiring_deadline?: string }>({});
   const [createViewerEmails, setCreateViewerEmails] = useState<string[]>([]);
-  const [createViewerChapterIds, setCreateViewerChapterIds] = useState<string[]>([]);
+  const [createViewerChapterIds, setCreateViewerChapterIdsRaw] = useState<string[]>([]);
+  const [unmatchedDepartmentHint, setUnmatchedDepartmentHint] = useState<string | null>(null);
   const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
+
+  /** Chapter selection is the only source of `department` now (no free-text
+   * input) -- every change to the picker re-derives it from the selected
+   * chapters' names so the two stay in sync no matter who changed what. */
+  const setCreateViewerChapterIds = useCallback(
+    (ids: string[]) => {
+      setCreateViewerChapterIdsRaw(ids);
+      setUnmatchedDepartmentHint(null);
+      const names = ids
+        .map((id) => chapters.find((c) => c.id === id)?.name)
+        .filter((n): n is string => Boolean(n));
+      setForm((prev) => ({ ...prev, department: names.join(", ") }));
+    },
+    [chapters],
+  );
 
   const [jdUploadPhase, setJdUploadPhase] = useState<"idle" | "uploading" | "extracting" | "done" | "error">("idle");
   const [jdUploadError, setJdUploadError] = useState<string | null>(null);
@@ -88,7 +106,8 @@ export function useJdCreateState(
         setFormError(null);
         setForm(DEFAULT_FORM);
         setCreateViewerEmails([]);
-        setCreateViewerChapterIds([]);
+        setCreateViewerChapterIdsRaw([]);
+        setUnmatchedDepartmentHint(null);
         setSelectedStageIds([]);
         setCreateFieldErrors({});
       } else {
@@ -178,8 +197,23 @@ export function useJdCreateState(
             setJdUploadError(msg);
             toast.error(msg);
           } else {
-            const patch = extractedApiToFormPatch(exJson.extracted);
+            const { department: extractedDepartment, ...patch } =
+              extractedApiToFormPatch(exJson.extracted);
             setForm((prev) => ({ ...prev, ...patch }));
+
+            // No free-text department input anymore -- department is always
+            // derived from the selected chapter(s). Try to match the
+            // extracted text to an existing chapter and pre-select it; if
+            // nothing clears the bar, leave it to the user and surface what
+            // the JD said so they know what to look for.
+            if (extractedDepartment) {
+              const matched = matchChapterByName(extractedDepartment, chapters);
+              if (matched) {
+                setCreateViewerChapterIds([matched.id]);
+              } else {
+                setUnmatchedDepartmentHint(extractedDepartment);
+              }
+            }
           }
         } catch {
           const msg = "Could not run AI extraction. Fill the form manually.";
@@ -199,7 +233,7 @@ export function useJdCreateState(
         }
       }
     },
-    [deleteJdDraftOnServer, jdDraftStoragePath, toast],
+    [deleteJdDraftOnServer, jdDraftStoragePath, toast, chapters, setCreateViewerChapterIds],
   );
 
   const discardJdDraft = useCallback(async () => {
@@ -296,6 +330,7 @@ export function useJdCreateState(
     setCreateViewerEmails,
     createViewerChapterIds,
     setCreateViewerChapterIds,
+    unmatchedDepartmentHint,
     selectedStageIds,
     setSelectedStageIds,
     jdUploadPhase,
