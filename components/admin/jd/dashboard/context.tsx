@@ -97,6 +97,10 @@ export interface JdDashboardContextValue {
   setCreateViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
   createViewerChapterIds: string[];
   setCreateViewerChapterIds: (ids: string[]) => void;
+  /** Raw department text the JD extract suggested but couldn't be matched
+   * to an existing chapter -- shown as a hint so the user knows what to
+   * look for when picking manually. Null once a chapter is selected. */
+  unmatchedDepartmentHint: string | null;
   jdUploadPhase: "idle" | "uploading" | "extracting" | "done" | "error";
   jdUploadError: string | null;
   jdSelectedFileName: string | null;
@@ -195,6 +199,7 @@ export function JdDashboardProvider({
   const createState = useJdCreateState(
     listState.loadDescriptions,
     allPipelineStages,
+    chapters,
   );
   const editState = useJdEditState(listState.loadDescriptions);
   const drawerState = useJdDrawerState(canAdministerJds);
@@ -303,6 +308,7 @@ export function JdDashboardProvider({
         setCreateViewerEmails: createState.setCreateViewerEmails,
         createViewerChapterIds: createState.createViewerChapterIds,
         setCreateViewerChapterIds: createState.setCreateViewerChapterIds,
+        unmatchedDepartmentHint: createState.unmatchedDepartmentHint,
         jdUploadPhase: createState.jdUploadPhase,
         jdUploadError: createState.jdUploadError,
         jdSelectedFileName: createState.jdSelectedFileName,
