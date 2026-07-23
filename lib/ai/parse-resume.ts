@@ -2,6 +2,7 @@ import { Output } from "ai";
 import { z } from "zod";
 
 import { experienceYearsFromWorkStart } from "@/lib/ai/experience-years-from-work-start";
+import { explicitExperienceYearsFromText } from "@/lib/ai/explicit-experience-years-from-text";
 import {
   generateTextWithFallback,
   getConfiguredLanguageModel,
@@ -30,13 +31,13 @@ const parsedResumeSchema = z.object({
     .number()
     .nullable()
     .describe(
-      "Total years of professional experience only when the resume explicitly states a number (e.g. '5 years'). Otherwise null -- do not estimate here.",
+      "Total years of professional experience ONLY when the resume contains an explicit phrase such as '5 years of experience' / '5 năm kinh nghiệm'. Otherwise null. Never invent a number from job dates, age, education length, or unrelated integers (e.g. team size).",
     ),
   earliestWorkStart: z
     .string()
     .nullable()
     .describe(
-      "Earliest professional Work Experience start date as YYYY, YYYY-MM, or YYYY-MM-DD. Use the first paid/professional role start (not education or unpaid internships unless that is the only work history). Null if no dated work history exists.",
+      "Earliest Work Experience start date as YYYY, YYYY-MM, or YYYY-MM-DD (include internships listed under Work Experience; exclude education-only rows). Null if no dated work history exists.",
     ),
   skills: z.array(z.string()).describe("Concise individual skill tokens, not sentences."),
   degree: z.string().nullable().describe("Degree level, e.g. Bachelor's, Master's."),
@@ -76,15 +77,34 @@ const MAX_INPUT_CHARS = 120_000;
  */
 const AI_CALL_TIMEOUT_MS = 60_000;
 
+export type ResumeExperienceMeta = {
+  /** Years verified by a literal phrase in the CV text (not the model alone). */
+  explicitExperienceYears: number | null;
+  /** Raw `experienceYears` the model returned (may be hallucinated). */
+  aiClaimedExperienceYears: number | null;
+  /** Earliest Work Experience start the model extracted (`YYYY` / `YYYY-MM` / `YYYY-MM-DD`). */
+  earliestWorkStart: string | null;
+  /** How `parsed.experienceYears` was resolved. */
+  experienceYearsSource:
+    | "explicit"
+    | "derived_from_work_start"
+    | "none";
+};
+
+export type ParsedResumeDetailed = {
+  parsed: ParsedResume;
+  experienceMeta: ResumeExperienceMeta;
+};
+
 /**
- * Replaces the old `process-cv` Edge Function's raw `fetch` + manual
- * `json_object`/plain-text fallback dance with the same
- * `generateText`/`Output.object` pattern already used by JD extraction and
- * evaluation fill (`lib/ai/extract-jd.ts`, `lib/ai/fill-candidate-evaluation.ts`)
- * -- works uniformly across the configured provider (Vercel AI Gateway or
- * Gemini) instead of hardcoding the AI Gateway chat-completions endpoint.
+ * Same extraction as {@link parseResumeWithAI}, plus how `experienceYears`
+ * was resolved (explicit statement vs derived from earliest work start).
+ * Used by the local PDF runner; production callers can keep using
+ * {@link parseResumeWithAI}.
  */
-export async function parseResumeWithAI(plainText: string): Promise<ParsedResume> {
+export async function parseResumeWithAIDetailed(
+  plainText: string,
+): Promise<ParsedResumeDetailed> {
   if (!isLlmInferenceConfigured()) {
     throw new Error(
       "AI resume extraction is not configured (missing LLM credentials).",
@@ -126,14 +146,45 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
     throw e;
   }
 
-  const { earliestWorkStart, experienceYears: explicitYears, ...rest } =
+  const { earliestWorkStart, experienceYears: aiClaimedYears, ...rest } =
     output;
-  // Prefer an explicit "N years" statement; otherwise derive from the earliest
-  // Work Experience start date through today.
-  const experienceYears =
-    explicitYears != null && Number.isFinite(explicitYears)
-      ? explicitYears
-      : experienceYearsFromWorkStart(earliestWorkStart);
+  // Never trust the model's year count alone -- it often invents one (or
+  // confuses nearby integers like "Team size 6"). Only keep an "explicit"
+  // figure when the resume text itself contains a clear years-of-experience
+  // phrase; otherwise derive from the earliest Work Experience start date.
+  const verifiedExplicit = explicitExperienceYearsFromText(plainText);
+  const derivedYears = experienceYearsFromWorkStart(earliestWorkStart);
+  const experienceYears = verifiedExplicit ?? derivedYears;
+  const experienceYearsSource =
+    verifiedExplicit != null
+      ? ("explicit" as const)
+      : derivedYears != null
+        ? ("derived_from_work_start" as const)
+        : ("none" as const);
 
-  return { ...rest, experienceYears };
+  return {
+    parsed: { ...rest, experienceYears },
+    experienceMeta: {
+      explicitExperienceYears: verifiedExplicit,
+      aiClaimedExperienceYears:
+        aiClaimedYears != null && Number.isFinite(aiClaimedYears)
+          ? aiClaimedYears
+          : null,
+      earliestWorkStart: earliestWorkStart ?? null,
+      experienceYearsSource,
+    },
+  };
+}
+
+/**
+ * Replaces the old `process-cv` Edge Function's raw `fetch` + manual
+ * `json_object`/plain-text fallback dance with the same
+ * `generateText`/`Output.object` pattern already used by JD extraction and
+ * evaluation fill (`lib/ai/extract-jd.ts`, `lib/ai/fill-candidate-evaluation.ts`)
+ * -- works uniformly across the configured provider (Vercel AI Gateway or
+ * Gemini) instead of hardcoding the AI Gateway chat-completions endpoint.
+ */
+export async function parseResumeWithAI(plainText: string): Promise<ParsedResume> {
+  const { parsed } = await parseResumeWithAIDetailed(plainText);
+  return parsed;
 }
