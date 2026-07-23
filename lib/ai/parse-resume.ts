@@ -1,6 +1,7 @@
 import { Output } from "ai";
 import { z } from "zod";
 
+import { experienceYearsFromWorkStart } from "@/lib/ai/experience-years-from-work-start";
 import {
   generateTextWithFallback,
   getConfiguredLanguageModel,
@@ -12,6 +13,10 @@ import {
  * `NormalizedParsedResume` exactly (that's what `parsed_payload` stores), plus
  * `dateOfBirth`/`studentYears`, which are separate `cv_detail_versions`
  * columns rather than part of the JSON payload.
+ *
+ * `earliestWorkStart` is AI-only scaffolding: used to derive `experienceYears`
+ * when the CV never states an explicit year count, then stripped before return
+ * so `parsed_payload` stays on the NormalizedParsedResume shape.
  */
 const parsedResumeSchema = z.object({
   name: z.string().nullable().describe("Candidate's full name."),
@@ -24,7 +29,15 @@ const parsedResumeSchema = z.object({
   experienceYears: z
     .number()
     .nullable()
-    .describe("Total years of professional experience, if inferable from dates or summary."),
+    .describe(
+      "Total years of professional experience only when the resume explicitly states a number (e.g. '5 years'). Otherwise null -- do not estimate here.",
+    ),
+  earliestWorkStart: z
+    .string()
+    .nullable()
+    .describe(
+      "Earliest professional Work Experience start date as YYYY, YYYY-MM, or YYYY-MM-DD. Use the first paid/professional role start (not education or unpaid internships unless that is the only work history). Null if no dated work history exists.",
+    ),
   skills: z.array(z.string()).describe("Concise individual skill tokens, not sentences."),
   degree: z.string().nullable().describe("Degree level, e.g. Bachelor's, Master's."),
   school: z.string().nullable(),
@@ -43,9 +56,12 @@ const parsedResumeSchema = z.object({
     ),
 });
 
-export type ParsedResume = z.infer<typeof parsedResumeSchema>;
+export type ParsedResume = Omit<
+  z.infer<typeof parsedResumeSchema>,
+  "earliestWorkStart"
+>;
 
-const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values.`;
+const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values. For earliestWorkStart, copy the earliest dated professional work-experience start from the Work Experience section when present; do not invent dates.`;
 
 const MAX_INPUT_CHARS = 120_000;
 
@@ -81,7 +97,7 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
       ? plainText.slice(0, MAX_INPUT_CHARS)
       : plainText;
 
-  let output: ParsedResume;
+  let output: z.infer<typeof parsedResumeSchema>;
   try {
     ({ output } = await generateTextWithFallback(
       {
@@ -110,5 +126,14 @@ export async function parseResumeWithAI(plainText: string): Promise<ParsedResume
     throw e;
   }
 
-  return output;
+  const { earliestWorkStart, experienceYears: explicitYears, ...rest } =
+    output;
+  // Prefer an explicit "N years" statement; otherwise derive from the earliest
+  // Work Experience start date through today.
+  const experienceYears =
+    explicitYears != null && Number.isFinite(explicitYears)
+      ? explicitYears
+      : experienceYearsFromWorkStart(earliestWorkStart);
+
+  return { ...rest, experienceYears };
 }
