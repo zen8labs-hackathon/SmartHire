@@ -557,7 +557,31 @@ export function EditCandidateModal({
                   canEdit={canEdit}
                   isPreview={false}
                   dbLoadState={dbLoadState}
-                  onSaved={onSaved}
+                  onSaved={(saved) => {
+                    // Feed the freshly-saved row back into local state
+                    // immediately -- the auto-start effect inside
+                    // `CandidateProfileEditSection` re-syncs its draft from
+                    // `dbRow` right after a save, so without this it would
+                    // re-populate the form from the *stale* pre-edit `dbRow`
+                    // still sitting here until the modal is closed and
+                    // reopened (which triggers a fresh refetch).
+                    //
+                    // `saved` is typed as `CandidateDbRow` but the
+                    // `/profile` PATCH route actually responds with a
+                    // `CampaignAppliedAdminRow` (candidate_name/candidate_role/...)
+                    // whenever the pipeline stage wasn't also changed in the
+                    // same save -- same shape ambiguity guarded against
+                    // elsewhere (see `onProfileSaved` in
+                    // candidate-pipeline-dashboard.tsx). Skipping this
+                    // guard means every field read off `dbRow` afterwards
+                    // (name/role/skills/...) comes back `undefined`.
+                    const c =
+                      saved && typeof saved === "object" && "candidate_id" in saved
+                        ? campaignAppliedToCandidateDbRow(saved as any)
+                        : saved;
+                    setDbRow(c);
+                    onSaved();
+                  }}
                   onCancel={() => onOpenChange(false)}
                 />
               )
