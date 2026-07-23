@@ -25,15 +25,22 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!appAccess.ok) return appAccess.response;
 
   const campaign = appAccess.application;
-  if (!campaign.active_cv_version_id) {
+
+  // Optional ?versionId= lets the caller view an older/newer CV version's
+  // file, not just the currently-active one -- must still belong to this
+  // application, so a version id from a different candidate can't be probed.
+  const requestedVersionId = new URL(request.url).searchParams.get("versionId");
+  const targetVersionId = requestedVersionId?.trim() || campaign.active_cv_version_id;
+  if (!targetVersionId) {
     return Response.json({ error: "No CV file on record." }, { status: 404 });
   }
 
-  const cvVersion = await getCvDetailVersionById(
-    getPool(),
-    campaign.active_cv_version_id,
-  );
-  if (!cvVersion || !cvVersion.cv_storage_path) {
+  const cvVersion = await getCvDetailVersionById(getPool(), targetVersionId);
+  if (
+    !cvVersion ||
+    !cvVersion.cv_storage_path ||
+    cvVersion.campaign_applied_id !== campaignAppliedId
+  ) {
     return Response.json({ error: "CV version file not found." }, { status: 404 });
   }
 

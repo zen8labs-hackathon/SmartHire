@@ -7,8 +7,6 @@ import {
   cn,
   Disclosure,
   Drawer,
-  ListBox,
-  Select,
   Separator,
   Spinner,
 } from "@heroui/react";
@@ -16,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
+import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
@@ -23,15 +22,6 @@ import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume"
 import { groupSkillsForDisplay } from "@/lib/candidates/group-skills-for-display";
 import type { CandidateRow } from "@/lib/candidates/types";
 import { formatDisplayDate } from "@/lib/format-date";
-import {
-  getStageColorClasses,
-  getStageColorStyles,
-  getSubStageTextColorClass,
-  getSubStageTextColorStyle,
-} from "@/lib/candidates/pipeline-status-styles";
-import { stageSubStageOptionKey } from "@/lib/pipelines/jd-pipeline-row-helpers";
-import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
-import type { ResolvedActivePipeline } from "@/components/admin/candidates/use-candidate-pipeline-state";
 
 type OtherApplicationItem = {
   id: string;
@@ -40,12 +30,16 @@ type OtherApplicationItem = {
   jobDescriptionId: string | null;
   cvUploadedAt: string | null;
   name: string | null;
+  stageLabel: string | null;
+  stageColor: string | null;
+  subStageCode: string | null;
+  subStageLabel: string | null;
+  subStageIsPassed: boolean | null;
 };
 
 function formatDayMonthYear(iso: string | null | undefined): string {
   return formatDisplayDate(iso);
 }
-
 
 type CvCardModel = {
   name: string;
@@ -187,57 +181,6 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
   );
 }
 
-function PipelineStageBadge({
-  stageMapping,
-  subStage,
-  orphaned,
-}: {
-  stageMapping: StageMapping;
-  subStage: SubStage;
-  orphaned: boolean;
-}) {
-  const stageColor = stageMapping.pipeline_stages?.color ?? null;
-  const surfaceClass = getStageColorClasses(stageColor, "badge");
-  const surfaceStyle = getStageColorStyles(stageColor, "badge");
-  const detailClass = getSubStageTextColorClass(
-    subStage.code,
-    subStage.is_passed,
-    subStage.is_default,
-    stageColor,
-  );
-  const detailStyle = getSubStageTextColorStyle(
-    subStage.code,
-    subStage.is_passed,
-    subStage.is_default,
-    stageColor,
-  );
-  return (
-    <span
-      className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 font-medium",
-        surfaceClass,
-      )}
-      style={surfaceStyle}
-    >
-      <span className="text-sm text-foreground">
-        {stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code}
-      </span>
-      <span className="text-sm text-muted">·</span>
-      <span className={cn("text-sm", detailClass)} style={detailStyle}>
-        {subStage.label}
-      </span>
-      {orphaned ? (
-        <span
-          className="text-sm leading-none"
-          title="Previous pipeline stage was removed — this status may be inaccurate"
-        >
-          ⚠
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 export type CvVersionComparisonDrawerProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -251,14 +194,7 @@ export type CvVersionComparisonDrawerProps = {
   cvHistoryLoading?: boolean;
   /** Kept for API compatibility; no longer rendered. */
   cvHistoryError?: string | null;
-  /** The application's current (stage, sub-stage), resolved against its job's pipeline config; `null` while that config is still loading. */
-  resolvedStage: ResolvedActivePipeline | null;
-  /** Valid next (stage, sub-stage) targets from the current position. Empty while `resolvedStage` is `null`. */
-  stageOptions: Array<{ stageMapping: StageMapping; subStage: SubStage }>;
-  stageUpdateBusy: boolean;
-  stageUpdateError: string | null;
   dbLoadState: "loading" | "error" | "ok";
-  onStageChange: (target: { toStageMappingId: string; toSubStateId: string }) => void;
   canEditProfile?: boolean;
   onProfileSaved?: (candidate: CandidateDbRow) => void;
   onAfterCvDetailMutation?: () => void | Promise<void>;
@@ -269,12 +205,7 @@ export function CvVersionComparisonDrawer({
   onOpenChange,
   tableRow,
   dbRow,
-  resolvedStage,
-  stageOptions,
-  stageUpdateBusy,
-  stageUpdateError,
   dbLoadState,
-  onStageChange,
   canEditProfile = true,
   onProfileSaved = () => {},
 }: CvVersionComparisonDrawerProps) {
@@ -347,8 +278,6 @@ export function CvVersionComparisonDrawer({
     };
   }, [activeParsed, dbRow, tableRow.name, tableRow.role]);
 
-  const currentJobDescriptionId = tableRow.jobDescriptionId;
-
   return (
     <Drawer.Backdrop isOpen={isOpen} onOpenChange={handleOpenChange}>
       <Drawer.Content placement="right">
@@ -363,19 +292,15 @@ export function CvVersionComparisonDrawer({
                 <p className="mt-0.5 text-sm text-muted">{tableRow.role}</p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {currentJobDescriptionId != null ? (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onPress={() =>
-                      router.push(
-                        `/admin/jd/${currentJobDescriptionId}/pipeline/${tableRow.id}/evaluation`,
-                      )
-                    }
-                  >
-                    View detail
-                  </Button>
-                ) : null}
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onPress={() =>
+                    router.push(`/admin/candidate-detail/${tableRow.id}`)
+                  }
+                >
+                  View detail
+                </Button>
               </div>
             </div>
           </Drawer.Header>
@@ -397,87 +322,9 @@ export function CvVersionComparisonDrawer({
                       Last modified: {activeCardModel.cvUploadedAtLabel}
                     </p>
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      isDisabled={currentJobDescriptionId == null}
-                      onPress={() => {
-                        if (currentJobDescriptionId != null) {
-                          router.push(
-                            `/admin/jd/${currentJobDescriptionId}/pipeline/${tableRow.id}/evaluation`,
-                          );
-                        }
-                      }}
-                    >
-                      View detail
-                    </Button>
-                  </div>
                 </div>
                 <CvPreviewCard model={activeCardModel} />
               </div>
-            </div>
-
-            <div className="mx-auto w-full max-w-[960px]">
-              <Card className="p-4 sm:p-5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
-                  Pipeline stage
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  {resolvedStage?.stageMapping && resolvedStage.subStage ? (
-                    <PipelineStageBadge
-                      stageMapping={resolvedStage.stageMapping}
-                      subStage={resolvedStage.subStage}
-                      orphaned={resolvedStage.orphaned}
-                    />
-                  ) : (
-                    <span className="text-sm text-muted">
-                      {dbRow ? "Loading pipeline config…" : "—"}
-                    </span>
-                  )}
-                  {stageOptions.length > 0 ? (
-                    <Select
-                      aria-label="Move to pipeline stage"
-                      isDisabled={stageUpdateBusy}
-                      onChange={(key) => {
-                        if (typeof key !== "string") return;
-                        const [toStageMappingId, toSubStateId] = key.split(":");
-                        if (toStageMappingId && toSubStateId) {
-                          onStageChange({ toStageMappingId, toSubStateId });
-                        }
-                      }}
-                    >
-                      <Select.Trigger className="h-8 min-h-8 min-w-[10rem] justify-start gap-1 px-2.5 text-xs">
-                        <span className="text-muted">Move to…</span>
-                        <Select.Indicator />
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          {stageOptions.map(({ stageMapping, subStage }) => {
-                            const key = stageSubStageOptionKey(stageMapping.id, subStage.id);
-                            return (
-                              <ListBox.Item
-                                key={key}
-                                id={key}
-                                textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
-                              >
-                                {stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code}
-                                {" · "}
-                                {subStage.label}
-                              </ListBox.Item>
-                            );
-                          })}
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>
-                  ) : null}
-                </div>
-                {stageUpdateError ? (
-                  <p className="mt-2 text-xs font-semibold text-rose-500" role="alert">
-                    {stageUpdateError}
-                  </p>
-                ) : null}
-              </Card>
             </div>
 
             <div className="mx-auto w-full max-w-[960px]">
@@ -490,7 +337,7 @@ export function CvVersionComparisonDrawer({
                   }}
                 >
                   <Disclosure.Heading className="px-4 pb-4 m:px-6 sm:pt-4">
-                    <Disclosure.Trigger className="flex w-full max-w-full items-center justify-between gap-3 rounded-md py-1 text-left outline-none hover:bg-muted/50 pressed:bg-muted/50">
+                    <Disclosure.Trigger className="flex w-full max-w-full items-center pl-6 justify-between gap-3 rounded-md py-1 text-left outline-none pressed:bg-muted/50">
                       <div className="min-w-0 flex-1">
                         <p className="text-lg font-semibold tracking-tight text-foreground">
                           Other applications
@@ -535,6 +382,9 @@ export function CvVersionComparisonDrawer({
                                     {formatDisplayDate(app.cvUploadedAt)}
                                   </p>
                                 ) : null}
+                                <div className="mt-1">
+                                  <PipelineStatusBadge app={app} />
+                                </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-2">
                                 <a

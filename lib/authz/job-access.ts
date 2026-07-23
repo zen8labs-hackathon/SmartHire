@@ -79,3 +79,32 @@ export async function canViewJobViaAcl(
   );
   return rows.length > 0;
 }
+
+/**
+ * Batched form of {@link canViewJobViaAcl} -- one query for a set of job ids
+ * instead of one query per id. Use when filtering a list of rows that spans
+ * several jobs (e.g. every application for a candidate) so ACL visibility
+ * doesn't cost a round trip per row.
+ */
+export async function filterJobIdsViewableViaAcl(
+  db: QueryExecutor,
+  userId: string,
+  jobIds: readonly string[],
+): Promise<Set<string>> {
+  if (jobIds.length === 0) return new Set();
+  const { rows } = await db.query<{ job_id: string }>(
+    `SELECT DISTINCT jap.job_id
+       FROM job_allowed_profiles jap
+      WHERE jap.profile_id = $1 AND jap.job_id = ANY($2)
+     UNION
+     SELECT DISTINCT jac.job_id
+       FROM job_allowed_chapters jac
+       JOIN profile_chapters pc
+         ON pc.chapter_id = jac.chapter_id
+        AND pc.profile_id = $1
+        AND pc.role = 'head'
+      WHERE jac.job_id = ANY($2)`,
+    [userId, [...jobIds]],
+  );
+  return new Set(rows.map((row) => row.job_id));
+}

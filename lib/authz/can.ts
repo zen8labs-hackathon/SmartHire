@@ -1,6 +1,7 @@
 import type { StaffProfileAccess } from "@/lib/admin/profile-access";
 import {
   canViewJobViaAcl,
+  filterJobIdsViewableViaAcl,
   isChapterHeadGrantedOnJob,
 } from "@/lib/authz/job-access";
 import {
@@ -89,6 +90,23 @@ export async function canViewJob(
   jobId: string,
 ): Promise<boolean> {
   return can(db, access, "job.view", { jobId });
+}
+
+/**
+ * Batched form of {@link canViewJob} -- resolves visibility for many jobs in
+ * one ACL query instead of one per job. Use when filtering a list of rows
+ * that spans several jobs (e.g. every application for a candidate) instead
+ * of calling {@link canViewJob} in a loop.
+ */
+export async function filterViewableJobIds(
+  db: QueryExecutor,
+  access: StaffProfileAccess,
+  jobIds: readonly string[],
+): Promise<Set<string>> {
+  const distinctIds = [...new Set(jobIds)];
+  if (access.isHr) return new Set(distinctIds);
+  if (!hasRolePermission(access, "job.view")) return new Set();
+  return filterJobIdsViewableViaAcl(db, access.userId, distinctIds);
 }
 
 export async function canViewSalary(
