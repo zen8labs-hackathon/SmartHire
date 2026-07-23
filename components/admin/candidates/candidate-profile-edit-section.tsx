@@ -303,6 +303,10 @@ export function CandidateProfileEditSection({
   // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
   // while editing and no draft exists yet, but never overwrites in-progress
   // edits.
+  // may not be ready yet (the auto-start effect above starts editing before
+  // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
+  // while editing and no draft exists yet, but never overwrites in-progress
+  // edits.
   useEffect(() => {
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(

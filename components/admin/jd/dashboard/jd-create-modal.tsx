@@ -38,6 +38,7 @@ export function JdCreateModal() {
     createViewerEmails,
     createViewerChapterIds,
     setCreateViewerChapterIds,
+    unmatchedDepartmentHint,
     chapters,
     formError,
     formSubmitting,
@@ -178,6 +179,13 @@ export function JdCreateModal() {
               </Card.Content>
             </Card>
 
+            {jdUploadPhase !== "done" ? (
+              <p className="rounded-xl border border-dashed border-divider px-4 py-6 text-center text-xs text-muted">
+                Attach a JD document above — the rest of the form unlocks once
+                AI finishes reading it.
+              </p>
+            ) : (
+              <>
             <div className="space-y-4">
               <SectionLabel>Role details</SectionLabel>
               <div className="grid gap-4 md:grid-cols-2">
@@ -188,14 +196,6 @@ export function JdCreateModal() {
                 >
                   <Label>Job title</Label>
                   <Input placeholder="e.g. AI Engineer (Mid-level)" />
-                </TextField>
-
-                <TextField
-                  value={form.department}
-                  onChange={(v) => setField("department", v)}
-                >
-                  <Label>Department / team</Label>
-                  <Input placeholder="e.g. Solutions Team" />
                 </TextField>
 
                 <div className="flex flex-col gap-1 md:col-span-1">
@@ -310,13 +310,25 @@ export function JdCreateModal() {
               />
               <div className="space-y-2">
                 <Label className="text-xs text-muted">
-                  Viewer chapters (chapter heads)
+                  Viewer chapters (chapter heads) — also sets the job's
+                  department
                 </Label>
+                {unmatchedDepartmentHint ? (
+                  <p className="text-xs text-accent">
+                    The JD says department "{unmatchedDepartmentHint}" — no
+                    matching chapter found, pick one below.
+                  </p>
+                ) : null}
                 <ChapterPicker
                   chapters={chapters}
                   selectedIds={createViewerChapterIds}
                   onChange={setCreateViewerChapterIds}
                 />
+                {form.department ? (
+                  <p className="text-xs text-muted">
+                    Department: {form.department}
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -328,6 +340,8 @@ export function JdCreateModal() {
                 onChange={setSelectedStageIds}
               />
             </div>
+              </>
+            )}
 
             {formError && <p className="text-sm text-danger">{formError}</p>}
           </Modal.Body>
@@ -347,11 +361,7 @@ export function JdCreateModal() {
             <div className="flex gap-2">
               <Button
                 variant="primary"
-                isDisabled={
-                  formSubmitting ||
-                  jdUploadPhase === "uploading" ||
-                  jdUploadPhase === "extracting"
-                }
+                isDisabled={formSubmitting || jdUploadPhase !== "done"}
                 onPress={() => void handleSave()}
               >
                 {formSubmitting ? "Saving…" : "Create"}
