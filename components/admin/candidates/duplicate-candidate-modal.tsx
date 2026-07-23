@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useOverlayTriggerState } from "react-stately";
 
 import { Button, Card, Modal } from "@heroui/react";
@@ -64,7 +64,7 @@ function formatExistingApplied(iso: string | null): string {
   return formatDisplayDate(iso);
 }
 
-function WarningIcon({ className }: { className?: string }) {
+export function WarningIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -82,6 +82,10 @@ export type DuplicateCandidateModalProps = {
   onOpenChange: (open: boolean) => void;
   hits: DuplicateCandidateHit[];
   newUpload: DuplicateNewUploadPreview;
+  /** Total CVs currently queued on a dedupe hit, including this one -- shown
+   * as a small note so closing this modal (see `onOpenChange`) doesn't lose
+   * track of how many are still waiting. */
+  pendingCount: number;
   currentJobTitle: string;
   isSubmitting: boolean;
   willMergeIntoExisting: boolean;
@@ -94,6 +98,7 @@ export function DuplicateCandidateModal({
   onOpenChange,
   hits,
   newUpload,
+  pendingCount,
   currentJobTitle,
   isSubmitting,
   willMergeIntoExisting,
@@ -105,8 +110,6 @@ export function DuplicateCandidateModal({
     onOpenChange,
   });
 
-  const [replaceError, setReplaceError] = useState<string | null>(null);
-
   const primaryHit = hits[0];
   const displayName = primaryHit ? dash(primaryHit.name) : "—";
   const displayEmail = dash(newUpload.email ?? primaryHit?.email);
@@ -117,33 +120,24 @@ export function DuplicateCandidateModal({
   const dPhone = primaryHit ? phoneDiff(primaryHit, newUpload) : false;
 
   const handleUpdate = async () => {
-    setReplaceError(null);
-    try {
-      await onUpdateProfile();
-      onOpenChange(false);
-    } catch (e) {
-      setReplaceError(e instanceof Error ? e.message : "Update failed");
-    }
+    await onUpdateProfile();
   };
 
   const handleDiscard = async () => {
-    setReplaceError(null);
-    try {
-      await onDiscard();
-      onOpenChange(false);
-    } catch (e) {
-      setReplaceError(e instanceof Error ? e.message : "Discard failed");
-    }
+    await onDiscard();
   };
 
   return (
     <Modal state={modalState}>
-      <Modal.Backdrop
-        isDismissable={false}
-        className="z-[140] bg-black/45 backdrop-blur-sm"
-      >
+      {/* No backdrop-blur here -- this modal always stacks on top of the
+          already-blurred add-candidate-modal backdrop underneath. Blurring
+          twice doubles the compositing cost of every repaint of the (hidden)
+          upload queue table behind it, which is what caused the perceived
+          UI stutter when this modal opened. */}
+      <Modal.Backdrop className="z-[140] bg-black/45">
         <Modal.Container className="z-[140] w-full">
           <Modal.Dialog className="max-h-[92vh] w-full max-w-[640px] min-w-0 overflow-hidden rounded-2xl border border-default-200 bg-content1 p-0 shadow-xl">
+            <Modal.CloseTrigger />
             <Modal.Header className="border-b border-divider bg-muted/20 px-6 py-5">
               <div className="flex gap-4 pe-8">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
@@ -156,8 +150,11 @@ export function DuplicateCandidateModal({
                   <p className="mt-1 text-sm text-muted">
                     This candidate is already in your database.{" "}
                     <span className="font-semibold text-amber-600 dark:text-amber-500">
-                      You must select one of the options below to proceed.
+                      Resolve it below, or close this and come back later.
                     </span>
+                    {pendingCount > 1
+                      ? ` (${pendingCount - 1} more CV${pendingCount - 1 === 1 ? "" : "s"} waiting after this one.)`
+                      : ""}
                   </p>
                 </div>
               </div>
@@ -205,9 +202,7 @@ export function DuplicateCandidateModal({
                   </p>
                   <p className="text-xs text-muted mt-0.5">
                     Expected role:{" "}
-                    <DiffNew changed={dRole}>
-                      {dash(newUpload.parsedRole)}
-                    </DiffNew>
+                    <DiffNew changed={dRole}>{dash(newUpload.parsedRole)}</DiffNew>
                   </p>
                 </div>
               </div>
@@ -243,12 +238,6 @@ export function DuplicateCandidateModal({
                   ))}
                 </div>
               </div>
-
-              {replaceError ? (
-                <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
-                  {replaceError}
-                </p>
-              ) : null}
             </Modal.Body>
 
             <Modal.Footer className="border-t border-divider bg-muted/20 px-6 py-4">

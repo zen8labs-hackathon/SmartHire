@@ -5,6 +5,7 @@ import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
 import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
 import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
+import { findCandidatesByDedupeSignals } from "@/lib/db/candidates-dedupe";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
 import {
@@ -12,6 +13,10 @@ import {
   mergeProfileIntoParsedPayload,
   patchInputToMergeFields,
 } from "@/lib/candidates/candidate-profile-patch";
+import {
+  normalizeEmailFromPayload,
+  normalizePhoneFromPayload,
+} from "@/lib/candidates/duplicate-detection";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -83,6 +88,60 @@ export async function PATCH(request: Request, { params }: RouteContext) {
             "When source is Other, source_other must be a non-empty description (or set source to a fixed channel).",
         },
         { status: 400 },
+      );
+    }
+  }
+
+  // Block the edit outright if it would give this candidate the same
+  // email/phone as a *different* existing candidate -- checked before
+  // writing anything so no throwaway `cv_detail_versions` row gets created
+  // for an edit that's going to be rejected anyway. There's no merge path:
+  // if the new contact info collides, the edit must use different contact
+  // info, or the duplicate must be resolved from the candidate list first.
+  const nextEmail = patch.email !== undefined ? patch.email : candidate.email;
+  const nextPhone = patch.phone !== undefined ? patch.phone : candidate.phone;
+  const normalizedEmail = normalizeEmailFromPayload(nextEmail);
+  const { phone: normalizedPhone, variants: phoneVariants } =
+    normalizePhoneFromPayload(nextPhone);
+  if (normalizedEmail || normalizedPhone) {
+    const dedupeMatches = await findCandidatesByDedupeSignals(
+      db,
+      {
+        email: normalizedEmail,
+        phoneVariants: phoneVariants.length > 0 ? phoneVariants : undefined,
+      },
+      campaignAppliedId,
+    );
+    const otherPersonMatches = dedupeMatches.filter(
+      (m) => m.candidate_id !== candidate.id,
+    );
+    if (otherPersonMatches.length > 0) {
+      const seen = new Set<string>();
+      const conflicts: string[] = [];
+      for (const m of otherPersonMatches) {
+        if (seen.has(m.candidate_id)) continue;
+        seen.add(m.candidate_id);
+        const emailHit =
+          !!normalizedEmail && m.candidate_email?.toLowerCase() === normalizedEmail;
+        const phoneHit =
+          phoneVariants.length > 0 &&
+          !!m.candidate_phone &&
+          phoneVariants.includes(m.candidate_phone);
+        const field =
+          emailHit && phoneHit
+            ? "email and phone"
+            : emailHit
+              ? "email"
+              : phoneHit
+                ? "phone"
+                : "email/phone";
+        conflicts.push(`${m.candidate_name ?? "another candidate"} (${field})`);
+      }
+      return Response.json(
+        {
+          error: `Cannot save -- this would match an existing candidate's contact info: ${conflicts.join(", ")}. Use different contact info, or resolve the duplicate from the candidate list before editing.`,
+        },
+        { status: 409 },
       );
     }
   }
@@ -162,7 +221,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       return Response.json(
         {
           error:
-            "Another candidate already uses this email or phone number. Use the duplicate-merge flow instead of editing this profile directly.",
+            "Another candidate already uses this email or phone number. Use different contact info.",
         },
         { status: 409 },
       );
