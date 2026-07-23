@@ -46,8 +46,11 @@ export type CandidateProfileEditSectionProps = {
   isPreview: boolean;
   dbLoadState: "loading" | "error" | "ok";
   onSaved: (candidate: CandidateDbRow) => void;
-  /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
-  startInEditMode?: boolean;
+  /** Called when the user cancels the edit. When the section is embedded in a
+   * modal/drawer that should close on cancel (e.g. `EditCandidateModal`),
+   * pass a callback that closes it. Omit for inline embeds (e.g. the CV
+   * version comparison drawer) where cancel should just revert the form. */
+  onCancel?: () => void;
 };
 
 const FIELD_LABEL =
@@ -150,7 +153,7 @@ export function CandidateProfileEditSection({
   isPreview,
   dbLoadState,
   onSaved,
-  startInEditMode = false,
+  onCancel,
 }: CandidateProfileEditSectionProps) {
   const [editing, setEditing] = useState(false);
   const [baseline, setBaseline] = useState<CandidateProfileFormSnapshot | null>(
@@ -288,17 +291,18 @@ export function CandidateProfileEditSection({
   }, [dbRow, snapFromDb]);
 
   useEffect(() => {
-    if (!startInEditMode || autoStartedRef.current) return;
+    if (autoStartedRef.current) return;
     if (!dbRow || !snapFromDb) return;
     autoStartedRef.current = true;
     startEdit();
-  }, [startInEditMode, dbRow, snapFromDb, startEdit]);
+  }, [dbRow, snapFromDb, startEdit]);
 
   // Initializes the pipeline-stage draft once editing starts -- deferred
   // from `startEdit` itself since `pipelineConfig` loads asynchronously and
-  // may not be ready yet (e.g. `startInEditMode` auto-starts before its
-  // fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change while
-  // editing and no draft exists yet, but never overwrites in-progress edits.
+  // may not be ready yet (the auto-start effect above starts editing before
+  // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
+  // while editing and no draft exists yet, but never overwrites in-progress
+  // edits.
   useEffect(() => {
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(
@@ -323,7 +327,11 @@ export function CandidateProfileEditSection({
     setError(null);
     setStageBaseline(null);
     setStageDraft(null);
-  }, [snapFromDb]);
+    // Allow the auto-start effect to re-establish `baseline` on the next
+    // render -- otherwise `save()` would silently no-op forever afterwards.
+    autoStartedRef.current = false;
+    onCancel?.();
+  }, [snapFromDb, onCancel]);
 
   const stageOptions = useMemo(() => {
     if (!pipelineConfig || !stageBaseline) return [];

@@ -490,13 +490,19 @@ export function EditCandidateModal({
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     "loading",
   );
+  // The Modal keeps rendering for a bit after `isOpen` goes false (CSS exit
+  // transition), and callers null out `row` in that same tick (closing this
+  // modal clears their `rowPendingEdit` state). Rendering off the raw `row`
+  // prop would blank the body mid-transition; sticking to the last non-null
+  // value keeps the closing modal showing its last content instead of a
+  // flash of empty space.
+  const [displayRow, setDisplayRow] = useState(row);
+  if (row && row !== displayRow) {
+    setDisplayRow(row);
+  }
 
   useEffect(() => {
-    if (!isOpen || !row) {
-      setDbRow(null);
-      setDbLoadState("loading");
-      return;
-    }
+    if (!isOpen || !row) return;
     const ac = new AbortController();
     setDbRow(null);
     setDbLoadState("loading");
@@ -535,24 +541,24 @@ export function EditCandidateModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              {row?.name ?? "Edit candidate"}
+              {displayRow?.name ?? "Edit candidate"}
             </Modal.Heading>
           </Modal.Header>
           <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
-            {row ? (
+            {displayRow ? (
               dbLoadState === "error" ? (
                 <p className="px-5 py-4 text-sm text-danger">
                   Could not load this candidate's details. Close and try again.
                 </p>
               ) : (
                 <CandidateProfileEditSection
-                  candidateId={row.id}
+                  candidateId={displayRow.id}
                   dbRow={dbRow}
                   canEdit={canEdit}
                   isPreview={false}
                   dbLoadState={dbLoadState}
-                  startInEditMode
                   onSaved={onSaved}
+                  onCancel={() => onOpenChange(false)}
                 />
               )
             ) : null}
