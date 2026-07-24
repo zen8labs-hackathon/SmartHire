@@ -181,7 +181,25 @@ async function runCvParsing(
         cvContentSha256,
       });
       if (!hasConflictingCandidate) {
-        await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+        // `hasConflictingCandidate` reflects a snapshot read from just
+        // before this transaction started -- two CVs for brand-new people
+        // (no existing dedupe match yet) that turn out to share an
+        // email/phone can both pass that check and race to write their own
+        // `candidates` row here. Whichever commits second hits the
+        // `candidates(email)`/`candidates(phone)` partial unique index. A
+        // savepoint lets that be treated the same as if the pre-check had
+        // caught it (skip the sync, keep the rest of this transaction) --
+        // the duplicate-hit detection below still finds the other person
+        // via this CV's own `parsed_payload`, and the upload modal
+        // auto-resolves it exactly like any other detected duplicate.
+        await tx.query("SAVEPOINT sync_aggregate");
+        try {
+          await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+          await tx.query("RELEASE SAVEPOINT sync_aggregate");
+        } catch (syncErr) {
+          if (!isUniqueViolation(syncErr)) throw syncErr;
+          await tx.query("ROLLBACK TO SAVEPOINT sync_aggregate");
+        }
       }
     });
 

@@ -50,6 +50,13 @@ next-env.d.ts
 .claude/*
 .playwright-mcp/*
 
+#floci
+floci-data/*
+
+#pnpm
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # blue-green state on server (symlink + slot name)
 deploy/.active-slot
 deploy/nginx/active-app-upstream.conf

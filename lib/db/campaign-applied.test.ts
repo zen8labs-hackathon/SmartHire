@@ -185,6 +185,53 @@ describe("updateCampaignApplied", () => {
       ["app-1", 90, "completed"],
     );
   });
+
+  it("adds an active_cv_version_id guard clause with a correctly numbered placeholder when guardActiveCvVersionId is given", async () => {
+    const row = { id: "app-1", jd_match_status: "completed" };
+    const db = fakeDb([[row]]);
+
+    const result = await updateCampaignApplied(
+      db,
+      "app-1",
+      { jdMatchStatus: "completed", jdMatchScore: 90 },
+      { guardActiveCvVersionId: "cv-5" },
+    );
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(
+      `UPDATE campaign_applied
+     SET jd_match_score = $2, jd_match_status = $3, updated_at = now()
+     WHERE id = $1 AND deleted_at IS NULL AND active_cv_version_id = $4
+     RETURNING *`,
+      ["app-1", 90, "completed", "cv-5"],
+    );
+  });
+
+  it("returns null (no-op) when the guarded active_cv_version_id no longer matches (superseded by a newer CV version)", async () => {
+    // Simulates the race this guard exists for: a second duplicate CV merged
+    // into this application and moved active_cv_version_id on before this
+    // (slower) scoring call's write landed.
+    const db = fakeDb([[]]);
+
+    const result = await updateCampaignApplied(
+      db,
+      "app-1",
+      { jdMatchStatus: "completed" },
+      { guardActiveCvVersionId: "stale-cv-id" },
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("omits the guard clause when guardActiveCvVersionId is not given", async () => {
+    const db = fakeDb([[{ id: "app-1" }]]);
+
+    await updateCampaignApplied(db, "app-1", { jdMatchStatus: "completed" });
+
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).not.toContain("active_cv_version_id");
+    expect(values).toEqual(["app-1", "completed"]);
+  });
 });
 
 describe("lockCampaignAppliedForJdMatch", () => {

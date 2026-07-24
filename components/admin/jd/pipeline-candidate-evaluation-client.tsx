@@ -16,6 +16,7 @@ import {
 
 import { SectionCard } from "@/components/admin/shell/cards";
 import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
+import { useToast } from "@/components/admin/toast-provider";
 import {
   getStageColorClasses,
   getStageColorStyles,
@@ -96,6 +97,7 @@ export function PipelineCandidateEvaluationClient({
   canEditProfile,
 }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const editProfileModal = useOverlayState();
   const [draftNote, setDraftNote] = useState("");
   const [notesBusy, setNotesBusy] = useState(false);
@@ -760,6 +762,7 @@ export function PipelineCandidateEvaluationClient({
           onSaved={() => {
             editProfileModal.close();
             router.refresh();
+            toast.success("Candidate profile updated.");
           }}
         />
       ) : null}
