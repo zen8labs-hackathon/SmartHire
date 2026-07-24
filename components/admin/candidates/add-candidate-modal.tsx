@@ -152,6 +152,16 @@ function statusChip(row: QueueRow): {
   return { label: "Scanning", color: "accent" };
 }
 
+/** True while upload/parse/dedupe is still in flight — not completed and not
+ * failed. Drives close-button lock and running borders on queue panels. */
+function isQueueRowInProgress(row: QueueRow): boolean {
+  return (
+    row.uploadPhase !== "uploaded" &&
+    row.uploadPhase !== "error" &&
+    row.parsing_status !== "failed"
+  );
+}
+
 function FileIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -257,6 +267,12 @@ export function AddCandidateModal({
   const handleModalOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
+        // Hard-block close while any CV is still uploading/parsing — mirrors
+        // the disabled Close / X controls so Escape / outside click can't
+        // bypass them.
+        if (queueRef.current.some(isQueueRowInProgress)) {
+          return;
+        }
         const hasUnconfirmed = queueRef.current.some(
           (r) => !r.candidateId && r.uploadPhase !== "error",
         );
@@ -638,6 +654,7 @@ export function AddCandidateModal({
       r.parsing_status !== "completed" &&
       r.parsing_status !== "failed",
   );
+  const hasIncompleteCvs = queue.some(isQueueRowInProgress);
 
   useEffect(() => {
     if (!open || !hasRowMidScan) return;
@@ -1092,10 +1109,21 @@ export function AddCandidateModal({
 
   return (
     <Modal state={modalState}>
-      <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
+      <Modal.Backdrop
+        className="bg-black/40 backdrop-blur-sm"
+        isDismissable={!hasIncompleteCvs}
+        isKeyboardDismissDisabled={hasIncompleteCvs}
+      >
         <Modal.Container className="w-full">
           <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
-            <Modal.CloseTrigger />
+            <Modal.CloseTrigger
+              isDisabled={hasIncompleteCvs}
+              aria-label={
+                hasIncompleteCvs
+                  ? "Close unavailable while CVs are processing"
+                  : "Close"
+              }
+            />
             <Modal.Header className="border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
               <p className="mt-1 text-sm text-muted">
@@ -1120,8 +1148,8 @@ export function AddCandidateModal({
                   </p>
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
-                <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
+                <div className="flex min-h-0 min-w-0 flex-col gap-4">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Target campaign
@@ -1256,42 +1284,11 @@ export function AddCandidateModal({
                       AI parsing finishes.
                     </p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          CVs uploaded
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          {queue.length}
-                        </p>
-                        <p className="text-[10px] text-muted">This session</p>
-                      </Card.Content>
-                    </Card>
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          Completed
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          {
-                            queue.filter(
-                              (r) => r.uploadPhase === "uploaded",
-                            ).length
-                          }
-                        </p>
-                        <p className="text-[10px] text-muted">
-                          AI parsing finished
-                        </p>
-                      </Card.Content>
-                    </Card>
-                  </div>
                 </div>
 
-                <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
+                <div className="flex min-h-0 min-w-0 flex-col md:h-full">
                   <div
-                    className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
+                    className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
                       isUploadDisabled
                         ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
@@ -1322,14 +1319,15 @@ export function AddCandidateModal({
                         ? "Select a target campaign first"
                         : "Drop CVs here to start ingestion"}
                     </p>
-                    <p className="mt-2 max-w-sm text-xs text-muted">
+                    <p className="mt-1.5 max-w-xs text-xs text-muted">
                       {isCampaignMissing
                         ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                        : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                        : "PDF or DOCX, max 25MB each. Parsing starts automatically after upload."}
                     </p>
-                    <div className="mt-4 flex justify-center">
+                    <div className="mt-3 flex justify-center">
                       <Button
                         variant="primary"
+                        size="sm"
                         onPress={() => fileInputRef.current?.click()}
                         isDisabled={isUploadDisabled}
                       >
@@ -1386,205 +1384,226 @@ export function AddCandidateModal({
                       const failedPct = (failedCount / totalCount) * 100;
 
                       return (
-                        <Card variant="secondary" className="mb-3">
-                          <Card.Content className="px-2 flex flex-col gap-2.5">
-                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
-                                <span className="flex items-center gap-1.5">
-                                  <span className="size-2 rounded-full bg-success" />
-                                  Completed{" "}
-                                  <span className="tabular-nums text-foreground">
-                                    {successCount}
-                                  </span>
-                                </span>
-                                {failedCount > 0 ? (
-                                  <span className="flex items-center gap-1.5 text-danger">
-                                    <span className="size-2 rounded-full bg-danger" />
-                                    Failed{" "}
-                                    <span className="tabular-nums">
-                                      {failedCount}
-                                    </span>
-                                  </span>
-                                ) : null}
-                                {inProgressCount > 0 ? (
+                        <div
+                          className={
+                            hasIncompleteCvs
+                              ? "cv-processing-highlight mb-3"
+                              : "mb-3"
+                          }
+                        >
+                          <Card variant="secondary">
+                            <Card.Content className="px-2 flex flex-col gap-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
                                   <span className="flex items-center gap-1.5">
-                                    <span className="size-2 animate-pulse rounded-full bg-accent" />
-                                    In progress{" "}
+                                    <span className="size-2 rounded-full bg-success" />
+                                    Completed{" "}
                                     <span className="tabular-nums text-foreground">
-                                      {inProgressCount}
+                                      {successCount}
                                     </span>
                                   </span>
+                                  {failedCount > 0 ? (
+                                    <span className="flex items-center gap-1.5 text-danger">
+                                      <span className="size-2 rounded-full bg-danger" />
+                                      Failed{" "}
+                                      <span className="tabular-nums">
+                                        {failedCount}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  {inProgressCount > 0 ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="size-2 animate-pulse rounded-full bg-accent" />
+                                      In progress{" "}
+                                      <span className="tabular-nums text-foreground">
+                                        {inProgressCount}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  <span className="text-muted/70">
+                                    {totalCount} total
+                                  </span>
+                                </div>
+                                {failedCount > 0 ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={isRetryingAll}
+                                    onPress={() => void retryAllFailed()}
+                                  >
+                                    {isRetryingAll
+                                      ? "Retrying…"
+                                      : `Retry all failed (${failedCount})`}
+                                  </Button>
                                 ) : null}
-                                <span className="text-muted/70">
-                                  {totalCount} total
-                                </span>
                               </div>
-                              {failedCount > 0 ? (
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  isDisabled={isRetryingAll}
-                                  onPress={() => void retryAllFailed()}
-                                >
-                                  {isRetryingAll
-                                    ? "Retrying…"
-                                    : `Retry all failed (${failedCount})`}
-                                </Button>
-                              ) : null}
-                            </div>
-                            <div className="flex h-2 overflow-hidden rounded-full bg-content3">
-                              <div
-                                className="h-full bg-success transition-[width] duration-300"
-                                style={{ width: `${successPct}%` }}
-                              />
-                              <div
-                                className="h-full bg-accent animate-pulse transition-[width] duration-300"
-                                style={{ width: `${inProgressPct}%` }}
-                              />
-                              <div
-                                className="h-full bg-danger transition-[width] duration-300"
-                                style={{ width: `${failedPct}%` }}
-                              />
-                            </div>
-                          </Card.Content>
-                        </Card>
+                              <div className="flex h-2 overflow-hidden rounded-full bg-content3">
+                                <div
+                                  className="h-full bg-success transition-[width] duration-300"
+                                  style={{ width: `${successPct}%` }}
+                                />
+                                <div
+                                  className="h-full bg-accent animate-pulse transition-[width] duration-300"
+                                  style={{ width: `${inProgressPct}%` }}
+                                />
+                                <div
+                                  className="h-full bg-danger transition-[width] duration-300"
+                                  style={{ width: `${failedPct}%` }}
+                                />
+                              </div>
+                            </Card.Content>
+                          </Card>
+                        </div>
                       );
                     })()
                   : null}
 
-                <Card variant="secondary" className="overflow-hidden">
-                  <Card.Content className="gap-0 p-0">
-                    <Table>
-                      <Table.ScrollContainer>
-                        <Table.Content
-                          aria-label="Upload queue"
-                          className="min-w-[640px]"
-                        >
-                          <Table.Header>
-                            <Table.Column isRowHeader>File</Table.Column>
-                            <Table.Column>Name</Table.Column>
-                            <Table.Column>Email</Table.Column>
-                            <Table.Column>Phone</Table.Column>
-                            <Table.Column>Status</Table.Column>
-                            <Table.Column>Upload date</Table.Column>
-                          </Table.Header>
-                          <Table.Body>
-                            {queue.length === 0 ? (
-                              <Table.Row id="empty">
-                                <Table.Cell
-                                  colSpan={6}
-                                  className="text-center text-sm text-muted"
-                                >
-                                  No files in this session yet.
-                                </Table.Cell>
-                              </Table.Row>
-                            ) : (
-                              queue.map((row) => {
-                                // A row auto-resolving a dedupe hit never
-                                // leaves `uploadPhase: "invoking"` -- AI
-                                // parsing has already finished by then
-                                // (that's how the hit was found), but
-                                // `statusChip` would otherwise keep showing
-                                // "Scanning" for the whole merge/link call,
-                                // reading as a stuck/slow parse.
-                                const isResolvingDuplicate =
-                                  resolvingDuplicateRowIds.has(row.rowId);
-                                const baseChip = isResolvingDuplicate
-                                  ? ({
-                                      label: "Resolving duplicate",
-                                      color: "default",
-                                    } as const)
-                                  : statusChip(row);
-                                // Elapsed-time readout for the generic "Scanning"
-                                // fallback -- makes a genuinely slow AI/extraction
-                                // call ("longer than usual" but still working)
-                                // distinguishable from a silently stuck one, since
-                                // both otherwise render identically.
-                                const chip =
-                                  baseChip.label === "Scanning" &&
-                                  row.processingStartedAt != null
-                                    ? {
-                                        ...baseChip,
-                                        label: `Scanning… (${Math.max(
-                                          0,
-                                          Math.floor(
-                                            (scanClockTick -
-                                              row.processingStartedAt) /
-                                              1000,
-                                          ),
-                                        )}s)`,
-                                      }
-                                    : baseChip;
-                                return (
-                                  <Table.Row key={row.rowId} id={row.rowId}>
-                                    <Table.Cell
-                                      ref={(
-                                        el: HTMLTableCellElement | null,
-                                      ) => {
-                                        // `Table.Row` (react-aria-components) doesn't
-                                        // forward a plain `ref` prop to its rendered
-                                        // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
-                                        // forward it, so anchor here and walk up.
-                                        const tr = el?.closest("tr") ?? null;
-                                        if (tr)
-                                          rowElRefs.current.set(row.rowId, tr);
-                                        else
-                                          rowElRefs.current.delete(row.rowId);
-                                      }}
-                                      className="max-w-[200px]"
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <FileIcon className="size-8 shrink-0 text-muted" />
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium text-foreground">
-                                            {row.filename}
-                                          </p>
-                                          <p className="text-[10px] text-muted">
-                                            {formatBytes(row.size)}
-                                            {row.uploadError &&
-                                            row.uploadPhase === "error"
-                                              ? ` · ${row.uploadError}`
-                                              : ""}
-                                          </p>
-                                        </div>
-                                      </div>
-                                    </Table.Cell>
-                                    <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
-                                      {dash(row.prefillName)}
-                                    </Table.Cell>
-                                    <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
-                                      {dash(row.prefillEmail)}
-                                    </Table.Cell>
-                                    <Table.Cell className="text-sm text-muted">
-                                      {dash(row.prefillPhone)}
-                                    </Table.Cell>
-                                    <Table.Cell>
-                                      <Chip
-                                        size="sm"
-                                        variant="soft"
-                                        color={chip.color}
-                                        className="text-[10px] font-bold uppercase"
+                <div
+                  className={
+                    hasIncompleteCvs ? "cv-processing-highlight" : undefined
+                  }
+                >
+                  <Card variant="secondary" className="overflow-hidden">
+                    <Card.Content className="gap-0 p-0">
+                      <Table>
+                        <Table.ScrollContainer>
+                          <Table.Content
+                            aria-label="Upload queue"
+                            className="min-w-[640px]"
+                          >
+                            <Table.Header>
+                              <Table.Column isRowHeader>File</Table.Column>
+                              <Table.Column>Name</Table.Column>
+                              <Table.Column>Email</Table.Column>
+                              <Table.Column>Phone</Table.Column>
+                              <Table.Column>Status</Table.Column>
+                              <Table.Column>Upload date</Table.Column>
+                            </Table.Header>
+                            <Table.Body>
+                              {queue.length === 0 ? (
+                                <Table.Row id="empty">
+                                  <Table.Cell
+                                    colSpan={6}
+                                    className="text-center text-sm text-muted"
+                                  >
+                                    No files in this session yet.
+                                  </Table.Cell>
+                                </Table.Row>
+                              ) : (
+                                queue.map((row) => {
+                                  // A row auto-resolving a dedupe hit never
+                                  // leaves `uploadPhase: "invoking"` -- AI
+                                  // parsing has already finished by then
+                                  // (that's how the hit was found), but
+                                  // `statusChip` would otherwise keep showing
+                                  // "Scanning" for the whole merge/link call,
+                                  // reading as a stuck/slow parse.
+                                  const isResolvingDuplicate =
+                                    resolvingDuplicateRowIds.has(row.rowId);
+                                  const baseChip = isResolvingDuplicate
+                                    ? ({
+                                        label: "Resolving duplicate",
+                                        color: "default",
+                                      } as const)
+                                    : statusChip(row);
+                                  // Elapsed-time readout for the generic "Scanning"
+                                  // fallback -- makes a genuinely slow AI/extraction
+                                  // call ("longer than usual" but still working)
+                                  // distinguishable from a silently stuck one, since
+                                  // both otherwise render identically.
+                                  const chip =
+                                    baseChip.label === "Scanning" &&
+                                    row.processingStartedAt != null
+                                      ? {
+                                          ...baseChip,
+                                          label: `Scanning… (${Math.max(
+                                            0,
+                                            Math.floor(
+                                              (scanClockTick -
+                                                row.processingStartedAt) /
+                                                1000,
+                                            ),
+                                          )}s)`,
+                                        }
+                                      : baseChip;
+                                  return (
+                                    <Table.Row key={row.rowId} id={row.rowId}>
+                                      <Table.Cell
+                                        ref={(
+                                          el: HTMLTableCellElement | null,
+                                        ) => {
+                                          // `Table.Row` (react-aria-components) doesn't
+                                          // forward a plain `ref` prop to its rendered
+                                          // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
+                                          // forward it, so anchor here and walk up.
+                                          const tr = el?.closest("tr") ?? null;
+                                          if (tr)
+                                            rowElRefs.current.set(
+                                              row.rowId,
+                                              tr,
+                                            );
+                                          else
+                                            rowElRefs.current.delete(row.rowId);
+                                        }}
+                                        className="max-w-[200px]"
                                       >
-                                        {chip.label}
-                                      </Chip>
-                                    </Table.Cell>
-                                    <Table.Cell className="text-sm text-muted">
-                                      {formatDate(row.addedAt)}
-                                    </Table.Cell>
-                                  </Table.Row>
-                                );
-                              })
-                            )}
-                          </Table.Body>
-                        </Table.Content>
-                      </Table.ScrollContainer>
-                    </Table>
-                  </Card.Content>
-                </Card>
+                                        <div className="flex items-center gap-3">
+                                          <FileIcon className="size-8 shrink-0 text-muted" />
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium text-foreground">
+                                              {row.filename}
+                                            </p>
+                                            <p className="text-[10px] text-muted">
+                                              {formatBytes(row.size)}
+                                              {row.uploadError &&
+                                              row.uploadPhase === "error"
+                                                ? ` · ${row.uploadError}`
+                                                : ""}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      </Table.Cell>
+                                      <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
+                                        {dash(row.prefillName)}
+                                      </Table.Cell>
+                                      <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
+                                        {dash(row.prefillEmail)}
+                                      </Table.Cell>
+                                      <Table.Cell className="text-sm text-muted">
+                                        {dash(row.prefillPhone)}
+                                      </Table.Cell>
+                                      <Table.Cell>
+                                        <Chip
+                                          size="sm"
+                                          variant="soft"
+                                          color={chip.color}
+                                          className="text-[10px] font-bold uppercase"
+                                        >
+                                          {chip.label}
+                                        </Chip>
+                                      </Table.Cell>
+                                      <Table.Cell className="text-sm text-muted">
+                                        {formatDate(row.addedAt)}
+                                      </Table.Cell>
+                                    </Table.Row>
+                                  );
+                                })
+                              )}
+                            </Table.Body>
+                          </Table.Content>
+                        </Table.ScrollContainer>
+                      </Table>
+                    </Card.Content>
+                  </Card>
+                </div>
               </div>
             </Modal.Body>
             <Modal.Footer className="border-t border-divider px-6 py-4">
-              <Button slot="close" variant="secondary">
+              <Button
+                slot="close"
+                variant="secondary"
+                isDisabled={hasIncompleteCvs}
+              >
                 Close
               </Button>
             </Modal.Footer>
