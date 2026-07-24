@@ -15,10 +15,7 @@ import {
   sortJdRequirements,
   type JdRequirementCheck,
 } from "@/lib/candidates/jd-match-rationale";
-import {
-  formatSchedule,
-  localDatetimeToIso,
-} from "@/lib/pipelines/jd-pipeline-row-helpers";
+import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
 type ScheduleHistoryItem = {
   id: string;
@@ -93,9 +90,7 @@ export function InterviewScheduleModal({
           active ? toLocalDatetimeInputValue(active.scheduled_at) : "",
         );
         setDurationMinutes(
-          active?.duration_minutes != null
-            ? String(active.duration_minutes)
-            : "",
+          active?.duration_minutes != null ? String(active.duration_minutes) : "",
         );
         setLocation(active?.location ?? "");
       } catch (e) {
@@ -143,15 +138,7 @@ export function InterviewScheduleModal({
     } finally {
       setSaving(false);
     }
-  }, [
-    row,
-    scheduledAt,
-    roundLabel,
-    durationMinutes,
-    location,
-    onSaved,
-    onOpenChange,
-  ]);
+  }, [row, scheduledAt, roundLabel, durationMinutes, location, onSaved, onOpenChange]);
 
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -227,11 +214,9 @@ export function InterviewScheduleModal({
                             {h.round_label ?? "Interview"}
                           </span>{" "}
                           <span className="text-muted">
-                            · {formatSchedule(h.scheduled_at) ?? h.scheduled_at}{" "}
-                            · {h.status}
-                            {h.duration_minutes
-                              ? ` · ${h.duration_minutes}min`
-                              : ""}
+                            · {formatSchedule(h.scheduled_at) ?? h.scheduled_at} ·{" "}
+                            {h.status}
+                            {h.duration_minutes ? ` · ${h.duration_minutes}min` : ""}
                             {h.location ? ` · ${h.location}` : ""}
                           </span>
                         </li>
@@ -344,9 +329,7 @@ export function RationaleModal({
       : null;
 
   const rationale = parseJdMatchRationale(row?.jd_match_rationale);
-  const requirements = rationale
-    ? sortJdRequirements(rationale.requirements)
-    : [];
+  const requirements = rationale ? sortJdRequirements(rationale.requirements) : [];
 
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -388,10 +371,7 @@ export function RationaleModal({
                 {requirements.length > 0 ? (
                   <ul className="space-y-2 border-t border-divider pt-4 first:border-t-0 first:pt-0">
                     {requirements.map((check, i) => (
-                      <RequirementRow
-                        key={`${check.requirement}-${i}`}
-                        check={check}
-                      />
+                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
                     ))}
                   </ul>
                 ) : null}
@@ -517,8 +497,8 @@ export function ConfirmRunJdMatchModal({
               <span className="font-semibold text-foreground">
                 {candidateCount}
               </span>{" "}
-              selected candidate{candidateCount === 1 ? "" : "s"}? This may take
-              a while and will overwrite any existing match scores.
+              selected candidate{candidateCount === 1 ? "" : "s"}? This may
+              take a while and will overwrite any existing match scores.
             </p>
           </Modal.Body>
           <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
@@ -553,6 +533,8 @@ type EditCandidateModalProps = {
   row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
+  /** Forwarded to `CandidateProfileEditSection` -- see its docstring. */
+  hidePipelineAndSource?: boolean;
 };
 
 export function EditCandidateModal({
@@ -561,24 +543,17 @@ export function EditCandidateModal({
   row,
   canEdit,
   onSaved,
+  hidePipelineAndSource,
 }: EditCandidateModalProps) {
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     "loading",
   );
-  // The Modal keeps rendering for a bit after `isOpen` goes false (CSS exit
-  // transition), and callers null out `row` in that same tick (closing this
-  // modal clears their `rowPendingEdit` state). Rendering off the raw `row`
-  // prop would blank the body mid-transition; sticking to the last non-null
-  // value keeps the closing modal showing its last content instead of a
-  // flash of empty space.
-  const [displayRow, setDisplayRow] = useState(row);
-  if (row && row !== displayRow) {
-    setDisplayRow(row);
-  }
 
   useEffect(() => {
-    if (!isOpen || !row) return;
+    if (!isOpen || !row) {
+      return;
+    }
     const ac = new AbortController();
     setDbRow(null);
     setDbLoadState("loading");
@@ -586,6 +561,7 @@ export function EditCandidateModal({
       try {
         const res = await fetch(`/api/admin/candidates/${row.id}`, {
           credentials: "include",
+          cache: "no-store",
           signal: ac.signal,
         });
         if (!res.ok) {
@@ -598,9 +574,7 @@ export function EditCandidateModal({
           return;
         }
         const c =
-          json.candidate &&
-          typeof json.candidate === "object" &&
-          "candidate_id" in json.candidate
+          json.candidate && typeof json.candidate === "object" && "candidate_id" in json.candidate
             ? campaignAppliedToCandidateDbRow(json.candidate as any)
             : (json.candidate as CandidateDbRow);
         setDbRow(c);
@@ -619,49 +593,25 @@ export function EditCandidateModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              {displayRow?.name ?? "Edit candidate"}
+              {row?.name ?? "Edit candidate"}
             </Modal.Heading>
           </Modal.Header>
           <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
-            {displayRow ? (
+            {row ? (
               dbLoadState === "error" ? (
                 <p className="px-5 py-4 text-sm text-danger">
                   Could not load this candidate's details. Close and try again.
                 </p>
               ) : (
                 <CandidateProfileEditSection
-                  candidateId={displayRow.id}
+                  candidateId={row.id}
                   dbRow={dbRow}
                   canEdit={canEdit}
                   isPreview={false}
                   dbLoadState={dbLoadState}
-                  onSaved={(saved) => {
-                    // Feed the freshly-saved row back into local state
-                    // immediately -- the auto-start effect inside
-                    // `CandidateProfileEditSection` re-syncs its draft from
-                    // `dbRow` right after a save, so without this it would
-                    // re-populate the form from the *stale* pre-edit `dbRow`
-                    // still sitting here until the modal is closed and
-                    // reopened (which triggers a fresh refetch).
-                    //
-                    // `saved` is typed as `CandidateDbRow` but the
-                    // `/profile` PATCH route actually responds with a
-                    // `CampaignAppliedAdminRow` (candidate_name/candidate_role/...)
-                    // whenever the pipeline stage wasn't also changed in the
-                    // same save -- same shape ambiguity guarded against
-                    // elsewhere (see `onProfileSaved` in
-                    // candidate-pipeline-dashboard.tsx). Skipping this
-                    // guard means every field read off `dbRow` afterwards
-                    // (name/role/skills/...) comes back `undefined`.
-                    const c =
-                      saved &&
-                      typeof saved === "object" &&
-                      "candidate_id" in saved
-                        ? campaignAppliedToCandidateDbRow(saved as any)
-                        : saved;
-                    setDbRow(c);
-                    onSaved();
-                  }}
+                  startInEditMode
+                  onSaved={onSaved}
+                  hidePipelineAndSource={hidePipelineAndSource}
                   onCancel={() => onOpenChange(false)}
                 />
               )

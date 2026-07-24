@@ -43,7 +43,21 @@ export async function GET(request: Request, { params }: RouteContext) {
 
   const cvVersions = await listCvDetailVersionsByCampaignApplied(db, campaignAppliedId);
 
-  const versions: CvManagementVersionListItem[] = cvVersions.map((v, idx) => {
+  // Each version should correspond to one uploaded PDF file, not one row:
+  // `manual_edit` / `restore` rows reuse the previous row's cv_storage_path
+  // rather than uploading a new file, so they aren't distinct versions --
+  // they update the displayed content of the version at that path. Rows are
+  // ordered by version_number DESC, so the first row seen for a given path is
+  // the newest one and becomes that version's representative.
+  const seenPaths = new Set<string>();
+  const representativeRows = cvVersions.filter((v) => {
+    const pathKey = v.cv_storage_path ?? `__no_path_${v.id}`;
+    if (seenPaths.has(pathKey)) return false;
+    seenPaths.add(pathKey);
+    return true;
+  });
+
+  const versions: CvManagementVersionListItem[] = representativeRows.map((v, idx) => {
     const isLatest = idx === 0;
     const isCurrentlyActive = v.id === campaignApplied.active_cv_version_id;
 
@@ -87,7 +101,6 @@ export async function GET(request: Request, { params }: RouteContext) {
       kind,
       sortAt: v.created_at.toISOString(),
       isLatest,
-      displayVersion: v.version_number,
       versionEventId: String(v.id),
       eventType:
         v.source_event === "manual_edit"

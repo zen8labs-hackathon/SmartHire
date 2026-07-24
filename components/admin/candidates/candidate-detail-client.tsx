@@ -9,6 +9,7 @@ import {
   Chip,
   cn,
   Disclosure,
+  ListBox,
   useOverlayState,
 } from "@heroui/react";
 
@@ -17,7 +18,6 @@ import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
-import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 
 type Props = {
@@ -43,8 +43,6 @@ type SelectedVersion = {
   versionId: string | null;
 };
 
-type DiffField = { label: string; value: string; wide?: boolean };
-
 const APPLICATIONS_PAGE_SIZE = 5;
 
 function versionEventLabel(item: CvManagementVersionListItem): string {
@@ -52,30 +50,6 @@ function versionEventLabel(item: CvManagementVersionListItem): string {
   if (item.eventType === "profile_edit") return "Manual edit";
   if (item.eventType === "full_restore") return "Restored";
   return "Uploaded";
-}
-
-function fmtOrDash(v: string | null | undefined): string {
-  const t = v?.trim();
-  return t ? t : "—";
-}
-
-function Field({
-  label,
-  value,
-  wide,
-}: {
-  label: string;
-  value: string;
-  wide?: boolean;
-}) {
-  return (
-    <div className={wide ? "sm:col-span-2" : undefined}>
-      <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-        {label}
-      </span>
-      <p className="font-semibold text-foreground text-sm">{value}</p>
-    </div>
-  );
 }
 
 export function CandidateDetailClient({ candidate }: Props) {
@@ -170,6 +144,18 @@ export function CandidateDetailClient({ candidate }: Props) {
     }
   }, []);
 
+  // Editing the candidate's profile creates a new (same-file) cv_detail_versions
+  // row on the backend, so the cached version list for that application is
+  // stale after a save -- drop the cache and refetch instead of leaving the
+  // panel showing pre-edit data until a full page reload.
+  const refreshAppVersions = useCallback(
+    (appId: string) => {
+      fetchedAppVersionIdsRef.current.delete(appId);
+      void loadAppVersions(appId);
+    },
+    [loadAppVersions],
+  );
+
   // The CV iframe defaults to showing this page's own application (its
   // active version) before the user picks anything -- load and select that
   // version up front so "Version details" reflects the CV actually on
@@ -220,42 +206,6 @@ export function CandidateDetailClient({ candidate }: Props) {
       ? `/api/admin/candidates/${selectedVersion.applicationId}/cv-download?versionId=${encodeURIComponent(selectedVersion.versionId)}`
       : `/api/admin/candidates/${selectedVersion.applicationId}/cv-download`
     : `/api/admin/candidates/${candidate.id}/cv-download`;
-
-  const diffFields = useMemo((): DiffField[] => {
-    const snapshot = selectedVersionItem?.snapshot;
-    if (!snapshot) return [];
-    const parsed = normalizeParsedResume(snapshot.parsed_payload);
-
-    const versionEmail = fmtOrDash(parsed.email);
-    const versionPhone = fmtOrDash(parsed.phone);
-    const versionDob = formatDisplayDate(snapshot.date_of_birth);
-    const versionEnglish = fmtOrDash(snapshot.english_level);
-    const versionGpa = fmtOrDash(snapshot.gpa);
-    const versionEducation =
-      [snapshot.degree, snapshot.school].filter((s) => s?.trim()).join(" · ") ||
-      "—";
-    const versionSkills =
-      snapshot.skills && snapshot.skills.length > 0
-        ? snapshot.skills.join(", ")
-        : "—";
-
-    const rows: DiffField[] = [];
-    if (versionEmail !== candidate.email)
-      rows.push({ label: "Email", value: versionEmail });
-    if (versionPhone !== candidate.mobile)
-      rows.push({ label: "Phone", value: versionPhone });
-    if (versionDob !== candidate.dateOfBirth)
-      rows.push({ label: "D.O.B.", value: versionDob });
-    if (versionEnglish !== candidate.english)
-      rows.push({ label: "English", value: versionEnglish });
-    if (versionGpa !== candidate.gpa)
-      rows.push({ label: "GPA", value: versionGpa });
-    if (versionEducation !== candidate.majorSchool)
-      rows.push({ label: "Education", value: versionEducation, wide: true });
-    if (versionSkills !== candidate.relatedSkills)
-      rows.push({ label: "Skills", value: versionSkills, wide: true });
-    return rows;
-  }, [selectedVersionItem, candidate]);
 
   // Switching CV versions re-navigates the same iframe. Setting `src` as a
   // normal React prop does a push-style navigation each time, which joins
@@ -476,20 +426,6 @@ export function CandidateDetailClient({ candidate }: Props) {
                         </Disclosure.Heading>
                         <Disclosure.Content>
                           <Disclosure.Body className="border-t border-divider px-3.5 py-3 flex flex-col gap-3">
-                            <div className="flex items-center justify-center gap-3">
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                className="h-7 px-3 rounded-lg border border-divider text-[10px] font-bold shrink-0"
-                                onPress={() =>
-                                  router.push(
-                                    `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
-                                  )
-                                }
-                              >
-                                Go to Evaluation
-                              </Button>
-                            </div>
                             {appVersionsError ? (
                               <p
                                 className="text-xs text-rose-500 font-semibold"
@@ -506,49 +442,56 @@ export function CandidateDetailClient({ candidate }: Props) {
                                 No CV versions found.
                               </p>
                             ) : (
-                              <ul className="flex flex-col gap-2 p-0 m-0 list-none">
-                                {appVersions.map((v) => {
+                              <ListBox
+                                aria-label="CV Versions"
+                                selectionMode="single"
+                                selectedKeys={
+                                  selectedVersion?.applicationId === app.id
+                                    ? new Set([
+                                        selectedVersion.versionId ?? "active",
+                                      ])
+                                    : new Set()
+                                }
+                                onSelectionChange={(keys) => {
+                                  const key = Array.from(keys)[0];
+                                  if (key == null) return;
+                                  setSelectedVersion({
+                                    applicationId: app.id,
+                                    versionId:
+                                      key === "active" ? null : String(key),
+                                  });
+                                }}
+                                className="flex flex-col gap-2 p-0 m-0 list-none outline-none"
+                              >
+                                {appVersions.map((v, i) => {
+                                  const indexLabel = appVersions.length - i;
                                   const isSelected =
                                     selectedVersion?.applicationId === app.id &&
                                     (selectedVersion.versionId == null
                                       ? v.kind === "active"
                                       : v.versionEventId ===
                                         selectedVersion.versionId);
+                                  const itemId =
+                                    v.kind === "active"
+                                      ? "active"
+                                      : (v.versionEventId ?? "");
                                   return (
-                                    <li key={v.versionEventId ?? v.sortAt}>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectedVersion({
-                                            applicationId: app.id,
-                                            versionId:
-                                              v.kind === "active"
-                                                ? null
-                                                : (v.versionEventId ?? null),
-                                          })
-                                        }
-                                        className={cn(
-                                          "w-full flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-xs transition-colors",
-                                          isSelected
-                                            ? "border-accent bg-accent/10"
-                                            : "border-divider bg-surface-secondary/20 hover:bg-surface-secondary/40",
-                                        )}
-                                      >
-                                        <div className="min-w-0">
-                                          <p className="font-bold text-foreground text-sm">
-                                            Version {v.displayVersion}
-                                          </p>
-                                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mt-0.5">
-                                            {versionEventLabel(v)} ·{" "}
-                                            {formatDisplayDateTime(v.sortAt)}
-                                          </p>
-                                          {v.changeSummary ? (
-                                            <p className="text-xs text-muted mt-1 truncate">
-                                              {v.changeSummary}
-                                            </p>
-                                          ) : null}
-                                        </div>
+                                    <ListBox.Item
+                                      key={v.versionEventId ?? v.sortAt}
+                                      id={itemId}
+                                      textValue={`Version ${formatDisplayDateTime(v.sortAt)}`}
+                                      className={cn(
+                                        "w-full flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left text-xs transition-colors cursor-pointer outline-none focus:outline-none",
+                                        isSelected
+                                          ? "border-accent bg-accent/10"
+                                          : "border-divider bg-surface-secondary/20 hover:bg-surface-secondary/40",
+                                      )}
+                                    >
+                                      <div className="min-w-0">
                                         <div className="flex shrink-0 items-center gap-1.5">
+                                          <p className="font-bold text-foreground text-sm pr-1">
+                                            Version {indexLabel}
+                                          </p>
                                           {v.isLatest ? (
                                             <Chip
                                               size="sm"
@@ -570,11 +513,38 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             </Chip>
                                           ) : null}
                                         </div>
-                                      </button>
-                                    </li>
+                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mt-0.5">
+                                          {"Last modified "}
+                                          {formatDisplayDateTime(v.sortAt)}
+                                          {" • "}
+                                          {versionEventLabel(v)}
+                                        </p>
+                                        {v.changeSummary ? (
+                                          <p className="text-xs text-muted mt-1 truncate">
+                                            {v.changeSummary}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                      {v.isLatest && (
+                                        <div className="flex items-center justify-center gap-3">
+                                          <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            className="h-7 px-3 rounded-lg border border-divider text-[10px] font-bold shrink-0"
+                                            onPress={() =>
+                                              router.push(
+                                                `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
+                                              )
+                                            }
+                                          >
+                                            Go to Evaluation
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </ListBox.Item>
                                   );
                                 })}
-                              </ul>
+                              </ListBox>
                             )}
                           </Disclosure.Body>
                         </Disclosure.Content>
@@ -595,49 +565,6 @@ export function CandidateDetailClient({ candidate }: Props) {
                   ) : null}
                 </div>
               )}
-
-              {selectedVersionItem?.snapshot ? (
-                <div className="rounded-xl border border-divider bg-surface-secondary/20 p-3.5 text-xs">
-                  <p className="text-[10px] uppercase font-bold text-muted tracking-wider mb-2">
-                    Version details — {selectedApp?.jobTitle} · Version{" "}
-                    {selectedVersionItem.displayVersion}
-                  </p>
-                  <div className="grid gap-2.5 sm:grid-cols-2">
-                    <Field
-                      label="Role"
-                      value={fmtOrDash(selectedVersionItem.snapshot.role)}
-                    />
-                    <Field
-                      label="Uploaded"
-                      value={formatDisplayDate(
-                        selectedVersionItem.snapshot.cv_uploaded_at,
-                      )}
-                    />
-                    {selectedVersionItem.changeSummary ? (
-                      <Field
-                        label="Change summary"
-                        value={selectedVersionItem.changeSummary}
-                        wide
-                      />
-                    ) : null}
-                    {diffFields.length > 0 ? (
-                      diffFields.map((f) => (
-                        <Field
-                          key={f.label}
-                          label={f.label}
-                          value={f.value}
-                          wide={f.wide}
-                        />
-                      ))
-                    ) : (
-                      <p className="sm:col-span-2 text-muted italic">
-                        No profile fields differ from the candidate record
-                        above.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
             </div>
           </SectionCard>
 
@@ -658,8 +585,10 @@ export function CandidateDetailClient({ candidate }: Props) {
         onOpenChange={editProfileModal.setOpen}
         row={{ id: candidate.id, name: candidate.name }}
         canEdit
+        hidePipelineAndSource
         onSaved={() => {
           editProfileModal.close();
+          refreshAppVersions(candidate.id);
           router.refresh();
         }}
       />

@@ -46,10 +46,14 @@ export type CandidateProfileEditSectionProps = {
   isPreview: boolean;
   dbLoadState: "loading" | "error" | "ok";
   onSaved: (candidate: CandidateDbRow) => void;
-  /** Called when the user cancels the edit. When the section is embedded in a
-   * modal/drawer that should close on cancel (e.g. `EditCandidateModal`),
-   * pass a callback that closes it. Omit for inline embeds (e.g. the CV
-   * version comparison drawer) where cancel should just revert the form. */
+  /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
+  startInEditMode?: boolean;
+  /**
+   * When true, hides the "Sourced from" and "Pipeline stage" fields. Used on
+   * /admin/candidates and /admin/candidate-detail, where those are managed
+   * elsewhere (the JD pipeline table/kanban still edits them here).
+   */
+  hidePipelineAndSource?: boolean;
   onCancel?: () => void;
 };
 
@@ -153,6 +157,8 @@ export function CandidateProfileEditSection({
   isPreview,
   dbLoadState,
   onSaved,
+  startInEditMode = false,
+  hidePipelineAndSource = false,
   onCancel,
 }: CandidateProfileEditSectionProps) {
   const [editing, setEditing] = useState(false);
@@ -175,7 +181,8 @@ export function CandidateProfileEditSection({
   const [changeSummary, setChangeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoStartedRef = useRef(false);
+  const prevCandidateIdRef = useRef<string | null>(null);
+  const prevDbRowRef = useRef<CandidateDbRow | null>(null);
 
   const [pipelineConfig, setPipelineConfig] = useState<{
     jobId: string;
@@ -194,6 +201,7 @@ export function CandidateProfileEditSection({
   const jobId = dbRow?.job_opening_id ?? null;
 
   useEffect(() => {
+    if (hidePipelineAndSource) return;
     if (!jobId) return;
     if (pipelineConfig?.jobId === jobId) return;
     const ac = new AbortController();
@@ -223,7 +231,7 @@ export function CandidateProfileEditSection({
       }
     })();
     return () => ac.abort();
-  }, [jobId, pipelineConfig?.jobId]);
+  }, [jobId, pipelineConfig?.jobId, hidePipelineAndSource]);
 
   const snapFromDb = useMemo(
     () => (dbRow ? snapshotFromDb(dbRow) : null),
@@ -231,10 +239,7 @@ export function CandidateProfileEditSection({
   );
 
   useEffect(() => {
-    setEditing(false);
-    setBaseline(null);
     setError(null);
-    autoStartedRef.current = false;
   }, [candidateId]);
 
   useEffect(() => {
@@ -291,23 +296,33 @@ export function CandidateProfileEditSection({
   }, [dbRow, snapFromDb]);
 
   useEffect(() => {
-    if (autoStartedRef.current) return;
-    if (!dbRow || !snapFromDb) return;
-    autoStartedRef.current = true;
-    startEdit();
-  }, [dbRow, snapFromDb, startEdit]);
+    if (!dbRow) return;
+    if (
+      prevCandidateIdRef.current !== candidateId ||
+      prevDbRowRef.current !== dbRow
+    ) {
+      prevCandidateIdRef.current = candidateId;
+      prevDbRowRef.current = dbRow;
+      const b = snapshotFromDb(dbRow);
+      setBaseline(b);
+      setDraft(draftFromSnapshot(b));
+      setSkillInput("");
+      setChangeSummary("");
+      setStageBaseline(null);
+      setStageDraft(null);
+      if (startInEditMode) {
+        setEditing(true);
+      }
+    }
+  }, [candidateId, dbRow, startInEditMode]);
 
   // Initializes the pipeline-stage draft once editing starts -- deferred
   // from `startEdit` itself since `pipelineConfig` loads asynchronously and
-  // may not be ready yet (the auto-start effect above starts editing before
-  // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
-  // while editing and no draft exists yet, but never overwrites in-progress
-  // edits.
-  // may not be ready yet (the auto-start effect above starts editing before
-  // its fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change
-  // while editing and no draft exists yet, but never overwrites in-progress
-  // edits.
+  // may not be ready yet (e.g. `startInEditMode` auto-starts before its
+  // fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change while
+  // editing and no draft exists yet, but never overwrites in-progress edits.
   useEffect(() => {
+    if (hidePipelineAndSource) return;
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(
       dbRow,
@@ -321,9 +336,13 @@ export function CandidateProfileEditSection({
     };
     setStageBaseline(b);
     setStageDraft(b);
-  }, [editing, dbRow, pipelineConfig, stageBaseline]);
+  }, [editing, dbRow, pipelineConfig, stageBaseline, hidePipelineAndSource]);
 
   const cancelEdit = useCallback(() => {
+    if (onCancel) {
+      onCancel();
+      return;
+    }
     setEditing(false);
     setBaseline(null);
     setSkillInput("");
@@ -331,10 +350,6 @@ export function CandidateProfileEditSection({
     setError(null);
     setStageBaseline(null);
     setStageDraft(null);
-    // Allow the auto-start effect to re-establish `baseline` on the next
-    // render -- otherwise `save()` would silently no-op forever afterwards.
-    autoStartedRef.current = false;
-    onCancel?.();
   }, [snapFromDb, onCancel]);
 
   const stageOptions = useMemo(() => {
@@ -346,72 +361,6 @@ export function CandidateProfileEditSection({
       pipelineConfig.subStages,
     );
   }, [pipelineConfig, stageBaseline]);
-
-  /** Runs the pipeline-stage PATCH (if the user changed it) and finalizes
-   * the save -- shared by the normal save path and the post-merge path,
-   * since both need to apply any pending stage change before calling
-   * `onSaved` and resetting the form. */
-  const finishSave = useCallback(
-    async (initial: CandidateDbRow | null): Promise<boolean> => {
-      let result = initial;
-      const stagePipelineChanged =
-        !!stageDraft &&
-        !!stageBaseline &&
-        (stageDraft.stageMappingId !== stageBaseline.stageMappingId ||
-          stageDraft.subStateId !== stageBaseline.subStateId);
-
-      if (stagePipelineChanged && stageDraft) {
-        const res = await fetch(`/api/admin/candidates/${candidateId}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            current_job_stage_mapping_id: stageDraft.stageMappingId,
-            current_sub_state_id: stageDraft.subStateId,
-          }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          setError(body.error ?? "Could not save pipeline stage.");
-          return false;
-        }
-        const json = (await res.json()) as { candidate?: unknown };
-        if (
-          !json.candidate ||
-          typeof json.candidate !== "object" ||
-          !("candidate_id" in json.candidate)
-        ) {
-          setError("Save succeeded but response was incomplete.");
-          return false;
-        }
-        result = campaignAppliedToCandidateDbRow(
-          json.candidate as CampaignAppliedAdminRow,
-        );
-      }
-
-      if (!result) {
-        setError("Save succeeded but response was incomplete.");
-        return false;
-      }
-
-      onSaved(result);
-      setEditing(false);
-      setBaseline(null);
-      setSkillInput("");
-      setChangeSummary("");
-      setStageBaseline(null);
-      setStageDraft(null);
-      // Same reasoning as `cancelEdit`: without this, `autoStartedRef` stays
-      // `true` for the rest of this candidateId's mount, so the auto-start
-      // effect never re-establishes `baseline` and every later `save()` call
-      // silently no-ops (`if (!dbRow || !baseline) return;`).
-      autoStartedRef.current = false;
-      return true;
-    },
-    [candidateId, onSaved, stageBaseline, stageDraft],
-  );
 
   const save = useCallback(async () => {
     if (!dbRow || !baseline) return;
@@ -444,15 +393,12 @@ export function CandidateProfileEditSection({
             PROFILE_CHANGE_SUMMARY_MAX,
           );
         }
-        const res = await fetch(
-          `/api/admin/candidates/${candidateId}/profile`,
-          {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(patchBody),
-          },
-        );
+        const res = await fetch(`/api/admin/candidates/${candidateId}/profile`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
@@ -471,9 +417,7 @@ export function CandidateProfileEditSection({
           }
           return;
         }
-        const json = (await res.json()) as {
-          candidate?: CandidateDbRow;
-        };
+        const json = (await res.json()) as { candidate?: CandidateDbRow };
         if (!json.candidate) {
           setError("Save succeeded but response was incomplete.");
           return;
@@ -481,7 +425,51 @@ export function CandidateProfileEditSection({
         savedCandidate = json.candidate;
       }
 
-      await finishSave(savedCandidate);
+      if (stagePipelineChanged && stageDraft) {
+        const res = await fetch(`/api/admin/candidates/${candidateId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            current_job_stage_mapping_id: stageDraft.stageMappingId,
+            current_sub_state_id: stageDraft.subStateId,
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setError(body.error ?? "Could not save pipeline stage.");
+          return;
+        }
+        const json = (await res.json()) as { candidate?: unknown };
+        if (
+          !json.candidate ||
+          typeof json.candidate !== "object" ||
+          !("candidate_id" in json.candidate)
+        ) {
+          setError("Save succeeded but response was incomplete.");
+          return;
+        }
+        savedCandidate = campaignAppliedToCandidateDbRow(
+          json.candidate as CampaignAppliedAdminRow,
+        );
+      }
+
+      if (!savedCandidate) {
+        setError("Save succeeded but response was incomplete.");
+        return;
+      }
+
+      onSaved(savedCandidate);
+      if (!startInEditMode) {
+        setEditing(false);
+        setBaseline(null);
+        setSkillInput("");
+        setChangeSummary("");
+        setStageBaseline(null);
+        setStageDraft(null);
+      }
     } catch {
       setError("Could not save profile.");
     } finally {
@@ -493,7 +481,7 @@ export function CandidateProfileEditSection({
     changeSummary,
     dbRow,
     draft,
-    finishSave,
+    onSaved,
     stageBaseline,
     stageDraft,
   ]);
@@ -535,316 +523,339 @@ export function CandidateProfileEditSection({
   }
 
   return (
-    <>
-      <Card className="overflow-hidden border border-divider bg-background shadow-sm">
-        <Card.Header className="border-b border-divider px-4 py-3 sm:px-6">
-          <Card.Title className="text-base font-semibold text-foreground">
-            Correct candidate details
-          </Card.Title>
-          <p className="mt-1 text-sm text-muted">
-            Fix parsing mistakes or outdated fields. Changes are saved to the
-            database and kept in sync with the parsed CV payload.
-          </p>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-0 p-0">
-          <div className="space-y-4 px-4 pb-2 pt-4 sm:px-6 sm:pt-5">
-            <div className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>Name</Label>
-                <Input
-                  value={draft.name}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, name: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                />
-              </TextField>
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>Role / title</Label>
-                <Input
-                  value={draft.role}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, role: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                />
-              </TextField>
-              <TextField className="min-w-0 md:col-span-1">
-                <Label className={FIELD_LABEL}>Years of experience</Label>
-                <Input
-                  inputMode="numeric"
-                  value={draft.experienceYearsStr}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      experienceYearsStr: e.target.value,
-                    }))
-                  }
-                  className="mt-1 max-w-xs text-sm"
-                />
-              </TextField>
-              <div className="min-w-0 md:col-span-2">
-                <Label className={FIELD_LABEL}>Skills</Label>
-                <p className="mt-0.5 text-[11px] text-muted/80">
-                  Type a skill, press Enter to add. Paste comma-separated lists
-                  to add several at once.
-                </p>
-                <div className="mt-2 flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-divider bg-muted/15 px-2 py-1.5 dark:bg-muted/25">
-                  {draft.skills.map((s, idx) => (
-                    <span
-                      key={`${s}-${idx}`}
-                      className="inline-flex max-w-full items-center gap-0.5"
-                    >
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color="accent"
-                        className="max-w-[200px] truncate border border-accent/40 bg-accent/10 text-xs font-semibold text-accent"
-                      >
-                        {s}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          isIconOnly
-                          className="size-5 min-w-5 shrink-0 text-danger hover:text-danger"
-                          aria-label={`Remove ${s}`}
-                          onPress={() => removeSkill(s)}
-                        >
-                          ×
-                        </Button>
-                      </Chip>
-                    </span>
-                  ))}
-                  <Input
-                    value={skillInput}
-                    onChange={(e) => setSkillInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const t = skillInput.trim();
-                        if (t) {
-                          addSkillToken(t);
-                          setSkillInput("");
-                        }
-                      } else if (e.key === "Backspace" && skillInput === "") {
-                        setDraft((d) =>
-                          d.skills.length === 0
-                            ? d
-                            : {
-                                ...d,
-                                skills: d.skills.slice(0, -1),
-                              },
-                        );
-                      }
-                    }}
-                    onPaste={(e) => {
-                      const text = e.clipboardData.getData("text/plain");
-                      if (text.includes(",") || text.includes(";")) {
-                        e.preventDefault();
-                        addSkillsFromTokens(skillsFromComma(text));
-                      }
-                    }}
-                    placeholder="Add skill…"
-                    className="min-w-[8rem] flex-1 border-0 bg-transparent text-sm shadow-none outline-none ring-0 focus-visible:ring-0"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>Degree</Label>
-                <Input
-                  value={draft.degree}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, degree: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                />
-              </TextField>
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>School</Label>
-                <Input
-                  value={draft.school}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, school: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                />
-              </TextField>
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>Email (from CV)</Label>
-                <Input
-                  value={draft.email}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, email: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                  autoComplete="off"
-                />
-              </TextField>
-              <TextField className="min-w-0">
-                <Label className={FIELD_LABEL}>Phone (from CV)</Label>
-                <Input
-                  value={draft.phone}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, phone: e.target.value }))
-                  }
-                  className="mt-1 text-sm"
-                  autoComplete="off"
-                />
-              </TextField>
-              <div className="min-w-0 md:col-span-2">
-                <Label className={FIELD_LABEL}>Sourced from</Label>
-                <Select
-                  value={draft.source}
-                  onChange={(k) => {
-                    const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-                    setDraft((d) => ({
-                      ...d,
-                      source: next,
-                      sourceOther: next !== "Other" ? "" : d.sourceOther,
-                    }));
-                  }}
-                  className="mt-2"
-                >
-                  <Select.Trigger className="w-full min-w-0">
-                    <Select.Value />
-                    <Select.Indicator />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      {CANDIDATE_SOURCE_VALUES.map((s) => (
-                        <ListBox.Item key={s} id={s} textValue={s}>
-                          {s}
-                          <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                      ))}
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
-                {draft.source === "Other" ? (
-                  <TextField className="mt-3">
-                    <Label className={`${FIELD_LABEL} normal-case`}>
-                      Describe the source
-                    </Label>
-                    <Input
-                      value={draft.sourceOther}
-                      onChange={(e) =>
-                        setDraft((d) => ({
-                          ...d,
-                          sourceOther: e.target.value,
-                        }))
-                      }
-                      placeholder="e.g. referral, career fair…"
-                      className="mt-1 text-sm"
-                    />
-                  </TextField>
-                ) : null}
-              </div>
-              {stageBaseline && stageOptions.length > 0 ? (
-                <div className="min-w-0 md:col-span-2">
-                  <Label className={FIELD_LABEL}>Pipeline stage</Label>
-                  <Select
-                    value={
-                      stageDraft
-                        ? stageSubStageOptionKey(
-                            stageDraft.stageMappingId,
-                            stageDraft.subStateId,
-                          )
-                        : undefined
-                    }
-                    onChange={(k) => {
-                      if (typeof k !== "string") return;
-                      const [stageMappingId, subStateId] = k.split(":");
-                      if (stageMappingId && subStateId) {
-                        setStageDraft({ stageMappingId, subStateId });
-                      }
-                    }}
-                    className="mt-2"
-                  >
-                    <Select.Trigger className="w-full min-w-0">
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {stageOptions.map(({ stageMapping, subStage }) => {
-                          const key = stageSubStageOptionKey(
-                            stageMapping.id,
-                            subStage.id,
-                          );
-                          return (
-                            <ListBox.Item
-                              key={key}
-                              id={key}
-                              textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
-                            >
-                              <span
-                                className={getSubStageTextColorClass(
-                                  subStage.code,
-                                  subStage.is_passed,
-                                  subStage.is_default,
-                                  stageMapping.pipeline_stages?.color,
-                                )}
-                              >
-                                {stageMapping.pipeline_stages?.label ??
-                                  stageMapping.pipeline_stages?.code}
-                                {" · "}
-                                {subStage.label}
-                              </span>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          );
-                        })}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
-                  <p className="mt-1.5 text-[11px] text-muted/80">
-                    Only shows moves allowed from the candidate's current stage
-                    — same rules as the pipeline table.
-                  </p>
-                </div>
-              ) : null}
-              <TextField className="min-w-0 md:col-span-2">
-                <Label className={FIELD_LABEL}>
-                  Change summary{" "}
-                  <span className="font-normal normal-case text-muted">
-                    (optional)
-                  </span>
-                </Label>
-                <Input
-                  value={changeSummary}
-                  onChange={(e) => setChangeSummary(e.target.value)}
-                  placeholder="Why are you editing these details?"
-                  maxLength={PROFILE_CHANGE_SUMMARY_MAX}
-                  className="mt-1 text-sm"
-                  autoComplete="off"
-                />
-              </TextField>
-            </div>
-          </div>
-          <div className="sticky bottom-0 z-10 border-t border-divider bg-background/95 px-4 py-3 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 sm:px-6">
-            {error ? (
-              <p className="mb-2 text-sm text-danger" role="alert">
-                {error}
-              </p>
-            ) : null}
+    <Card className="overflow-hidden border border-divider bg-background shadow-sm">
+      <Card.Header className="border-b border-divider px-4 py-3 sm:px-6">
+        <Card.Title className="text-base font-semibold text-foreground">
+          Correct candidate details
+        </Card.Title>
+        <p className="mt-1 text-sm text-muted">
+          Fix parsing mistakes or outdated fields. Changes are saved to the
+          database and kept in sync with the parsed CV payload.
+        </p>
+      </Card.Header>
+      <Card.Content className="flex flex-col gap-0 p-0">
+        {!editing ? (
+          <div className="px-4 py-4 sm:px-6 sm:py-5">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                variant="primary"
-                onPress={() => void save()}
-                isDisabled={busy}
-                isPending={busy}
+                size="sm"
+                variant="secondary"
+                onPress={startEdit}
+                isDisabled={dbLoadState === "loading"}
               >
-                Save changes
-              </Button>
-              <Button variant="tertiary" onPress={cancelEdit} isDisabled={busy}>
-                Cancel
+                Edit details
               </Button>
             </div>
           </div>
-        </Card.Content>
-      </Card>
-    </>
+        ) : (
+          <>
+            <div className="space-y-4 px-4 pb-2 pt-4 sm:px-6 sm:pt-5">
+              <div className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Name</Label>
+                  <Input
+                    value={draft.name}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, name: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Role / title</Label>
+                  <Input
+                    value={draft.role}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, role: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Years of experience</Label>
+                  <Input
+                    inputMode="numeric"
+                    value={draft.experienceYearsStr}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        experienceYearsStr: e.target.value,
+                      }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <div className="min-w-0 md:col-span-2">
+                  <Label className={FIELD_LABEL}>Skills</Label>
+                  <p className="mt-0.5 text-[11px] text-muted/80">
+                    Type a skill, press Enter to add. Paste comma-separated
+                    lists to add several at once.
+                  </p>
+                  <div className="mt-2 flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-divider bg-muted/15 px-2 py-1.5 dark:bg-muted/25">
+                    {draft.skills.map((s, idx) => (
+                      <span
+                        key={`${s}-${idx}`}
+                        className="inline-flex max-w-full items-center gap-0.5"
+                      >
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color="accent"
+                          className="max-w-[200px] truncate border border-accent/40 bg-accent/10 text-xs font-semibold text-accent"
+                        >
+                          {s}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            isIconOnly
+                            className="size-5 min-w-5 shrink-0 text-danger hover:text-danger"
+                            aria-label={`Remove ${s}`}
+                            onPress={() => removeSkill(s)}
+                          >
+                            ×
+                          </Button>
+                        </Chip>
+                      </span>
+                    ))}
+                    <Input
+                      value={skillInput}
+                      onChange={(e) => setSkillInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const t = skillInput.trim();
+                          if (t) {
+                            addSkillToken(t);
+                            setSkillInput("");
+                          }
+                        } else if (e.key === "Backspace" && skillInput === "") {
+                          setDraft((d) =>
+                            d.skills.length === 0
+                              ? d
+                              : {
+                                  ...d,
+                                  skills: d.skills.slice(0, -1),
+                                },
+                          );
+                        }
+                      }}
+                      onPaste={(e) => {
+                        const text = e.clipboardData.getData("text/plain");
+                        if (text.includes(",") || text.includes(";")) {
+                          e.preventDefault();
+                          addSkillsFromTokens(skillsFromComma(text));
+                        }
+                      }}
+                      placeholder="Add skill…"
+                      className="min-w-[8rem] flex-1 border-0 bg-transparent text-sm shadow-none outline-none ring-0 focus-visible:ring-0"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Degree</Label>
+                  <Input
+                    value={draft.degree}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, degree: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>School</Label>
+                  <Input
+                    value={draft.school}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, school: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Email (from CV)</Label>
+                  <Input
+                    value={draft.email}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, email: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                    autoComplete="off"
+                  />
+                </TextField>
+                <TextField className="min-w-0">
+                  <Label className={FIELD_LABEL}>Phone (from CV)</Label>
+                  <Input
+                    value={draft.phone}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, phone: e.target.value }))
+                    }
+                    className="mt-1 text-sm"
+                    autoComplete="off"
+                  />
+                </TextField>
+                {!hidePipelineAndSource ? (
+                  <div className="min-w-0">
+                    <Label className={FIELD_LABEL}>Sourced from</Label>
+                    <Select
+                      value={draft.source}
+                      onChange={(k) => {
+                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                        setDraft((d) => ({
+                          ...d,
+                          source: next,
+                          sourceOther: next !== "Other" ? "" : d.sourceOther,
+                        }));
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {CANDIDATE_SOURCE_VALUES.map((s) => (
+                            <ListBox.Item key={s} id={s} textValue={s}>
+                              {s}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    {draft.source === "Other" ? (
+                      <TextField className="mt-3">
+                        <Label className={`${FIELD_LABEL} normal-case`}>
+                          Describe the source
+                        </Label>
+                        <Input
+                          value={draft.sourceOther}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              sourceOther: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. referral, career fair…"
+                          className="mt-1 text-sm"
+                        />
+                      </TextField>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!hidePipelineAndSource &&
+                stageBaseline &&
+                stageOptions.length > 0 ? (
+                  <div className="min-w-0">
+                    <Label className={FIELD_LABEL}>Pipeline stage</Label>
+                    <Select
+                      value={
+                        stageDraft
+                          ? stageSubStageOptionKey(
+                              stageDraft.stageMappingId,
+                              stageDraft.subStateId,
+                            )
+                          : undefined
+                      }
+                      onChange={(k) => {
+                        if (typeof k !== "string") return;
+                        const [stageMappingId, subStateId] = k.split(":");
+                        if (stageMappingId && subStateId) {
+                          setStageDraft({ stageMappingId, subStateId });
+                        }
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {stageOptions.map(({ stageMapping, subStage }) => {
+                            const key = stageSubStageOptionKey(
+                              stageMapping.id,
+                              subStage.id,
+                            );
+                            return (
+                              <ListBox.Item
+                                key={key}
+                                id={key}
+                                textValue={`${stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code} - ${subStage.label}`}
+                              >
+                                <span
+                                  className={getSubStageTextColorClass(
+                                    subStage.code,
+                                    subStage.is_passed,
+                                    subStage.is_default,
+                                    stageMapping.pipeline_stages?.color,
+                                  )}
+                                >
+                                  {stageMapping.pipeline_stages?.label ??
+                                    stageMapping.pipeline_stages?.code}
+                                  {" · "}
+                                  {subStage.label}
+                                </span>
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            );
+                          })}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    <p className="mt-1.5 text-[11px] text-muted/80">
+                      Only shows moves allowed from the candidate's current
+                      stage — same rules as the pipeline table.
+                    </p>
+                  </div>
+                ) : null}
+                <TextField className="min-w-0 md:col-span-2">
+                  <Label className={FIELD_LABEL}>
+                    Change summary{" "}
+                    <span className="font-normal normal-case text-muted">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Input
+                    value={changeSummary}
+                    onChange={(e) => setChangeSummary(e.target.value)}
+                    placeholder="Why are you editing these details?"
+                    maxLength={PROFILE_CHANGE_SUMMARY_MAX}
+                    className="mt-1 text-sm"
+                    autoComplete="off"
+                  />
+                </TextField>
+              </div>
+            </div>
+            <div className="sticky bottom-0 z-10 border-t border-divider bg-background/95 px-4 py-3 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 sm:px-6">
+              {error ? (
+                <p className="mb-2 text-sm text-danger" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="primary"
+                  onPress={() => void save()}
+                  isDisabled={busy}
+                  isPending={busy}
+                >
+                  Save changes
+                </Button>
+                <Button
+                  variant="tertiary"
+                  onPress={cancelEdit}
+                  isDisabled={busy}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </Card.Content>
+    </Card>
   );
 }

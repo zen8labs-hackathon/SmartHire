@@ -429,6 +429,7 @@ export function CvVersionComparisonDrawer({
                   isPreview={false}
                   dbLoadState={dbLoadState}
                   onSaved={onProfileSaved}
+                  hidePipelineAndSource
                 />
               </div>
             ) : null}
