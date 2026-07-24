@@ -533,6 +533,8 @@ type EditCandidateModalProps = {
   row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
+  /** Forwarded to `CandidateProfileEditSection` -- see its docstring. */
+  hidePipelineAndSource?: boolean;
 };
 
 export function EditCandidateModal({
@@ -541,6 +543,7 @@ export function EditCandidateModal({
   row,
   canEdit,
   onSaved,
+  hidePipelineAndSource,
 }: EditCandidateModalProps) {
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
@@ -549,8 +552,6 @@ export function EditCandidateModal({
 
   useEffect(() => {
     if (!isOpen || !row) {
-      setDbRow(null);
-      setDbLoadState("loading");
       return;
     }
     const ac = new AbortController();
@@ -560,6 +561,7 @@ export function EditCandidateModal({
       try {
         const res = await fetch(`/api/admin/candidates/${row.id}`, {
           credentials: "include",
+          cache: "no-store",
           signal: ac.signal,
         });
         if (!res.ok) {
@@ -609,6 +611,8 @@ export function EditCandidateModal({
                   dbLoadState={dbLoadState}
                   startInEditMode
                   onSaved={onSaved}
+                  hidePipelineAndSource={hidePipelineAndSource}
+                  onCancel={() => onOpenChange(false)}
                 />
               )
             ) : null}

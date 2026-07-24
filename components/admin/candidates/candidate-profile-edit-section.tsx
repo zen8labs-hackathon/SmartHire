@@ -48,6 +48,13 @@ export type CandidateProfileEditSectionProps = {
   onSaved: (candidate: CandidateDbRow) => void;
   /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
   startInEditMode?: boolean;
+  /**
+   * When true, hides the "Sourced from" and "Pipeline stage" fields. Used on
+   * /admin/candidates and /admin/candidate-detail, where those are managed
+   * elsewhere (the JD pipeline table/kanban still edits them here).
+   */
+  hidePipelineAndSource?: boolean;
+  onCancel?: () => void;
 };
 
 const FIELD_LABEL =
@@ -151,6 +158,8 @@ export function CandidateProfileEditSection({
   dbLoadState,
   onSaved,
   startInEditMode = false,
+  hidePipelineAndSource = false,
+  onCancel,
 }: CandidateProfileEditSectionProps) {
   const [editing, setEditing] = useState(false);
   const [baseline, setBaseline] = useState<CandidateProfileFormSnapshot | null>(
@@ -172,7 +181,8 @@ export function CandidateProfileEditSection({
   const [changeSummary, setChangeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoStartedRef = useRef(false);
+  const prevCandidateIdRef = useRef<string | null>(null);
+  const prevDbRowRef = useRef<CandidateDbRow | null>(null);
 
   const [pipelineConfig, setPipelineConfig] = useState<{
     jobId: string;
@@ -191,6 +201,7 @@ export function CandidateProfileEditSection({
   const jobId = dbRow?.job_opening_id ?? null;
 
   useEffect(() => {
+    if (hidePipelineAndSource) return;
     if (!jobId) return;
     if (pipelineConfig?.jobId === jobId) return;
     const ac = new AbortController();
@@ -220,7 +231,7 @@ export function CandidateProfileEditSection({
       }
     })();
     return () => ac.abort();
-  }, [jobId, pipelineConfig?.jobId]);
+  }, [jobId, pipelineConfig?.jobId, hidePipelineAndSource]);
 
   const snapFromDb = useMemo(
     () => (dbRow ? snapshotFromDb(dbRow) : null),
@@ -228,10 +239,7 @@ export function CandidateProfileEditSection({
   );
 
   useEffect(() => {
-    setEditing(false);
-    setBaseline(null);
     setError(null);
-    autoStartedRef.current = false;
   }, [candidateId]);
 
   useEffect(() => {
@@ -288,11 +296,25 @@ export function CandidateProfileEditSection({
   }, [dbRow, snapFromDb]);
 
   useEffect(() => {
-    if (!startInEditMode || autoStartedRef.current) return;
-    if (!dbRow || !snapFromDb) return;
-    autoStartedRef.current = true;
-    startEdit();
-  }, [startInEditMode, dbRow, snapFromDb, startEdit]);
+    if (!dbRow) return;
+    if (
+      prevCandidateIdRef.current !== candidateId ||
+      prevDbRowRef.current !== dbRow
+    ) {
+      prevCandidateIdRef.current = candidateId;
+      prevDbRowRef.current = dbRow;
+      const b = snapshotFromDb(dbRow);
+      setBaseline(b);
+      setDraft(draftFromSnapshot(b));
+      setSkillInput("");
+      setChangeSummary("");
+      setStageBaseline(null);
+      setStageDraft(null);
+      if (startInEditMode) {
+        setEditing(true);
+      }
+    }
+  }, [candidateId, dbRow, startInEditMode]);
 
   // Initializes the pipeline-stage draft once editing starts -- deferred
   // from `startEdit` itself since `pipelineConfig` loads asynchronously and
@@ -300,6 +322,7 @@ export function CandidateProfileEditSection({
   // fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change while
   // editing and no draft exists yet, but never overwrites in-progress edits.
   useEffect(() => {
+    if (hidePipelineAndSource) return;
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(
       dbRow,
@@ -313,9 +336,13 @@ export function CandidateProfileEditSection({
     };
     setStageBaseline(b);
     setStageDraft(b);
-  }, [editing, dbRow, pipelineConfig, stageBaseline]);
+  }, [editing, dbRow, pipelineConfig, stageBaseline, hidePipelineAndSource]);
 
   const cancelEdit = useCallback(() => {
+    if (onCancel) {
+      onCancel();
+      return;
+    }
     setEditing(false);
     setBaseline(null);
     setSkillInput("");
@@ -323,7 +350,7 @@ export function CandidateProfileEditSection({
     setError(null);
     setStageBaseline(null);
     setStageDraft(null);
-  }, [snapFromDb]);
+  }, [snapFromDb, onCancel]);
 
   const stageOptions = useMemo(() => {
     if (!pipelineConfig || !stageBaseline) return [];
@@ -435,12 +462,14 @@ export function CandidateProfileEditSection({
       }
 
       onSaved(savedCandidate);
-      setEditing(false);
-      setBaseline(null);
-      setSkillInput("");
-      setChangeSummary("");
-      setStageBaseline(null);
-      setStageDraft(null);
+      if (!startInEditMode) {
+        setEditing(false);
+        setBaseline(null);
+        setSkillInput("");
+        setChangeSummary("");
+        setStageBaseline(null);
+        setStageDraft(null);
+      }
     } catch {
       setError("Could not save profile.");
     } finally {
@@ -542,7 +571,7 @@ export function CandidateProfileEditSection({
                     className="mt-1 text-sm"
                   />
                 </TextField>
-                <TextField className="min-w-0 md:col-span-1">
+                <TextField className="min-w-0">
                   <Label className={FIELD_LABEL}>Years of experience</Label>
                   <Input
                     inputMode="numeric"
@@ -553,7 +582,7 @@ export function CandidateProfileEditSection({
                         experienceYearsStr: e.target.value,
                       }))
                     }
-                    className="mt-1 max-w-xs text-sm"
+                    className="mt-1 text-sm"
                   />
                 </TextField>
                 <div className="min-w-0 md:col-span-2">
@@ -666,56 +695,60 @@ export function CandidateProfileEditSection({
                     autoComplete="off"
                   />
                 </TextField>
-                <div className="min-w-0 md:col-span-2">
-                  <Label className={FIELD_LABEL}>Sourced from</Label>
-                  <Select
-                    value={draft.source}
-                    onChange={(k) => {
-                      const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-                      setDraft((d) => ({
-                        ...d,
-                        source: next,
-                        sourceOther: next !== "Other" ? "" : d.sourceOther,
-                      }));
-                    }}
-                    className="mt-2"
-                  >
-                    <Select.Trigger className="w-full min-w-0">
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {CANDIDATE_SOURCE_VALUES.map((s) => (
-                          <ListBox.Item key={s} id={s} textValue={s}>
-                            {s}
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
-                  {draft.source === "Other" ? (
-                    <TextField className="mt-3">
-                      <Label className={`${FIELD_LABEL} normal-case`}>
-                        Describe the source
-                      </Label>
-                      <Input
-                        value={draft.sourceOther}
-                        onChange={(e) =>
-                          setDraft((d) => ({
-                            ...d,
-                            sourceOther: e.target.value,
-                          }))
-                        }
-                        placeholder="e.g. referral, career fair…"
-                        className="mt-1 text-sm"
-                      />
-                    </TextField>
-                  ) : null}
-                </div>
-                {stageBaseline && stageOptions.length > 0 ? (
-                  <div className="min-w-0 md:col-span-2">
+                {!hidePipelineAndSource ? (
+                  <div className="min-w-0">
+                    <Label className={FIELD_LABEL}>Sourced from</Label>
+                    <Select
+                      value={draft.source}
+                      onChange={(k) => {
+                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                        setDraft((d) => ({
+                          ...d,
+                          source: next,
+                          sourceOther: next !== "Other" ? "" : d.sourceOther,
+                        }));
+                      }}
+                      className="mt-2"
+                    >
+                      <Select.Trigger className="w-full min-w-0">
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {CANDIDATE_SOURCE_VALUES.map((s) => (
+                            <ListBox.Item key={s} id={s} textValue={s}>
+                              {s}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    {draft.source === "Other" ? (
+                      <TextField className="mt-3">
+                        <Label className={`${FIELD_LABEL} normal-case`}>
+                          Describe the source
+                        </Label>
+                        <Input
+                          value={draft.sourceOther}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              sourceOther: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. referral, career fair…"
+                          className="mt-1 text-sm"
+                        />
+                      </TextField>
+                    ) : null}
+                  </div>
+                ) : null}
+                {!hidePipelineAndSource &&
+                stageBaseline &&
+                stageOptions.length > 0 ? (
+                  <div className="min-w-0">
                     <Label className={FIELD_LABEL}>Pipeline stage</Label>
                     <Select
                       value={

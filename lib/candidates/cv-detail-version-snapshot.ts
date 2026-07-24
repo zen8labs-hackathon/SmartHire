@@ -54,6 +54,10 @@ export type CvDetailRollbackSnapshot = {
   jd_match_error: string | null;
   jd_match_rationale: string | null;
   avatar_url: string | null;
+  gpa: string | null;
+  english_level: string | null;
+  date_of_birth: string | null;
+  student_years: string | null;
 };
 
 export function snapshotFromCandidateRow(
@@ -86,6 +90,10 @@ export function snapshotFromCandidateRow(
     jd_match_error: (row.jd_match_error as string | null) ?? null,
     jd_match_rationale: (row.jd_match_rationale as string | null) ?? null,
     avatar_url: (row.avatar_url as string | null) ?? null,
+    gpa: (row.gpa as string | null) ?? null,
+    english_level: (row.english_level as string | null) ?? null,
+    date_of_birth: (row.date_of_birth as string | null) ?? null,
+    student_years: (row.student_years as string | null) ?? null,
   };
 }
 

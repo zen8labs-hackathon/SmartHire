@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   countCampaignAppliedByStageForJob,
   getCampaignAppliedAdminRowById,
+  listApplicationsForCandidate,
   listCampaignAppliedForAdmin,
   listOtherApplicationsForCandidate,
 } from "@/lib/db/campaign-applied-list";
@@ -131,6 +132,34 @@ describe("listOtherApplicationsForCandidate", () => {
       expect.stringContaining("WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL"),
       ["cand-1", "app-1"],
     );
+  });
+
+  it("selects the raw pipeline-position columns needed to resolve a stage fallback", async () => {
+    const db = fakeDb([]);
+
+    await listOtherApplicationsForCandidate(db, "cand-1", "app-1");
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("ca.current_job_stage_mapping_id, ca.current_sub_state_id");
+    expect(sql).toContain("ps.label AS stage_label");
+    expect(sql).toContain("pss.label AS sub_stage_label");
+  });
+});
+
+describe("listApplicationsForCandidate", () => {
+  it("includes every application for the candidate, with no exclusion filter", async () => {
+    const rows = [{ id: "app-1" }, { id: "app-2" }];
+    const db = fakeDb(rows);
+
+    const result = await listApplicationsForCandidate(db, "cand-1");
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL"),
+      ["cand-1"],
+    );
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).not.toContain("ca.id !=");
   });
 });
 
