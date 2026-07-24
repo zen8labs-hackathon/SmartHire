@@ -132,7 +132,7 @@ body {
   animation: pulse-glow 6s infinite ease-in-out;
 }
 
-/* Running border highlight for in-progress CV upload queue rows */
+/* Running border highlight for in-progress CV progress + file queue panels */
 @keyframes cv-processing-border-spin {
   to {
     transform: rotate(360deg);
