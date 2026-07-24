@@ -1288,7 +1288,7 @@ export function AddCandidateModal({
 
                 <div className="flex min-h-0 min-w-0 flex-col md:h-full">
                   <div
-                    className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-start rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                    className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
                       isUploadDisabled
                         ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
