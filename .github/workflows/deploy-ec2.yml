@@ -1,7 +1,7 @@
-# Auto-deploy EC2 when pushing to production (and later develop).
+# Auto-deploy EC2 when pushing to production or develop.
 #
 # Requires a self-hosted GitHub Actions runner on the EC2 box (see docs/ci-cd-ec2.md).
-# Syncs /opt/smarthire/app to origin before running deploy (script may not exist until first pull).
+# Develop needs one-time clone at /opt/smarthire/app-develop before the first run.
 
 name: Deploy EC2
 
@@ -9,7 +9,7 @@ on:
   push:
     branches:
       - production
-      # - develop  # enable when develop EC2/env is ready
+      - develop
 
 concurrency:
   group: deploy-ec2-${{ github.ref_name }}
@@ -17,16 +17,32 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy to smart-hire.zen8labs.io
+    name: Deploy ${{ github.ref_name }}
     runs-on: [self-hosted, smarthire-ec2]
     timeout-minutes: 30
 
     steps:
-      - name: Blue-green deploy
+      - name: Deploy stack
         run: |
           set -euo pipefail
-          APP_DIR=/opt/smarthire/app
           BRANCH="${{ github.ref_name }}"
+
+          if [ "$BRANCH" = "production" ]; then
+            APP_DIR=/opt/smarthire/app
+            DEPLOY_SCRIPT=deploy/deploy-bluegreen.sh
+          elif [ "$BRANCH" = "develop" ]; then
+            APP_DIR=/opt/smarthire/app-develop
+            DEPLOY_SCRIPT=deploy/deploy-develop.sh
+          else
+            echo "Unsupported branch: $BRANCH"
+            exit 1
+          fi
+
+          if [ ! -d "$APP_DIR/.git" ]; then
+            echo "Missing checkout at $APP_DIR"
+            echo "One-time: clone repo there and checkout $BRANCH (see docs/ci-cd-ec2.md)"
+            exit 1
+          fi
 
           cd "$APP_DIR"
           git config --global --add safe.directory "$APP_DIR"
@@ -34,12 +50,11 @@ jobs:
           git checkout "$BRANCH"
           git reset --hard "origin/$BRANCH"
 
-          if [ -x deploy/deploy-bluegreen.sh ]; then
-            ./deploy/deploy-bluegreen.sh "$BRANCH"
-          elif [ -x deploy/deploy.sh ]; then
-            ./deploy/deploy.sh "$BRANCH"
+          chmod +x "$DEPLOY_SCRIPT" 2>/dev/null || true
+          if [ -x "$DEPLOY_SCRIPT" ]; then
+            "./$DEPLOY_SCRIPT" "$BRANCH"
           else
-            echo "No deploy script found after sync. Check $APP_DIR"
+            echo "Deploy script not executable: $APP_DIR/$DEPLOY_SCRIPT"
             ls -la deploy/ || true
             exit 1
           fi

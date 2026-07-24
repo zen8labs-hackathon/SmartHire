@@ -72,15 +72,19 @@ Phải pull được **không** hỏi user/pass.
 
 File: `.github/workflows/deploy-ec2.yml`
 
-| Cấu hình | Giá trị mặc định |
-|----------|------------------|
-| Branch trigger | `production` (sau này thêm `develop`) |
+| Branch | Thư mục trên EC2 | Script | URL |
+|--------|------------------|--------|-----|
+| `production` | `/opt/smarthire/app` | `deploy-bluegreen.sh` | https://smart-hire.zen8labs.io |
+| `develop` | `/opt/smarthire/app-develop` | `deploy-develop.sh` | https://smart-hire-dev.zen8labs.io (sau khi có DNS) |
+
+| Cấu hình | Giá trị |
+|----------|---------|
 | Runner labels | `self-hosted`, `smarthire-ec2` |
-| Lệnh deploy | `/opt/smarthire/app/deploy/deploy-bluegreen.sh <branch>` |
+| Concurrency | theo branch (`deploy-ec2-<branch>`) |
 
-Blue-green (gần zero downtime): [blue-green-ec2.md](./blue-green-ec2.md). Rollback / bật lần đầu: xem doc đó trước khi chạy CI.
+Production blue-green: [blue-green-ec2.md](./blue-green-ec2.md). Develop dùng single-slot (tiết kiệm RAM), ports: app `3200`, db `5433`, MinIO `9010`.
 
-Workflow tự `git reset --hard origin/<branch>` trước khi chạy deploy script (tránh lỗi file chưa pull trên server).
+Workflow tự `git reset --hard origin/<branch>` trước khi chạy deploy script.
 
 ### Tắt check Vercel trên GitHub
 
@@ -91,22 +95,68 @@ Nếu vẫn thấy check **Vercel** / **Vercel Preview Comments**:
 1. [Vercel Dashboard](https://vercel.com) → project SmartHire → **Settings** → **Git** → Disconnect (hoặc bỏ branch khỏi production deploy)
 2. GitHub repo → **Settings** → **Integrations** / **Installed GitHub Apps** → gỡ **Vercel** nếu không dùng nữa
 
-Production hiện tại: **EC2** (`smart-hire.zen8labs.io`), không phải Vercel.
+---
 
-Đổi branch deploy: sửa **cả hai** chỗ `branches:` và tham số `./deploy/deploy.sh <branch>` trong workflow.
+## 3b. One-time: bật môi trường develop trên EC2
+
+Làm **trước** lần push `develop` đầu tiên (nếu chưa có `/opt/smarthire/app-develop`).
+
+```bash
+# SSM → ubuntu
+cd /opt/smarthire
+git clone https://github.com/zen8labs-hackathon/SmartHire.git app-develop
+cd app-develop
+git checkout develop
+cp .env.develop.example .env
+nano .env   # điền POSTGRES_PASSWORD, AUTH_JWT_SECRET, MINIO_*, AI_GATEWAY_*, ...
+chmod +x deploy/deploy-develop.sh
+./deploy/deploy-develop.sh develop
+```
+
+**Chưa có DNS:** test app bằng SSM port-forward từ laptop:
+
+```bash
+aws ssm start-session \
+  --target i-040a0bcdfe9618b56 \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["3200"],"localPortNumber":["3200"]}' \
+  --profile smart-hire
+# mở http://127.0.0.1:3200
+```
+
+**Khi admin đã tạo DNS** `smart-hire-dev.zen8labs.io` → `18.142.230.72`:
+
+```bash
+cd /opt/smarthire/app-develop
+sudo cp deploy/nginx/smart-hire-dev.zen8labs.io.conf \
+  /etc/nginx/sites-available/smart-hire-dev.zen8labs.io
+sudo ln -sf /etc/nginx/sites-available/smart-hire-dev.zen8labs.io \
+  /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d smart-hire-dev.zen8labs.io
+# trong .env: bỏ hoặc set COOKIE_SECURE=true; reload app
+```
+
+Role team (`SSM-smart-hire-EC2-Team`) **không** có quyền Route53 — nhờ admin DNS tạo A record.
 
 ---
 
 ## 4. Kiểm tra
 
-1. Push một commit lên `production`
-2. GitHub → **Actions** → workflow **Deploy EC2**
-3. Job chạy trên runner `smarthire-ec2`, log có `Done.` và `app HTTP 307` (hoặc 200)
+**Production:**
 
-Trên server:
+1. Push lên `production`
+2. Actions → **Deploy EC2** → job `Deploy production`
+3. Log có `Done.`
+
+**Develop:** (sau bước 3b)
+
+1. Push lên `develop`
+2. Job `Deploy develop` → log có `app HTTP 307` (hoặc 200) trên `:3200`
 
 ```bash
 docker compose -f /opt/smarthire/app/docker-compose.prod.yml ps
+docker compose -f /opt/smarthire/app-develop/docker-compose.develop.yml ps
 ```
 
 ---
