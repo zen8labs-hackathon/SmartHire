@@ -131,3 +131,74 @@ body {
 .animate-pulse-glow {
   animation: pulse-glow 6s infinite ease-in-out;
 }
+
+/* Running border highlight for in-progress CV upload queue rows */
+@keyframes cv-processing-border-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cv-processing-highlight {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  padding: 1.5px;
+}
+
+.cv-processing-highlight::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  z-index: -1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 240deg,
+    color-mix(in srgb, var(--brand-green) 35%, transparent) 280deg,
+    var(--brand-green) 320deg,
+    color-mix(in srgb, var(--brand-green) 55%, var(--brand-gold)) 340deg,
+    transparent 360deg
+  );
+  animation: cv-processing-border-spin 1.4s linear infinite;
+}
+
+.cv-processing-highlight > * {
+  position: relative;
+  z-index: 0;
+  border-radius: calc(0.5rem - 1px);
+  background: var(--surface-secondary);
+}
+
+@media (prefers-color-scheme: dark) {
+  .cv-processing-highlight::before {
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 240deg,
+      color-mix(in srgb, var(--brand-gold) 30%, transparent) 280deg,
+      var(--brand-gold) 320deg,
+      color-mix(in srgb, var(--brand-gold) 70%, white) 340deg,
+      transparent 360deg
+    );
+  }
+
+  .cv-processing-highlight > * {
+    background: var(--surface-tertiary);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-processing-highlight::before {
+    animation: none;
+    background: var(--brand-green);
+    inset: 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .cv-processing-highlight::before {
+      background: var(--brand-gold);
+    }
+  }
+}

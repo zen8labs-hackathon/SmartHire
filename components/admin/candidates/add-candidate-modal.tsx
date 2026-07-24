@@ -152,6 +152,16 @@ function statusChip(row: QueueRow): {
   return { label: "Scanning", color: "accent" };
 }
 
+/** True while upload/parse/dedupe is still in flight — not completed and not
+ * failed. Drives the running-border highlight and close-button lock. */
+function isQueueRowInProgress(row: QueueRow): boolean {
+  return (
+    row.uploadPhase !== "uploaded" &&
+    row.uploadPhase !== "error" &&
+    row.parsing_status !== "failed"
+  );
+}
+
 function FileIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -257,6 +267,12 @@ export function AddCandidateModal({
   const handleModalOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
+        // Hard-block close while any CV is still uploading/parsing — mirrors
+        // the disabled Close / X controls so Escape / outside click can't
+        // bypass them.
+        if (queueRef.current.some(isQueueRowInProgress)) {
+          return;
+        }
         const hasUnconfirmed = queueRef.current.some(
           (r) => !r.candidateId && r.uploadPhase !== "error",
         );
@@ -638,6 +654,7 @@ export function AddCandidateModal({
       r.parsing_status !== "completed" &&
       r.parsing_status !== "failed",
   );
+  const hasIncompleteCvs = queue.some(isQueueRowInProgress);
 
   useEffect(() => {
     if (!open || !hasRowMidScan) return;
@@ -1092,10 +1109,21 @@ export function AddCandidateModal({
 
   return (
     <Modal state={modalState}>
-      <Modal.Backdrop className="bg-black/40 backdrop-blur-sm">
+      <Modal.Backdrop
+        className="bg-black/40 backdrop-blur-sm"
+        isDismissable={!hasIncompleteCvs}
+        isKeyboardDismissDisabled={hasIncompleteCvs}
+      >
         <Modal.Container className="w-full">
           <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
-            <Modal.CloseTrigger />
+            <Modal.CloseTrigger
+              isDisabled={hasIncompleteCvs}
+              aria-label={
+                hasIncompleteCvs
+                  ? "Close unavailable while CVs are processing"
+                  : "Close"
+              }
+            />
             <Modal.Header className="border-b border-divider px-6 py-5">
               <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
               <p className="mt-1 text-sm text-muted">
@@ -1120,8 +1148,8 @@ export function AddCandidateModal({
                   </p>
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:grid-rows-1 md:items-stretch md:gap-6">
-                <div className="flex min-h-0 min-w-0 flex-col gap-4 md:h-full">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start md:gap-6">
+                <div className="flex min-h-0 min-w-0 flex-col gap-4">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Target campaign
@@ -1256,42 +1284,11 @@ export function AddCandidateModal({
                       AI parsing finishes.
                     </p>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          CVs uploaded
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          {queue.length}
-                        </p>
-                        <p className="text-[10px] text-muted">This session</p>
-                      </Card.Content>
-                    </Card>
-                    <Card variant="secondary">
-                      <Card.Content className="gap-1 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                          Completed
-                        </p>
-                        <p className="text-2xl font-semibold tabular-nums text-foreground">
-                          {
-                            queue.filter(
-                              (r) => r.uploadPhase === "uploaded",
-                            ).length
-                          }
-                        </p>
-                        <p className="text-[10px] text-muted">
-                          AI parsing finished
-                        </p>
-                      </Card.Content>
-                    </Card>
-                  </div>
                 </div>
 
-                <div className="flex min-h-[220px] flex-col md:h-full md:min-h-0">
+                <div className="flex min-w-0 flex-col md:self-start">
                   <div
-                    className={`flex h-full min-h-[220px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors md:min-h-0 md:py-8 ${
+                    className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors ${
                       isUploadDisabled
                         ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
@@ -1322,14 +1319,15 @@ export function AddCandidateModal({
                         ? "Select a target campaign first"
                         : "Drop CVs here to start ingestion"}
                     </p>
-                    <p className="mt-2 max-w-sm text-xs text-muted">
+                    <p className="mt-1.5 max-w-xs text-xs text-muted">
                       {isCampaignMissing
                         ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                        : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                        : "PDF or DOCX, max 25MB each. Parsing starts automatically after upload."}
                     </p>
-                    <div className="mt-4 flex justify-center">
+                    <div className="mt-3 flex justify-center">
                       <Button
                         variant="primary"
+                        size="sm"
                         onPress={() => fileInputRef.current?.click()}
                         isDisabled={isUploadDisabled}
                       >
@@ -1515,6 +1513,7 @@ export function AddCandidateModal({
                                         )}s)`,
                                       }
                                     : baseChip;
+                                const isInProgress = isQueueRowInProgress(row);
                                 return (
                                   <Table.Row key={row.rowId} id={row.rowId}>
                                     <Table.Cell
@@ -1533,19 +1532,33 @@ export function AddCandidateModal({
                                       }}
                                       className="max-w-[200px]"
                                     >
-                                      <div className="flex items-center gap-3">
-                                        <FileIcon className="size-8 shrink-0 text-muted" />
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium text-foreground">
-                                            {row.filename}
-                                          </p>
-                                          <p className="text-[10px] text-muted">
-                                            {formatBytes(row.size)}
-                                            {row.uploadError &&
-                                            row.uploadPhase === "error"
-                                              ? ` · ${row.uploadError}`
-                                              : ""}
-                                          </p>
+                                      <div
+                                        className={
+                                          isInProgress
+                                            ? "cv-processing-highlight"
+                                            : undefined
+                                        }
+                                      >
+                                        <div
+                                          className={
+                                            isInProgress
+                                              ? "flex items-center gap-3 px-2 py-1.5"
+                                              : "flex items-center gap-3"
+                                          }
+                                        >
+                                          <FileIcon className="size-8 shrink-0 text-muted" />
+                                          <div className="min-w-0">
+                                            <p className="truncate text-sm font-medium text-foreground">
+                                              {row.filename}
+                                            </p>
+                                            <p className="text-[10px] text-muted">
+                                              {formatBytes(row.size)}
+                                              {row.uploadError &&
+                                              row.uploadPhase === "error"
+                                                ? ` · ${row.uploadError}`
+                                                : ""}
+                                            </p>
+                                          </div>
                                         </div>
                                       </div>
                                     </Table.Cell>
@@ -1584,7 +1597,11 @@ export function AddCandidateModal({
               </div>
             </Modal.Body>
             <Modal.Footer className="border-t border-divider px-6 py-4">
-              <Button slot="close" variant="secondary">
+              <Button
+                slot="close"
+                variant="secondary"
+                isDisabled={hasIncompleteCvs}
+              >
                 Close
               </Button>
             </Modal.Footer>
