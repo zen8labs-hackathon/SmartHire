@@ -153,7 +153,7 @@ function statusChip(row: QueueRow): {
 }
 
 /** True while upload/parse/dedupe is still in flight — not completed and not
- * failed. Drives the running-border highlight and close-button lock. */
+ * failed. Drives close-button lock and running borders on queue panels. */
 function isQueueRowInProgress(row: QueueRow): boolean {
   return (
     row.uploadPhase !== "uploaded" &&
@@ -1148,7 +1148,7 @@ export function AddCandidateModal({
                   </p>
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start md:gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
                 <div className="flex min-h-0 min-w-0 flex-col gap-4">
                   <div>
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
@@ -1286,102 +1286,9 @@ export function AddCandidateModal({
                   </div>
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-3 md:self-start">
-                  {queue.length > 0
-                    ? (() => {
-                        const totalCount = queue.length;
-                        const successCount = queue.filter(
-                          (r) => r.uploadPhase === "uploaded",
-                        ).length;
-                        const failedCount = queue.filter(
-                          (r) =>
-                            r.uploadPhase === "error" ||
-                            r.parsing_status === "failed",
-                        ).length;
-                        const inProgressCount =
-                          totalCount - successCount - failedCount;
-                        const successPct = (successCount / totalCount) * 100;
-                        const inProgressPct =
-                          (inProgressCount / totalCount) * 100;
-                        const failedPct = (failedCount / totalCount) * 100;
-
-                        return (
-                          <div
-                            className={
-                              hasIncompleteCvs
-                                ? "cv-processing-highlight"
-                                : undefined
-                            }
-                          >
-                            <Card variant="secondary">
-                              <Card.Content className="flex flex-col gap-2.5 px-2">
-                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
-                                    <span className="flex items-center gap-1.5">
-                                      <span className="size-2 rounded-full bg-success" />
-                                      Completed{" "}
-                                      <span className="tabular-nums text-foreground">
-                                        {successCount}
-                                      </span>
-                                    </span>
-                                    {failedCount > 0 ? (
-                                      <span className="flex items-center gap-1.5 text-danger">
-                                        <span className="size-2 rounded-full bg-danger" />
-                                        Failed{" "}
-                                        <span className="tabular-nums">
-                                          {failedCount}
-                                        </span>
-                                      </span>
-                                    ) : null}
-                                    {inProgressCount > 0 ? (
-                                      <span className="flex items-center gap-1.5">
-                                        <span className="size-2 animate-pulse rounded-full bg-accent" />
-                                        In progress{" "}
-                                        <span className="tabular-nums text-foreground">
-                                          {inProgressCount}
-                                        </span>
-                                      </span>
-                                    ) : null}
-                                    <span className="text-muted/70">
-                                      {totalCount} total
-                                    </span>
-                                  </div>
-                                  {failedCount > 0 ? (
-                                    <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      isDisabled={isRetryingAll}
-                                      onPress={() => void retryAllFailed()}
-                                    >
-                                      {isRetryingAll
-                                        ? "Retrying…"
-                                        : `Retry all failed (${failedCount})`}
-                                    </Button>
-                                  ) : null}
-                                </div>
-                                <div className="flex h-2 overflow-hidden rounded-full bg-content3">
-                                  <div
-                                    className="h-full bg-success transition-[width] duration-300"
-                                    style={{ width: `${successPct}%` }}
-                                  />
-                                  <div
-                                    className="h-full animate-pulse bg-accent transition-[width] duration-300"
-                                    style={{ width: `${inProgressPct}%` }}
-                                  />
-                                  <div
-                                    className="h-full bg-danger transition-[width] duration-300"
-                                    style={{ width: `${failedPct}%` }}
-                                  />
-                                </div>
-                              </Card.Content>
-                            </Card>
-                          </div>
-                        );
-                      })()
-                    : null}
-
+                <div className="flex min-h-0 min-w-0 flex-col md:h-full">
                   <div
-                    className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors ${
+                    className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-start rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
                       isUploadDisabled
                         ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
@@ -1458,6 +1365,98 @@ export function AddCandidateModal({
                     </p>
                   </div>
                 </div>
+
+                {queue.length > 0
+                  ? (() => {
+                      const totalCount = queue.length;
+                      const successCount = queue.filter(
+                        (r) => r.uploadPhase === "uploaded",
+                      ).length;
+                      const failedCount = queue.filter(
+                        (r) =>
+                          r.uploadPhase === "error" ||
+                          r.parsing_status === "failed",
+                      ).length;
+                      const inProgressCount =
+                        totalCount - successCount - failedCount;
+                      const successPct = (successCount / totalCount) * 100;
+                      const inProgressPct = (inProgressCount / totalCount) * 100;
+                      const failedPct = (failedCount / totalCount) * 100;
+
+                      return (
+                        <div
+                          className={
+                            hasIncompleteCvs
+                              ? "cv-processing-highlight mb-3"
+                              : "mb-3"
+                          }
+                        >
+                          <Card variant="secondary">
+                            <Card.Content className="px-2 flex flex-col gap-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
+                                  <span className="flex items-center gap-1.5">
+                                    <span className="size-2 rounded-full bg-success" />
+                                    Completed{" "}
+                                    <span className="tabular-nums text-foreground">
+                                      {successCount}
+                                    </span>
+                                  </span>
+                                  {failedCount > 0 ? (
+                                    <span className="flex items-center gap-1.5 text-danger">
+                                      <span className="size-2 rounded-full bg-danger" />
+                                      Failed{" "}
+                                      <span className="tabular-nums">
+                                        {failedCount}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  {inProgressCount > 0 ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="size-2 animate-pulse rounded-full bg-accent" />
+                                      In progress{" "}
+                                      <span className="tabular-nums text-foreground">
+                                        {inProgressCount}
+                                      </span>
+                                    </span>
+                                  ) : null}
+                                  <span className="text-muted/70">
+                                    {totalCount} total
+                                  </span>
+                                </div>
+                                {failedCount > 0 ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={isRetryingAll}
+                                    onPress={() => void retryAllFailed()}
+                                  >
+                                    {isRetryingAll
+                                      ? "Retrying…"
+                                      : `Retry all failed (${failedCount})`}
+                                  </Button>
+                                ) : null}
+                              </div>
+                              <div className="flex h-2 overflow-hidden rounded-full bg-content3">
+                                <div
+                                  className="h-full bg-success transition-[width] duration-300"
+                                  style={{ width: `${successPct}%` }}
+                                />
+                                <div
+                                  className="h-full bg-accent animate-pulse transition-[width] duration-300"
+                                  style={{ width: `${inProgressPct}%` }}
+                                />
+                                <div
+                                  className="h-full bg-danger transition-[width] duration-300"
+                                  style={{ width: `${failedPct}%` }}
+                                />
+                              </div>
+                            </Card.Content>
+                          </Card>
+                        </div>
+                      );
+                    })()
+                  : null}
 
                 <div
                   className={

@@ -132,7 +132,7 @@ body {
   animation: pulse-glow 6s infinite ease-in-out;
 }
 
-/* Running border highlight for in-progress CV progress + file queue panels */
+/* Running border highlight for in-progress upload queue panels */
 @keyframes cv-processing-border-spin {
   to {
     transform: rotate(360deg);
@@ -143,8 +143,8 @@ body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border-radius: 0.5rem;
-  padding: 1.5px;
+  border-radius: 0.75rem;
+  padding: 2px;
 }
 
 .cv-processing-highlight::before {
@@ -167,7 +167,7 @@ body {
 .cv-processing-highlight > * {
   position: relative;
   z-index: 0;
-  border-radius: calc(0.5rem - 1px);
+  border-radius: calc(0.75rem - 1px);
   background: var(--surface-secondary);
 }
 
