@@ -533,6 +533,8 @@ type EditCandidateModalProps = {
   row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
+  /** Forwarded to `CandidateProfileEditSection` -- see its docstring. */
+  hidePipelineAndSource?: boolean;
 };
 
 export function EditCandidateModal({
@@ -541,24 +543,17 @@ export function EditCandidateModal({
   row,
   canEdit,
   onSaved,
+  hidePipelineAndSource,
 }: EditCandidateModalProps) {
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     "loading",
   );
-  // The Modal keeps rendering for a bit after `isOpen` goes false (CSS exit
-  // transition), and callers null out `row` in that same tick (closing this
-  // modal clears their `rowPendingEdit` state). Rendering off the raw `row`
-  // prop would blank the body mid-transition; sticking to the last non-null
-  // value keeps the closing modal showing its last content instead of a
-  // flash of empty space.
-  const [displayRow, setDisplayRow] = useState(row);
-  if (row && row !== displayRow) {
-    setDisplayRow(row);
-  }
 
   useEffect(() => {
-    if (!isOpen || !row) return;
+    if (!isOpen || !row) {
+      return;
+    }
     const ac = new AbortController();
     setDbRow(null);
     setDbLoadState("loading");
@@ -566,6 +561,7 @@ export function EditCandidateModal({
       try {
         const res = await fetch(`/api/admin/candidates/${row.id}`, {
           credentials: "include",
+          cache: "no-store",
           signal: ac.signal,
         });
         if (!res.ok) {
@@ -597,47 +593,25 @@ export function EditCandidateModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              {displayRow?.name ?? "Edit candidate"}
+              {row?.name ?? "Edit candidate"}
             </Modal.Heading>
           </Modal.Header>
           <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
-            {displayRow ? (
+            {row ? (
               dbLoadState === "error" ? (
                 <p className="px-5 py-4 text-sm text-danger">
                   Could not load this candidate's details. Close and try again.
                 </p>
               ) : (
                 <CandidateProfileEditSection
-                  candidateId={displayRow.id}
+                  candidateId={row.id}
                   dbRow={dbRow}
                   canEdit={canEdit}
                   isPreview={false}
                   dbLoadState={dbLoadState}
-                  onSaved={(saved) => {
-                    // Feed the freshly-saved row back into local state
-                    // immediately -- the auto-start effect inside
-                    // `CandidateProfileEditSection` re-syncs its draft from
-                    // `dbRow` right after a save, so without this it would
-                    // re-populate the form from the *stale* pre-edit `dbRow`
-                    // still sitting here until the modal is closed and
-                    // reopened (which triggers a fresh refetch).
-                    //
-                    // `saved` is typed as `CandidateDbRow` but the
-                    // `/profile` PATCH route actually responds with a
-                    // `CampaignAppliedAdminRow` (candidate_name/candidate_role/...)
-                    // whenever the pipeline stage wasn't also changed in the
-                    // same save -- same shape ambiguity guarded against
-                    // elsewhere (see `onProfileSaved` in
-                    // candidate-pipeline-dashboard.tsx). Skipping this
-                    // guard means every field read off `dbRow` afterwards
-                    // (name/role/skills/...) comes back `undefined`.
-                    const c =
-                      saved && typeof saved === "object" && "candidate_id" in saved
-                        ? campaignAppliedToCandidateDbRow(saved as any)
-                        : saved;
-                    setDbRow(c);
-                    onSaved();
-                  }}
+                  startInEditMode
+                  onSaved={onSaved}
+                  hidePipelineAndSource={hidePipelineAndSource}
                   onCancel={() => onOpenChange(false)}
                 />
               )

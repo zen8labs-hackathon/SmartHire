@@ -12,8 +12,6 @@ export type CvManagementVersionListItem = {
   /** ISO string used for merge sort (newest first). */
   sortAt: string;
   isLatest: boolean;
-  /** 1 = oldest … N = newest (matches prior “Version {n}” labelling). */
-  displayVersion: number;
   /** When kind === `archived_cv` */
   historyRow?: CandidateCvHistoryRow;
   /** When kind === `snapshot_event` — restore applies stored snapshot. */
@@ -33,7 +31,7 @@ function parseTs(iso: string | null | undefined): number {
 
 /**
  * Merges active row, replacement-chain CV history, and version events into
- * one timeline (newest first), then assigns displayVersion and isLatest.
+ * one timeline (newest first), then assigns isLatest.
  */
 export function buildCvManagementVersionList(params: {
   activeCandidateId: string;
@@ -51,8 +49,7 @@ export function buildCvManagementVersionList(params: {
   const { activeCandidateId, activeSortAt, historyRowsNewestFirst, eventsNewestFirst } =
     params;
 
-  const raw: Omit<CvManagementVersionListItem, "displayVersion" | "isLatest">[] =
-    [];
+  const raw: Omit<CvManagementVersionListItem, "isLatest">[] = [];
 
   raw.push({
     kind: "active",
@@ -81,10 +78,8 @@ export function buildCvManagementVersionList(params: {
 
   raw.sort((a, b) => parseTs(b.sortAt) - parseTs(a.sortAt));
 
-  const n = raw.length;
   return raw.map((item, idx) => ({
     ...item,
     isLatest: idx === 0,
-    displayVersion: n - idx,
   }));
 }

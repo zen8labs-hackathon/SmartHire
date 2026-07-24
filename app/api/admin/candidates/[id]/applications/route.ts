@@ -1,7 +1,7 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { filterViewableJobIds } from "@/lib/authz/can";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
-import { listOtherApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
+import { listApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 import { resolveApplicationStages } from "@/lib/candidates/resolve-application-stage";
 
@@ -10,6 +10,13 @@ const UUID_RE =
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/**
+ * Every application (`campaign_applied` row, current one included) for the
+ * same person as `id` -- feeds the candidate-detail page's per-application
+ * CV version accordion. CV versions themselves are fetched separately (and
+ * lazily, per application) via the existing `cv-history` endpoint once a row
+ * is expanded.
+ */
 export async function GET(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
@@ -29,11 +36,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const current = appAccess.application;
 
   try {
-    const rows = await listOtherApplicationsForCandidate(
-      db,
-      current.candidate_id,
-      campaignAppliedId,
-    );
+    const rows = await listApplicationsForCandidate(db, current.candidate_id);
 
     const viewableJobIds = await filterViewableJobIds(
       db,
@@ -46,13 +49,12 @@ export async function GET(request: Request, { params }: RouteContext) {
 
     const visible = visibleRows.map((row) => ({
       id: row.id,
-      cvDownloadUrl: `/api/admin/candidates/${row.id}/cv-download`,
       jobTitle: row.job_position ?? "—",
-      jobDescriptionId: row.job_id,
+      jobId: row.job_id,
+      appliedAt: row.created_at.toISOString(),
       cvUploadedAt: row.cv_created_at
         ? row.cv_created_at.toISOString()
         : row.created_at.toISOString(),
-      name: row.candidate_name ?? null,
       ...resolvedByRow.get(row)!,
     }));
 

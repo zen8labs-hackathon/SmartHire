@@ -156,7 +156,53 @@ export type OtherApplicationForCandidateRow = {
   candidate_name: string | null;
   cv_original_filename: string | null;
   cv_created_at: Date | null;
+  /** Raw (possibly-NULL) pipeline position -- a fresh application hasn't been
+   * explicitly moved yet, so callers that want a stage to show (e.g. "CV Scan
+   * · New" instead of blank) must resolve these via
+   * `resolveCandidatePipelineIds` against the job's pipeline config, the same
+   * way the job-pipeline table and evaluation page already do. */
+  current_job_stage_mapping_id: string | null;
+  current_sub_state_id: string | null;
+  stage_code: string | null;
+  stage_label: string | null;
+  stage_color: string | null;
+  sub_stage_code: string | null;
+  sub_stage_label: string | null;
+  sub_stage_is_passed: boolean | null;
 };
+
+async function queryApplicationsForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+  excludeCampaignAppliedId: string | null,
+): Promise<OtherApplicationForCandidateRow[]> {
+  const where = excludeCampaignAppliedId
+    ? "WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL"
+    : "WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL";
+  const values = excludeCampaignAppliedId
+    ? [candidateId, excludeCampaignAppliedId]
+    : [candidateId];
+  const { rows } = await db.query<OtherApplicationForCandidateRow>(
+    `SELECT
+       ca.id, ca.created_at, ca.job_id, j.position AS job_position,
+       c.name AS candidate_name,
+       cv.original_filename AS cv_original_filename, cv.created_at AS cv_created_at,
+       ca.current_job_stage_mapping_id, ca.current_sub_state_id,
+       ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
+       pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
+     FROM campaign_applied ca
+     JOIN candidates c ON c.id = ca.candidate_id
+     JOIN jobs j ON j.id = ca.job_id
+     LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
+     LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
+     LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
+     LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
+     ${where}
+     ORDER BY ca.id DESC`,
+    values,
+  );
+  return rows;
+}
 
 /**
  * Every other (non-deleted) application belonging to the same person as
@@ -170,20 +216,19 @@ export async function listOtherApplicationsForCandidate(
   candidateId: string,
   excludeCampaignAppliedId: string,
 ): Promise<OtherApplicationForCandidateRow[]> {
-  const { rows } = await db.query<OtherApplicationForCandidateRow>(
-    `SELECT
-       ca.id, ca.created_at, ca.job_id, j.position AS job_position,
-       c.name AS candidate_name,
-       cv.original_filename AS cv_original_filename, cv.created_at AS cv_created_at
-     FROM campaign_applied ca
-     JOIN candidates c ON c.id = ca.candidate_id
-     JOIN jobs j ON j.id = ca.job_id
-     LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
-     WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL
-     ORDER BY ca.id DESC`,
-    [candidateId, excludeCampaignAppliedId],
-  );
-  return rows;
+  return queryApplicationsForCandidate(db, candidateId, excludeCampaignAppliedId);
+}
+
+/**
+ * Every (non-deleted) application belonging to a person, current one
+ * included -- used by the candidate-detail page's CV-versions-by-application
+ * list (`/admin/candidate-detail/[id]`).
+ */
+export async function listApplicationsForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<OtherApplicationForCandidateRow[]> {
+  return queryApplicationsForCandidate(db, candidateId, null);
 }
 
 /**
