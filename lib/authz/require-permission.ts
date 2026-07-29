@@ -17,9 +17,9 @@ import { getPool } from "@/lib/db/config/client";
 export async function requirePermissionOnJob(
   access: StaffProfileAccess,
   permission: PermissionId,
-  jobId: string,
+  jobId?: string | null,
 ): Promise<JobAccessAuthResult> {
-  const allowed = await can(getPool(), access, permission, { jobId });
+  const allowed = await can(getPool(), access, permission, { jobId: jobId ?? undefined });
   if (!allowed) {
     return {
       ok: false,

@@ -153,7 +153,7 @@ describe("listDedupedCandidatesForAdmin", () => {
     expect(sql).toContain("ORDER BY candidate_id, id DESC");
   });
 
-  it("inner-joins latest_apps/jobs so a person with no live application is excluded, not surfaced with a null campaign_applied_id", async () => {
+  it("inner-joins latest_apps so a person with no live application is excluded, not surfaced with a null campaign_applied_id", async () => {
     const db = fakeDb([]);
 
     await listDedupedCandidatesForAdmin(db, {});
@@ -161,8 +161,15 @@ describe("listDedupedCandidatesForAdmin", () => {
     const [sql] = db.query.mock.calls[0];
     expect(sql).toContain("JOIN latest_apps la ON la.candidate_id = c.id");
     expect(sql).not.toContain("LEFT JOIN latest_apps");
-    expect(sql).toContain("JOIN jobs j ON j.id = la.job_id");
-    expect(sql).not.toContain("LEFT JOIN jobs");
+  });
+
+  it("left-joins jobs so an unassigned/pool application (job_id IS NULL, CJ4X9M) still surfaces", async () => {
+    const db = fakeDb([]);
+
+    await listDedupedCandidatesForAdmin(db, {});
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("LEFT JOIN jobs j ON j.id = la.job_id");
   });
 
   it("joins pipeline stage/sub-stage labels instead of reusing jd_match_status as a placeholder", async () => {
