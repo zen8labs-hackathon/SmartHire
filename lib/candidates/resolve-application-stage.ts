@@ -83,7 +83,7 @@ function resolveOne(
 }
 
 type ApplicationStageRow = {
-  job_id: string;
+  job_id: string | null;
   current_job_stage_mapping_id: string | null;
   current_sub_state_id: string | null;
 };
@@ -93,14 +93,21 @@ type ApplicationStageRow = {
  * fetching each distinct job's pipeline config only once. Shared by the
  * candidate-detail page's per-application list and the `/candidates`
  * dashboard drawer's "Other applications" panel.
+ *
+ * A `null` job id (CJ4X9M: unassigned/pool application) has no pipeline to
+ * resolve against, so it falls through to the same "no config" branch below
+ * as an application whose job's config hasn't loaded.
  */
 export async function resolveApplicationStages<T extends ApplicationStageRow>(
   db: QueryExecutor,
   rows: T[],
 ): Promise<Map<T, ResolvedApplicationStage>> {
+  const jobIds = [...new Set(rows.map((row) => row.job_id))].filter(
+    (jobId): jobId is string => jobId != null,
+  );
   const configByJobId = new Map(
     await Promise.all(
-      [...new Set(rows.map((row) => row.job_id))].map(
+      jobIds.map(
         async (jobId) =>
           [jobId, await getCachedJobPipelineConfig(db, jobId)] as const,
       ),
@@ -109,7 +116,8 @@ export async function resolveApplicationStages<T extends ApplicationStageRow>(
 
   return new Map(
     rows.map((row) => {
-      const config = configByJobId.get(row.job_id);
+      const config =
+        row.job_id != null ? configByJobId.get(row.job_id) : undefined;
       const resolved = config
         ? resolveOne(row, config.stageMappings, config.subStages)
         : {

@@ -167,9 +167,10 @@ async function RecentActivities() {
   const activities = await listRecentCvDetailVersionsForAdmin(getPool(), 5);
 
   const getEventDescription = (activity: (typeof activities)[number]) => {
+    const jobLabel = activity.job_position ?? "no job assigned";
     const target = activity.candidate_name
-      ? `for candidate "${activity.candidate_name}" (${activity.job_position})`
-      : `for an application to "${activity.job_position}"`;
+      ? `for candidate "${activity.candidate_name}" (${jobLabel})`
+      : `for an application to "${jobLabel}"`;
     if (activity.source_event === "manual_edit")
       return `Edited CV details ${target}: ${activity.change_summary || "updated fields"}`;
     if (activity.source_event === "restore")
