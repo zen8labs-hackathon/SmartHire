@@ -85,14 +85,6 @@ export default async function LoginPage({ searchParams }: Props) {
               </Alert>
             ) : null}
 
-            <LoginForm nextPath={nextPath} />
-
-            <div className="flex items-center gap-3 text-xs text-muted">
-              <div className="h-px flex-1 bg-divider" />
-              <span>or</span>
-              <div className="h-px flex-1 bg-divider" />
-            </div>
-
             <MicrosoftSignInButton next={nextPath} />
           </Card.Content>
         </Card>
