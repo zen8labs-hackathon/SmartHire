@@ -22,7 +22,7 @@ export function JdFilePreviewModal({
         <Modal.Dialog className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden p-0">
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4">
-            <Modal.Heading className="text-lg font-bold text-foreground">
+            <Modal.Heading className="cursor-pointer text-lg font-bold text-foreground">
               JD file
             </Modal.Heading>
           </Modal.Header>
