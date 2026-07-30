@@ -5,6 +5,7 @@ import {
   getCandidateById,
   listCandidates,
   softDeleteCandidate,
+  softDeleteOrphanedCandidates,
   syncCandidateAggregateFields,
   updateCandidate,
 } from "@/lib/db/candidates";
@@ -171,6 +172,28 @@ describe("softDeleteCandidate", () => {
     const db = fakeDb([]);
     const result = await softDeleteCandidate(db, "missing");
     expect(result).toBeNull();
+  });
+});
+
+describe("softDeleteOrphanedCandidates", () => {
+  it("returns [] without querying when given no ids", async () => {
+    const db = fakeDb([]);
+    const result = await softDeleteOrphanedCandidates(db, []);
+    expect(result).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("soft-deletes only candidates left with zero live applications", async () => {
+    const rows = [{ id: "c1", deleted_at: "2026-07-30T00:00:00Z" }];
+    const db = fakeDb(rows);
+
+    const result = await softDeleteOrphanedCandidates(db, ["c1", "c2"]);
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("NOT EXISTS"),
+      [["c1", "c2"]],
+    );
   });
 });
 
