@@ -122,12 +122,11 @@ export const CandidatePipelineDashboard = forwardRef<
           }
           return [c, ...withoutStaging];
         });
-        openRow(candidateDbRowToTableRow(c));
         void refreshCvHistoryForCandidate(existingId);
       }
       await fetchCandidates();
     },
-    [fetchCandidates, openRow, refreshCvHistoryForCandidate, setDbRows],
+    [fetchCandidates, refreshCvHistoryForCandidate, setDbRows],
   );
 
   const requestDeleteRow = useCallback(
@@ -301,11 +300,14 @@ export const CandidatePipelineDashboard = forwardRef<
             </AlertDialog.Header>
             <AlertDialog.Body>
               <p className="text-sm text-muted">
-                This will permanently remove{" "}
+                This will remove{" "}
                 <strong className="text-foreground">
                   {rowPendingDelete?.name ?? "this candidate"}
                 </strong>{" "}
-                and the stored CV file. This cannot be undone.
+                and all of their applications, across every job. Their
+                records and CV files are kept internally but won&apos;t
+                appear in search, reporting, or any job&apos;s pipeline
+                anymore.
               </p>
             </AlertDialog.Body>
             <AlertDialog.Footer>

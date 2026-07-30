@@ -129,9 +129,9 @@ export async function listRecentCvDetailVersionsForAdmin(
     `SELECT cv.id, cv.campaign_applied_id, cv.source_event, cv.change_summary, cv.created_at,
             c.name AS candidate_name, j.position AS job_position
      FROM cv_detail_versions cv
-     JOIN campaign_applied ca ON ca.id = cv.campaign_applied_id
-     JOIN candidates c ON c.id = ca.candidate_id
-     JOIN jobs j ON j.id = ca.job_id
+     JOIN campaign_applied ca ON ca.id = cv.campaign_applied_id AND ca.deleted_at IS NULL
+     JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
+     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      ORDER BY cv.id DESC
      LIMIT $1`,
     [limit],

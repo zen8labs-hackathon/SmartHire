@@ -237,7 +237,7 @@ export function CvVersionComparisonDrawer({
           }
         },
       )
-      .catch(() => setOtherAppsError("Could not load other applications."))
+      .catch(() => setOtherAppsError("Could not load applications."))
       .finally(() => setOtherAppsLoading(false));
   }, [tableRow.id]);
 
@@ -340,10 +340,10 @@ export function CvVersionComparisonDrawer({
                     <Disclosure.Trigger className="flex w-full max-w-full items-center pl-6 justify-between gap-3 rounded-md py-1 text-left outline-none pressed:bg-muted/50">
                       <div className="min-w-0 flex-1">
                         <p className="text-lg font-semibold tracking-tight text-foreground">
-                          Other applications
+                          All applications
                         </p>
                         <p className="text-sm font-normal text-muted">
-                          Other CVs submitted by this candidate to different
+                          Every CV this candidate has submitted, across all
                           positions.
                         </p>
                       </div>
@@ -363,7 +363,7 @@ export function CvVersionComparisonDrawer({
                         </p>
                       ) : otherApplications.length === 0 ? (
                         <p className="text-sm text-muted">
-                          No other applications found for this candidate.
+                          No applications found for this candidate.
                         </p>
                       ) : (
                         <div className="flex flex-col gap-3">
