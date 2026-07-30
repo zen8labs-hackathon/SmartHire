@@ -5,7 +5,6 @@ import {
   getCampaignAppliedAdminRowById,
   listApplicationsForCandidate,
   listCampaignAppliedForAdmin,
-  listOtherApplicationsForCandidate,
 } from "@/lib/db/campaign-applied-list";
 
 function fakeDb(rows: unknown[]) {
@@ -120,34 +119,8 @@ describe("listCampaignAppliedForAdmin", () => {
   });
 });
 
-describe("listOtherApplicationsForCandidate", () => {
-  it("excludes the given application and filters by candidate", async () => {
-    const rows = [{ id: "app-2" }];
-    const db = fakeDb(rows);
-
-    const result = await listOtherApplicationsForCandidate(db, "cand-1", "app-1");
-
-    expect(result).toEqual(rows);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL"),
-      ["cand-1", "app-1"],
-    );
-  });
-
-  it("selects the raw pipeline-position columns needed to resolve a stage fallback", async () => {
-    const db = fakeDb([]);
-
-    await listOtherApplicationsForCandidate(db, "cand-1", "app-1");
-
-    const [sql] = db.query.mock.calls[0];
-    expect(sql).toContain("ca.current_job_stage_mapping_id, ca.current_sub_state_id");
-    expect(sql).toContain("ps.label AS stage_label");
-    expect(sql).toContain("pss.label AS sub_stage_label");
-  });
-});
-
 describe("listApplicationsForCandidate", () => {
-  it("includes every application for the candidate, with no exclusion filter", async () => {
+  it("includes every non-deleted application for the candidate", async () => {
     const rows = [{ id: "app-1" }, { id: "app-2" }];
     const db = fakeDb(rows);
 
@@ -160,6 +133,26 @@ describe("listApplicationsForCandidate", () => {
     );
     const [sql] = db.query.mock.calls[0];
     expect(sql).not.toContain("ca.id !=");
+  });
+
+  it("excludes applications whose job is soft-deleted via the inner join", async () => {
+    const db = fakeDb([]);
+
+    await listApplicationsForCandidate(db, "cand-1");
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL");
+  });
+
+  it("selects the raw pipeline-position columns needed to resolve a stage fallback", async () => {
+    const db = fakeDb([]);
+
+    await listApplicationsForCandidate(db, "cand-1");
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("ca.current_job_stage_mapping_id, ca.current_sub_state_id");
+    expect(sql).toContain("ps.label AS stage_label");
+    expect(sql).toContain("pss.label AS sub_stage_label");
   });
 });
 
