@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
 import { logError } from "@/lib/logger";
+import { getCurrentRequestId, withRequestId } from "@/lib/request-id";
 
 /**
  * Manual refresh fallback. `proxy.ts` now runs the same inline
@@ -22,6 +23,7 @@ import { logError } from "@/lib/logger";
  * the access token expires, rather than reacting to a 401).
  */
 export async function POST() {
+  const requestId = await getCurrentRequestId();
   const cookieStore = await cookies();
   const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
 
@@ -33,10 +35,17 @@ export async function POST() {
   const result = await refreshSession(getPool(), refreshToken, meta);
 
   if (!result.ok) {
-    logError("Session refresh failed", undefined, {
-      path: "/api/auth/refresh",
-      reason: result.error,
-    });
+    logError(
+      "Session refresh failed",
+      undefined,
+      withRequestId(
+        {
+          path: "/api/auth/refresh",
+          reason: result.error,
+        },
+        requestId,
+      ),
+    );
     for (const cookie of buildClearedCookies()) {
       cookieStore.set(cookie);
     }

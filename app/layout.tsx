@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { RequestIdFetchProvider } from "@/components/request-id-fetch-provider";
 import { ToastProvider } from "@/components/admin/toast-provider";
 import { I18nLocaleProvider } from "@/components/i18n-locale-provider";
 import "./globals.css";
@@ -31,6 +32,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col min-w-full">
+        <RequestIdFetchProvider />
         <I18nLocaleProvider>
           <ToastProvider>{children}</ToastProvider>
         </I18nLocaleProvider>
