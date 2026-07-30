@@ -8,6 +8,7 @@ import {
 } from "@/lib/llm/config";
 import { getVercelGatewayLanguageModel } from "@/lib/llm/providers/vercel-gateway";
 import type { LlmProviderId } from "@/lib/llm/types";
+import { logError, toError } from "@/lib/logger";
 
 type GenerateTextArgs = Parameters<typeof generateText>[0];
 
@@ -44,23 +45,37 @@ export async function generateTextWithFallback(
       !isLlmFallbackConfigured() ||
       parseLlmProviderId() === "vercel_gateway"
     ) {
+      logError("LLM generate failed (no fallback)", toError(primaryError), {
+        provider: parseLlmProviderId(),
+        modelId: getGlobalLlmModelId(),
+      });
       throw primaryError;
     }
     const modelId = getFallbackLlmModelId();
-    const result = await generateText({
-      ...options,
-      model: getVercelGatewayLanguageModel(modelId),
-      abortSignal: createFallbackAbortSignal?.() ?? options.abortSignal,
-    });
-    // Surface a fallback model's invalid structured output to the caller.
-    void result.output;
-    return Object.assign(result, {
-      llmMeta: {
-        provider: "vercel_gateway",
-        modelId,
-        usedFallback: true,
-      } satisfies LlmCallMeta,
-    });
+    try {
+      const result = await generateText({
+        ...options,
+        model: getVercelGatewayLanguageModel(modelId),
+        abortSignal: createFallbackAbortSignal?.() ?? options.abortSignal,
+      });
+      // Surface a fallback model's invalid structured output to the caller.
+      void result.output;
+      return Object.assign(result, {
+        llmMeta: {
+          provider: "vercel_gateway",
+          modelId,
+          usedFallback: true,
+        } satisfies LlmCallMeta,
+      });
+    } catch (fallbackError) {
+      logError("LLM generate failed (primary and fallback)", toError(fallbackError), {
+        primaryProvider: parseLlmProviderId(),
+        primaryModelId: getGlobalLlmModelId(),
+        fallbackModelId: modelId,
+        primaryError: primaryError instanceof Error ? primaryError.message : String(primaryError),
+      });
+      throw fallbackError;
+    }
   }
 }
 

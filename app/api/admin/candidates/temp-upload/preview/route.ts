@@ -1,5 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { CV_TEMP_KEY_PREFIX } from "@/lib/candidates/upload-constants";
+import { logApiError } from "@/lib/logger";
 import { createSignedDownloadUrl } from "@/lib/storage/s3";
 
 /**
@@ -24,6 +25,9 @@ export async function GET(request: Request) {
     return Response.redirect(signedUrl, 302);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create download link.";
+    logApiError("Temp-upload preview: signed download failed", err, {
+      path: "/api/admin/candidates/temp-upload/preview",
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 }

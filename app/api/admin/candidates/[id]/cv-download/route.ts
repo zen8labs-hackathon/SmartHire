@@ -2,6 +2,7 @@ import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { getCvDetailVersionById } from "@/lib/db/cv-detail-versions";
 import { getPool } from "@/lib/db/config/client";
+import { logApiError } from "@/lib/logger";
 import { createSignedDownloadUrl } from "@/lib/storage/s3";
 
 const UUID_RE =
@@ -49,6 +50,11 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.redirect(signedUrl, 302);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create download link.";
+    logApiError("CV download: signed URL failed", err, {
+      path: "/api/admin/candidates/[id]/cv-download",
+      campaignAppliedId,
+      storagePath: cvVersion.cv_storage_path,
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 }

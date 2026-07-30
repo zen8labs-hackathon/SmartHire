@@ -1,5 +1,6 @@
 import { getCandidateEvaluationReviewByToken } from "@/lib/db/candidate-evaluation-reviews";
 import { getPool } from "@/lib/db/config/client";
+import { logApiError } from "@/lib/logger";
 import { downloadObject } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ token: string }> };
@@ -19,7 +20,12 @@ export async function GET(_request: Request, context: RouteContext) {
   let buf: Buffer;
   try {
     buf = await downloadObject(review.filled_pdf_storage_path);
-  } catch {
+  } catch (e) {
+    logApiError("Evaluation preview: S3 download failed", e, {
+      path: "/api/public/evaluation-preview/[token]",
+      reviewId: review.id,
+      storagePath: review.filled_pdf_storage_path,
+    });
     return new Response("Not found", { status: 404 });
   }
 

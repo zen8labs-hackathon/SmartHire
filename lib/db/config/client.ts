@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import type { QueryResultRow } from "pg";
+import { logApiError, logError } from "@/lib/logger";
 
 // Row types across lib/db/*.ts follow `pg`'s default (unconfigured) text-format
 // type parsers, which differ from this repo's existing Supabase-js row types:
@@ -33,12 +34,16 @@ export function getPool(): Pool {
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
+    logError("DB pool init failed: missing DATABASE_URL");
     throw new Error(
       "Missing DATABASE_URL environment variable (required for lib/db queries)",
     );
   }
 
   pool = new Pool({ connectionString });
+  pool.on("error", (err) => {
+    logApiError("Idle DB client error", err);
+  });
   return pool;
 }
 
@@ -81,6 +86,7 @@ export async function withTransaction<T>(
     return result;
   } catch (error) {
     await client.query("ROLLBACK");
+    logApiError("Transaction rolled back", error);
     throw error;
   } finally {
     client.release();

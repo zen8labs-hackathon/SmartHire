@@ -9,6 +9,7 @@ import {
   REFRESH_TOKEN_COOKIE,
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
+import { logError } from "@/lib/logger";
 
 /**
  * Manual refresh fallback. `proxy.ts` now runs the same inline
@@ -32,6 +33,10 @@ export async function POST() {
   const result = await refreshSession(getPool(), refreshToken, meta);
 
   if (!result.ok) {
+    logError("Session refresh failed", undefined, {
+      path: "/api/auth/refresh",
+      reason: result.error,
+    });
     for (const cookie of buildClearedCookies()) {
       cookieStore.set(cookie);
     }
