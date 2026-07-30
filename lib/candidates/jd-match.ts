@@ -104,6 +104,10 @@ export async function runJdMatchForCandidate(
     return { ok: false, error: "Application not found" };
   }
 
+  if (!campaignApplied.job_id) {
+    return { ok: true, skipped: true, reason: "no_job_assigned" };
+  }
+
   if (!campaignApplied.active_cv_version_id) {
     return { ok: true, skipped: true, reason: "no_active_cv" };
   }

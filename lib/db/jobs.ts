@@ -338,3 +338,15 @@ export async function softDeleteJob(
   );
   return rows[0] ?? null;
 }
+
+/**
+ * Hard delete, cascading to job_stage_mappings/job_allowed_profiles/
+ * job_allowed_chapters/job_evaluate_templates -- only for rolling back a job
+ * created moments earlier in the same request (e.g. its JD file failed to
+ * reach its final storage key), never as a user-facing "delete this job"
+ * action. Safe specifically because a just-created job has no
+ * campaign_applied rows yet.
+ */
+export async function hardDeleteJob(db: QueryExecutor, id: string): Promise<void> {
+  await db.query(`DELETE FROM jobs WHERE id = $1`, [id]);
+}

@@ -36,15 +36,21 @@ describe("validateCvUploadRequest", () => {
     if (!result.ok) expect(result.error).toBe("Only .pdf and .docx files are allowed.");
   });
 
-  it("rejects a missing jobId", async () => {
+  it("accepts a missing jobId (unassigned/pool upload, CJ4X9M) and skips the job lookup", async () => {
     const db = fakeDb();
     const result = await validateCvUploadRequest(db, { ...baseBody, jobId: null });
-    expect(result).toEqual({
-      ok: false,
-      error: "Select a target campaign before uploading.",
-      status: 400,
-    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.jobId).toBeNull();
     expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("accepts an empty-string jobId the same as a missing one", async () => {
+    const db = fakeDb();
+    const result = await validateCvUploadRequest(db, { ...baseBody, jobId: "" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.jobId).toBeNull();
   });
 
   it("rejects a non-UUID jobId", async () => {

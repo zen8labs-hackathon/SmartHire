@@ -45,6 +45,6 @@ export function campaignAppliedAdminRowToCandidateDetailRow(
       r.candidate_skills.length > 0 ? r.candidate_skills.join(", ") : "—",
     expectedSalary: r.expected_salary?.trim() || null,
     sourceLabel: formatCandidateSourceLabel(r.source, r.source_other),
-    jobTitle: r.job_position,
+    jobTitle: r.job_position ?? "—",
   };
 }

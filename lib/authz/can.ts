@@ -87,9 +87,9 @@ export async function can(
 export async function canViewJob(
   db: QueryExecutor,
   access: StaffProfileAccess,
-  jobId: string,
+  jobId: string | null,
 ): Promise<boolean> {
-  return can(db, access, "job.view", { jobId });
+  return can(db, access, "job.view", { jobId: jobId ?? undefined });
 }
 
 /**
@@ -101,20 +101,31 @@ export async function canViewJob(
 export async function filterViewableJobIds(
   db: QueryExecutor,
   access: StaffProfileAccess,
-  jobIds: readonly string[],
-): Promise<Set<string>> {
+  jobIds: readonly (string | null)[],
+): Promise<Set<string | null>> {
   const distinctIds = [...new Set(jobIds)];
   if (access.isHr) return new Set(distinctIds);
   if (!hasRolePermission(access, "job.view")) return new Set();
-  return filterJobIdsViewableViaAcl(db, access.userId, distinctIds);
+  // A `null` job id (CJ4X9M: unassigned/pool application) has no job to
+  // scope an ACL check against -- same "no jobId => viewable" rule `can()`
+  // applies for job.view above.
+  const realIds = distinctIds.filter((id): id is string => id != null);
+  const viewable = await filterJobIdsViewableViaAcl(
+    db,
+    access.userId,
+    realIds,
+  );
+  const result = new Set<string | null>(viewable);
+  if (distinctIds.includes(null)) result.add(null);
+  return result;
 }
 
 export async function canViewSalary(
   db: QueryExecutor,
   access: StaffProfileAccess,
-  jobId: string,
+  jobId: string | null,
 ): Promise<boolean> {
-  return can(db, access, "salary.view", { jobId });
+  return can(db, access, "salary.view", { jobId: jobId ?? undefined });
 }
 
 /** Create new JDs — HR or any chapter head. */
