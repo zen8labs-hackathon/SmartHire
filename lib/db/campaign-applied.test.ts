@@ -11,6 +11,8 @@ import {
   listCampaignAppliedByJob,
   lockCampaignAppliedForJdMatch,
   setActiveCvVersion,
+  softDeleteAllCampaignAppliedForCandidate,
+  softDeleteAllCampaignAppliedForJob,
   softDeleteCampaignApplied,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
@@ -319,6 +321,36 @@ describe("softDeleteCampaignApplied", () => {
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = now(), updated_at = now()"),
       ["app-1"],
+    );
+  });
+});
+
+describe("softDeleteAllCampaignAppliedForCandidate", () => {
+  it("soft-deletes every live application for the candidate, scoped by candidate_id", async () => {
+    const rows = [{ id: "app-1" }, { id: "app-2" }];
+    const db = fakeDb([rows]);
+
+    const result = await softDeleteAllCampaignAppliedForCandidate(db, "cand-1");
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE candidate_id = $1 AND deleted_at IS NULL"),
+      ["cand-1"],
+    );
+  });
+});
+
+describe("softDeleteAllCampaignAppliedForJob", () => {
+  it("soft-deletes every live application for the job, scoped by job_id", async () => {
+    const rows = [{ id: "app-1", candidate_id: "cand-1" }, { id: "app-2", candidate_id: "cand-2" }];
+    const db = fakeDb([rows]);
+
+    const result = await softDeleteAllCampaignAppliedForJob(db, "job-1");
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE job_id = $1 AND deleted_at IS NULL"),
+      ["job-1"],
     );
   });
 });

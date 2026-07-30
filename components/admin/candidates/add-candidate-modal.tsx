@@ -1623,7 +1623,7 @@ export function AddCandidateModal({
                 variant="secondary"
                 isDisabled={hasIncompleteCvs}
               >
-                Close
+                Done
               </Button>
             </Modal.Footer>
           </Modal.Dialog>

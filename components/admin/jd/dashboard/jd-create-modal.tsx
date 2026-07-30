@@ -43,7 +43,6 @@ export function JdCreateModal() {
     formError,
     formSubmitting,
     createFieldErrors,
-    discardJdDraft,
     handleSave,
     allPipelineStages,
     selectedStageIds,
@@ -100,84 +99,95 @@ export function JdCreateModal() {
               }}
             />
             {/* File upload (optional) */}
-            <Card
-              variant="secondary"
+            <div
               className={
-                jdDragOver
-                  ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                jdUploadPhase === "uploading" ||
+                jdUploadPhase === "extracting"
+                  ? "cv-processing-highlight"
                   : undefined
               }
             >
-              <Card.Content
-                className="items-center gap-3 py-6 text-center"
-                onDragOver={(e: DragEvent) => {
-                  if (
-                    jdUploadPhase === "uploading" ||
-                    jdUploadPhase === "extracting"
-                  )
-                    return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "copy";
-                  setJdDragOver(true);
-                }}
-                onDragLeave={() => setJdDragOver(false)}
-                onDrop={(e: DragEvent) => {
-                  if (
-                    jdUploadPhase === "uploading" ||
-                    jdUploadPhase === "extracting"
-                  )
-                    return;
-                  e.preventDefault();
-                  setJdDragOver(false);
-                  const f = e.dataTransfer.files?.[0];
-                  if (f) void ingestJdFile(f);
-                }}
+              <Card
+                variant="secondary"
+                className={
+                  jdDragOver
+                    ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                    : undefined
+                }
               >
-                <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
-                  {jdUploadPhase === "done" ? (
-                    <CheckCircleIcon className="size-6 text-success" />
-                  ) : (
-                    <span className="text-lg">+</span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-foreground">
-                  Attach JD Document{" "}
-                  <span className="font-normal text-danger">*</span>
-                </p>
-                <p className="text-xs text-muted">
-                  PDF, DOCX or TXT — max 10 MB. After upload, AI fills the form
-                  for you to review.
-                </p>
-                {jdUploadPhase === "uploading" && (
-                  <p className="text-xs text-accent">Uploading…</p>
-                )}
-                {jdUploadPhase === "extracting" && (
-                  <p className="text-xs text-accent">
-                    Reading document with AI…
-                  </p>
-                )}
-                {jdUploadPhase === "done" && jdSelectedFileName && (
-                  <p className="text-xs font-medium text-success">
-                    ✓ {jdSelectedFileName}
-                  </p>
-                )}
-                {(jdUploadPhase === "done" || jdUploadPhase === "error") &&
-                  jdUploadError && (
-                    <p className="text-xs text-danger">{jdUploadError}</p>
-                  )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  isDisabled={
-                    jdUploadPhase === "uploading" ||
-                    jdUploadPhase === "extracting"
-                  }
-                  onPress={() => jdFileInputRef.current?.click()}
+                <Card.Content
+                  className="items-center gap-3 py-6 text-center"
+                  onDragOver={(e: DragEvent) => {
+                    if (
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setJdDragOver(true);
+                  }}
+                  onDragLeave={() => setJdDragOver(false)}
+                  onDrop={(e: DragEvent) => {
+                    if (
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    setJdDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) void ingestJdFile(f);
+                  }}
                 >
-                  Browse Files
-                </Button>
-              </Card.Content>
-            </Card>
+                  <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    {jdUploadPhase === "done" ? (
+                      <CheckCircleIcon className="size-6 text-success" />
+                    ) : (
+                      <span className="text-lg">+</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Attach JD Document{" "}
+                    <span className="font-normal text-danger">*</span>
+                  </p>
+                  <p className="text-xs text-muted">
+                    PDF, DOCX or TXT — max 10 MB. After upload, AI fills the form
+                    for you to review.
+                  </p>
+                  {jdUploadPhase === "uploading" && (
+                    <p className="rounded-lg bg-accent/10 px-3 py-1.5 text-sm font-semibold text-accent animate-pulse">
+                      Uploading…
+                    </p>
+                  )}
+                  {jdUploadPhase === "extracting" && (
+                    <p className="rounded-lg bg-accent/10 px-3 py-1.5 text-sm font-semibold text-accent animate-pulse">
+                      Reading document with AI…
+                    </p>
+                  )}
+                  {jdUploadPhase === "done" && jdSelectedFileName && (
+                    <p className="text-xs font-medium text-success">
+                      ✓ {jdSelectedFileName}
+                    </p>
+                  )}
+                  {(jdUploadPhase === "done" || jdUploadPhase === "error") &&
+                    jdUploadError && (
+                      <p className="text-xs text-danger">{jdUploadError}</p>
+                    )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={
+                      jdUploadPhase === "uploading" ||
+                      jdUploadPhase === "extracting"
+                    }
+                    onPress={() => jdFileInputRef.current?.click()}
+                  >
+                    Browse Files
+                  </Button>
+                </Card.Content>
+              </Card>
+            </div>
 
             {jdUploadPhase !== "done" ? (
               <p className="rounded-xl border border-dashed border-divider px-4 py-6 text-center text-xs text-muted">
@@ -348,25 +358,12 @@ export function JdCreateModal() {
 
           <Modal.Footer className="justify-end border-t border-divider px-6 py-5">
             <Button
-              variant="secondary"
-              onPress={() => void discardJdDraft()}
-              isDisabled={
-                formSubmitting ||
-                jdUploadPhase === "uploading" ||
-                jdUploadPhase === "extracting"
-              }
+              variant="primary"
+              isDisabled={formSubmitting || jdUploadPhase !== "done"}
+              onPress={() => void handleSave()}
             >
-              Close
+              {formSubmitting ? "Saving…" : "Create"}
             </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                isDisabled={formSubmitting || jdUploadPhase !== "done"}
-                onPress={() => void handleSave()}
-              >
-                {formSubmitting ? "Saving…" : "Create"}
-              </Button>
-            </div>
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
