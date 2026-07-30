@@ -12,7 +12,7 @@ export type JobAccessAuthResult =
  */
 export async function requireJobViewAccess(
   access: StaffProfileAccess,
-  jobId: string,
+  jobId: string | null,
 ): Promise<JobAccessAuthResult> {
   const allowed = await canViewJob(getPool(), access, jobId);
   if (!allowed) {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assignJobToCampaignApplied,
   countActiveApplicationsByJobIds,
   createApplicationWithInitialCv,
   createCampaignApplied,
@@ -164,6 +165,25 @@ describe("createCampaignApplied", () => {
       null,
     ]);
   });
+
+  it("accepts a null jobId for an unassigned/pool application (CJ4X9M)", async () => {
+    const row = { id: "app-1", job_id: null };
+    const db = fakeDb([[row]]);
+
+    const result = await createCampaignApplied(db, {
+      candidateId: "cand-1",
+      jobId: null,
+    });
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO campaign_applied"), [
+      "cand-1",
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
 });
 
 describe("updateCampaignApplied", () => {
@@ -231,6 +251,30 @@ describe("updateCampaignApplied", () => {
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).not.toContain("active_cv_version_id");
     expect(values).toEqual(["app-1", "completed"]);
+  });
+});
+
+describe("assignJobToCampaignApplied", () => {
+  it("attaches a job to an unassigned/pool application (CJ4X9M)", async () => {
+    const row = { id: "app-1", job_id: "job-1" };
+    const db = fakeDb([[row]]);
+
+    const result = await assignJobToCampaignApplied(db, "app-1", "job-1");
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("SET job_id = $2"),
+      ["app-1", "job-1"],
+    );
+    expect(db.query.mock.calls[0][0]).toContain("WHERE id = $1 AND job_id IS NULL");
+  });
+
+  it("returns null (no-op) when the application already has a job (lost race or already assigned)", async () => {
+    const db = fakeDb([[]]);
+
+    const result = await assignJobToCampaignApplied(db, "app-1", "job-1");
+
+    expect(result).toBeNull();
   });
 });
 
