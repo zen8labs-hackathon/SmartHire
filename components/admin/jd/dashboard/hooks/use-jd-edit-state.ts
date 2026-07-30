@@ -6,6 +6,7 @@ import { normalizeFormText } from "@/lib/jd/normalize-text";
 import { normalizeHireTypeForForm } from "../helpers";
 import { MAX_JD_BYTES, isAllowedJdFilename } from "@/lib/jd/upload-constants";
 import { useToast } from "@/components/admin/toast-provider";
+import { logError } from "@/lib/logger";
 
 const DEFAULT_EDIT_FORM: JdEditFormData = {
   position: "",
@@ -123,7 +124,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         throw new Error(json.error ?? "Failed to load pipeline stages.");
       }
     } catch (e) {
-      console.error("Failed to load pipeline stages for editing:", e);
+      logError("Failed to load pipeline stages for editing", e instanceof Error ? e : undefined);
       toast.error(e instanceof Error ? e.message : "Failed to load pipeline stages for editing.");
     } finally {
       setEditStagesLoading(false);

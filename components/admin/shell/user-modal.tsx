@@ -10,6 +10,7 @@ import {
 } from "@/app/account/actions";
 import { useToast } from "@/components/admin/toast-provider";
 import { Loader2, User, KeyRound, Shield, Compass, Mail } from "lucide-react";
+import { logError } from "@/lib/logger";
 
 export type UserModalProps = {
   open: boolean;
@@ -53,7 +54,7 @@ export function UserModal({
         setUsername(details.username);
         setChapters(details.chapterNames);
       } catch (err: any) {
-        console.error("Error loading user profile details", err);
+        logError("Error loading user profile details", err instanceof Error ? err : undefined);
       } finally {
         setLoadingProfile(false);
       }

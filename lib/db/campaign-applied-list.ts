@@ -133,7 +133,7 @@ const ADMIN_ROW_SELECT = `
 const ADMIN_ROW_JOIN = `
   FROM campaign_applied ca
   JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-  LEFT JOIN jobs j ON j.id = ca.job_id
+  JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
   LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
   LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
   LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
@@ -175,17 +175,18 @@ export type OtherApplicationForCandidateRow = {
   sub_stage_is_passed: boolean | null;
 };
 
-async function queryApplicationsForCandidate(
+/**
+ * Every (non-deleted) application belonging to a person, for a job that
+ * itself hasn't been soft-deleted -- used by the "all applications" panel
+ * on a candidate's detail drawer and the candidate-detail page's
+ * CV-versions-by-application list (`/admin/candidate-detail/[id]`). Person
+ * identity is a real FK now, so this is a direct lookup (no more deriving
+ * contact info from `parsed_payload` and full-table-scanning for matches).
+ */
+export async function listApplicationsForCandidate(
   db: QueryExecutor,
   candidateId: string,
-  excludeCampaignAppliedId: string | null,
 ): Promise<OtherApplicationForCandidateRow[]> {
-  const where = excludeCampaignAppliedId
-    ? "WHERE ca.candidate_id = $1 AND ca.id != $2 AND ca.deleted_at IS NULL"
-    : "WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL";
-  const values = excludeCampaignAppliedId
-    ? [candidateId, excludeCampaignAppliedId]
-    : [candidateId];
   const { rows } = await db.query<OtherApplicationForCandidateRow>(
     `SELECT
        ca.id, ca.created_at, ca.job_id, j.position AS job_position,
@@ -195,44 +196,17 @@ async function queryApplicationsForCandidate(
        ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
        pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
      FROM campaign_applied ca
-     JOIN candidates c ON c.id = ca.candidate_id
-     LEFT JOIN jobs j ON j.id = ca.job_id
+     JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
+     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
-     ${where}
+     WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
      ORDER BY ca.id DESC`,
-    values,
+    [candidateId],
   );
   return rows;
-}
-
-/**
- * Every other (non-deleted) application belonging to the same person as
- * `excludeCampaignAppliedId`'s candidate -- used by the "other applications"
- * panel on a candidate's detail drawer. Person identity is a real FK now, so
- * this is a direct lookup (no more deriving contact info from `parsed_payload`
- * and full-table-scanning for matches).
- */
-export async function listOtherApplicationsForCandidate(
-  db: QueryExecutor,
-  candidateId: string,
-  excludeCampaignAppliedId: string,
-): Promise<OtherApplicationForCandidateRow[]> {
-  return queryApplicationsForCandidate(db, candidateId, excludeCampaignAppliedId);
-}
-
-/**
- * Every (non-deleted) application belonging to a person, current one
- * included -- used by the candidate-detail page's CV-versions-by-application
- * list (`/admin/candidate-detail/[id]`).
- */
-export async function listApplicationsForCandidate(
-  db: QueryExecutor,
-  candidateId: string,
-): Promise<OtherApplicationForCandidateRow[]> {
-  return queryApplicationsForCandidate(db, candidateId, null);
 }
 
 /**

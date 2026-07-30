@@ -23,6 +23,7 @@ import {
   linkSsoIdentity,
   type UserRow,
 } from "@/lib/db/users";
+import { logError, logApiError } from "@/lib/logger";
 
 const SSO_PROVIDER = "azure_ad";
 
@@ -79,11 +80,18 @@ export async function GET(request: NextRequest) {
     codeVerifier: stateCookie.codeVerifier,
   });
   if (!tokenResult.ok) {
+    logError("Azure SSO token exchange failed", undefined, {
+      path: "/api/auth/azure/callback",
+      reason: tokenResult.error,
+    });
     return loginRedirect(request, "sso-failed");
   }
 
   const profile = await fetchGraphProfile(tokenResult.accessToken);
   if (!profile) {
+    logError("Azure SSO Graph profile fetch failed", undefined, {
+      path: "/api/auth/azure/callback",
+    });
     return loginRedirect(request, "sso-failed");
   }
 
@@ -132,7 +140,10 @@ export async function GET(request: NextRequest) {
     response.cookies.set(buildAccessTokenCookie(session.accessToken));
     response.cookies.set(buildRefreshTokenCookie(session.refreshToken));
     return response;
-  } catch {
+  } catch (error) {
+    logApiError("Azure SSO callback failed", error, {
+      path: "/api/auth/azure/callback",
+    });
     return loginRedirect(request, "sso-failed");
   }
 }

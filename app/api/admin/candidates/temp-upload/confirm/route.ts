@@ -15,6 +15,7 @@ import { createCandidate } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 import { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
+import { logApiError } from "@/lib/logger";
 import { downloadObject, moveObject } from "@/lib/storage/s3";
 import { buildTimestampedStorageFilename } from "@/lib/storage/storage-key";
 
@@ -176,6 +177,11 @@ export async function POST(request: Request) {
       );
     }
     const message = e instanceof Error ? e.message : "Could not create candidate record.";
+    logApiError("Temp-upload confirm: create candidate failed", e, {
+      path: "/api/admin/candidates/temp-upload/confirm",
+      jobId,
+      tempKey,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 
@@ -196,6 +202,15 @@ export async function POST(request: Request) {
     );
     const message =
       e instanceof Error ? e.message : "Could not move the uploaded file to its final location.";
+    // The DB row already exists and points at `storagePath` -- this is a
+    // known reconciliation gap (see CV9X7R vault notes): no auto-retry job
+    // exists yet, orphan/incomplete-move handling is deferred to future
+    // cron/queue infra, not built here.
+    logApiError("Temp-upload confirm: moveObject failed", e, {
+      path: "/api/admin/candidates/temp-upload/confirm",
+      campaignAppliedId: application.id,
+      storagePath,
+    });
     return Response.json(
       { error: `Could not finalize the CV upload: ${message}. Please retry.` },
       { status: 500 },

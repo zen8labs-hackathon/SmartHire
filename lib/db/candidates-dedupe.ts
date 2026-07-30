@@ -119,7 +119,7 @@ export async function findCandidatesByDedupeSignals(
        ps.label AS stage_label, pss.label AS sub_stage_label
      FROM campaign_applied ca
      JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-     LEFT JOIN jobs j ON j.id = ca.job_id
+     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
@@ -234,6 +234,9 @@ export async function listDedupedCandidatesForAdmin(
        SELECT DISTINCT ON (candidate_id) *
        FROM campaign_applied
        WHERE deleted_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM jobs j WHERE j.id = campaign_applied.job_id AND j.deleted_at IS NULL
+         )
        ORDER BY candidate_id, id DESC
      )
      SELECT
@@ -251,7 +254,7 @@ export async function listDedupedCandidatesForAdmin(
        count(*) OVER() AS total_count
      FROM candidates c
      JOIN latest_apps la ON la.candidate_id = c.id
-     LEFT JOIN jobs j ON j.id = la.job_id
+     JOIN jobs j ON j.id = la.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = la.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = la.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id

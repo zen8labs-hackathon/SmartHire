@@ -19,6 +19,7 @@ import {
   llmInferenceDisabledReason,
   type LlmCallMeta,
 } from "@/lib/llm";
+import { logError, toError } from "@/lib/logger";
 
 const requirementCheckSchema = z.object({
   requirement: z
@@ -232,6 +233,7 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     requirements = out.requirements;
     llmMeta = out.llmMeta;
   } catch (e) {
+    logError("JD-CV match AI failed, formula only", toError(e));
     const msg = e instanceof Error ? e.message : String(e);
     const rationale =
       `${formula.summary} AI scoring failed; using formula anchor only (${msg.slice(0, 240)}). Score ${formulaScore}.`.slice(
