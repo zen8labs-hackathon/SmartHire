@@ -17,6 +17,7 @@ import {
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
+import { getCurrentRequestId, withRequestId } from "@/lib/request-id";
 
 export type AuthFormState = { error?: string; message?: string } | null;
 
@@ -36,11 +37,12 @@ export async function signIn(
   }
 
   const meta = await getRequestMeta();
+  const requestId = await getCurrentRequestId();
   let result: Awaited<ReturnType<typeof login>>;
   try {
     result = await login(getPool(), email, password, meta);
   } catch (error) {
-    logApiError("Password login threw", error, { path: "/login" });
+    logApiError("Password login threw", error, withRequestId({ path: "/login" }, requestId));
     return { error: "Sign-in failed. Please try again." };
   }
 

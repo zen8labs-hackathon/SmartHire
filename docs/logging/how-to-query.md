@@ -44,6 +44,9 @@ Open **Explore** (sidebar icon) → select datasource **Loki**.
 ### Search by X-Request-Id (fastest — indexed label)
 
 Promtail stores the JSON field `X-Request-Id` as the Loki label `request_id`.
+After deploying the request-id propagation changes, browser `fetch("/api/...")`
+calls will automatically send `X-Request-Id`, and API responses will echo it
+back so you can copy it from DevTools.
 
 ```
 {service="smarthire",request_id="paste-your-id-here"}
@@ -66,6 +69,16 @@ Or with Drilldown-compatible label:
 ```
 {container=~"smarthire_app.*"} |= "ECONNREFUSED"
 {container=~"smarthire_app.*"} | json | msg=~".*timeout.*"
+```
+
+### When you only see `unknown_service`
+
+Next.js startup/runtime lines are plain text, not Pino JSON, so Drilldown may
+group them under `unknown_service`. To verify the stack is still ingesting app
+logs, query by container first:
+
+```
+{container="smarthire_dev_app"}
 ```
 
 ### Combine filters
