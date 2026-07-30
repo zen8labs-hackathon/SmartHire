@@ -17,7 +17,8 @@ import {
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
-import { getCurrentRequestId, withRequestId } from "@/lib/request-id";
+import { withRequestId } from "@/lib/request-id";
+import { getCurrentRequestId } from "@/lib/request-id.server";
 
 export type AuthFormState = { error?: string; message?: string } | null;
 
