@@ -17,6 +17,7 @@ import {
 import { getPool } from "@/lib/db/config/client";
 import { getJobEvaluateTemplate } from "@/lib/db/job-permissions";
 import { loadCombinedReviewerNotesForEvaluation } from "@/lib/evaluation/combine-reviewer-notes";
+import { logApiError } from "@/lib/logger";
 import {
   createSignedDownloadUrl,
   deleteObject,
@@ -82,6 +83,11 @@ export async function GET(request: Request, { params }: RouteContext) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create download link.";
+    logApiError("Evaluation GET: signed download failed", err, {
+      path: "/api/admin/candidates/[id]/evaluations",
+      campaignAppliedId,
+      step: "download",
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 }
@@ -147,6 +153,16 @@ export async function POST(request: Request, { params }: RouteContext) {
     );
   }
 
+  if (!application.job_id) {
+    return Response.json(
+      {
+        error:
+          "This candidate isn't assigned to a job yet. Assign a job before generating an evaluation.",
+      },
+      { status: 400 },
+    );
+  }
+
   const template = await getJobEvaluateTemplate(db, application.job_id);
   if (!template?.storage_path) {
     return Response.json(
@@ -163,6 +179,12 @@ export async function POST(request: Request, { params }: RouteContext) {
     templateBytes = await downloadObject(template.storage_path);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not load evaluation template.";
+    logApiError("Evaluation POST: template download failed", e, {
+      path: "/api/admin/candidates/[id]/evaluations",
+      campaignAppliedId,
+      step: "template",
+      storagePath: template.storage_path,
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -197,6 +219,11 @@ export async function POST(request: Request, { params }: RouteContext) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "PDF render failed.";
+    logApiError("Evaluation POST: PDF render failed", e, {
+      path: "/api/admin/candidates/[id]/evaluations",
+      campaignAppliedId,
+      step: "render",
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -206,6 +233,12 @@ export async function POST(request: Request, { params }: RouteContext) {
     await uploadObject(outPath, Buffer.from(pdfOut), "application/pdf");
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not upload generated PDF.";
+    logApiError("Evaluation POST: upload failed", e, {
+      path: "/api/admin/candidates/[id]/evaluations",
+      campaignAppliedId,
+      step: "upload",
+      storagePath: outPath,
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -230,6 +263,12 @@ export async function POST(request: Request, { params }: RouteContext) {
   } catch (e) {
     await deleteObject(outPath).catch(() => {});
     const msg = e instanceof Error ? e.message : "Insert failed.";
+    logApiError("Evaluation POST: insert failed", e, {
+      path: "/api/admin/candidates/[id]/evaluations",
+      campaignAppliedId,
+      step: "insert",
+      storagePath: outPath,
+    });
     return Response.json({ error: msg }, { status: 500 });
   }
 

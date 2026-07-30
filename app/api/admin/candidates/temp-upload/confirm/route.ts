@@ -3,6 +3,7 @@ import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 
 import { runDedupePrecheck } from "@/lib/candidates/check-duplicate-precheck";
 import { cvContentSha256Hex, cvFileSha256Hex } from "@/lib/candidates/cv-hash";
+import { deleteCandidateIfNoOtherApplications } from "@/lib/candidates/merge-duplicate-application";
 import { extractContactFromText } from "@/lib/candidates/regex-contact-extraction";
 import { CV_KEY_PREFIX, CV_TEMP_KEY_PREFIX } from "@/lib/candidates/upload-constants";
 import {
@@ -14,8 +15,9 @@ import { createCandidate } from "@/lib/db/candidates";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 import { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
+import { logApiError } from "@/lib/logger";
 import { downloadObject, moveObject } from "@/lib/storage/s3";
-import { buildStorageFilename } from "@/lib/storage/storage-key";
+import { buildTimestampedStorageFilename } from "@/lib/storage/storage-key";
 
 type Body = CvUploadRequestBody & {
   tempKey?: string;
@@ -147,8 +149,8 @@ export async function POST(request: Request) {
         expectedSalary,
         cv: {
           sourceEvent: "initial_upload",
-          buildCvStoragePath: (applicationId) =>
-            `${CV_KEY_PREFIX}${candidate.id}/${applicationId}/${buildStorageFilename(baseName, ext)}`,
+          buildCvStoragePath: () =>
+            `${CV_KEY_PREFIX}${candidate.id}/${buildTimestampedStorageFilename(baseName, ext)}`,
           originalFilename: filename,
           mimeType,
           parsingStatus: "pending",
@@ -175,6 +177,11 @@ export async function POST(request: Request) {
       );
     }
     const message = e instanceof Error ? e.message : "Could not create candidate record.";
+    logApiError("Temp-upload confirm: create candidate failed", e, {
+      path: "/api/admin/candidates/temp-upload/confirm",
+      jobId,
+      tempKey,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 
@@ -183,16 +190,29 @@ export async function POST(request: Request) {
   try {
     await moveObject(tempKey, storagePath);
   } catch (e) {
+    // Never leave a persisted candidate/application pointing at a CV that
+    // never made it out of `cv-temp/`: an age-based cleanup job for that
+    // prefix could later delete it out from under what looks like a fully
+    // confirmed candidate. Roll back instead -- this candidate/application
+    // was only just created in this same request, so undoing it is safe,
+    // guarded by deleteCandidateIfNoOtherApplications rather than assumed
+    // (see its docstring for why that guard matters).
+    await deleteCandidateIfNoOtherApplications(getPool(), application.candidate_id).catch(
+      () => {},
+    );
     const message =
       e instanceof Error ? e.message : "Could not move the uploaded file to its final location.";
     // The DB row already exists and points at `storagePath` -- this is a
     // known reconciliation gap (see CV9X7R vault notes): no auto-retry job
     // exists yet, orphan/incomplete-move handling is deferred to future
     // cron/queue infra, not built here.
+    logApiError("Temp-upload confirm: moveObject failed", e, {
+      path: "/api/admin/candidates/temp-upload/confirm",
+      campaignAppliedId: application.id,
+      storagePath,
+    });
     return Response.json(
-      {
-        error: `Candidate record was created, but the file failed to move to its final location: ${message}`,
-      },
+      { error: `Could not finalize the CV upload: ${message}. Please retry.` },
       { status: 500 },
     );
   }

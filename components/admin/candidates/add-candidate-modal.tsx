@@ -204,7 +204,9 @@ function HistoryIcon({ className }: { className?: string }) {
 }
 
 /**
- * - `undefined` — Candidates page: choose a campaign before uploading.
+ * - `undefined` — Candidates page: a campaign is optional. Uploading with no
+ *   job selected banks the CV in the unassigned candidate pool (CJ4X9M) --
+ *   it can be assigned to a job later from the candidate's profile.
  * - `{ jobOpeningId, title }` — Job description pipeline: uploads are tied to this opening (JD match + AI).
  * - `"no_opening_linked"` — JD context but no `job_openings` row points at this JD yet.
  */
@@ -331,7 +333,10 @@ export function AddCandidateModal({
       : jobKey;
 
   const isCampaignMissing = !isCampaignLocked && selectedJobId == null;
-  const isUploadDisabled = isCampaignBlocked || isCampaignMissing;
+  // CJ4X9M: outside the JD-pipeline flow a job is optional -- a CV uploaded
+  // with no job selected banks in the candidate pool. Only the JD-pipeline's
+  // hard "no_opening_linked" block still disables uploads.
+  const isUploadDisabled = isCampaignBlocked;
 
   /** Fetches this row's own latest name/email/phone (already AI-parsed by
    * the time this is called, since `/process` awaits parsing before
@@ -1069,10 +1074,6 @@ export function AddCandidateModal({
       );
       return false;
     }
-    if (isCampaignMissing) {
-      triggerError("Select a target campaign before uploading CVs.");
-      return false;
-    }
     if (!isAllowedCvFilename(file.name)) {
       triggerError("Only PDF or DOCX files are supported.");
       return false;
@@ -1187,8 +1188,13 @@ export function AddCandidateModal({
                     <div>
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Target campaign
-                        {!isCampaignLocked ? (
+                        {!isCampaignLocked && isJdPipeline ? (
                           <span className="ml-1 text-danger">*</span>
+                        ) : null}
+                        {!isCampaignLocked && !isJdPipeline ? (
+                          <span className="ml-1 font-normal normal-case text-muted/70">
+                            (optional)
+                          </span>
                         ) : null}
                       </Label>
                       {isCampaignLocked &&
@@ -1204,7 +1210,11 @@ export function AddCandidateModal({
                         </div>
                       ) : (
                         <Select
-                          placeholder="Select a campaign…"
+                          placeholder={
+                            isJdPipeline
+                              ? "Select a campaign…"
+                              : "No job — add to candidate pool"
+                          }
                           value={jobKey}
                           onChange={(key) => {
                             if (typeof key === "string") setJobKey(key);
@@ -1232,9 +1242,16 @@ export function AddCandidateModal({
                         </Select>
                       )}
                       {isCampaignMissing ? (
-                        <p className="mt-1.5 text-xs text-muted">
-                          Required before you can upload CVs.
-                        </p>
+                        isJdPipeline ? (
+                          <p className="mt-1.5 text-xs text-muted">
+                            Required before you can upload CVs.
+                          </p>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-muted">
+                            No job selected — CVs will be added to the
+                            candidate pool and can be assigned to a job later.
+                          </p>
+                        )
                       ) : null}
                     </div>
 
@@ -1296,8 +1313,8 @@ export function AddCandidateModal({
                         />
                       </TextField>
                       <p className="mt-1.5 text-xs text-muted">
-                        Only visible to HR and the chapter head in the
-                        evaluation view.
+                        Only visible to HR and the chapter head in the evaluation
+                        view.
                       </p>
                     </div>
 
@@ -1314,8 +1331,8 @@ export function AddCandidateModal({
                         Run AI JD-match scoring
                       </label>
                       <p className="mt-1.5 text-xs text-muted">
-                        Applies to every CV uploaded in this session, right
-                        after AI parsing finishes.
+                        Applies to every CV uploaded in this session, right after
+                        AI parsing finishes.
                       </p>
                     </div>
                   </div>
@@ -1349,14 +1366,16 @@ export function AddCandidateModal({
                       }}
                     >
                       <p className="text-sm font-semibold text-foreground">
-                        {isCampaignMissing
+                        {isCampaignMissing && isJdPipeline
                           ? "Select a target campaign first"
                           : "Drop CVs here to start ingestion"}
                       </p>
-                      <p className="mt-1.5 max-w-xs text-xs text-muted">
-                        {isCampaignMissing
+                      <p className="mt-2 max-w-sm text-xs text-muted">
+                        {isCampaignMissing && isJdPipeline
                           ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                          : "PDF or DOCX, max 25MB each. Parsing starts automatically after upload."}
+                          : isCampaignMissing
+                            ? "No job selected — CVs go to the candidate pool and can be assigned to a job later. Select or drop one or more PDF or DOCX files (max 25MB each)."
+                            : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
                       </p>
                       <div className="mt-3 flex justify-center">
                         <Button
@@ -1671,7 +1690,7 @@ export function AddCandidateModal({
                   variant="secondary"
                   isDisabled={hasIncompleteCvs}
                 >
-                  Close
+                  Done
                 </Button>
               </Modal.Footer>
             </Modal.Dialog>

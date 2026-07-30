@@ -6,6 +6,7 @@ import {
   extensionFromFilename,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
+import { logApiError } from "@/lib/logger";
 import { createSignedUploadUrl } from "@/lib/storage/s3";
 
 type Body = {
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
     return Response.json({ tempKey, signedUrl, maxBytes: MAX_CV_BYTES });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create signed upload URL.";
+    logApiError("Temp-upload: create signed URL failed", e, {
+      path: "/api/admin/candidates/temp-upload",
+      tempKey,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }

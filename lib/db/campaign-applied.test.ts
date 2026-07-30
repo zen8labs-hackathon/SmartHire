@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assignJobToCampaignApplied,
   countActiveApplicationsByJobIds,
   createApplicationWithInitialCv,
   createCampaignApplied,
@@ -10,6 +11,8 @@ import {
   listCampaignAppliedByJob,
   lockCampaignAppliedForJdMatch,
   setActiveCvVersion,
+  softDeleteAllCampaignAppliedForCandidate,
+  softDeleteAllCampaignAppliedForJob,
   softDeleteCampaignApplied,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
@@ -164,6 +167,25 @@ describe("createCampaignApplied", () => {
       null,
     ]);
   });
+
+  it("accepts a null jobId for an unassigned/pool application (CJ4X9M)", async () => {
+    const row = { id: "app-1", job_id: null };
+    const db = fakeDb([[row]]);
+
+    const result = await createCampaignApplied(db, {
+      candidateId: "cand-1",
+      jobId: null,
+    });
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO campaign_applied"), [
+      "cand-1",
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
 });
 
 describe("updateCampaignApplied", () => {
@@ -234,6 +256,30 @@ describe("updateCampaignApplied", () => {
   });
 });
 
+describe("assignJobToCampaignApplied", () => {
+  it("attaches a job to an unassigned/pool application (CJ4X9M)", async () => {
+    const row = { id: "app-1", job_id: "job-1" };
+    const db = fakeDb([[row]]);
+
+    const result = await assignJobToCampaignApplied(db, "app-1", "job-1");
+
+    expect(result).toEqual(row);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("SET job_id = $2"),
+      ["app-1", "job-1"],
+    );
+    expect(db.query.mock.calls[0][0]).toContain("WHERE id = $1 AND job_id IS NULL");
+  });
+
+  it("returns null (no-op) when the application already has a job (lost race or already assigned)", async () => {
+    const db = fakeDb([[]]);
+
+    const result = await assignJobToCampaignApplied(db, "app-1", "job-1");
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("lockCampaignAppliedForJdMatch", () => {
   it("acquires the lock and returns the row when it succeeds", async () => {
     const row = { id: "app-1", jd_match_status: "processing" };
@@ -275,6 +321,36 @@ describe("softDeleteCampaignApplied", () => {
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = now(), updated_at = now()"),
       ["app-1"],
+    );
+  });
+});
+
+describe("softDeleteAllCampaignAppliedForCandidate", () => {
+  it("soft-deletes every live application for the candidate, scoped by candidate_id", async () => {
+    const rows = [{ id: "app-1" }, { id: "app-2" }];
+    const db = fakeDb([rows]);
+
+    const result = await softDeleteAllCampaignAppliedForCandidate(db, "cand-1");
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE candidate_id = $1 AND deleted_at IS NULL"),
+      ["cand-1"],
+    );
+  });
+});
+
+describe("softDeleteAllCampaignAppliedForJob", () => {
+  it("soft-deletes every live application for the job, scoped by job_id", async () => {
+    const rows = [{ id: "app-1", candidate_id: "cand-1" }, { id: "app-2", candidate_id: "cand-2" }];
+    const db = fakeDb([rows]);
+
+    const result = await softDeleteAllCampaignAppliedForJob(db, "job-1");
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("WHERE job_id = $1 AND deleted_at IS NULL"),
+      ["job-1"],
     );
   });
 });

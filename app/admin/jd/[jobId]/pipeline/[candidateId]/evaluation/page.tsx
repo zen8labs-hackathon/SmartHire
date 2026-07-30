@@ -52,7 +52,7 @@ export default async function PipelineCandidateEvaluationPage({
   return (
     <PipelineCandidateEvaluationClient
       jobId={jobId}
-      jobTitle={row.job_position}
+      jobTitle={row.job_position ?? ""}
       candidate={candidate}
       currentUserId={user.id}
       isAdmin={access.isAdmin}

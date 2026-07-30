@@ -431,9 +431,10 @@ export function DeleteCandidateModal({
               ?
             </p>
             <p className="text-xs text-danger font-medium bg-danger/5 border border-danger/25 rounded-lg p-2.5">
-              Warning: This action is permanent and cannot be undone. It will
-              remove the candidate from this JD campaign and delete their
-              associated CV file.
+              This will remove the candidate from this JD campaign. Their
+              application and CV file are kept on record and won&apos;t
+              appear in search or reporting anymore. If this candidate has
+              applications to other jobs, those are left untouched.
             </p>
             {deleteError ? (
               <p className="text-sm text-danger" role="alert">

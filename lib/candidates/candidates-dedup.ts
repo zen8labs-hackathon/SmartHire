@@ -24,11 +24,16 @@ function toCandidateDbRow(row: DedupedCandidateAdminRow): CandidateDbRow {
   return {
     id: row.campaign_applied_id,
     job_opening_id: row.job_id,
-    job_openings: {
-      id: row.job_id,
-      title: row.job_position,
-      job_descriptions: { position: row.job_position },
-    },
+    // CJ4X9M: an unassigned/pool application has no job row to embed --
+    // leaving this null routes jdCampaignLabelFromRow to its "Unassigned"
+    // fallback instead of building a bogus embed with a null title.
+    job_openings: row.job_id
+      ? {
+          id: row.job_id,
+          title: row.job_position ?? "",
+          job_descriptions: { position: row.job_position ?? "" },
+        }
+      : null,
     cv_storage_path: row.cv_storage_path ?? "",
     original_filename: row.cv_original_filename ?? "",
     mime_type: row.cv_mime_type,

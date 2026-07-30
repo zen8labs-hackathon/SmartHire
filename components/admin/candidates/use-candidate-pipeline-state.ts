@@ -501,10 +501,13 @@ export function useCandidatePipelineState(
     setDeleteError(null);
     setDeleteInProgress(true);
     try {
-      const res = await fetch(`/api/admin/candidates/${rowPendingDelete.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/admin/candidates/${rowPendingDelete.id}?scope=person`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;

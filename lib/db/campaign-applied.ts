@@ -24,7 +24,8 @@ export type CampaignAppliedSource =
 export type CampaignAppliedRow = {
   id: string;
   candidate_id: string;
-  job_id: string;
+  /** NULL means "unassigned / pool" -- banked before a job exists (CJ4X9M). */
+  job_id: string | null;
   active_cv_version_id: string | null;
   current_job_stage_mapping_id: string | null;
   current_sub_state_id: string | null;
@@ -43,7 +44,7 @@ export type CampaignAppliedRow = {
 
 export type CreateCampaignAppliedInput = {
   candidateId: string;
-  jobId: string;
+  jobId: string | null;
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;
@@ -75,6 +76,20 @@ export async function getCampaignAppliedById(
   const { rows } = await db.query<CampaignAppliedRow>(
     `SELECT * FROM campaign_applied WHERE id = $1 AND deleted_at IS NULL`,
     [id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getCampaignAppliedByCandidateAndJob(
+  db: QueryExecutor,
+  candidateId: string,
+  jobId: string,
+): Promise<CampaignAppliedRow | null> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `SELECT * FROM campaign_applied
+     WHERE candidate_id = $1 AND job_id = $2 AND deleted_at IS NULL
+     LIMIT 1`,
+    [candidateId, jobId],
   );
   return rows[0] ?? null;
 }
@@ -266,6 +281,71 @@ export async function softDeleteCampaignApplied(
   return rows[0] ?? null;
 }
 
+/**
+ * Soft-deletes every remaining live application for a person, regardless of
+ * job. Used by the person-scoped "delete candidate" action on the deduped
+ * `/candidates` list (`DELETE .../[id]?scope=person`), which removes the
+ * whole person -- unlike the default scope (used by the per-job JD pipeline
+ * table), which only removes the one application being acted on and leaves
+ * the person's applications to other jobs untouched.
+ */
+export async function softDeleteAllCampaignAppliedForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<CampaignAppliedRow[]> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET deleted_at = now(), updated_at = now()
+     WHERE candidate_id = $1 AND deleted_at IS NULL
+     RETURNING *`,
+    [candidateId],
+  );
+  return rows;
+}
+
+/**
+ * Soft-deletes every remaining live application for a job, regardless of
+ * candidate. Used when soft-deleting the job itself (`DELETE
+ * /api/admin/job-descriptions/[id]`) -- a deleted job shouldn't leave its
+ * applications live and orphaned, still showing up in candidate-level views
+ * that don't join through `jobs`.
+ */
+export async function softDeleteAllCampaignAppliedForJob(
+  db: QueryExecutor,
+  jobId: string,
+): Promise<CampaignAppliedRow[]> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET deleted_at = now(), updated_at = now()
+     WHERE job_id = $1 AND deleted_at IS NULL
+     RETURNING *`,
+    [jobId],
+  );
+  return rows;
+}
+
+/**
+ * Transition a pool/unassigned application to a specific job.
+ * Deliberately does not touch `current_job_stage_mapping_id`/
+ * `current_sub_state_id` or trigger JD-match: per CJ4X9M's decisions, a
+ * freshly-assigned application starts stage-less (same as today's
+ * creation-time default) and JD-match stays an explicit, separate action.
+ */
+export async function assignJobToCampaignApplied(
+  db: QueryExecutor,
+  id: string,
+  jobId: string,
+): Promise<CampaignAppliedRow | null> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET job_id = $2, updated_at = now()
+     WHERE id = $1 AND job_id IS NULL AND deleted_at IS NULL
+     RETURNING *`,
+    [id, jobId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function setActiveCvVersion(
   db: QueryExecutor,
   campaignAppliedId: string,
@@ -283,7 +363,7 @@ export async function setActiveCvVersion(
 
 export type CreateApplicationWithInitialCvInput = {
   candidateId: string;
-  jobId: string;
+  jobId: string | null;
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;

@@ -496,7 +496,12 @@ export function CandidateProfileEditSection({
     );
   }
 
-  if (dbLoadState === "error" || !dbRow) {
+  // A transient background-refresh failure (dbLoadState: "error") shouldn't
+  // blank out an already-loaded candidate -- only bail when there's truly no
+  // data to show. Otherwise any incidental refetch failure (e.g. the list
+  // reload after a successful "assign to another job") wipes the entire
+  // edit section until the next successful poll happens to fix it.
+  if (!dbRow) {
     return null;
   }
 

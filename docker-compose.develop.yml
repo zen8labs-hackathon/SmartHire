@@ -98,6 +98,7 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: development
       NODE_ENV: production
       PORT: "3200"
       DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}

@@ -53,8 +53,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={contextValue}>
       {children}
       
-      {/* Toast Render Container: Fixed at bottom-right by default */}
-      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+      {/* Toast Render Container: Fixed at bottom-right by default.
+          z-[9999] -- must outrank every modal/drawer backdrop (HeroUI's
+          default is z-50, and some overlays already bump themselves to
+          z-[100] to stack above each other), or a toast fired while a
+          modal/drawer is open renders invisibly behind it. */}
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}

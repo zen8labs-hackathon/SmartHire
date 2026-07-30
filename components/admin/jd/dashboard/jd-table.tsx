@@ -121,7 +121,7 @@ export function JdTable() {
                               setPreviewJobId(String(row.id));
                               jdFileModal.open();
                             }}
-                            className="inline-flex items-center rounded-lg bg-surface-secondary border border-divider px-1.5 py-0.5 text-[10px] font-bold text-muted hover:text-foreground"
+                            className="inline-flex cursor-pointer items-center rounded-lg bg-surface-secondary border border-divider px-1.5 py-0.5 text-[10px] font-bold text-muted hover:text-foreground"
                           >
                             JD file
                           </button>

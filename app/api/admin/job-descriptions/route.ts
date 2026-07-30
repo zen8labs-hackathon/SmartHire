@@ -9,11 +9,12 @@ import {
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { getPool, withTransaction } from "@/lib/db/config/client";
-import { createJob, type CreateJobInput } from "@/lib/db/jobs";
+import { createJob, hardDeleteJob, updateJob, type CreateJobInput } from "@/lib/db/jobs";
 import {
   listPipelineStages,
   reconcileJobStageMappings,
 } from "@/lib/db/pipeline-stages";
+import { extensionFromFilename } from "@/lib/jd/upload-constants";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -26,6 +27,11 @@ import {
   type JdStatus,
   type JobDescriptionFormData,
 } from "@/lib/jd/types";
+import { deleteObject, moveObject } from "@/lib/storage/s3";
+import { buildTimestampedStorageFilename } from "@/lib/storage/storage-key";
+
+/** Final storage prefix once a job's id is known: `job_descriptions/{jobId}/{filename}`. */
+const JD_FINAL_KEY_PREFIX = "job_descriptions/";
 
 type CreateBody = Partial<JobDescriptionFormData> & {
   /** S3 key from a prior POST /api/admin/job-openings/sign-upload + direct PUT to the returned signedUrl. */
@@ -245,6 +251,40 @@ export async function POST(request: Request) {
 
       return created;
     });
+
+    // The job id only exists after insert, so the JD file is uploaded to a
+    // temp `jd/` key up front (see job-openings/sign-upload) and moved to its
+    // final `job_descriptions/{jobId}/` key here, now that the id is known.
+    const originalFilename = input.jdOriginalFilename ?? "";
+    const ext =
+      extensionFromFilename(originalFilename) ?? extensionFromFilename(jdStoragePath) ?? ".pdf";
+    const baseName = originalFilename
+      ? originalFilename.slice(0, originalFilename.length - ext.length)
+      : "jd";
+    const finalJdStoragePath = `${JD_FINAL_KEY_PREFIX}${job.id}/${buildTimestampedStorageFilename(baseName, ext)}`;
+
+    try {
+      await moveObject(jdStoragePath, finalJdStoragePath);
+      const updated = await updateJob(db, job.id, { jdStoragePath: finalJdStoragePath });
+      if (updated) Object.assign(job, updated);
+    } catch (e) {
+      // Never leave a persisted job pointing at the temp `jd/` key: a job
+      // stuck there indefinitely would be indistinguishable from a genuinely
+      // abandoned upload to any future age-based cleanup job for that
+      // prefix, which could then delete a file still in use. Roll the job
+      // back instead and make the caller retry -- a just-created job has no
+      // campaign_applied rows yet, so this is safe to hard-delete.
+      await hardDeleteJob(db, job.id).catch(() => {});
+      await deleteObject(finalJdStoragePath).catch(() => {});
+      console.error("Failed to move JD file to its final storage path:", e);
+      return Response.json(
+        {
+          error:
+            "Job description was not created: the JD file failed to finalize. Please retry.",
+        },
+        { status: 500 },
+      );
+    }
 
     return Response.json({ jobDescription: job }, { status: 201 });
   } catch (e) {

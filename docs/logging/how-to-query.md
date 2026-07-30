@@ -29,25 +29,36 @@ Volumes (`smarthire_loki_data`, `smarthire_grafana_data`) persist across stop/re
 
 Open **Explore** (sidebar icon) → select datasource **Loki**.
 
+`Logs Drilldown` expects a `service_name` label. Promtail now maps SmartHire's `service` field to both `service` and `service_name`, so either Explore or Drilldown can work.
+
 ### Quick filters
 
-| What                   | LogQL                                          |
-| ---------------------- | ---------------------------------------------- |
-| All SmartHire app logs | `{service="smarthire"}`                        |
-| Only errors           | `{service="smarthire"} | json | level="error"` |
-| Prod container         | `{container=~"smarthire_app.*"}`              |
-| Dev stack logs         | `{container=~"smarthire_dev.*"}`             |
+| What | LogQL |
+| ---- | ----- |
+| All SmartHire app logs | `{service="smarthire"}` |
+| Only errors | `{service="smarthire"} | json | level="error"` |
+| Prod container | `{container=~"smarthire_app.*"}` |
+| Dev stack logs | `{container=~"smarthire_dev.*"}` |
+| Drilldown-compatible | `{service_name="smarthire"}` |
 
 ### Search by X-Request-Id (fastest — indexed label)
 
+Promtail stores the JSON field `X-Request-Id` as the Loki label `request_id`.
+
 ```
-{service="smarthire"} | json | X-Request-Id="paste-your-id-here"
+{service="smarthire",request_id="paste-your-id-here"}
+```
+
+Or with Drilldown-compatible label:
+
+```
+{service_name="smarthire",request_id="paste-your-id-here"}
 ```
 
 ### Search by path
 
 ```
-{service="smarthire"} | json | path="/api/admin/candidates"
+{service="smarthire",path="/api/admin/candidates"}
 ```
 
 ### Search by keyword (full-text)
@@ -60,7 +71,7 @@ Open **Explore** (sidebar icon) → select datasource **Loki**.
 ### Combine filters
 
 ```
-{service="smarthire"} | json | level="error" | path="/api/admin/jobs"
+{service="smarthire",level="error",path="/api/admin/jobs"}
 ```
 
 ---
@@ -68,11 +79,11 @@ Open **Explore** (sidebar icon) → select datasource **Loki**.
 ## Architecture
 
 ```
-App (Pino)        Promtail          Loki (:3102)    Grafana (:3001)
-stdout JSON  -->  Docker sock  -->  Store (3d)  -->  Explore UI
-(error only)      extract labels    Compactor       /log
-                  X-Request-Id       auto-delete
-                  level, path
+App (Pino)        Promtail               Loki (:3102)    Grafana (:3001)
+stdout JSON  -->  Docker sock       -->  Store (3d)  -->  Explore UI
+(error only)      extract labels         Compactor       /log
+                  request_id, level      auto-delete
+                  path, service_name
 ```
 
 1. App (`smarthire_app`) writes JSON to stdout (Pino, only `error` in production).
@@ -144,6 +155,13 @@ docker logs smarthire_promtail
 curl http://localhost:3102/ready
 ```
 
+Promtail should start without JMESPath errors. If you previously used `X-Request-Id` directly as a JSON expression, restart Promtail after pulling this fix:
+
+```bash
+docker compose -f docker-compose.prod.yml restart promtail
+docker logs smarthire_promtail
+```
+
 ### Labels not extracted (raw JSON displayed)
 
 Check container names in `promtail-config.yml`:
@@ -190,15 +208,16 @@ log.error("Something failed", { path: "/api/admin/candidates" });
 // Output: { "level": "error", "X-Request-Id": "abc-123", "path": "...", ... }
 ```
 
-Search: `{service="smarthire"} | json | X-Request-Id="abc-123"`
+Search: `{service="smarthire",request_id="abc-123"}`
 
 ---
 
 ## Production vs Development
 
-|                    | Production        | Development           |
-| ------------------ | ----------------- | --------------------- |
-| **Log level**      | `error` only      | `debug` (pino-pretty) |
-| **Where to view**  | Grafana at `/log` | Terminal + Grafana    |
-| **X-Request-Id**  | In JSON          | In JSON              |
-| **Loki retention**| 3 days           | 3 days               |
+| | Production | Development |
+| - | - | - |
+| **Log level** | `error` only | `debug` (pino-pretty) |
+| **Where to view** | Grafana at `/log` | Terminal + Grafana |
+| **X-Request-Id** | In JSON | In JSON |
+| **Indexed request label** | `request_id` | `request_id` |
+| **Loki retention** | 3 days | 3 days |
