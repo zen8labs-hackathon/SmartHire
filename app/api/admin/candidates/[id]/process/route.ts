@@ -1,5 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
+import { logWarn } from "@/lib/logger";
 
 import {
   duplicateNewUploadPreviewFromRow,
@@ -261,7 +262,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     ? await runJdMatchForCandidate(campaignAppliedId)
     : ({ ok: true, skipped: true, reason: "not_requested" } as const);
   if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
-    console.warn("[jd-match]", campaignAppliedId, jdMatch);
+    logWarn("[jd-match] JD match failed", { campaignAppliedId, jdMatch });
   }
 
   let duplicateCandidates: DuplicateCandidateHit[] = [];
