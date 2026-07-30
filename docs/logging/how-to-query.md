@@ -39,7 +39,9 @@ Open **Explore** (sidebar icon) → select datasource **Loki**.
 | Only errors | `{service="smarthire"} | json | level="error"` |
 | Prod container | `{container=~"smarthire_app.*"}` |
 | Dev stack logs | `{container=~"smarthire_dev.*"}` |
+| Dev app only | `{container="smarthire_dev_app"}` |
 | Drilldown-compatible | `{service_name="smarthire"}` |
+| Plain Next.js lines | `{service_name="unknown_service"}` |
 
 ### Search by X-Request-Id (fastest — indexed label)
 
@@ -81,6 +83,17 @@ logs, query by container first:
 {container="smarthire_dev_app"}
 ```
 
+If Loki only exposes `service_name` and `{container=...}` returns nothing,
+Promtail is missing Docker `relabel_configs` for `__meta_docker_container_name`.
+Pull the latest `deploy/logging/promtail-config.yml`, then:
+
+```bash
+cd /opt/smarthire/app
+docker compose -f docker-compose.prod.yml restart promtail
+curl -s http://127.0.0.1:3102/loki/api/v1/labels
+```
+
+You should then see `container` in the labels list.
 ### Combine filters
 
 ```
