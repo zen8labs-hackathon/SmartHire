@@ -2,6 +2,7 @@ import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { getJobEvaluateTemplate } from "@/lib/db/job-permissions";
+import { logApiError } from "@/lib/logger";
 import { createSignedDownloadUrl } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -34,6 +35,11 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.redirect(signedUrl, 302);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not create download link.";
+    logApiError("Evaluation template download: signed URL failed", err, {
+      path: "/api/admin/job-descriptions/[id]/evaluation-template/download",
+      jobId,
+      storagePath: template.storage_path,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }

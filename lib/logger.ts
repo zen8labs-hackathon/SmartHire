@@ -56,3 +56,26 @@ export const logInfo = (msg: string, data?: Record<string, unknown>): void => {
 export const logWarn = (msg: string, data?: Record<string, unknown>): void => {
   if (!isProduction) logger.warn(data, msg);
 };
+
+/**
+ * Log an API/route failure before returning 500.
+ * Normalizes unknown thrown values into an Error for stack capture.
+ */
+export function logApiError(
+  msg: string,
+  error: unknown,
+  data?: Record<string, unknown>,
+): void {
+  const err =
+    error instanceof Error
+      ? error
+      : new Error(typeof error === "string" ? error : "Unknown error");
+  logError(msg, err, data);
+}
+
+/** Coerce unknown catch value to Error | undefined for logError. */
+export function toError(error: unknown): Error | undefined {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new Error(error);
+  return undefined;
+}

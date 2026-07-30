@@ -5,6 +5,7 @@ import {
 import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
+import { logApiError } from "@/lib/logger";
 import { createSignedUploadUrl } from "@/lib/storage/s3";
 import { buildStorageFilename } from "@/lib/storage/storage-key";
 
@@ -55,6 +56,11 @@ export async function POST(request: Request, { params }: RouteContext) {
     return Response.json({ path: storagePath, signedUrl });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not create signed upload URL.";
+    logApiError("Evaluation template sign-upload failed", err, {
+      path: "/api/admin/job-descriptions/[id]/evaluation-template/sign-upload",
+      jobId,
+      storagePath,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }
