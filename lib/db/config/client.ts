@@ -41,7 +41,8 @@ export function getPool(): Pool {
   }
 
   pool = new Pool({ connectionString });
-  pool.on("error", (err) => {
+  // Some @types/pg setups omit EventEmitter methods on Pool; runtime still has .on().
+  (pool as unknown as NodeJS.EventEmitter).on("error", (err: Error) => {
     logApiError("Idle DB client error", err);
   });
   return pool;
