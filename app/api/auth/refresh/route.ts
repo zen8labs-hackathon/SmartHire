@@ -10,7 +10,8 @@ import {
 } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/config/client";
 import { logError } from "@/lib/logger";
-import { getCurrentRequestId, withRequestId } from "@/lib/request-id";
+import { withRequestId } from "@/lib/request-id";
+import { getCurrentRequestId } from "@/lib/request-id.server";
 
 /**
  * Manual refresh fallback. `proxy.ts` now runs the same inline

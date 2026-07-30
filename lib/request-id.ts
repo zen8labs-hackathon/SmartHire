@@ -1,5 +1,3 @@
-import { headers } from "next/headers";
-
 export const REQUEST_ID_HEADER = "x-request-id";
 export const REQUEST_ID_LOG_FIELD = "X-Request-Id";
 
@@ -16,11 +14,6 @@ export function getRequestIdFromRequest(
   request: Pick<Request, "headers">,
 ): string | undefined {
   return normalizeRequestId(request.headers.get(REQUEST_ID_HEADER));
-}
-
-export async function getCurrentRequestId(): Promise<string | undefined> {
-  const h = await headers();
-  return normalizeRequestId(h.get(REQUEST_ID_HEADER));
 }
 
 export function withRequestId(
