@@ -53,7 +53,7 @@ export function UserModal({
         setUsername(details.username);
         setChapters(details.chapterNames);
       } catch (err: any) {
-        console.error("Error loading user profile details", err);
+        logError("Error loading user profile details", err instanceof Error ? err : undefined);
       } finally {
         setLoadingProfile(false);
       }
