@@ -176,6 +176,34 @@ export async function softDeleteCandidate(
   return rows[0] ?? null;
 }
 
+/**
+ * Soft-deletes every given candidate that no longer has any live
+ * `campaign_applied` row (e.g. after all of their applications were removed
+ * as a side effect of soft-deleting a job). A candidate left with
+ * `deleted_at NULL` but zero live applications would be invisible to dedupe
+ * lookups yet still occupy the email/phone unique index, blocking a future
+ * upload that reuses that email/phone from surfacing the duplicate flow.
+ */
+export async function softDeleteOrphanedCandidates(
+  db: QueryExecutor,
+  candidateIds: string[],
+): Promise<CandidateRow[]> {
+  if (candidateIds.length === 0) return [];
+  const { rows } = await db.query<CandidateRow>(
+    `UPDATE candidates
+     SET deleted_at = now(), updated_at = now()
+     WHERE id = ANY($1::uuid[])
+       AND deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM campaign_applied ca
+         WHERE ca.candidate_id = candidates.id AND ca.deleted_at IS NULL
+       )
+     RETURNING *`,
+    [candidateIds],
+  );
+  return rows;
+}
+
 export async function syncCandidateAggregateFields(
   db: QueryExecutor,
   candidateId: string,

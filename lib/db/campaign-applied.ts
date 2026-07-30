@@ -266,6 +266,49 @@ export async function softDeleteCampaignApplied(
   return rows[0] ?? null;
 }
 
+/**
+ * Soft-deletes every remaining live application for a person, regardless of
+ * job. Used by the person-scoped "delete candidate" action on the deduped
+ * `/candidates` list (`DELETE .../[id]?scope=person`), which removes the
+ * whole person -- unlike the default scope (used by the per-job JD pipeline
+ * table), which only removes the one application being acted on and leaves
+ * the person's applications to other jobs untouched.
+ */
+export async function softDeleteAllCampaignAppliedForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<CampaignAppliedRow[]> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET deleted_at = now(), updated_at = now()
+     WHERE candidate_id = $1 AND deleted_at IS NULL
+     RETURNING *`,
+    [candidateId],
+  );
+  return rows;
+}
+
+/**
+ * Soft-deletes every remaining live application for a job, regardless of
+ * candidate. Used when soft-deleting the job itself (`DELETE
+ * /api/admin/job-descriptions/[id]`) -- a deleted job shouldn't leave its
+ * applications live and orphaned, still showing up in candidate-level views
+ * that don't join through `jobs`.
+ */
+export async function softDeleteAllCampaignAppliedForJob(
+  db: QueryExecutor,
+  jobId: string,
+): Promise<CampaignAppliedRow[]> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET deleted_at = now(), updated_at = now()
+     WHERE job_id = $1 AND deleted_at IS NULL
+     RETURNING *`,
+    [jobId],
+  );
+  return rows;
+}
+
 export async function setActiveCvVersion(
   db: QueryExecutor,
   campaignAppliedId: string,

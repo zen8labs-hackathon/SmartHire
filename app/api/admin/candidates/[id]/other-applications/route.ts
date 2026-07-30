@@ -1,7 +1,7 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { filterViewableJobIds } from "@/lib/authz/can";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
-import { listOtherApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
+import { listApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
 import { resolveApplicationStages } from "@/lib/candidates/resolve-application-stage";
 
@@ -29,11 +29,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const current = appAccess.application;
 
   try {
-    const rows = await listOtherApplicationsForCandidate(
-      db,
-      current.candidate_id,
-      campaignAppliedId,
-    );
+    const rows = await listApplicationsForCandidate(db, current.candidate_id);
 
     const viewableJobIds = await filterViewableJobIds(
       db,

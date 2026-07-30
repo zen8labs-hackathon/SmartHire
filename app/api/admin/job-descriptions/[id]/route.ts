@@ -14,6 +14,8 @@ import {
   requirePermissionOnJob,
 } from "@/lib/authz/require-permission";
 import { requireJobViewAccess } from "@/lib/authz/require-job-view";
+import { softDeleteOrphanedCandidates } from "@/lib/db/candidates";
+import { softDeleteAllCampaignAppliedForJob } from "@/lib/db/campaign-applied";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
 import {
@@ -354,6 +356,14 @@ export async function PUT(request: Request, { params }: RouteContext) {
   });
 }
 
+/**
+ * Soft-deletes the job, along with every one of its remaining live
+ * applications, and any candidate left with zero live applications as a
+ * result (otherwise that candidate would linger with `deleted_at NULL`,
+ * invisible to dedupe lookups but still occupying the email/phone unique
+ * index -- same invariant as the person-scoped candidate delete in
+ * `/api/admin/candidates/[id]?scope=person`).
+ */
 export async function DELETE(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
@@ -365,7 +375,16 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const aclAdmin = await requireAdministerJobAcl(auth.access, jobId);
   if (!aclAdmin.ok) return aclAdmin.response;
 
-  const deleted = await softDeleteJob(getPool(), jobId);
+  const deleted = await withTransaction(async (tx) => {
+    const job = await softDeleteJob(tx, jobId);
+    if (!job) return null;
+
+    const applications = await softDeleteAllCampaignAppliedForJob(tx, jobId);
+    const candidateIds = [...new Set(applications.map((a) => a.candidate_id))];
+    await softDeleteOrphanedCandidates(tx, candidateIds);
+
+    return job;
+  });
   if (!deleted) return Response.json({ error: "Not found." }, { status: 404 });
 
   return new Response(null, { status: 204 });
