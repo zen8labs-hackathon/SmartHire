@@ -1,7 +1,7 @@
 /**
  * Structured logger using Pino.
  *
- * Production (NODE_ENV=production): only ERROR level, JSON to stdout (Docker).
+ * Production (APP_ENV=production): only ERROR level, JSON to stdout (Docker).
  * Development: DEBUG level (default), pino-pretty colored output.
  *
  * To include X-Request-Id in logs, call logger.child({ "X-Request-Id": id }).
@@ -9,7 +9,9 @@
 
 import pino from "pino";
 
-const isProduction = process.env.NODE_ENV === "production";
+const appEnv =
+  process.env.APP_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+const isProduction = appEnv === "production";
 
 export const logger = pino({
   level: isProduction ? "error" : (process.env.LOG_LEVEL || "debug"),
@@ -56,3 +58,26 @@ export const logInfo = (msg: string, data?: Record<string, unknown>): void => {
 export const logWarn = (msg: string, data?: Record<string, unknown>): void => {
   if (!isProduction) logger.warn(data, msg);
 };
+
+/**
+ * Log an API/route failure before returning 500.
+ * Normalizes unknown thrown values into an Error for stack capture.
+ */
+export function logApiError(
+  msg: string,
+  error: unknown,
+  data?: Record<string, unknown>,
+): void {
+  const err =
+    error instanceof Error
+      ? error
+      : new Error(typeof error === "string" ? error : "Unknown error");
+  logError(msg, err, data);
+}
+
+/** Coerce unknown catch value to Error | undefined for logError. */
+export function toError(error: unknown): Error | undefined {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new Error(error);
+  return undefined;
+}

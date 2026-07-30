@@ -1,6 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
-import { logWarn } from "@/lib/logger";
+import { logError } from "@/lib/logger";
 
 import {
   duplicateNewUploadPreviewFromRow,
@@ -255,14 +255,23 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const parseResult = await runCvParsing(campaignAppliedId);
   if (!parseResult.ok) {
+    logError("CV parsing failed", undefined, {
+      path: "/api/admin/candidates/[id]/process",
+      campaignAppliedId,
+      error: parseResult.error,
+    });
     return Response.json({ error: parseResult.error }, { status: 500 });
   }
 
   const jdMatch = body.runJdMatch
     ? await runJdMatchForCandidate(campaignAppliedId)
     : ({ ok: true, skipped: true, reason: "not_requested" } as const);
-  if (process.env.NODE_ENV === "development" && !jdMatch.ok) {
-    logWarn("[jd-match] JD match failed", { campaignAppliedId, jdMatch });
+  if (!jdMatch.ok) {
+    logError("[jd-match] JD match failed", undefined, {
+      path: "/api/admin/candidates/[id]/process",
+      campaignAppliedId,
+      error: jdMatch.error,
+    });
   }
 
   let duplicateCandidates: DuplicateCandidateHit[] = [];

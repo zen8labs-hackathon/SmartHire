@@ -16,6 +16,7 @@ import {
   getConfiguredLanguageModel,
   isLlmInferenceConfigured,
 } from "@/lib/llm";
+import { logError, toError } from "@/lib/logger";
 import { z } from "zod";
 
 const UNICODE_FONT_ERROR =
@@ -180,7 +181,10 @@ Max ${MAX_EVAL_SECTION_CHARS} characters per string.`;
       fieldMap: {},
       documentSections: structuredEvaluationToDocumentSections(parsed.data),
     };
-  } catch {
+  } catch (error) {
+    logError("Evaluation AI fill fell back", toError(error), {
+      formFieldCount: params.formFieldNames.length,
+    });
     if (params.formFieldNames.length > 0) {
       const fieldMap: Record<string, string> = {};
       const fallback =
