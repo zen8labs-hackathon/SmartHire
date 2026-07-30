@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import { logError } from "@/lib/logger";
 
 interface SuspenseErrorBoundaryProps {
   children: ReactNode;
@@ -34,7 +35,7 @@ export class SuspenseErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error) {
-    console.error("SuspenseErrorBoundary caught an error:", error);
+    logError("SuspenseErrorBoundary caught an error", error);
   }
 
   render() {

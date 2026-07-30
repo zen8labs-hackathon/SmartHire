@@ -5,6 +5,10 @@
 #   docker compose -f docker-compose.prod.yml up minio-init
 #   docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
 #   docker compose -f docker-compose.prod.yml up -d --build app
+#
+# Logging stack (optional, for Grafana dashboard):
+#   docker compose -f docker-compose.prod.yml up -d loki promtail grafana
+#   Access Grafana at http://127.0.0.1:3001 (via SSM port-forward)
 
 services:
   db:
@@ -126,6 +130,58 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # ─── Logging stack ────────────────────────────────────────────────────────────
+  # Access: SSM port-forward 3001 → http://127.0.0.1:3001 (admin / GrafanaPassword)
+
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: smarthire_loki
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3102:3100"   # HTTP API (3100 inside, 3102 outside to avoid app conflict)
+    volumes:
+      - ./deploy/logging/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - smarthire_loki_data:/loki
+    user: "0"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    container_name: smarthire_promtail
+    restart: unless-stopped
+    volumes:
+      - ./deploy/logging/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # read container stdout
+      - smarthire_promtail_positions:/var/lib/promtail
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    # Only scrape containers named smarthire_* (prod + dev stacks)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: smarthire_grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD required}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Serve under /log/ subpath (matches nginx grafana-proxy.conf)
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/log
+      - GF_SERVER_SERVE_FROM_ROOT_PATH=false
+    volumes:
+      - smarthire_grafana_data:/var/lib/grafana
+      - ./deploy/logging/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - loki
+
 volumes:
   smarthire_pgdata:
   smarthire_minio:
+  smarthire_loki_data:
+  smarthire_promtail_positions:
+  smarthire_grafana_data:
