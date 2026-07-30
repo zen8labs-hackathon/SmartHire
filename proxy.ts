@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/session";
 import type { ProfileRole } from "@/lib/db/users";
 import { getPool } from "@/lib/db/config/client";
+import { logApiError } from "@/lib/logger";
 
 type AuthedUser = { id: string; role: ProfileRole };
 
@@ -36,17 +37,24 @@ async function resolveUser(
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   if (!refreshToken) return null;
 
-  const result = await refreshSession(getPool(), refreshToken, {
-    userAgent: request.headers.get("user-agent"),
-    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-  });
-  if (!result.ok) return null;
+  try {
+    const result = await refreshSession(getPool(), refreshToken, {
+      userAgent: request.headers.get("user-agent"),
+      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    });
+    if (!result.ok) return null;
 
-  pendingCookies.push(
-    buildAccessTokenCookie(result.session.accessToken),
-    buildRefreshTokenCookie(result.session.refreshToken),
-  );
-  return { id: result.session.user.id, role: result.session.user.role };
+    pendingCookies.push(
+      buildAccessTokenCookie(result.session.accessToken),
+      buildRefreshTokenCookie(result.session.refreshToken),
+    );
+    return { id: result.session.user.id, role: result.session.user.role };
+  } catch (error) {
+    logApiError("Middleware session refresh error", error, {
+      path: request.nextUrl.pathname,
+    });
+    return null;
+  }
 }
 
 function applyCookies(

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { logError } from "@/lib/logger";
 
 /**
  * "Sign in with Microsoft" -- hand-rolled OAuth2 authorization-code flow
@@ -124,11 +125,16 @@ export async function exchangeCodeForToken(params: {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-  } catch {
+  } catch (error) {
+    logError("Azure token exchange network error", error instanceof Error ? error : undefined);
     return { ok: false, error: "network_error" };
   }
 
   if (!response.ok) {
+    logError("Azure token exchange failed", undefined, {
+      status: response.status,
+      reason: `token_endpoint_${response.status}`,
+    });
     return { ok: false, error: `token_endpoint_${response.status}` };
   }
 
@@ -164,10 +170,14 @@ export async function fetchGraphProfile(
     response = await fetch(GRAPH_ME_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-  } catch {
+  } catch (error) {
+    logError("Graph profile fetch network error", error instanceof Error ? error : undefined);
     return null;
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    logError("Graph profile fetch failed", undefined, { status: response.status });
+    return null;
+  }
 
   let json: unknown;
   try {
