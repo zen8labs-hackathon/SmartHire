@@ -1,0 +1,68 @@
+# Loki config — single-binary mode, 30-day retention.
+# Docs: https://grafana.com/docs/loki/latest/configuration/
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+
+common:
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+
+storage_config:
+  filesystem:
+    chunks_directory: /loki/chunks
+    index_directory: /loki/index
+
+limits_config:
+  # Retention: 3 days (72 hours)
+  retention_period: 72h
+  # Allow ingestion of up to 256MB per tenant
+  ingestion_size_mb: 256
+  # Per-stream rate limiting
+  per_stream_rate_limit: 3MB
+  per_stream_rate_limit_burst: 15MB
+
+compactor:
+  # Enable compactor to actually delete old data when retention kicks in
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_schedule: "24h"
+
+# Disable unused modules (single-binary mode)
+memberlist:
+  join_members: []
+
+query_range:
+  parallelise_shardable_queries: false
+
+# Disable built-in alerting and rules (can enable later if needed)
+alertmanager: {}
+rule_manager:
+  _introducering: 0
+
+# Increase chunk cache for performance
+chunk_store_config:
+  chunk_cache:
+    writeback_gc_interval: 1h
+    writeback_idle_cel: 12h
+    writeback_size_capacity: 500MB
+
+# Disable the ingester's WAL (simpler for single-binary)
+ingester:
+  wal_enabled: false
+  concurrent_flushes: 4
+  flush_op_timeout: 10s
+  flush_frequency: 4h
+  max_chunk_age: 2h
+  chunk_target_size: 1572864   # 1.5MB target
+
+# Basic runtime config (no overrides needed for single-binary)
+runtime_config:
+  overrides: null
