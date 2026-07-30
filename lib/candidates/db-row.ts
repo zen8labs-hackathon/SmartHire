@@ -249,11 +249,16 @@ export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): Can
   return {
     id: r.id,
     job_opening_id: r.job_id,
-    job_openings: {
-      id: r.job_id,
-      title: r.job_position,
-      job_descriptions: { position: r.job_position },
-    },
+    // CJ4X9M: an unassigned/pool application has no job row to embed --
+    // leaving this null routes jdCampaignLabelFromRow to its "Unassigned"
+    // fallback instead of building a bogus embed with a null title.
+    job_openings: r.job_id
+      ? {
+          id: r.job_id,
+          title: r.job_position ?? "",
+          job_descriptions: { position: r.job_position ?? "" },
+        }
+      : null,
     cv_storage_path: r.cv_storage_path ?? "",
     original_filename: r.cv_original_filename ?? "",
     mime_type: r.cv_mime_type,

@@ -17,7 +17,8 @@ import {
 export type CampaignAppliedAdminRow = {
   id: string;
   candidate_id: string;
-  job_id: string;
+  /** NULL means "unassigned / pool" -- banked before a job exists (CJ4X9M). */
+  job_id: string | null;
   active_cv_version_id: string | null;
   current_job_stage_mapping_id: string | null;
   current_sub_state_id: string | null;
@@ -49,7 +50,7 @@ export type CampaignAppliedAdminRow = {
   cv_date_of_birth: Date | null;
   cv_student_years: string | null;
   cv_created_at: Date | null;
-  job_position: string;
+  job_position: string | null;
   stage_code: string | null;
   stage_label: string | null;
   stage_color: string | null;
@@ -126,10 +127,13 @@ const ADMIN_ROW_SELECT = `
   pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
 `;
 
+// jobs is a LEFT JOIN (not INNER) so an unassigned/pool application
+// (ca.job_id IS NULL, CJ4X9M) still surfaces here instead of silently
+// vanishing from the admin list/detail view.
 const ADMIN_ROW_JOIN = `
   FROM campaign_applied ca
   JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-  JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+  LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
   LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
   LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
   LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
@@ -151,8 +155,8 @@ export async function getCampaignAppliedAdminRowById(
 export type OtherApplicationForCandidateRow = {
   id: string;
   created_at: Date;
-  job_id: string;
-  job_position: string;
+  job_id: string | null;
+  job_position: string | null;
   candidate_name: string | null;
   cv_original_filename: string | null;
   cv_created_at: Date | null;
@@ -193,7 +197,7 @@ export async function listApplicationsForCandidate(
        pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
      FROM campaign_applied ca
      JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id

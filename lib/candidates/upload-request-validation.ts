@@ -22,7 +22,7 @@ export type ValidatedUploadFields = {
   filename: string;
   ext: string;
   baseName: string;
-  jobId: string;
+  jobId: string | null;
   source: CandidateSource;
   sourceOther: string | null;
   expectedSalary: string | null;
@@ -52,10 +52,9 @@ export async function validateCvUploadRequest(
   const jobId =
     typeof body.jobId === "string" && body.jobId.length > 0 ? body.jobId : null;
 
-  if (!jobId) {
-    return { ok: false, error: "Select a target campaign before uploading.", status: 400 };
-  }
-  if (!UUID_RE.test(jobId)) {
+  // CJ4X9M: jobId is optional -- omitting it banks the CV in the unassigned
+  // candidate pool. When present, it must still be a valid, existing job.
+  if (jobId && !UUID_RE.test(jobId)) {
     return { ok: false, error: "Invalid job id.", status: 400 };
   }
 
@@ -97,9 +96,11 @@ export async function validateCvUploadRequest(
     expectedSalary = trimmed || null;
   }
 
-  const job = await getJobById(db, jobId);
-  if (!job) {
-    return { ok: false, error: "Job not found.", status: 400 };
+  if (jobId) {
+    const job = await getJobById(db, jobId);
+    if (!job) {
+      return { ok: false, error: "Job not found.", status: 400 };
+    }
   }
 
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;

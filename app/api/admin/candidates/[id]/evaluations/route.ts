@@ -153,6 +153,16 @@ export async function POST(request: Request, { params }: RouteContext) {
     );
   }
 
+  if (!application.job_id) {
+    return Response.json(
+      {
+        error:
+          "This candidate isn't assigned to a job yet. Assign a job before generating an evaluation.",
+      },
+      { status: 400 },
+    );
+  }
+
   const template = await getJobEvaluateTemplate(db, application.job_id);
   if (!template?.storage_path) {
     return Response.json(

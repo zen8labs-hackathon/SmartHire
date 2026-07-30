@@ -24,7 +24,8 @@ export type CampaignAppliedSource =
 export type CampaignAppliedRow = {
   id: string;
   candidate_id: string;
-  job_id: string;
+  /** NULL means "unassigned / pool" -- banked before a job exists (CJ4X9M). */
+  job_id: string | null;
   active_cv_version_id: string | null;
   current_job_stage_mapping_id: string | null;
   current_sub_state_id: string | null;
@@ -43,7 +44,7 @@ export type CampaignAppliedRow = {
 
 export type CreateCampaignAppliedInput = {
   candidateId: string;
-  jobId: string;
+  jobId: string | null;
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;
@@ -75,6 +76,20 @@ export async function getCampaignAppliedById(
   const { rows } = await db.query<CampaignAppliedRow>(
     `SELECT * FROM campaign_applied WHERE id = $1 AND deleted_at IS NULL`,
     [id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getCampaignAppliedByCandidateAndJob(
+  db: QueryExecutor,
+  candidateId: string,
+  jobId: string,
+): Promise<CampaignAppliedRow | null> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `SELECT * FROM campaign_applied
+     WHERE candidate_id = $1 AND job_id = $2 AND deleted_at IS NULL
+     LIMIT 1`,
+    [candidateId, jobId],
   );
   return rows[0] ?? null;
 }
@@ -326,7 +341,7 @@ export async function setActiveCvVersion(
 
 export type CreateApplicationWithInitialCvInput = {
   candidateId: string;
-  jobId: string;
+  jobId: string | null;
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
   expectedSalary?: string | null;
