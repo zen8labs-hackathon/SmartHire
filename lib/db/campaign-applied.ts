@@ -282,6 +282,32 @@ export async function softDeleteCampaignApplied(
 }
 
 /**
+ * Attaches a job to a currently-unassigned/pool application (CJ4X9M).
+ * Guarded by `job_id IS NULL` so this can only ever move a job-less
+ * application into a job, never reassign one that already has one (that's a
+ * different, not-yet-built operation) -- also closes the race where two
+ * concurrent assign calls for the same row would otherwise both "succeed".
+ * Deliberately does not touch `current_job_stage_mapping_id`/
+ * `current_sub_state_id` or trigger JD-match: per CJ4X9M's decisions, a
+ * freshly-assigned application starts stage-less (same as today's
+ * creation-time default) and JD-match stays an explicit, separate action.
+ */
+export async function assignJobToCampaignApplied(
+  db: QueryExecutor,
+  id: string,
+  jobId: string,
+): Promise<CampaignAppliedRow | null> {
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET job_id = $2, updated_at = now()
+     WHERE id = $1 AND job_id IS NULL AND deleted_at IS NULL
+     RETURNING *`,
+    [id, jobId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
  * Soft-deletes every remaining live application for a person, regardless of
  * job. Used by the person-scoped "delete candidate" action on the deduped
  * `/candidates` list (`DELETE .../[id]?scope=person`), which removes the
