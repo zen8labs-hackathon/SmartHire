@@ -27,21 +27,23 @@ scrape_configs:
       # Parse JSON log lines from stdout (Pino outputs JSON in production)
       - json:
           expressions:
-            # These fields become Loki labels — indexed for fast search
-            X-Request-Id: X-Request-Id
+            # Alias dashed JSON field names to Loki-safe label names.
+            request_id: '"X-Request-Id"'
             level: level
             msg: msg
             path: path
             service: service
+            service_name: service
             # Raw timestamp from pino (fallback)
             time: time
-      # Set extracted fields as labels (high-cardinality fields like X-Request-Id
-      # are fine here since they're indexed; avoid unbounded values like err.message)
+      # Set extracted fields as labels. request_id is high-cardinality by design so
+      # an ID copied from browser/devtools can be searched quickly in Loki/Grafana.
       - labels:
-          X-Request-Id:
+          request_id:
           level:
           path:
           service:
+          service_name:
       # Parse timestamp from pino's ISO string (overrides file timestamp)
       - timestamp:
           source: time

@@ -108,6 +108,7 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: production
       NODE_ENV: production
       PORT: "3100"
       # App talks to Postgres on the compose network.

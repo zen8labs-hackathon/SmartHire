@@ -1,7 +1,7 @@
 /**
  * Structured logger using Pino.
  *
- * Production (NODE_ENV=production): only ERROR level, JSON to stdout (Docker).
+ * Production (APP_ENV=production): only ERROR level, JSON to stdout (Docker).
  * Development: DEBUG level (default), pino-pretty colored output.
  *
  * To include X-Request-Id in logs, call logger.child({ "X-Request-Id": id }).
@@ -9,7 +9,9 @@
 
 import pino from "pino";
 
-const isProduction = process.env.NODE_ENV === "production";
+const appEnv =
+  process.env.APP_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+const isProduction = appEnv === "production";
 
 export const logger = pino({
   level: isProduction ? "error" : (process.env.LOG_LEVEL || "debug"),
