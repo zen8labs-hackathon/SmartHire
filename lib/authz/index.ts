@@ -30,5 +30,6 @@ export {
 } from "@/lib/authz/require-permission";
 export {
   redactAdminRowSalary,
+  redactAdminRowSalaryForAccess,
   redactExpectedSalary,
 } from "@/lib/authz/redact-salary";
