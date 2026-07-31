@@ -80,7 +80,13 @@ UI viewers nằm trong drawer JD (**Recruiter access**): thêm/xóa email, chọ
 | Chapter **head** trên JD đó | Có |
 | Recruiter chỉ có email grant | **Không** (field bị redact `null`) |
 
-Redact ở API list/detail và pipeline RSC: [`lib/authz/redact-salary.ts`](../lib/authz/redact-salary.ts).
+Redact ở API list/detail, mutation responses trả `candidate`, và pipeline RSC: [`lib/authz/redact-salary.ts`](../lib/authz/redact-salary.ts).
+
+Sửa `expected_salary`: **Edit profile** (evaluation / pipeline / candidate detail) — field chỉ hiện khi có `salary.view`; PATCH `/profile` từ chối nếu thiếu quyền.
+
+`GET /api/admin/candidates/deduped` chỉ HR/admin (cross-job list mang salary).
+
+JD `salary_range` không bị redact — ai xem được JD thì thấy mức lương trên JD.
 
 ## API / helpers
 

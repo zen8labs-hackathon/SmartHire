@@ -1,4 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
 
@@ -118,7 +119,9 @@ export async function POST(request: Request, { params }: RouteContext) {
       return Response.json({ error: "Could not load updated candidate." }, { status: 500 });
     }
 
-    return Response.json({ candidate: enriched });
+    return Response.json({
+      candidate: await redactAdminRowSalaryForAccess(db, auth.access, enriched),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to restore version.";
     return Response.json({ error: msg }, { status: 500 });

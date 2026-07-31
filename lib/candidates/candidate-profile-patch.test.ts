@@ -73,6 +73,7 @@ describe("diffProfileSnapshotsToPatch", () => {
     sourceOther: "",
     email: "a@a.com",
     phone: "1",
+    expectedSalary: "",
   };
 
   it("returns null when nothing changed", () => {
@@ -96,5 +97,23 @@ describe("diffProfileSnapshotsToPatch", () => {
       source: "Other",
       source_other: "Fair",
     });
+  });
+
+  it("includes expected_salary when it changes", () => {
+    expect(
+      diffProfileSnapshotsToPatch(
+        { ...base, expectedSalary: "20 triệu" },
+        base,
+      ),
+    ).toEqual({ expected_salary: "20 triệu" });
+  });
+
+  it("clears expected_salary with null", () => {
+    expect(
+      diffProfileSnapshotsToPatch(
+        { ...base, expectedSalary: "" },
+        { ...base, expectedSalary: "15 triệu" },
+      ),
+    ).toEqual({ expected_salary: null });
   });
 });

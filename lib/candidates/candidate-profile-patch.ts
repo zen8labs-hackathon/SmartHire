@@ -9,6 +9,7 @@ export const PROFILE_SOURCE_OTHER_MAX = 500;
 export const PROFILE_EMAIL_MAX = 320;
 export const PROFILE_PHONE_MAX = 40;
 export const PROFILE_CHANGE_SUMMARY_MAX = 500;
+export const PROFILE_EXPECTED_SALARY_MAX = 200;
 export const MAX_SKILLS = 40;
 export const MAX_SKILL_LEN = 80;
 export const EXPERIENCE_YEARS_MAX = 80;
@@ -61,6 +62,7 @@ export const candidateProfilePatchSchema = z
     source_other: optionalTrimmedNullable(PROFILE_SOURCE_OTHER_MAX),
     email: optionalTrimmedNullable(PROFILE_EMAIL_MAX),
     phone: optionalTrimmedNullable(PROFILE_PHONE_MAX),
+    expected_salary: optionalTrimmedNullable(PROFILE_EXPECTED_SALARY_MAX),
     change_summary: z
       .string()
       .max(PROFILE_CHANGE_SUMMARY_MAX)
@@ -149,6 +151,7 @@ export type CandidateProfileFormSnapshot = {
   sourceOther: string;
   email: string;
   phone: string;
+  expectedSalary: string;
 };
 
 function sortedSkillKey(skills: string[]): string {
@@ -213,6 +216,11 @@ export function diffProfileSnapshotsToPatch(
   const phone = current.phone.trim();
   if (phone !== baseline.phone.trim()) {
     patch.phone = phone.length === 0 ? null : phone;
+  }
+
+  const expectedSalary = current.expectedSalary.trim();
+  if (expectedSalary !== baseline.expectedSalary.trim()) {
+    patch.expected_salary = expectedSalary.length === 0 ? null : expectedSalary;
   }
 
   if (Object.keys(patch).length === 0) return null;

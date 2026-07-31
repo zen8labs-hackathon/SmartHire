@@ -550,6 +550,7 @@ export function EditCandidateModal({
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     "loading",
   );
+  const [canEditSalary, setCanEditSalary] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !row) {
@@ -558,6 +559,7 @@ export function EditCandidateModal({
     const ac = new AbortController();
     setDbRow(null);
     setDbLoadState("loading");
+    setCanEditSalary(false);
     void (async () => {
       try {
         const res = await fetch(`/api/admin/candidates/${row.id}`, {
@@ -569,7 +571,10 @@ export function EditCandidateModal({
           if (!ac.signal.aborted) setDbLoadState("error");
           return;
         }
-        const json = (await res.json()) as { candidate?: unknown };
+        const json = (await res.json()) as {
+          candidate?: unknown;
+          canViewSalary?: boolean;
+        };
         if (ac.signal.aborted || !json.candidate) {
           if (!ac.signal.aborted) setDbLoadState("error");
           return;
@@ -579,6 +584,7 @@ export function EditCandidateModal({
             ? campaignAppliedToCandidateDbRow(json.candidate as any)
             : (json.candidate as CandidateDbRow);
         setDbRow(c);
+        setCanEditSalary(json.canViewSalary === true);
         setDbLoadState("ok");
       } catch {
         if (!ac.signal.aborted) setDbLoadState("error");
@@ -608,6 +614,7 @@ export function EditCandidateModal({
                   candidateId={row.id}
                   dbRow={dbRow}
                   canEdit={canEdit}
+                  canEditSalary={canEditSalary}
                   isPreview={false}
                   dbLoadState={dbLoadState}
                   startInEditMode

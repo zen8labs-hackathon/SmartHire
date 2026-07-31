@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireHrForRequest } from "@/lib/admin/require-staff-request";
 import { queryDedupedCandidatesList } from "@/lib/candidates/candidates-dedup";
 import { getPool } from "@/lib/db/config/client";
 
@@ -17,7 +17,8 @@ function parseDateParam(raw: string | null): string | undefined {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  // Cross-job list returns expected_salary; HR/admin only (matches /admin/candidates).
+  const auth = await requireHrForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);
