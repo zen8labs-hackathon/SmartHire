@@ -63,6 +63,7 @@ export function campaignAppliedAdminRowToEvaluationRow(
     subStageCode: subStage?.code ?? null,
     subStageIsPassed: subStage?.is_passed ?? null,
     expectedSalary: opts.canViewSalary ? (r.expected_salary?.trim() || null) : null,
+    canViewSalary: opts.canViewSalary,
     sourceLabel: formatCandidateSourceLabel(r.source, r.source_other),
   };
 }

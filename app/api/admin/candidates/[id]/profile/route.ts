@@ -1,4 +1,6 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { canViewSalary } from "@/lib/authz/can";
+import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
@@ -60,6 +62,43 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
   if (!campaignApplied) {
     return Response.json({ error: "Application not found." }, { status: 404 });
+  }
+
+  if (patch.expected_salary !== undefined) {
+    const allowed = await canViewSalary(
+      db,
+      auth.access,
+      campaignApplied.job_id,
+    );
+    if (!allowed) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
+  const salaryOnly =
+    patch.expected_salary !== undefined &&
+    Object.entries(patch).every(
+      ([key, value]) =>
+        value === undefined ||
+        key === "expected_salary" ||
+        key === "change_summary",
+    );
+
+  // Salary lives on campaign_applied — skip CV versioning for salary-only edits.
+  if (salaryOnly) {
+    await updateCampaignApplied(db, campaignAppliedId, {
+      expectedSalary: patch.expected_salary,
+    });
+    const enriched = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
+    if (!enriched) {
+      return Response.json(
+        { error: "Could not load updated candidate." },
+        { status: 500 },
+      );
+    }
+    return Response.json({
+      candidate: await redactAdminRowSalaryForAccess(db, auth.access, enriched),
+    });
   }
 
   if (!campaignApplied.active_cv_version_id) {
@@ -186,11 +225,14 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         createdBy: auth.userId,
       });
 
-      // 2. Update campaign_applied active CV version and source fields
+      // 2. Update campaign_applied active CV version, source, and salary
       await updateCampaignApplied(tx, campaignAppliedId, {
         activeCvVersionId: nextVersion.id,
         source: nextSource,
         sourceOther: nextSource === "Other" ? nextSourceOther : null,
+        ...(patch.expected_salary !== undefined
+          ? { expectedSalary: patch.expected_salary }
+          : {}),
       });
 
       // 3. Update candidate (person) fields (name, email, phone)
@@ -215,7 +257,9 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       );
     }
 
-    return Response.json({ candidate: enriched });
+    return Response.json({
+      candidate: await redactAdminRowSalaryForAccess(db, auth.access, enriched),
+    });
   } catch (err) {
     if (isUniqueViolation(err)) {
       return Response.json(

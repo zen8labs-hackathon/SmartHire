@@ -43,6 +43,8 @@ export type CandidateProfileEditSectionProps = {
   candidateId: string;
   dbRow: CandidateDbRow | null;
   canEdit: boolean;
+  /** Show/edit expected salary (HR or chapter head on this job). */
+  canEditSalary?: boolean;
   isPreview: boolean;
   dbLoadState: "loading" | "error" | "ok";
   onSaved: (candidate: CandidateDbRow) => void;
@@ -71,6 +73,7 @@ type Draft = {
   sourceOther: string;
   email: string;
   phone: string;
+  expectedSalary: string;
 };
 
 function skillsFromComma(s: string): string[] {
@@ -97,6 +100,7 @@ function snapshotFromDraft(d: Draft): CandidateProfileFormSnapshot {
     sourceOther: d.sourceOther,
     email: d.email,
     phone: d.phone,
+    expectedSalary: d.expectedSalary,
   };
 }
 
@@ -132,6 +136,7 @@ function snapshotFromDb(db: CandidateDbRow): CandidateProfileFormSnapshot {
     sourceOther: db.source_other?.trim() || "",
     email: p.email?.trim() || "",
     phone: p.phone?.trim() || "",
+    expectedSalary: db.expected_salary?.trim() || "",
   };
 }
 
@@ -147,6 +152,7 @@ function draftFromSnapshot(s: CandidateProfileFormSnapshot): Draft {
     sourceOther: s.sourceOther,
     email: s.email,
     phone: s.phone,
+    expectedSalary: s.expectedSalary,
   };
 }
 
@@ -154,6 +160,7 @@ export function CandidateProfileEditSection({
   candidateId,
   dbRow,
   canEdit,
+  canEditSalary = false,
   isPreview,
   dbLoadState,
   onSaved,
@@ -176,6 +183,7 @@ export function CandidateProfileEditSection({
     sourceOther: "",
     email: "",
     phone: "",
+    expectedSalary: "",
   }));
   const [skillInput, setSkillInput] = useState("");
   const [changeSummary, setChangeSummary] = useState("");
@@ -365,6 +373,11 @@ export function CandidateProfileEditSection({
   const save = useCallback(async () => {
     if (!dbRow || !baseline) return;
     const current = snapshotFromDraft(draft);
+    // Don't diff salary unless this viewer may edit it (avoids wiping a
+    // redacted-null baseline over a real DB value).
+    if (!canEditSalary) {
+      current.expectedSalary = baseline.expectedSalary;
+    }
     if (current.source === "Other" && !current.sourceOther.trim()) {
       setError("When source is Other, describe the source in the text field.");
       return;
@@ -417,12 +430,17 @@ export function CandidateProfileEditSection({
           }
           return;
         }
-        const json = (await res.json()) as { candidate?: CandidateDbRow };
-        if (!json.candidate) {
+        const json = (await res.json()) as { candidate?: unknown };
+        if (!json.candidate || typeof json.candidate !== "object") {
           setError("Save succeeded but response was incomplete.");
           return;
         }
-        savedCandidate = json.candidate;
+        savedCandidate =
+          "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(
+                json.candidate as CampaignAppliedAdminRow,
+              )
+            : (json.candidate as CandidateDbRow);
       }
 
       if (stagePipelineChanged && stageDraft) {
@@ -477,6 +495,7 @@ export function CandidateProfileEditSection({
     }
   }, [
     baseline,
+    canEditSalary,
     candidateId,
     changeSummary,
     dbRow,
@@ -484,6 +503,7 @@ export function CandidateProfileEditSection({
     onSaved,
     stageBaseline,
     stageDraft,
+    startInEditMode,
   ]);
 
   if (!canEdit) return null;
@@ -700,6 +720,26 @@ export function CandidateProfileEditSection({
                     autoComplete="off"
                   />
                 </TextField>
+                {canEditSalary ? (
+                  <TextField className="min-w-0 md:col-span-2">
+                    <Label className={FIELD_LABEL}>Expected salary</Label>
+                    <Input
+                      value={draft.expectedSalary}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          expectedSalary: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. 18-20 triệu, negotiable…"
+                      className="mt-1 text-sm"
+                      autoComplete="off"
+                    />
+                    <p className="mt-1 text-[11px] text-muted/80">
+                      Visible only to HR and the chapter head for this job.
+                    </p>
+                  </TextField>
+                ) : null}
                 {!hidePipelineAndSource ? (
                   <div className="min-w-0">
                     <Label className={FIELD_LABEL}>Sourced from</Label>
