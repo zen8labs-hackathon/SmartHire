@@ -818,12 +818,12 @@ export function JdAppliedCandidatesPipeline({
       <DateRangePicker
         value={uploadDateRange as any}
         onChange={(next) => setUploadDateRange(next as any)}
-        className="w-64"
+        className="w-72"
       >
         <DateField.Group
           fullWidth
           variant="primary"
-          className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-3 text-xs"
+          className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-1 text-xs"
         >
           <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
             <DateField.Input slot="start" className="outline-none">
@@ -1017,16 +1017,6 @@ export function JdAppliedCandidatesPipeline({
           void fetchPage();
         }}
         isRefreshing={loadState === "loading" || pageLoadState === "loading"}
-        actions={
-          <Button
-            isDisabled={true}
-            variant="outline"
-            className="h-9 px-3.5 rounded-xl border border-divider hover:bg-surface-secondary text-foreground font-semibold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer text-xs"
-          >
-            <Download className="h-3.5 w-3.5 shrink-0" />
-            <span>Export Excel</span>
-          </Button>
-        }
         createButtonLabel={canAddCandidates ? "Add Candidates" : undefined}
         onCreate={canAddCandidates ? onAddCandidates : undefined}
       />

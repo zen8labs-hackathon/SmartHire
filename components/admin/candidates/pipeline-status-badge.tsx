@@ -20,11 +20,22 @@ export type PipelineStatusBadgeApplication = {
  * drawer's "Other applications" panel. */
 export function PipelineStatusBadge({
   app,
+  hasJob = true,
   className,
 }: {
   app: PipelineStatusBadgeApplication;
+  /** Set to `false` for a CV uploaded without a job -- there's no pipeline
+   * to show a stage for, so this is distinct from "not started yet". */
+  hasJob?: boolean;
   className?: string;
 }) {
+  if (!hasJob) {
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        N/a
+      </span>
+    );
+  }
   if (!app.stageLabel || !app.subStageLabel) {
     return (
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">

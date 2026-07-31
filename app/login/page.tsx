@@ -34,7 +34,7 @@ const REASON_MESSAGES: Record<string, { title: string; description: string }> =
     "sso-failed": {
       title: "Microsoft sign-in failed",
       description:
-        "Something went wrong. Please try again or use your email and password.",
+        "Something went wrong. Please try again.",
     },
   };
 
@@ -67,7 +67,7 @@ export default async function LoginPage({ searchParams }: Props) {
 
         {/* Login Card */}
         <Card className="glass-panel w-full border border-divider shadow-2xl rounded-2xl p-6">
-          <Card.Content className="flex flex-col gap-5 p-0">
+          <Card.Content className="flex flex-col gap-4 p-0">
             {reasonMessage ? (
               <Alert
                 status="warning"
@@ -84,6 +84,10 @@ export default async function LoginPage({ searchParams }: Props) {
                 </Alert.Content>
               </Alert>
             ) : null}
+
+            <p className="text-center text-xs font-medium text-muted">
+              Continue with your organization&apos;s Microsoft account
+            </p>
 
             <MicrosoftSignInButton next={nextPath} />
           </Card.Content>

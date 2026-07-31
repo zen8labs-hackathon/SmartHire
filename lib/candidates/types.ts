@@ -28,6 +28,8 @@ export type CandidateRow = {
   skills: string[];
   /** Extra skills count shown as "+N" when more than visible tags */
   moreSkills?: number;
+  /** The skills beyond the visible tags, shown when the "+N" chip is hovered */
+  moreSkillsList?: string[];
   degree: string;
   school: string;
   gpa: string;

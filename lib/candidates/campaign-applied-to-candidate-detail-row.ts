@@ -21,7 +21,8 @@ export type CandidateDetailRow = {
   relatedSkills: string;
   expectedSalary: string | null;
   sourceLabel: string;
-  jobTitle: string;
+  /** `null` means this CV was uploaded without selecting a job. */
+  jobTitle: string | null;
 };
 
 export function campaignAppliedAdminRowToCandidateDetailRow(
@@ -45,6 +46,6 @@ export function campaignAppliedAdminRowToCandidateDetailRow(
       r.candidate_skills.length > 0 ? r.candidate_skills.join(", ") : "—",
     expectedSalary: r.expected_salary?.trim() || null,
     sourceLabel: formatCandidateSourceLabel(r.source, r.source_other),
-    jobTitle: r.job_position ?? "—",
+    jobTitle: r.job_position ?? null,
   };
 }
