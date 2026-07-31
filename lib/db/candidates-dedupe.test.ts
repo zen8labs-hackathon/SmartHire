@@ -60,6 +60,15 @@ describe("findCandidatesByDedupeSignals", () => {
     expect(values[4]).toBe("app-1");
   });
 
+  it("excludes matches whose job is soft-deleted", async () => {
+    const db = fakeDb([]);
+
+    await findCandidatesByDedupeSignals(db, { email: "a@b.com" });
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL");
+  });
+
   it("joins pipeline stage/sub-stage so callers can show the match's real status", async () => {
     const db = fakeDb([]);
 
