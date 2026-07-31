@@ -27,3 +27,31 @@ export function randomKeySuffix(): string {
 export function buildStorageFilename(label: string, ext: string): string {
   return `${sanitizeForStorageKey(label)}_${randomKeySuffix()}${ext}`;
 }
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** `ddMMyyyyHHmmss` timestamp (server local time). */
+export function formatStorageTimestamp(date: Date = new Date()): string {
+  return (
+    pad2(date.getDate()) +
+    pad2(date.getMonth() + 1) +
+    String(date.getFullYear()) +
+    pad2(date.getHours()) +
+    pad2(date.getMinutes()) +
+    pad2(date.getSeconds())
+  );
+}
+
+/**
+ * Builds a timestamp-prefixed S3 filename: `{ddMMyyyyHHmmss}_{sanitized-label}{ext}`.
+ * `label` should already have its extension stripped.
+ */
+export function buildTimestampedStorageFilename(
+  label: string,
+  ext: string,
+  date: Date = new Date(),
+): string {
+  return `${formatStorageTimestamp(date)}_${sanitizeForStorageKey(label)}${ext}`;
+}

@@ -110,7 +110,7 @@ export type RecentCvDetailVersionActivity = {
   change_summary: string | null;
   created_at: Date;
   candidate_name: string | null;
-  job_position: string;
+  job_position: string | null;
 };
 
 /**
@@ -125,13 +125,15 @@ export async function listRecentCvDetailVersionsForAdmin(
   db: QueryExecutor,
   limit: number,
 ): Promise<RecentCvDetailVersionActivity[]> {
+  // jobs is a LEFT JOIN (not INNER) so a CV uploaded to the unassigned/pool
+  // (ca.job_id IS NULL, CJ4X9M) still shows up in the activity feed.
   const { rows } = await db.query<RecentCvDetailVersionActivity>(
     `SELECT cv.id, cv.campaign_applied_id, cv.source_event, cv.change_summary, cv.created_at,
             c.name AS candidate_name, j.position AS job_position
      FROM cv_detail_versions cv
      JOIN campaign_applied ca ON ca.id = cv.campaign_applied_id AND ca.deleted_at IS NULL
      JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      ORDER BY cv.id DESC
      LIMIT $1`,
     [limit],

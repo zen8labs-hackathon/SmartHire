@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildStorageFilename,
+  buildTimestampedStorageFilename,
   randomKeySuffix,
   sanitizeForStorageKey,
 } from "@/lib/storage/storage-key";
@@ -42,5 +43,13 @@ describe("buildStorageFilename", () => {
   it("joins the sanitized label, a random suffix, and the extension", () => {
     const filename = buildStorageFilename("My Resume", ".pdf");
     expect(filename).toMatch(/^My_Resume_[0-9a-f]{8}\.pdf$/);
+  });
+});
+
+describe("buildTimestampedStorageFilename", () => {
+  it("prefixes the sanitized label with a ddMMyyyyHHmmss timestamp", () => {
+    const date = new Date(2026, 6, 29, 15, 30, 5); // 29 Jul 2026, 15:30:05
+    const filename = buildTimestampedStorageFilename("My Resume", ".pdf", date);
+    expect(filename).toBe("29072026153005_My_Resume.pdf");
   });
 });

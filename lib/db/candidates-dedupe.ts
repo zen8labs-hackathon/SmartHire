@@ -23,8 +23,8 @@ export type DedupeSignalMatch = {
   candidate_email: string | null;
   candidate_phone: string | null;
   campaign_applied_id: string;
-  job_id: string;
-  job_position: string;
+  job_id: string | null;
+  job_position: string | null;
   cv_version_id: string | null;
   cv_original_filename: string | null;
   cv_file_sha256: string | null;
@@ -106,6 +106,9 @@ export async function findCandidatesByDedupeSignals(
     excludeClause = `AND ca.id != $${values.length}`;
   }
 
+  // jobs is a LEFT JOIN (not INNER) so an unassigned/pool application
+  // (ca.job_id IS NULL, CJ4X9M) still matches on its dedupe signals instead
+  // of silently dropping out of duplicate detection.
   const { rows } = await db.query<DedupeSignalMatch>(
     `SELECT
        c.id AS candidate_id, c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
@@ -116,7 +119,7 @@ export async function findCandidatesByDedupeSignals(
        ps.label AS stage_label, pss.label AS sub_stage_label
      FROM campaign_applied ca
      JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-     JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
@@ -144,8 +147,8 @@ export type DedupedCandidateAdminRow = {
   created_at: Date;
   updated_at: Date;
   campaign_applied_id: string;
-  job_id: string;
-  job_position: string;
+  job_id: string | null;
+  job_position: string | null;
   source: string | null;
   source_other: string | null;
   expected_salary: string | null;
@@ -181,11 +184,13 @@ export type ListDedupedCandidatesForAdminFilters = PaginationParams & {
  * being inherent in the new schema (one `candidates` row already is one
  * person) plus real SQL pagination.
  *
- * `latest_apps`/`jobs` are inner-joined (not left) on purpose: a person with
- * zero live applications has nothing for any of the admin dashboard's
- * per-row actions (view/edit/move-stage/delete, all keyed by
- * `campaign_applied_id`) to act on, so they're excluded here rather than
- * surfaced with a null id that silently 404s downstream.
+ * `latest_apps` is inner-joined (not left) on purpose: a person with zero
+ * live applications has nothing for any of the admin dashboard's per-row
+ * actions (view/edit/move-stage/delete, all keyed by `campaign_applied_id`)
+ * to act on, so they're excluded here rather than surfaced with a null id
+ * that silently 404s downstream. `jobs` is a LEFT JOIN, though -- a live
+ * application can legitimately have no job yet (unassigned/pool, CJ4X9M),
+ * and that person still has a real `campaign_applied_id` to act on.
  */
 export async function listDedupedCandidatesForAdmin(
   db: QueryExecutor,
@@ -229,8 +234,11 @@ export async function listDedupedCandidatesForAdmin(
        SELECT DISTINCT ON (candidate_id) *
        FROM campaign_applied
        WHERE deleted_at IS NULL
-         AND EXISTS (
-           SELECT 1 FROM jobs j WHERE j.id = campaign_applied.job_id AND j.deleted_at IS NULL
+         AND (
+           job_id IS NULL
+           OR EXISTS (
+             SELECT 1 FROM jobs j WHERE j.id = campaign_applied.job_id AND j.deleted_at IS NULL
+           )
          )
        ORDER BY candidate_id, id DESC
      )
@@ -249,7 +257,7 @@ export async function listDedupedCandidatesForAdmin(
        count(*) OVER() AS total_count
      FROM candidates c
      JOIN latest_apps la ON la.candidate_id = c.id
-     JOIN jobs j ON j.id = la.job_id AND j.deleted_at IS NULL
+     LEFT JOIN jobs j ON j.id = la.job_id AND j.deleted_at IS NULL
      LEFT JOIN cv_detail_versions cv ON cv.id = la.active_cv_version_id
      LEFT JOIN job_stage_mappings jsm ON jsm.id = la.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
