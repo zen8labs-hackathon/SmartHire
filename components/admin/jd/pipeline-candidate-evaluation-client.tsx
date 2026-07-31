@@ -473,10 +473,12 @@ export function PipelineCandidateEvaluationClient({
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Source</span>
                 <p className="font-semibold text-foreground text-sm">{candidate.sourceLabel}</p>
               </div>
-              {candidate.expectedSalary ? (
+              {candidate.canViewSalary ? (
                 <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                   <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Expected Salary</span>
-                  <p className="font-semibold text-foreground text-sm">{candidate.expectedSalary}</p>
+                  <p className="font-semibold text-foreground text-sm">
+                    {candidate.expectedSalary?.trim() || "—"}
+                  </p>
                 </div>
               ) : null}
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
