@@ -12,6 +12,7 @@ import {
 import type { ProfileRole } from "@/lib/db/users";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
+import { createRequestId, getRequestIdFromRequest, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 type AuthedUser = { id: string; role: ProfileRole };
 
@@ -67,6 +68,11 @@ function applyCookies(
   return response;
 }
 
+function attachRequestId(response: NextResponse, requestId: string): NextResponse {
+  response.headers.set(REQUEST_ID_HEADER, requestId);
+  return response;
+}
+
 function redirectTo(
   request: NextRequest,
   pathname: string,
@@ -91,6 +97,7 @@ function redirectTo(
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const requestId = getRequestIdFromRequest(request) ?? createRequestId();
   const needsAuthCheck =
     path === "/signup" ||
     path.startsWith("/admin") ||
@@ -99,7 +106,16 @@ export async function proxy(request: NextRequest) {
 
   // Avoid a network call on public routes to keep local dev responsive.
   if (!needsAuthCheck) {
-    return NextResponse.next({ request });
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
+    return attachRequestId(
+      NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      }),
+      requestId,
+    );
   }
 
   const pendingCookies: SessionCookie[] = [];
@@ -140,6 +156,7 @@ export async function proxy(request: NextRequest) {
       request.cookies.set(cookie.name, cookie.value);
     }
     const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
     const cookieString = request.cookies
       .getAll()
       .map((c) => `${c.name}=${c.value}`)
@@ -152,10 +169,16 @@ export async function proxy(request: NextRequest) {
       },
     });
   } else {
-    response = NextResponse.next({ request });
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
+    response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
 
-  return applyCookies(response, pendingCookies);
+  return attachRequestId(applyCookies(response, pendingCookies), requestId);
 }
 
 export const config = {

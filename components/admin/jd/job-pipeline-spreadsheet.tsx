@@ -77,7 +77,7 @@ export function JobPipelineSpreadsheet({
             <button
               type="button"
               onClick={jdFileModal.open}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-tertiary"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-tertiary"
             >
               <FileText className="size-3.5" />
               View JD file

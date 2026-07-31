@@ -9,6 +9,7 @@ import {
   getCampaignAppliedAdminRowById,
 } from "@/lib/db/campaign-applied-list";
 import {
+  softDeleteAllCampaignAppliedForCandidate,
   softDeleteCampaignApplied,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
@@ -138,12 +139,29 @@ export async function PATCH(request: Request, { params }: RouteContext) {
  * storage paths) are kept for history, matching the rest of this schema's
  * soft-delete design (`deleted_at` everywhere, no destructive deletes).
  *
- * Also soft-deletes the person (`candidates`) row when this was their last
- * live application. Otherwise the person row lingers with `deleted_at NULL`,
- * invisible to dedupe lookups (which only join through live applications)
- * but still occupying `candidates_email_unique_idx` / `_phone_unique_idx` --
- * any future upload reusing that email/phone then fails the unique
- * constraint instead of surfacing the duplicate-candidate flow.
+ * Two scopes, both soft-delete-only:
+ * - Default (`?scope` absent) -- removes just this one application. Used by
+ *   the per-job JD pipeline table, where a person may still have live
+ *   applications to *other* jobs that must stay untouched. The person
+ *   (`candidates`) row is soft-deleted too, but only when this was their
+ *   last live application -- otherwise it'd linger with `deleted_at NULL`,
+ *   invisible to dedupe lookups (which only join through live applications)
+ *   but still occupying `candidates_email_unique_idx` / `_phone_unique_idx`,
+ *   so a future upload reusing that email/phone would fail the unique
+ *   constraint instead of surfacing the duplicate-candidate flow.
+ * - `?scope=person` -- removes the whole person: every one of their live
+ *   applications (any job) plus the `candidates` row itself, unconditionally.
+ *   Used by the deduped `/candidates` list, where one row represents a
+ *   person, not a single application -- deleting it should read as "remove
+ *   this candidate", not "remove their most recent application only".
+ *   HR-only: `requirePermissionForApplication` below only checks the
+ *   caller's ACL on the *one* application id in the URL, but this scope
+ *   cascades into every other job the person has applied to -- a non-HR
+ *   recruiter scoped to a subset of jobs could otherwise soft-delete another
+ *   chapter's applications just by holding access to one of this person's
+ *   other jobs. Restricting to HR matches the only UI entry point for this
+ *   scope (`/admin/candidates` redirects non-HR staff away in
+ *   app/admin/candidates/page.tsx).
  */
 export async function DELETE(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
@@ -152,6 +170,13 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const { id: candidateId } = await params;
   if (!candidateId || !UUID_RE.test(candidateId)) {
     return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  const deletePersonScope =
+    new URL(request.url).searchParams.get("scope") === "person";
+
+  if (deletePersonScope && !auth.access.isHr) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const manageAccess = await requirePermissionForApplication(
@@ -164,6 +189,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const deleted = await withTransaction(async (tx) => {
     const row = await softDeleteCampaignApplied(tx, candidateId);
     if (!row) return null;
+
+    if (deletePersonScope) {
+      await softDeleteAllCampaignAppliedForCandidate(tx, row.candidate_id);
+      await softDeleteCandidate(tx, row.candidate_id);
+      return row;
+    }
 
     const { rows: remaining } = await tx.query<{ count: string }>(
       `SELECT count(*)::int AS count FROM campaign_applied WHERE candidate_id = $1 AND deleted_at IS NULL`,

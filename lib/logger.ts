@@ -2,7 +2,8 @@
  * Structured logger using Pino.
  *
  * Production (APP_ENV=production): only ERROR level, JSON to stdout (Docker).
- * Development: DEBUG level (default), pino-pretty colored output.
+ * Non-production: DEBUG level (default). Pretty logs are only enabled for local
+ * NODE_ENV=development so deployed containers keep JSON stdout for Promtail/Loki.
  *
  * To include X-Request-Id in logs, call logger.child({ "X-Request-Id": id }).
  */
@@ -12,14 +13,15 @@ import pino from "pino";
 const appEnv =
   process.env.APP_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "development");
 const isProduction = appEnv === "production";
+const usePrettyLogs = process.env.NODE_ENV === "development";
 
 export const logger = pino({
   level: isProduction ? "error" : (process.env.LOG_LEVEL || "debug"),
   timestamp: pino.stdTimeFunctions.isoTime,
   base: { service: "smarthire" },
-  ...(isProduction
-    ? {}
-    : { transport: { target: "pino-pretty", options: { colorize: true } } }),
+  ...(usePrettyLogs
+    ? { transport: { target: "pino-pretty", options: { colorize: true } } }
+    : {}),
 });
 
 /** Create a child logger with X-Request-Id for a specific request context. */

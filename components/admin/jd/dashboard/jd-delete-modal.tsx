@@ -19,8 +19,11 @@ export function JdDeleteModal() {
           </Modal.Header>
           <Modal.Body className="px-6 py-5">
             <p className="text-sm text-muted">
-              This action cannot be undone. The job description will be
-              permanently removed.
+              This will remove the job description, along with every
+              candidate who applied to it (and any candidate left with no
+              other application, across any job). Their records and CV
+              files are kept internally but won&apos;t appear in search,
+              reporting, or any job&apos;s pipeline anymore.
             </p>
             {deleteError && (
               <p className="mt-3 text-sm text-danger">{deleteError}</p>
