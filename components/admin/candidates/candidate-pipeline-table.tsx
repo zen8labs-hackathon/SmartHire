@@ -1,15 +1,60 @@
 "use client";
 
 import { memo } from "react";
+import { useRouter } from "next/navigation";
 import { Avatar, Button, Chip, Table, Tooltip } from "@heroui/react";
 import { candidateDisplayInitials } from "@/lib/candidates/candidate-display";
 import type { CandidateRow } from "@/lib/candidates/types";
 import { formatDisplayDateTime } from "@/lib/format-date";
 import { DataTablePagination } from "@/components/admin/shell/table-system";
-import { Trash2 } from "lucide-react";
+import { Eye, Trash2 } from "lucide-react";
 
 function formatUploadedAtDisplay(iso: string | null): string {
   return formatDisplayDateTime(iso);
+}
+
+/**
+ * The "+N" chip shown when a candidate has more key skills than fit in the
+ * table cell. Reveals the rest of the skills on hover; the list is capped
+ * at `max-h-48` with `overflow-y-auto` since some candidates have 50+ extra
+ * skills, which would otherwise blow past the viewport.
+ */
+function MoreSkillsChip({ count, skills }: { count: number; skills: string[] }) {
+  return (
+    <Tooltip delay={0}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto min-h-0 w-fit min-w-0 rounded-full bg-transparent p-0 hover:bg-transparent"
+        aria-label={`${count} more skills`}
+      >
+        <Chip
+          size="sm"
+          variant="soft"
+          color="accent"
+          className="text-[10px] font-bold"
+        >
+          +{count}
+        </Chip>
+      </Button>
+      <Tooltip.Content placement="top" showArrow>
+        <Tooltip.Arrow />
+        <div className="flex max-h-48 max-w-[220px] flex-wrap gap-1.5 overflow-y-auto">
+          {skills.map((s, idx) => (
+            <Chip
+              key={`${s}-${idx}`}
+              size="sm"
+              variant="soft"
+              color="accent"
+              className="text-[10px] font-bold"
+            >
+              {s}
+            </Chip>
+          ))}
+        </div>
+      </Tooltip.Content>
+    </Tooltip>
+  );
 }
 
 export type CandidatePipelineTableProps = {
@@ -45,6 +90,7 @@ function CandidatePipelineTableImpl({
   pageSize,
   setPageSize,
 }: CandidatePipelineTableProps) {
+  const router = useRouter();
   return (
     <div className="space-y-4 font-sans">
       <Table>
@@ -56,7 +102,7 @@ function CandidatePipelineTableImpl({
               <Table.Column>Key Skills</Table.Column>
               <Table.Column>Education</Table.Column>
               <Table.Column className="whitespace-nowrap">Uploaded at</Table.Column>
-              <Table.Column className="text-right">Actions</Table.Column>
+              <Table.Column className="text-left">Actions</Table.Column>
             </Table.Header>
             <Table.Body>
                {dbLoadState === "loading" && tableSourceRows.length === 0 ? (
@@ -136,14 +182,10 @@ function CandidatePipelineTableImpl({
                         </Chip>
                       ))}
                       {row.moreSkills ? (
-                        <Chip
-                          size="sm"
-                          variant="soft"
-                          color="accent"
-                          className="text-[10px] font-bold"
-                        >
-                          +{row.moreSkills}
-                        </Chip>
+                        <MoreSkillsChip
+                          count={row.moreSkills}
+                          skills={row.moreSkillsList ?? []}
+                        />
                       ) : null}
                     </div>
                   </Table.Cell>
@@ -157,7 +199,25 @@ function CandidatePipelineTableImpl({
                     {formatUploadedAtDisplay(row.cvUploadedAtIso)}
                   </Table.Cell>
                   <Table.Cell className="text-right py-3.5">
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="flex items-center justify-start gap-1">
+                      <Tooltip delay={0}>
+                        <Button
+                          isIconOnly
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 rounded-lg"
+                          aria-label="View candidate detail"
+                          onPress={() =>
+                            router.push(`/admin/candidate-detail/${row.id}`)
+                          }
+                        >
+                          <Eye className="size-4" />
+                        </Button>
+                        <Tooltip.Content placement="top" showArrow>
+                          <Tooltip.Arrow />
+                          <p>View detail</p>
+                        </Tooltip.Content>
+                      </Tooltip>
                       <Tooltip delay={0}>
                         <Button
                           isIconOnly

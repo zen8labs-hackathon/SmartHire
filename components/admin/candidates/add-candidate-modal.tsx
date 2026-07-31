@@ -16,19 +16,24 @@ import {
   TextField,
 } from "@heroui/react";
 
-import type { CandidateDbRow, ParsingStatus } from "@/lib/candidates/db-row";
+import type {
+  CandidateDbRow,
+  JdMatchStatus,
+  ParsingStatus,
+} from "@/lib/candidates/db-row";
 import type {
   DuplicateCandidateHit,
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
-import { formatDisplayDateTime } from "@/lib/format-date";
+
 import {
   MAX_CV_BYTES,
   isAllowedCvFilename,
 } from "@/lib/candidates/upload-constants";
 import { extractCvSignalsClientSide } from "@/lib/candidates/client-cv-extract";
 import { useToast } from "@/components/admin/toast-provider";
+import { CvUploadHistorySubModal } from "@/components/admin/candidates/cv-upload-history-sub-modal";
 
 type JobOpening = {
   id: string;
@@ -46,6 +51,11 @@ type QueueRow = {
    * succeeds. */
   rowId: string;
   candidateId?: string;
+  /** Set once this row's upload is auto-merged as a new version onto an
+   * *existing* application for the same job (see `autoResolveDuplicate`) --
+   * at that point `candidateId` points at the now-deleted throwaway row, so
+   * CV history must be looked up by this id instead. */
+  mergedApplicationId?: string;
   tempKey?: string;
   /** Kept so a failed row can be retried without asking the user to
    * re-select the file. */
@@ -58,6 +68,13 @@ type QueueRow = {
   uploadError?: string;
   parsing_status: ParsingStatus;
   parsing_error?: string | null;
+  /** JD-match is a second, independent LLM call that runs after parsing
+   * succeeds -- it can fail on its own even when `parsing_status` is
+   * `"completed"`, so it needs its own failure tracking rather than being
+   * folded into `parsing_status`. `null`/`undefined` means it hasn't run
+   * (skipped, not requested, or not reached yet) rather than failed. */
+  jdMatchStatus?: JdMatchStatus | null;
+  jdMatchError?: string | null;
   /** Best-known name/email/phone for this CV -- seeded from the client-side
    * heuristic guess at ingest time, then overwritten with the authoritative
    * AI-parsed values once `/process` finishes (see `refreshRowContactInfo`).
@@ -76,16 +93,27 @@ type CommitAndProcessResult = {
   candidateId: string;
   duplicateCandidates: DuplicateCandidateHit[];
   duplicateNewUpload: DuplicateNewUploadPreview | null;
+  jdMatchError: string | null;
 };
+
+/** Shape of the `jdMatch` field on `/api/admin/candidates/[id]/process`'s
+ * response body -- present on every response since the parse step (which
+ * *can* fail the request outright) always runs first. */
+type ProcessJdMatchResult =
+  | { skipped: true; reason: string }
+  | { skipped: false; score: number }
+  | { error: string };
+
+function jdMatchErrorFromResponse(
+  jdMatch: ProcessJdMatchResult | undefined,
+): string | null {
+  return jdMatch && "error" in jdMatch ? jdMatch.error : null;
+}
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(ts: number) {
-  return formatDisplayDateTime(ts);
 }
 
 function dash(v: string | null | undefined): string {
@@ -136,14 +164,38 @@ function createSemaphore(limit: number) {
 
 const aiProcessSemaphore = createSemaphore(AI_PROCESS_CONCURRENCY);
 
+/** Single source of truth for "this row needs attention/retry" -- covers
+ * every stage that can independently fail: the upload/confirm/process
+ * request itself, CV parsing, and JD-match (a second, separate LLM call
+ * that can fail even when parsing succeeded, since it isn't folded into
+ * `parsing_status`). Used by the status chip, the "Failed" count, the
+ * end-of-queue toast, and "Retry all failed" -- previously these each had
+ * their own slightly different (and drifted) definition of "failed", so
+ * e.g. a JD-match failure showed an "Error" chip and was counted in
+ * "Retry all failed (N)" but was silently never actually retried by it.
+ */
+function isRowFailed(row: QueueRow): boolean {
+  return (
+    row.uploadPhase === "error" ||
+    row.parsing_status === "failed" ||
+    row.jdMatchStatus === "failed"
+  );
+}
+
+/** The message to show under the filename for a failed row -- whichever
+ * stage actually failed. */
+function rowErrorMessage(row: QueueRow): string | null {
+  if (row.uploadPhase === "error") return row.uploadError ?? null;
+  if (row.parsing_status === "failed") return row.parsing_error ?? null;
+  if (row.jdMatchStatus === "failed") return row.jdMatchError ?? null;
+  return null;
+}
+
 function statusChip(row: QueueRow): {
   label: string;
   color: "accent" | "success" | "danger" | "default";
 } {
-  if (row.uploadPhase === "error") {
-    return { label: "Error", color: "danger" };
-  }
-  if (row.parsing_status === "failed") {
+  if (isRowFailed(row)) {
     return { label: "Error", color: "danger" };
   }
   if (row.uploadPhase === "uploaded") {
@@ -155,11 +207,7 @@ function statusChip(row: QueueRow): {
 /** True while upload/parse/dedupe is still in flight — not completed and not
  * failed. Drives close-button lock and running borders on queue panels. */
 function isQueueRowInProgress(row: QueueRow): boolean {
-  return (
-    row.uploadPhase !== "uploaded" &&
-    row.uploadPhase !== "error" &&
-    row.parsing_status !== "failed"
-  );
+  return row.uploadPhase !== "uploaded" && !isRowFailed(row);
 }
 
 function FileIcon({ className }: { className?: string }) {
@@ -174,6 +222,25 @@ function FileIcon({ className }: { className?: string }) {
     >
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    </svg>
+  );
+}
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 12a9 9 0 1 0 2.64-6.36" />
+      <path d="M3 4v5h5" />
+      <path d="M12 7v5l4 2" />
     </svg>
   );
 }
@@ -245,6 +312,11 @@ export function AddCandidateModal({
     Set<string>
   >(new Set());
   const [allSuccessToastShown, setAllSuccessToastShown] = useState(false);
+  /** Application id whose CV upload history the sub-modal is showing, or
+   * `null` when it's closed. */
+  const [historyApplicationId, setHistoryApplicationId] = useState<
+    string | null
+  >(null);
   /** True while "Retry all failed" is in flight, purely to disable the
    * button and show a busy label -- each row it kicks off is otherwise a
    * normal `retryRow` call. */
@@ -442,6 +514,7 @@ export function AddCandidateModal({
                   ...r,
                   uploadPhase: "uploaded" as const,
                   parsing_status: "completed" as const,
+                  mergedApplicationId: sameJobHit.id,
                 }
               : r,
           ),
@@ -491,6 +564,17 @@ export function AddCandidateModal({
             ? {
                 ...r,
                 uploadPhase: "invoking" as const,
+                // Reset any stale failure from a previous attempt -- without
+                // this, retrying a row whose CV parsing (or JD-match) had
+                // failed left `parsing_status`/`jdMatchStatus` stuck at
+                // "failed" for the whole retry, and forever after if the
+                // retry itself threw before reaching the success branch
+                // below (the polling effect only refreshes rows sitting at
+                // "pending"/"processing", never "failed").
+                parsing_status: "processing" as const,
+                parsing_error: null,
+                jdMatchStatus: null,
+                jdMatchError: null,
                 processingStartedAt: Date.now(),
               }
             : r,
@@ -509,10 +593,30 @@ export function AddCandidateModal({
           error?: string;
           duplicateCandidates?: DuplicateCandidateHit[];
           duplicateNewUpload?: DuplicateNewUploadPreview | null;
+          jdMatch?: ProcessJdMatchResult;
         };
         if (!procRes.ok) {
           throw new Error(procJson.error ?? "Failed to start processing");
         }
+
+        // `runCvParsing` inside `/process` is awaited synchronously before
+        // the response is sent, so a 2xx here means parsing (and, if
+        // requested, JD-match) has definitively already finished -- no need
+        // to wait for the next poll tick to learn that.
+        const jdMatchError = jdMatchErrorFromResponse(procJson.jdMatch);
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  parsing_status: "completed" as const,
+                  parsing_error: null,
+                  jdMatchStatus: jdMatchError ? ("failed" as const) : null,
+                  jdMatchError,
+                }
+              : r,
+          ),
+        );
 
         const hits = procJson.duplicateCandidates ?? [];
         // Contact info is only ever readable while this row's own
@@ -535,7 +639,12 @@ export function AddCandidateModal({
         setQueue((q) =>
           q.map((r) =>
             r.rowId === rowId
-              ? { ...r, uploadPhase: "error", uploadError: msg }
+              ? {
+                  ...r,
+                  uploadPhase: "error",
+                  uploadError: msg,
+                  parsing_status: "failed" as const,
+                }
               : r,
           ),
         );
@@ -607,6 +716,7 @@ export function AddCandidateModal({
         error?: string;
         duplicateCandidates?: DuplicateCandidateHit[];
         duplicateNewUpload?: DuplicateNewUploadPreview | null;
+        jdMatch?: ProcessJdMatchResult;
       };
       if (!procRes.ok) {
         throw new Error(procJson.error ?? "Failed to start processing");
@@ -616,6 +726,7 @@ export function AddCandidateModal({
         candidateId,
         duplicateCandidates: procJson.duplicateCandidates ?? [],
         duplicateNewUpload: procJson.duplicateNewUpload ?? null,
+        jdMatchError: jdMatchErrorFromResponse(procJson.jdMatch),
       };
     },
     [selectedJobId, sourceKey, sourceOther, expectedSalary],
@@ -695,19 +806,12 @@ export function AddCandidateModal({
   useEffect(() => {
     if (queue.length === 0) return;
     const allTerminal = queue.every(
-      (r) =>
-        r.uploadPhase === "uploaded" ||
-        r.parsing_status === "failed" ||
-        r.uploadPhase === "error",
+      (r) => r.uploadPhase === "uploaded" || r.uploadPhase === "error",
     );
     if (allTerminal && !allSuccessToastShown) {
       setAllSuccessToastShown(true);
-      const successCount = queue.filter(
-        (r) => r.uploadPhase === "uploaded",
-      ).length;
-      const failCount = queue.filter(
-        (r) => r.parsing_status === "failed" || r.uploadPhase === "error",
-      ).length;
+      const failCount = queue.filter(isRowFailed).length;
+      const successCount = queue.length - failCount;
 
       if (failCount > 0) {
         triggerError(
@@ -854,6 +958,26 @@ export function AddCandidateModal({
             email,
             phone,
             runJdMatch,
+          );
+          // `commitAndProcessViaBypass` already awaited `/process` above, so
+          // parsing has definitively completed -- and JD-match, if it
+          // failed, needs to be reflected here since `autoResolveDuplicate`
+          // below only ever touches `uploadPhase`/`parsing_status`, not
+          // JD-match (the two are independent LLM calls).
+          setQueue((q) =>
+            q.map((r) =>
+              r.rowId === rowId
+                ? {
+                    ...r,
+                    parsing_status: "completed" as const,
+                    parsing_error: null,
+                    jdMatchStatus: result.jdMatchError
+                      ? ("failed" as const)
+                      : null,
+                    jdMatchError: result.jdMatchError,
+                  }
+                : r,
+            ),
           );
           await refreshRowContactInfo(rowId, result.candidateId);
           await autoResolveDuplicate(rowId, result.candidateId, hits);
@@ -1015,17 +1139,18 @@ export function AddCandidateModal({
   );
 
   /**
-   * Retries every row currently sitting at `uploadPhase: "error"` at once,
-   * rather than making the user click each one individually. Each row still
-   * goes through `retryRow`'s own branching (re-upload from scratch vs.
-   * re-process only), and any row that needs a fresh `/process` call still
-   * goes through `aiProcessSemaphore` -- firing N retries in parallel here
+   * Retries every row currently failed (`isRowFailed`: upload/confirm error,
+   * failed CV parse, or failed JD-match) at once, rather than making the
+   * user click each one individually. Each row still goes through
+   * `retryRow`'s own branching (re-upload from scratch vs. re-process
+   * only), and any row that needs a fresh `/process` call still goes
+   * through `aiProcessSemaphore` -- firing N retries in parallel here
    * doesn't bypass the concurrency cap, it just queues them the same way N
    * fresh uploads would.
    */
   const retryAllFailed = useCallback(async () => {
     const failedRowIds = queueRef.current
-      .filter((r) => r.uploadPhase === "error")
+      .filter(isRowFailed)
       .map((r) => r.rowId);
     if (failedRowIds.length === 0) return;
     setIsRetryingAll(true);
@@ -1109,81 +1234,131 @@ export function AddCandidateModal({
   };
 
   return (
-    <Modal state={modalState}>
-      <Modal.Backdrop
-        className="bg-black/40 backdrop-blur-sm"
-        isDismissable={!hasIncompleteCvs}
-        isKeyboardDismissDisabled={hasIncompleteCvs}
-      >
-        <Modal.Container className="w-full">
-          <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
-            <Modal.CloseTrigger
-              isDisabled={hasIncompleteCvs}
-              aria-label={
-                hasIncompleteCvs
-                  ? "Close unavailable while CVs are processing"
-                  : "Close"
-              }
-            />
-            <Modal.Header className="border-b border-divider px-6 py-5">
-              <Modal.Heading className="text-xl">Add candidates</Modal.Heading>
-              <p className="mt-1 text-sm text-muted">
-                {isCampaignLocked
-                  ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
-                  : "Upload CVs to private storage; AI extracts profile fields in the background."}
-              </p>
-            </Modal.Header>
-            <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
-              {isCampaignBlocked ? (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-                  <p className="font-semibold text-amber-900 dark:text-amber-100">
-                    No campaign linked yet
-                  </p>
-                  <p className="mt-1 text-muted">
-                    Create or link a job opening to this job description from{" "}
-                    <span className="font-medium text-foreground">
-                      Jobs list
-                    </span>{" "}
-                    so uploads can be tied to the JD (required for AI match
-                    scoring).
-                  </p>
-                </div>
-              ) : null}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
-                <div className="flex min-h-0 min-w-0 flex-col gap-4">
-                  <div>
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Target campaign
-                      {!isCampaignLocked && isJdPipeline ? (
-                        <span className="ml-1 text-danger">*</span>
+    <>
+      <Modal state={modalState}>
+        <Modal.Backdrop
+          className="bg-black/40 backdrop-blur-sm"
+          isDismissable={!hasIncompleteCvs}
+          isKeyboardDismissDisabled={hasIncompleteCvs}
+        >
+          <Modal.Container className="w-full">
+            <Modal.Dialog className="!max-w-4xl max-h-[90vh] w-full min-w-0 overflow-hidden p-0">
+              <Modal.CloseTrigger
+                isDisabled={hasIncompleteCvs}
+                aria-label={
+                  hasIncompleteCvs
+                    ? "Close unavailable while CVs are processing"
+                    : "Close"
+                }
+              />
+              <Modal.Header className="border-b border-divider px-6 py-5">
+                <Modal.Heading className="text-xl">
+                  Add candidates
+                </Modal.Heading>
+                <p className="mt-1 text-sm text-muted">
+                  {isCampaignLocked
+                    ? "CVs are linked to this job description’s campaign for parsing and JD match scoring."
+                    : "Upload CVs to private storage; AI extracts profile fields in the background."}
+                </p>
+              </Modal.Header>
+              <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
+                {isCampaignBlocked ? (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                    <p className="font-semibold text-amber-900 dark:text-amber-100">
+                      No campaign linked yet
+                    </p>
+                    <p className="mt-1 text-muted">
+                      Create or link a job opening to this job description from{" "}
+                      <span className="font-medium text-foreground">
+                        Jobs list
+                      </span>{" "}
+                      so uploads can be tied to the JD (required for AI match
+                      scoring).
+                    </p>
+                  </div>
+                ) : null}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
+                  <div className="flex min-h-0 min-w-0 flex-col gap-4">
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Target campaign
+                        {!isCampaignLocked && isJdPipeline ? (
+                          <span className="ml-1 text-danger">*</span>
+                        ) : null}
+                        {!isCampaignLocked && !isJdPipeline ? (
+                          <span className="ml-1 font-normal normal-case text-muted/70">
+                            (optional)
+                          </span>
+                        ) : null}
+                      </Label>
+                      {isCampaignLocked &&
+                      typeof jdPipelineCampaign === "object" ? (
+                        <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
+                          <span className="font-medium">
+                            {jdPipelineCampaign.title}
+                          </span>
+                          <p className="mt-1 text-xs text-muted">
+                            Fixed for this job description — candidates are
+                            eligible for JD-based AI evaluation.
+                          </p>
+                        </div>
+                      ) : (
+                        <Select
+                          placeholder={
+                            isJdPipeline
+                              ? "Select a campaign…"
+                              : "No job — add to candidate pool"
+                          }
+                          value={jobKey}
+                          onChange={(key) => {
+                            if (typeof key === "string") setJobKey(key);
+                          }}
+                          className="mt-2"
+                        >
+                          <Select.Trigger className="w-full min-w-0">
+                            <Select.Value />
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {jobs.map((j) => (
+                                <ListBox.Item
+                                  key={j.id}
+                                  id={j.id}
+                                  textValue={j.displayTitle}
+                                >
+                                  {j.displayTitle}
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              ))}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                      )}
+                      {isCampaignMissing ? (
+                        isJdPipeline ? (
+                          <p className="mt-1.5 text-xs text-muted">
+                            Required before you can upload CVs.
+                          </p>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-muted">
+                            No job selected — CVs will be added to the
+                            candidate pool and can be assigned to a job later.
+                          </p>
+                        )
                       ) : null}
-                      {!isCampaignLocked && !isJdPipeline ? (
-                        <span className="ml-1 font-normal normal-case text-muted/70">
-                          (optional)
-                        </span>
-                      ) : null}
-                    </Label>
-                    {isCampaignLocked &&
-                    typeof jdPipelineCampaign === "object" ? (
-                      <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
-                        <span className="font-medium">
-                          {jdPipelineCampaign.title}
-                        </span>
-                        <p className="mt-1 text-xs text-muted">
-                          Fixed for this job description — candidates are
-                          eligible for JD-based AI evaluation.
-                        </p>
-                      </div>
-                    ) : (
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Sourced from
+                      </Label>
                       <Select
-                        placeholder={
-                          isJdPipeline
-                            ? "Select a campaign…"
-                            : "No job — add to candidate pool"
-                        }
-                        value={jobKey}
-                        onChange={(key) => {
-                          if (typeof key === "string") setJobKey(key);
+                        value={sourceKey}
+                        onChange={(k) => {
+                          const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+                          setSourceKey(next);
+                          if (next !== "Other") setSourceOther("");
                         }}
                         className="mt-2"
                       >
@@ -1193,442 +1368,429 @@ export function AddCandidateModal({
                         </Select.Trigger>
                         <Select.Popover>
                           <ListBox>
-                            {jobs.map((j) => (
-                              <ListBox.Item
-                                key={j.id}
-                                id={j.id}
-                                textValue={j.displayTitle}
-                              >
-                                {j.displayTitle}
+                            {CANDIDATE_SOURCE_VALUES.map((s) => (
+                              <ListBox.Item key={s} id={s} textValue={s}>
+                                {s}
                                 <ListBox.ItemIndicator />
                               </ListBox.Item>
                             ))}
                           </ListBox>
                         </Select.Popover>
                       </Select>
-                    )}
-                    {isCampaignMissing ? (
-                      isJdPipeline ? (
-                        <p className="mt-1.5 text-xs text-muted">
-                          Required before you can upload CVs.
-                        </p>
-                      ) : (
-                        <p className="mt-1.5 text-xs text-muted">
-                          No job selected — CVs will be added to the
-                          candidate pool and can be assigned to a job later.
-                        </p>
-                      )
-                    ) : null}
-                  </div>
+                      {sourceKey === "Other" ? (
+                        <TextField className="mt-3">
+                          <Label className="text-xs text-muted">
+                            Describe the source
+                          </Label>
+                          <Input
+                            value={sourceOther}
+                            onChange={(e) => setSourceOther(e.target.value)}
+                            placeholder="e.g. University career fair, referral name…"
+                            className="mt-1"
+                          />
+                        </TextField>
+                      ) : null}
+                    </div>
 
-                  <div>
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Sourced from
-                    </Label>
-                    <Select
-                      value={sourceKey}
-                      onChange={(k) => {
-                        const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-                        setSourceKey(next);
-                        if (next !== "Other") setSourceOther("");
-                      }}
-                      className="mt-2"
-                    >
-                      <Select.Trigger className="w-full min-w-0">
-                        <Select.Value />
-                        <Select.Indicator />
-                      </Select.Trigger>
-                      <Select.Popover>
-                        <ListBox>
-                          {CANDIDATE_SOURCE_VALUES.map((s) => (
-                            <ListBox.Item key={s} id={s} textValue={s}>
-                              {s}
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          ))}
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>
-                    {sourceKey === "Other" ? (
-                      <TextField className="mt-3">
-                        <Label className="text-xs text-muted">
-                          Describe the source
-                        </Label>
+                    <div>
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Expected salary{" "}
+                        <span className="font-normal normal-case text-muted/70">
+                          (optional)
+                        </span>
+                      </Label>
+                      <TextField className="mt-2">
                         <Input
-                          value={sourceOther}
-                          onChange={(e) => setSourceOther(e.target.value)}
-                          placeholder="e.g. University career fair, referral name…"
-                          className="mt-1"
+                          value={expectedSalary}
+                          onChange={(e) => setExpectedSalary(e.target.value)}
+                          placeholder="e.g. 18,000,000-20,000,000 or 18-20 triệu, negotiable…"
                         />
                       </TextField>
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Expected salary{" "}
-                      <span className="font-normal normal-case text-muted/70">
-                        (optional)
-                      </span>
-                    </Label>
-                    <TextField className="mt-2">
-                      <Input
-                        value={expectedSalary}
-                        onChange={(e) => setExpectedSalary(e.target.value)}
-                        placeholder="e.g. 18.000.000 – 20.000.000 or 18-20 triệu"
-                      />
-                    </TextField>
-                    <p className="mt-1.5 text-xs text-muted">
-                      Only visible to HR and the chapter head in the evaluation
-                      view.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="flex items-center gap-2 text-sm text-foreground">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-divider accent-accent cursor-pointer"
-                        checked={runJdMatchOnUpload}
-                        onChange={(e) =>
-                          setRunJdMatchOnUpload(e.target.checked)
-                        }
-                      />
-                      Run AI JD-match scoring
-                    </label>
-                    <p className="mt-1.5 text-xs text-muted">
-                      Applies to every CV uploaded in this session, right after
-                      AI parsing finishes.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex min-h-0 min-w-0 flex-col md:h-full">
-                  <div
-                    className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
-                      isUploadDisabled
-                        ? "border-divider bg-content2/20 opacity-50"
-                        : dragOver
-                          ? "border-accent bg-accent/5"
-                          : "border-divider bg-content2/30"
-                    }`}
-                    onDragEnter={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      setDragOver(true);
-                    }}
-                    onDragOver={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "copy";
-                      setDragOver(true);
-                    }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={(e) => {
-                      if (isUploadDisabled) return;
-                      e.preventDefault();
-                      setDragOver(false);
-                      void handleFiles(e.dataTransfer.files);
-                    }}
-                  >
-                    <p className="text-sm font-semibold text-foreground">
-                      {isCampaignMissing && isJdPipeline
-                        ? "Select a target campaign first"
-                        : "Drop CVs here to start ingestion"}
-                    </p>
-                    <p className="mt-2 max-w-sm text-xs text-muted">
-                      {isCampaignMissing && isJdPipeline
-                        ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                        : isCampaignMissing
-                          ? "No job selected — CVs go to the candidate pool and can be assigned to a job later. Select or drop one or more PDF or DOCX files (max 25MB each)."
-                          : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
-                    </p>
-                    <div className="mt-3 flex justify-center">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onPress={() => fileInputRef.current?.click()}
-                        isDisabled={isUploadDisabled}
-                      >
-                        Select files
-                      </Button>
+                      <p className="mt-1.5 text-xs text-muted">
+                        Only visible to HR and the chapter head in the evaluation
+                        view.
+                      </p>
                     </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files;
-                        if (f?.length) void handleFiles(f);
-                        e.target.value = "";
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
 
-              <div>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-foreground">
-                      Active upload queue
-                    </h3>
-                    <p className="text-xs text-muted">
-                      CVs are sent to AI parsing automatically as soon as they
-                      finish uploading. Duplicates are resolved automatically:
-                      matched against an existing person, a CV becomes a new
-                      version for this job if they already applied here, or a
-                      new application if they haven't.
-                    </p>
-                  </div>
-                </div>
-
-                {queue.length > 0
-                  ? (() => {
-                      const totalCount = queue.length;
-                      const successCount = queue.filter(
-                        (r) => r.uploadPhase === "uploaded",
-                      ).length;
-                      const failedCount = queue.filter(
-                        (r) =>
-                          r.uploadPhase === "error" ||
-                          r.parsing_status === "failed",
-                      ).length;
-                      const inProgressCount =
-                        totalCount - successCount - failedCount;
-                      const successPct = (successCount / totalCount) * 100;
-                      const inProgressPct = (inProgressCount / totalCount) * 100;
-                      const failedPct = (failedCount / totalCount) * 100;
-
-                      return (
-                        <div
-                          className={
-                            hasIncompleteCvs
-                              ? "cv-processing-highlight mb-3"
-                              : "mb-3"
+                    <div>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-divider accent-accent cursor-pointer"
+                          checked={runJdMatchOnUpload}
+                          onChange={(e) =>
+                            setRunJdMatchOnUpload(e.target.checked)
                           }
-                        >
-                          <Card variant="secondary">
-                            <Card.Content className="px-2 flex flex-col gap-2.5">
-                              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
-                                  <span className="flex items-center gap-1.5">
-                                    <span className="size-2 rounded-full bg-success" />
-                                    Completed{" "}
-                                    <span className="tabular-nums text-foreground">
-                                      {successCount}
-                                    </span>
-                                  </span>
-                                  {failedCount > 0 ? (
-                                    <span className="flex items-center gap-1.5 text-danger">
-                                      <span className="size-2 rounded-full bg-danger" />
-                                      Failed{" "}
-                                      <span className="tabular-nums">
-                                        {failedCount}
-                                      </span>
-                                    </span>
-                                  ) : null}
-                                  {inProgressCount > 0 ? (
-                                    <span className="flex items-center gap-1.5">
-                                      <span className="size-2 animate-pulse rounded-full bg-accent" />
-                                      In progress{" "}
-                                      <span className="tabular-nums text-foreground">
-                                        {inProgressCount}
-                                      </span>
-                                    </span>
-                                  ) : null}
-                                  <span className="text-muted/70">
-                                    {totalCount} total
-                                  </span>
-                                </div>
-                                {failedCount > 0 ? (
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    isDisabled={isRetryingAll}
-                                    onPress={() => void retryAllFailed()}
-                                  >
-                                    {isRetryingAll
-                                      ? "Retrying…"
-                                      : `Retry all failed (${failedCount})`}
-                                  </Button>
-                                ) : null}
-                              </div>
-                              <div className="flex h-2 overflow-hidden rounded-full bg-content3">
-                                <div
-                                  className="h-full bg-success transition-[width] duration-300"
-                                  style={{ width: `${successPct}%` }}
-                                />
-                                <div
-                                  className="h-full bg-accent animate-pulse transition-[width] duration-300"
-                                  style={{ width: `${inProgressPct}%` }}
-                                />
-                                <div
-                                  className="h-full bg-danger transition-[width] duration-300"
-                                  style={{ width: `${failedPct}%` }}
-                                />
-                              </div>
-                            </Card.Content>
-                          </Card>
-                        </div>
-                      );
-                    })()
-                  : null}
+                        />
+                        Run AI JD-match scoring
+                      </label>
+                      <p className="mt-1.5 text-xs text-muted">
+                        Applies to every CV uploaded in this session, right after
+                        AI parsing finishes.
+                      </p>
+                    </div>
+                  </div>
 
-                <div
-                  className={
-                    hasIncompleteCvs ? "cv-processing-highlight" : undefined
-                  }
-                >
-                  <Card variant="secondary" className="overflow-hidden">
-                    <Card.Content className="gap-0 p-0">
-                      <Table>
-                        <Table.ScrollContainer>
-                          <Table.Content
-                            aria-label="Upload queue"
-                            className="min-w-[640px]"
-                          >
-                            <Table.Header>
-                              <Table.Column isRowHeader>File</Table.Column>
-                              <Table.Column>Name</Table.Column>
-                              <Table.Column>Email</Table.Column>
-                              <Table.Column>Phone</Table.Column>
-                              <Table.Column>Status</Table.Column>
-                              <Table.Column>Upload date</Table.Column>
-                            </Table.Header>
-                            <Table.Body>
-                              {queue.length === 0 ? (
-                                <Table.Row id="empty">
-                                  <Table.Cell
-                                    colSpan={6}
-                                    className="text-center text-sm text-muted"
-                                  >
-                                    No files in this session yet.
-                                  </Table.Cell>
-                                </Table.Row>
-                              ) : (
-                                queue.map((row) => {
-                                  // A row auto-resolving a dedupe hit never
-                                  // leaves `uploadPhase: "invoking"` -- AI
-                                  // parsing has already finished by then
-                                  // (that's how the hit was found), but
-                                  // `statusChip` would otherwise keep showing
-                                  // "Scanning" for the whole merge/link call,
-                                  // reading as a stuck/slow parse.
-                                  const isResolvingDuplicate =
-                                    resolvingDuplicateRowIds.has(row.rowId);
-                                  const baseChip = isResolvingDuplicate
-                                    ? ({
-                                        label: "Resolving duplicate",
-                                        color: "default",
-                                      } as const)
-                                    : statusChip(row);
-                                  // Elapsed-time readout for the generic "Scanning"
-                                  // fallback -- makes a genuinely slow AI/extraction
-                                  // call ("longer than usual" but still working)
-                                  // distinguishable from a silently stuck one, since
-                                  // both otherwise render identically.
-                                  const chip =
-                                    baseChip.label === "Scanning" &&
-                                    row.processingStartedAt != null
-                                      ? {
-                                          ...baseChip,
-                                          label: `Scanning… (${Math.max(
-                                            0,
-                                            Math.floor(
-                                              (scanClockTick -
-                                                row.processingStartedAt) /
-                                                1000,
-                                            ),
-                                          )}s)`,
-                                        }
-                                      : baseChip;
-                                  return (
-                                    <Table.Row key={row.rowId} id={row.rowId}>
-                                      <Table.Cell
-                                        ref={(
-                                          el: HTMLTableCellElement | null,
-                                        ) => {
-                                          // `Table.Row` (react-aria-components) doesn't
-                                          // forward a plain `ref` prop to its rendered
-                                          // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
-                                          // forward it, so anchor here and walk up.
-                                          const tr = el?.closest("tr") ?? null;
-                                          if (tr)
-                                            rowElRefs.current.set(
-                                              row.rowId,
-                                              tr,
-                                            );
-                                          else
-                                            rowElRefs.current.delete(row.rowId);
-                                        }}
-                                        className="max-w-[200px]"
-                                      >
-                                        <div className="flex items-center gap-3">
-                                          <FileIcon className="size-8 shrink-0 text-muted" />
-                                          <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium text-foreground">
-                                              {row.filename}
-                                            </p>
-                                            <p className="text-[10px] text-muted">
-                                              {formatBytes(row.size)}
-                                              {row.uploadError &&
-                                              row.uploadPhase === "error"
-                                                ? ` · ${row.uploadError}`
-                                                : ""}
-                                            </p>
-                                          </div>
-                                        </div>
-                                      </Table.Cell>
-                                      <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
-                                        {dash(row.prefillName)}
-                                      </Table.Cell>
-                                      <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
-                                        {dash(row.prefillEmail)}
-                                      </Table.Cell>
-                                      <Table.Cell className="text-sm text-muted">
-                                        {dash(row.prefillPhone)}
-                                      </Table.Cell>
-                                      <Table.Cell>
-                                        <Chip
-                                          size="sm"
-                                          variant="soft"
-                                          color={chip.color}
-                                          className="text-[10px] font-bold uppercase"
-                                        >
-                                          {chip.label}
-                                        </Chip>
-                                      </Table.Cell>
-                                      <Table.Cell className="text-sm text-muted">
-                                        {formatDate(row.addedAt)}
-                                      </Table.Cell>
-                                    </Table.Row>
-                                  );
-                                })
-                              )}
-                            </Table.Body>
-                          </Table.Content>
-                        </Table.ScrollContainer>
-                      </Table>
-                    </Card.Content>
-                  </Card>
+                  <div className="flex min-h-0 min-w-0 flex-col md:h-full">
+                    <div
+                      className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                        isUploadDisabled
+                          ? "border-divider bg-content2/20 opacity-50"
+                          : dragOver
+                            ? "border-accent bg-accent/5"
+                            : "border-divider bg-content2/30"
+                      }`}
+                      onDragEnter={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        setDragOver(true);
+                      }}
+                      onDragOver={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                        setDragOver(true);
+                      }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        if (isUploadDisabled) return;
+                        e.preventDefault();
+                        setDragOver(false);
+                        void handleFiles(e.dataTransfer.files);
+                      }}
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {isCampaignMissing && isJdPipeline
+                          ? "Select a target campaign first"
+                          : "Drop CVs here to start ingestion"}
+                      </p>
+                      <p className="mt-2 max-w-sm text-xs text-muted">
+                        {isCampaignMissing && isJdPipeline
+                          ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
+                          : isCampaignMissing
+                            ? "No job selected — CVs go to the candidate pool and can be assigned to a job later. Select or drop one or more PDF or DOCX files (max 25MB each)."
+                            : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                      </p>
+                      <div className="mt-3 flex justify-center">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onPress={() => fileInputRef.current?.click()}
+                          isDisabled={isUploadDisabled}
+                        >
+                          Select files
+                        </Button>
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files;
+                          if (f?.length) void handleFiles(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </Modal.Body>
-            <Modal.Footer className="border-t border-divider px-6 py-4">
-              <Button
-                slot="close"
-                variant="secondary"
-                isDisabled={hasIncompleteCvs}
-              >
-                Done
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Active upload queue
+                      </h3>
+                      <p className="text-xs text-muted">
+                        CVs are sent to AI parsing automatically as soon as they
+                        finish uploading. Duplicates are resolved automatically:
+                        matched against an existing person, a CV becomes a new
+                        version for this job if they already applied here, or a
+                        new application if they haven't.
+                      </p>
+                    </div>
+                  </div>
+
+                  {queue.length > 0
+                    ? (() => {
+                        const totalCount = queue.length;
+                        const failedCount = queue.filter(isRowFailed).length;
+                        const successCount = queue.filter(
+                          (r) => r.uploadPhase === "uploaded" && !isRowFailed(r),
+                        ).length;
+                        const inProgressCount =
+                          totalCount - successCount - failedCount;
+                        const successPct = (successCount / totalCount) * 100;
+                        const inProgressPct =
+                          (inProgressCount / totalCount) * 100;
+                        const failedPct = (failedCount / totalCount) * 100;
+
+                        return (
+                          <div
+                            className={
+                              hasIncompleteCvs
+                                ? "cv-processing-highlight mb-3"
+                                : "mb-3"
+                            }
+                          >
+                            <Card variant="secondary">
+                              <Card.Content className="px-2 flex flex-col gap-2.5">
+                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-muted">
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="size-2 rounded-full bg-success" />
+                                      Completed{" "}
+                                      <span className="tabular-nums text-foreground">
+                                        {successCount}
+                                      </span>
+                                    </span>
+                                    {failedCount > 0 ? (
+                                      <span className="flex items-center gap-1.5 text-danger">
+                                        <span className="size-2 rounded-full bg-danger" />
+                                        Failed{" "}
+                                        <span className="tabular-nums">
+                                          {failedCount}
+                                        </span>
+                                      </span>
+                                    ) : null}
+                                    {inProgressCount > 0 ? (
+                                      <span className="flex items-center gap-1.5">
+                                        <span className="size-2 animate-pulse rounded-full bg-accent" />
+                                        In progress{" "}
+                                        <span className="tabular-nums text-foreground">
+                                          {inProgressCount}
+                                        </span>
+                                      </span>
+                                    ) : null}
+                                    <span className="text-muted/70">
+                                      {totalCount} total
+                                    </span>
+                                  </div>
+                                  {failedCount > 0 ? (
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      isDisabled={isRetryingAll}
+                                      onPress={() => void retryAllFailed()}
+                                    >
+                                      {isRetryingAll
+                                        ? "Retrying…"
+                                        : `Retry all failed (${failedCount})`}
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <div className="flex h-2 overflow-hidden rounded-full bg-content3">
+                                  <div
+                                    className="h-full bg-success transition-[width] duration-300"
+                                    style={{ width: `${successPct}%` }}
+                                  />
+                                  <div
+                                    className="h-full bg-accent animate-pulse transition-[width] duration-300"
+                                    style={{ width: `${inProgressPct}%` }}
+                                  />
+                                  <div
+                                    className="h-full bg-danger transition-[width] duration-300"
+                                    style={{ width: `${failedPct}%` }}
+                                  />
+                                </div>
+                              </Card.Content>
+                            </Card>
+                          </div>
+                        );
+                      })()
+                    : null}
+
+                  <div
+                    className={
+                      hasIncompleteCvs ? "cv-processing-highlight" : undefined
+                    }
+                  >
+                    <Card variant="secondary" className="overflow-hidden">
+                      <Card.Content className="gap-0 p-0">
+                        <Table>
+                          <Table.ScrollContainer>
+                            <Table.Content
+                              aria-label="Upload queue"
+                              className="min-w-[640px]"
+                            >
+                              <Table.Header>
+                                <Table.Column isRowHeader>File</Table.Column>
+                                <Table.Column>Name</Table.Column>
+                                <Table.Column>Email</Table.Column>
+                                <Table.Column>Phone</Table.Column>
+                                <Table.Column>Status</Table.Column>
+                                <Table.Column>Actions</Table.Column>
+                              </Table.Header>
+                              <Table.Body>
+                                {queue.length === 0 ? (
+                                  <Table.Row id="empty">
+                                    <Table.Cell
+                                      colSpan={6}
+                                      className="text-center text-sm text-muted"
+                                    >
+                                      No files in this session yet.
+                                    </Table.Cell>
+                                  </Table.Row>
+                                ) : (
+                                  queue.map((row) => {
+                                    // A row auto-resolving a dedupe hit never
+                                    // leaves `uploadPhase: "invoking"` -- AI
+                                    // parsing has already finished by then
+                                    // (that's how the hit was found), but
+                                    // `statusChip` would otherwise keep showing
+                                    // "Scanning" for the whole merge/link call,
+                                    // reading as a stuck/slow parse.
+                                    const isResolvingDuplicate =
+                                      resolvingDuplicateRowIds.has(row.rowId);
+                                    const baseChip = isResolvingDuplicate
+                                      ? ({
+                                          label: "Resolving duplicate",
+                                          color: "default",
+                                        } as const)
+                                      : statusChip(row);
+                                    // Elapsed-time readout for the generic "Scanning"
+                                    // fallback -- makes a genuinely slow AI/extraction
+                                    // call ("longer than usual" but still working)
+                                    // distinguishable from a silently stuck one, since
+                                    // both otherwise render identically.
+                                    const chip =
+                                      baseChip.label === "Scanning" &&
+                                      row.processingStartedAt != null
+                                        ? {
+                                            ...baseChip,
+                                            label: `Scanning… (${Math.max(
+                                              0,
+                                              Math.floor(
+                                                (scanClockTick -
+                                                  row.processingStartedAt) /
+                                                  1000,
+                                              ),
+                                            )}s)`,
+                                          }
+                                        : baseChip;
+                                    return (
+                                      <Table.Row key={row.rowId} id={row.rowId}>
+                                        <Table.Cell
+                                          ref={(
+                                            el: HTMLTableCellElement | null,
+                                          ) => {
+                                            // `Table.Row` (react-aria-components) doesn't
+                                            // forward a plain `ref` prop to its rendered
+                                            // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
+                                            // forward it, so anchor here and walk up.
+                                            const tr =
+                                              el?.closest("tr") ?? null;
+                                            if (tr)
+                                              rowElRefs.current.set(
+                                                row.rowId,
+                                                tr,
+                                              );
+                                            else
+                                              rowElRefs.current.delete(
+                                                row.rowId,
+                                              );
+                                          }}
+                                          className="max-w-[200px]"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            <FileIcon className="size-8 shrink-0 text-muted" />
+                                            <div className="min-w-0">
+                                              <p className="truncate text-sm font-medium text-foreground">
+                                                {row.filename}
+                                              </p>
+                                              <p className="text-[10px] text-muted">
+                                                {formatBytes(row.size)}
+                                                {rowErrorMessage(row)
+                                                  ? ` · ${rowErrorMessage(row)}`
+                                                  : ""}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </Table.Cell>
+                                        <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
+                                          {dash(row.prefillName)}
+                                        </Table.Cell>
+                                        <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
+                                          {dash(row.prefillEmail)}
+                                        </Table.Cell>
+                                        <Table.Cell className="text-sm text-muted">
+                                          {dash(row.prefillPhone)}
+                                        </Table.Cell>
+                                        <Table.Cell>
+                                          <Chip
+                                            size="sm"
+                                            variant="soft"
+                                            color={chip.color}
+                                            className="text-[10px] font-bold uppercase"
+                                          >
+                                            {chip.label}
+                                          </Chip>
+                                        </Table.Cell>
+
+                                        <Table.Cell>
+                                          {(() => {
+                                            const historyId =
+                                              row.mergedApplicationId ??
+                                              row.candidateId;
+                                            if (
+                                              historyId == null ||
+                                              row.uploadPhase !== "uploaded"
+                                            ) {
+                                              return null;
+                                            }
+                                            return (
+                                              <Button
+                                                size="sm"
+                                                variant="tertiary"
+                                                aria-label="View CV upload history"
+                                                className="size-8 min-w-0 p-0"
+                                                onPress={() =>
+                                                  setHistoryApplicationId(
+                                                    historyId,
+                                                  )
+                                                }
+                                              >
+                                                <HistoryIcon className="size-4" />
+                                              </Button>
+                                            );
+                                          })()}
+                                        </Table.Cell>
+                                      </Table.Row>
+                                    );
+                                  })
+                                )}
+                              </Table.Body>
+                            </Table.Content>
+                          </Table.ScrollContainer>
+                        </Table>
+                      </Card.Content>
+                    </Card>
+                  </div>
+                </div>
+              </Modal.Body>
+              <Modal.Footer className="border-t border-divider px-6 py-4">
+                <Button
+                  slot="close"
+                  variant="secondary"
+                  isDisabled={hasIncompleteCvs}
+                >
+                  Done
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+
+      <CvUploadHistorySubModal
+        open={historyApplicationId != null}
+        onOpenChange={(o) => {
+          if (!o) setHistoryApplicationId(null);
+        }}
+        applicationId={historyApplicationId}
+      />
+    </>
   );
 }

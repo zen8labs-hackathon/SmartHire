@@ -43,7 +43,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     const visible = visibleRows.map((row) => ({
       id: row.id,
       cvDownloadUrl: `/api/admin/candidates/${row.id}/cv-download`,
-      jobTitle: row.job_position ?? "—",
+      jobTitle: row.job_position ?? "No job assigned",
       jobDescriptionId: row.job_id,
       cvUploadedAt: row.cv_created_at
         ? row.cv_created_at.toISOString()

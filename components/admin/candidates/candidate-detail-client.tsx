@@ -28,7 +28,7 @@ type Props = {
 type ApplicationListItem = {
   id: string;
   jobTitle: string;
-  jobId: string;
+  jobId: string | null;
   appliedAt: string;
   cvUploadedAt: string;
   stageLabel: string | null;
@@ -245,8 +245,8 @@ export function CandidateDetailClient({ candidate }: Props) {
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
             {selectedVersionItem
-              ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle} · ${versionEventLabel(selectedVersionItem)}`
-              : ` · ${candidate.jobTitle}`}
+              ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle ?? "No job assigned"} · ${versionEventLabel(selectedVersionItem)}`
+              : ` · ${candidate.jobTitle ?? "No job assigned"}`}
           </p>
           <iframe
             ref={iframeRef}
@@ -263,7 +263,9 @@ export function CandidateDetailClient({ candidate }: Props) {
               {candidate.name}
             </h1>
             <p className="mt-1 text-sm text-muted font-medium">
-              Applied for {candidate.jobTitle}
+              {candidate.jobTitle
+                ? `Applied for ${candidate.jobTitle}`
+                : "No job assigned"}
             </p>
           </div>
 
@@ -404,7 +406,10 @@ export function CandidateDetailClient({ candidate }: Props) {
                                 Applied {formatDisplayDate(app.appliedAt)}
                               </p>
                               <div className="mt-1">
-                                <PipelineStatusBadge app={app} />
+                                <PipelineStatusBadge
+                                  app={app}
+                                  hasJob={app.jobId != null}
+                                />
                               </div>
                             </div>
 
@@ -530,11 +535,14 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             variant="secondary"
                                             size="sm"
                                             className="h-7 px-3 rounded-lg border border-divider text-[10px] font-bold shrink-0"
-                                            onPress={() =>
-                                              router.push(
-                                                `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
-                                              )
-                                            }
+                                            isDisabled={app.jobId == null}
+                                            onPress={() => {
+                                              if (app.jobId != null) {
+                                                router.push(
+                                                  `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
+                                                );
+                                              }
+                                            }}
                                           >
                                             Go to Evaluation
                                           </Button>

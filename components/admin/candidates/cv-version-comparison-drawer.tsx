@@ -501,7 +501,7 @@ export function CvVersionComparisonDrawer({
 
             <div className="mx-auto w-full max-w-[960px]">
               <Card className="p-4 sm:p-5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">
+                <p className="text-lg font-semibold tracking-tight text-foreground">
                   Job assignment
                 </p>
                 <p className="mt-1 text-sm text-muted">
@@ -636,7 +636,10 @@ export function CvVersionComparisonDrawer({
                                   </p>
                                 ) : null}
                                 <div className="mt-1">
-                                  <PipelineStatusBadge app={app} />
+                                  <PipelineStatusBadge
+                                    app={app}
+                                    hasJob={app.jobDescriptionId != null}
+                                  />
                                 </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-2">
