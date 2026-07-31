@@ -16,13 +16,17 @@ import {
   TextField,
 } from "@heroui/react";
 
-import type { CandidateDbRow, ParsingStatus } from "@/lib/candidates/db-row";
+import type {
+  CandidateDbRow,
+  JdMatchStatus,
+  ParsingStatus,
+} from "@/lib/candidates/db-row";
 import type {
   DuplicateCandidateHit,
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
-import { formatDisplayDateTime } from "@/lib/format-date";
+
 import {
   MAX_CV_BYTES,
   isAllowedCvFilename,
@@ -64,6 +68,13 @@ type QueueRow = {
   uploadError?: string;
   parsing_status: ParsingStatus;
   parsing_error?: string | null;
+  /** JD-match is a second, independent LLM call that runs after parsing
+   * succeeds -- it can fail on its own even when `parsing_status` is
+   * `"completed"`, so it needs its own failure tracking rather than being
+   * folded into `parsing_status`. `null`/`undefined` means it hasn't run
+   * (skipped, not requested, or not reached yet) rather than failed. */
+  jdMatchStatus?: JdMatchStatus | null;
+  jdMatchError?: string | null;
   /** Best-known name/email/phone for this CV -- seeded from the client-side
    * heuristic guess at ingest time, then overwritten with the authoritative
    * AI-parsed values once `/process` finishes (see `refreshRowContactInfo`).
@@ -82,16 +93,27 @@ type CommitAndProcessResult = {
   candidateId: string;
   duplicateCandidates: DuplicateCandidateHit[];
   duplicateNewUpload: DuplicateNewUploadPreview | null;
+  jdMatchError: string | null;
 };
+
+/** Shape of the `jdMatch` field on `/api/admin/candidates/[id]/process`'s
+ * response body -- present on every response since the parse step (which
+ * *can* fail the request outright) always runs first. */
+type ProcessJdMatchResult =
+  | { skipped: true; reason: string }
+  | { skipped: false; score: number }
+  | { error: string };
+
+function jdMatchErrorFromResponse(
+  jdMatch: ProcessJdMatchResult | undefined,
+): string | null {
+  return jdMatch && "error" in jdMatch ? jdMatch.error : null;
+}
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(ts: number) {
-  return formatDisplayDateTime(ts);
 }
 
 function dash(v: string | null | undefined): string {
@@ -142,14 +164,38 @@ function createSemaphore(limit: number) {
 
 const aiProcessSemaphore = createSemaphore(AI_PROCESS_CONCURRENCY);
 
+/** Single source of truth for "this row needs attention/retry" -- covers
+ * every stage that can independently fail: the upload/confirm/process
+ * request itself, CV parsing, and JD-match (a second, separate LLM call
+ * that can fail even when parsing succeeded, since it isn't folded into
+ * `parsing_status`). Used by the status chip, the "Failed" count, the
+ * end-of-queue toast, and "Retry all failed" -- previously these each had
+ * their own slightly different (and drifted) definition of "failed", so
+ * e.g. a JD-match failure showed an "Error" chip and was counted in
+ * "Retry all failed (N)" but was silently never actually retried by it.
+ */
+function isRowFailed(row: QueueRow): boolean {
+  return (
+    row.uploadPhase === "error" ||
+    row.parsing_status === "failed" ||
+    row.jdMatchStatus === "failed"
+  );
+}
+
+/** The message to show under the filename for a failed row -- whichever
+ * stage actually failed. */
+function rowErrorMessage(row: QueueRow): string | null {
+  if (row.uploadPhase === "error") return row.uploadError ?? null;
+  if (row.parsing_status === "failed") return row.parsing_error ?? null;
+  if (row.jdMatchStatus === "failed") return row.jdMatchError ?? null;
+  return null;
+}
+
 function statusChip(row: QueueRow): {
   label: string;
   color: "accent" | "success" | "danger" | "default";
 } {
-  if (row.uploadPhase === "error") {
-    return { label: "Error", color: "danger" };
-  }
-  if (row.parsing_status === "failed") {
+  if (isRowFailed(row)) {
     return { label: "Error", color: "danger" };
   }
   if (row.uploadPhase === "uploaded") {
@@ -161,11 +207,7 @@ function statusChip(row: QueueRow): {
 /** True while upload/parse/dedupe is still in flight — not completed and not
  * failed. Drives close-button lock and running borders on queue panels. */
 function isQueueRowInProgress(row: QueueRow): boolean {
-  return (
-    row.uploadPhase !== "uploaded" &&
-    row.uploadPhase !== "error" &&
-    row.parsing_status !== "failed"
-  );
+  return row.uploadPhase !== "uploaded" && !isRowFailed(row);
 }
 
 function FileIcon({ className }: { className?: string }) {
@@ -522,6 +564,17 @@ export function AddCandidateModal({
             ? {
                 ...r,
                 uploadPhase: "invoking" as const,
+                // Reset any stale failure from a previous attempt -- without
+                // this, retrying a row whose CV parsing (or JD-match) had
+                // failed left `parsing_status`/`jdMatchStatus` stuck at
+                // "failed" for the whole retry, and forever after if the
+                // retry itself threw before reaching the success branch
+                // below (the polling effect only refreshes rows sitting at
+                // "pending"/"processing", never "failed").
+                parsing_status: "processing" as const,
+                parsing_error: null,
+                jdMatchStatus: null,
+                jdMatchError: null,
                 processingStartedAt: Date.now(),
               }
             : r,
@@ -540,10 +593,30 @@ export function AddCandidateModal({
           error?: string;
           duplicateCandidates?: DuplicateCandidateHit[];
           duplicateNewUpload?: DuplicateNewUploadPreview | null;
+          jdMatch?: ProcessJdMatchResult;
         };
         if (!procRes.ok) {
           throw new Error(procJson.error ?? "Failed to start processing");
         }
+
+        // `runCvParsing` inside `/process` is awaited synchronously before
+        // the response is sent, so a 2xx here means parsing (and, if
+        // requested, JD-match) has definitively already finished -- no need
+        // to wait for the next poll tick to learn that.
+        const jdMatchError = jdMatchErrorFromResponse(procJson.jdMatch);
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  parsing_status: "completed" as const,
+                  parsing_error: null,
+                  jdMatchStatus: jdMatchError ? ("failed" as const) : null,
+                  jdMatchError,
+                }
+              : r,
+          ),
+        );
 
         const hits = procJson.duplicateCandidates ?? [];
         // Contact info is only ever readable while this row's own
@@ -566,7 +639,12 @@ export function AddCandidateModal({
         setQueue((q) =>
           q.map((r) =>
             r.rowId === rowId
-              ? { ...r, uploadPhase: "error", uploadError: msg }
+              ? {
+                  ...r,
+                  uploadPhase: "error",
+                  uploadError: msg,
+                  parsing_status: "failed" as const,
+                }
               : r,
           ),
         );
@@ -638,6 +716,7 @@ export function AddCandidateModal({
         error?: string;
         duplicateCandidates?: DuplicateCandidateHit[];
         duplicateNewUpload?: DuplicateNewUploadPreview | null;
+        jdMatch?: ProcessJdMatchResult;
       };
       if (!procRes.ok) {
         throw new Error(procJson.error ?? "Failed to start processing");
@@ -647,6 +726,7 @@ export function AddCandidateModal({
         candidateId,
         duplicateCandidates: procJson.duplicateCandidates ?? [],
         duplicateNewUpload: procJson.duplicateNewUpload ?? null,
+        jdMatchError: jdMatchErrorFromResponse(procJson.jdMatch),
       };
     },
     [selectedJobId, sourceKey, sourceOther, expectedSalary],
@@ -726,19 +806,12 @@ export function AddCandidateModal({
   useEffect(() => {
     if (queue.length === 0) return;
     const allTerminal = queue.every(
-      (r) =>
-        r.uploadPhase === "uploaded" ||
-        r.parsing_status === "failed" ||
-        r.uploadPhase === "error",
+      (r) => r.uploadPhase === "uploaded" || r.uploadPhase === "error",
     );
     if (allTerminal && !allSuccessToastShown) {
       setAllSuccessToastShown(true);
-      const successCount = queue.filter(
-        (r) => r.uploadPhase === "uploaded",
-      ).length;
-      const failCount = queue.filter(
-        (r) => r.parsing_status === "failed" || r.uploadPhase === "error",
-      ).length;
+      const failCount = queue.filter(isRowFailed).length;
+      const successCount = queue.length - failCount;
 
       if (failCount > 0) {
         triggerError(
@@ -885,6 +958,26 @@ export function AddCandidateModal({
             email,
             phone,
             runJdMatch,
+          );
+          // `commitAndProcessViaBypass` already awaited `/process` above, so
+          // parsing has definitively completed -- and JD-match, if it
+          // failed, needs to be reflected here since `autoResolveDuplicate`
+          // below only ever touches `uploadPhase`/`parsing_status`, not
+          // JD-match (the two are independent LLM calls).
+          setQueue((q) =>
+            q.map((r) =>
+              r.rowId === rowId
+                ? {
+                    ...r,
+                    parsing_status: "completed" as const,
+                    parsing_error: null,
+                    jdMatchStatus: result.jdMatchError
+                      ? ("failed" as const)
+                      : null,
+                    jdMatchError: result.jdMatchError,
+                  }
+                : r,
+            ),
           );
           await refreshRowContactInfo(rowId, result.candidateId);
           await autoResolveDuplicate(rowId, result.candidateId, hits);
@@ -1046,17 +1139,18 @@ export function AddCandidateModal({
   );
 
   /**
-   * Retries every row currently sitting at `uploadPhase: "error"` at once,
-   * rather than making the user click each one individually. Each row still
-   * goes through `retryRow`'s own branching (re-upload from scratch vs.
-   * re-process only), and any row that needs a fresh `/process` call still
-   * goes through `aiProcessSemaphore` -- firing N retries in parallel here
+   * Retries every row currently failed (`isRowFailed`: upload/confirm error,
+   * failed CV parse, or failed JD-match) at once, rather than making the
+   * user click each one individually. Each row still goes through
+   * `retryRow`'s own branching (re-upload from scratch vs. re-process
+   * only), and any row that needs a fresh `/process` call still goes
+   * through `aiProcessSemaphore` -- firing N retries in parallel here
    * doesn't bypass the concurrency cap, it just queues them the same way N
    * fresh uploads would.
    */
   const retryAllFailed = useCallback(async () => {
     const failedRowIds = queueRef.current
-      .filter((r) => r.uploadPhase === "error")
+      .filter(isRowFailed)
       .map((r) => r.rowId);
     if (failedRowIds.length === 0) return;
     setIsRetryingAll(true);
@@ -1422,13 +1516,9 @@ export function AddCandidateModal({
                   {queue.length > 0
                     ? (() => {
                         const totalCount = queue.length;
+                        const failedCount = queue.filter(isRowFailed).length;
                         const successCount = queue.filter(
-                          (r) => r.uploadPhase === "uploaded",
-                        ).length;
-                        const failedCount = queue.filter(
-                          (r) =>
-                            r.uploadPhase === "error" ||
-                            r.parsing_status === "failed",
+                          (r) => r.uploadPhase === "uploaded" && !isRowFailed(r),
                         ).length;
                         const inProgressCount =
                           totalCount - successCount - failedCount;
@@ -1531,14 +1621,13 @@ export function AddCandidateModal({
                                 <Table.Column>Email</Table.Column>
                                 <Table.Column>Phone</Table.Column>
                                 <Table.Column>Status</Table.Column>
-                                <Table.Column>Upload date</Table.Column>
                                 <Table.Column>Actions</Table.Column>
                               </Table.Header>
                               <Table.Body>
                                 {queue.length === 0 ? (
                                   <Table.Row id="empty">
                                     <Table.Cell
-                                      colSpan={7}
+                                      colSpan={6}
                                       className="text-center text-sm text-muted"
                                     >
                                       No files in this session yet.
@@ -1613,9 +1702,8 @@ export function AddCandidateModal({
                                               </p>
                                               <p className="text-[10px] text-muted">
                                                 {formatBytes(row.size)}
-                                                {row.uploadError &&
-                                                row.uploadPhase === "error"
-                                                  ? ` · ${row.uploadError}`
+                                                {rowErrorMessage(row)
+                                                  ? ` · ${rowErrorMessage(row)}`
                                                   : ""}
                                               </p>
                                             </div>
@@ -1640,9 +1728,7 @@ export function AddCandidateModal({
                                             {chip.label}
                                           </Chip>
                                         </Table.Cell>
-                                        <Table.Cell className="text-sm text-muted">
-                                          {formatDate(row.addedAt)}
-                                        </Table.Cell>
+
                                         <Table.Cell>
                                           {(() => {
                                             const historyId =

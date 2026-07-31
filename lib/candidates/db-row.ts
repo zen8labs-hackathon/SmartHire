@@ -158,7 +158,8 @@ function calculateDaysDifference(
 export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
   const skills = r.skills ?? [];
   const visible = skills.slice(0, 3);
-  const more = skills.length > 3 ? skills.length - 3 : undefined;
+  const hidden = skills.slice(3);
+  const more = hidden.length > 0 ? hidden.length : undefined;
   const exp =
     r.experience_years == null || r.experience_years === ""
       ? 0
@@ -219,6 +220,7 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
     experienceYears: Number.isFinite(exp) ? exp : 0,
     skills: visible,
     moreSkills: more,
+    moreSkillsList: hidden.length > 0 ? hidden : undefined,
     gpa: parsedData.gpa,
     englishLevel: parsedData.englishLevel,
     degree: r.degree?.trim() || "—",

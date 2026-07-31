@@ -14,7 +14,7 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 type CandidateApplicationItem = PipelineStatusBadgeApplication & {
   id: string;
   jobTitle: string;
-  jobId: string;
+  jobId: string | null;
   cvUploadedAt: string | null;
 };
 
@@ -120,7 +120,11 @@ export function CvUploadHistorySubModal({
                           Uploaded {formatDisplayDateTime(app.cvUploadedAt)}
                         </p>
                       </div>
-                      <PipelineStatusBadge app={app} className="shrink-0" />
+                      <PipelineStatusBadge
+                        app={app}
+                        hasJob={app.jobId != null}
+                        className="shrink-0"
+                      />
                     </div>
                   ))}
                 </div>
