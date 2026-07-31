@@ -1,4 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
 
@@ -66,7 +67,8 @@ export async function PUT(request: Request, { params }: RouteContext) {
       return Response.json({ error: result.error }, { status: result.status });
     }
 
-    const enriched = await getCampaignAppliedAdminRowById(getPool(), newCampaignAppliedId);
+    const db = getPool();
+    const enriched = await getCampaignAppliedAdminRowById(db, newCampaignAppliedId);
     if (!enriched) {
       return Response.json(
         { error: "Could not load updated candidate." },
@@ -74,7 +76,9 @@ export async function PUT(request: Request, { params }: RouteContext) {
       );
     }
 
-    return Response.json({ candidate: enriched });
+    return Response.json({
+      candidate: await redactAdminRowSalaryForAccess(db, auth.access, enriched),
+    });
   } catch (err) {
     if (isUniqueViolation(err)) {
       return Response.json(

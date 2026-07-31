@@ -18,6 +18,7 @@ import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
+import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 
 type Props = {
@@ -332,16 +333,14 @@ export function CandidateDetailClient({ candidate }: Props) {
                   {candidate.sourceLabel}
                 </p>
               </div>
-              {candidate.expectedSalary ? (
-                <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                  <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                    Expected Salary
-                  </span>
-                  <p className="font-semibold text-foreground text-sm">
-                    {candidate.expectedSalary}
-                  </p>
-                </div>
-              ) : null}
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
+                  Expected Salary
+                </span>
+                <p className="font-semibold text-foreground text-sm tabular-nums tracking-tight">
+                  {formatExpectedSalaryDisplay(candidate.expectedSalary)}
+                </p>
+              </div>
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
                   Skills

@@ -50,7 +50,10 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!jobAccess.ok) return jobAccess.response;
 
   const viewSalary = await canViewSalary(db, auth.access, row.job_id);
-  return Response.json({ candidate: redactAdminRowSalary(row, viewSalary) });
+  return Response.json({
+    candidate: redactAdminRowSalary(row, viewSalary),
+    canViewSalary: viewSalary,
+  });
 }
 
 /**
@@ -130,7 +133,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  return Response.json({ candidate: row });
+  const viewSalary = await canViewSalary(db, auth.access, row.job_id);
+  return Response.json({ candidate: redactAdminRowSalary(row, viewSalary) });
 }
 
 /**

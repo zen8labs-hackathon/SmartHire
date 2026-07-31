@@ -23,6 +23,15 @@ scrape_configs:
               - smarthire_dev_app
               - smarthire_app_blue
               - smarthire_app_green
+    # Docker SD meta labels are not stored unless remapped. Without this,
+    # Loki only keeps pipeline labels (or auto service_name) and
+    # `{container=...}` queries return nothing.
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
     pipeline_stages:
       # Parse JSON log lines from stdout (Pino outputs JSON in production)
       - json:
@@ -61,6 +70,12 @@ scrape_configs:
               - smarthire_dev_db
               - smarthire_minio
               - smarthire_dev_minio
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
     pipeline_stages:
       - json:
           expressions:
