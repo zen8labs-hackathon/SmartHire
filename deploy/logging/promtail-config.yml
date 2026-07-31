@@ -1,0 +1,86 @@
+# Promtail config — scrapes Docker container stdout, extracts JSON fields as labels.
+# Docs: https://grafana.com/docs/loki/latest/clients/promtail/
+
+server:
+  disable: true
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape all SmartHire containers (prod: smarthire_app, dev: smarthire_dev_app, etc.)
+  - job_name: smarthire
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values:
+              - smarthire_app
+              - smarthire_dev_app
+              - smarthire_app_blue
+              - smarthire_app_green
+    # Docker SD meta labels are not stored unless remapped. Without this,
+    # Loki only keeps pipeline labels (or auto service_name) and
+    # `{container=...}` queries return nothing.
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
+    pipeline_stages:
+      # Parse JSON log lines from stdout (Pino outputs JSON in production)
+      - json:
+          expressions:
+            # Alias dashed JSON field names to Loki-safe label names.
+            request_id: '"X-Request-Id"'
+            level: level
+            msg: msg
+            path: path
+            service: service
+            service_name: service
+            # Raw timestamp from pino (fallback)
+            time: time
+      # Set extracted fields as labels. request_id is high-cardinality by design so
+      # an ID copied from browser/devtools can be searched quickly in Loki/Grafana.
+      - labels:
+          request_id:
+          level:
+          path:
+          service:
+          service_name:
+      # Parse timestamp from pino's ISO string (overrides file timestamp)
+      - timestamp:
+          source: time
+          format: "2006-01-02T15:04:05.999Z07:00"
+
+  # Also scrape infrastructure containers for visibility
+  - job_name: smarthire-infra
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name: name
+            values:
+              - smarthire_db
+              - smarthire_dev_db
+              - smarthire_minio
+              - smarthire_dev_minio
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            msg: msg
+      - labels:
+          level:
+          msg:

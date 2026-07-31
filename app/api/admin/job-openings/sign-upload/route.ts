@@ -5,6 +5,7 @@ import {
   isAllowedJdFilename,
   MAX_JD_BYTES,
 } from "@/lib/jd/upload-constants";
+import { logApiError } from "@/lib/logger";
 import { createSignedUploadUrl, deleteObject } from "@/lib/storage/s3";
 import { buildStorageFilename } from "@/lib/storage/storage-key";
 
@@ -60,6 +61,10 @@ export async function POST(request: Request) {
       await deleteObject(replacePath);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not delete previous upload.";
+      logApiError("JD sign-upload: delete previous failed", err, {
+        path: "/api/admin/job-openings/sign-upload",
+        replacePath,
+      });
       return Response.json({ error: message }, { status: 500 });
     }
   }
@@ -77,6 +82,10 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not create signed upload URL.";
+    logApiError("JD sign-upload: create signed URL failed", err, {
+      path: "/api/admin/job-openings/sign-upload",
+      storagePath,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 }
@@ -98,6 +107,10 @@ export async function DELETE(request: Request) {
     await deleteObject(path);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not delete file.";
+    logApiError("JD sign-upload: delete failed", err, {
+      path: "/api/admin/job-openings/sign-upload",
+      storagePath: path,
+    });
     return Response.json({ error: message }, { status: 500 });
   }
 

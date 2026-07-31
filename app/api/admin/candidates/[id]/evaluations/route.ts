@@ -17,6 +17,8 @@ import {
 import { getPool } from "@/lib/db/config/client";
 import { getJobEvaluateTemplate } from "@/lib/db/job-permissions";
 import { loadCombinedReviewerNotesForEvaluation } from "@/lib/evaluation/combine-reviewer-notes";
+import { logApiError } from "@/lib/logger";
+import { getRequestIdFromRequest, withRequestId } from "@/lib/request-id";
 import {
   createSignedDownloadUrl,
   deleteObject,
@@ -44,6 +46,7 @@ const postBodySchema = z
 
 /** Latest generated evaluation PDF for this application, if any. */
 export async function GET(request: Request, { params }: RouteContext) {
+  const requestId = getRequestIdFromRequest(request);
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
@@ -82,6 +85,18 @@ export async function GET(request: Request, { params }: RouteContext) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create download link.";
+    logApiError(
+      "Evaluation GET: signed download failed",
+      err,
+      withRequestId(
+        {
+          path: "/api/admin/candidates/[id]/evaluations",
+          campaignAppliedId,
+          step: "download",
+        },
+        requestId,
+      ),
+    );
     return Response.json({ error: msg }, { status: 500 });
   }
 }
@@ -94,6 +109,7 @@ export async function GET(request: Request, { params }: RouteContext) {
  * `candidate_evaluation_template` singleton and Supabase Storage.
  */
 export async function POST(request: Request, { params }: RouteContext) {
+  const requestId = getRequestIdFromRequest(request);
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
@@ -163,6 +179,19 @@ export async function POST(request: Request, { params }: RouteContext) {
     templateBytes = await downloadObject(template.storage_path);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not load evaluation template.";
+    logApiError(
+      "Evaluation POST: template download failed",
+      e,
+      withRequestId(
+        {
+          path: "/api/admin/candidates/[id]/evaluations",
+          campaignAppliedId,
+          step: "template",
+          storagePath: template.storage_path,
+        },
+        requestId,
+      ),
+    );
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -197,6 +226,18 @@ export async function POST(request: Request, { params }: RouteContext) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "PDF render failed.";
+    logApiError(
+      "Evaluation POST: PDF render failed",
+      e,
+      withRequestId(
+        {
+          path: "/api/admin/candidates/[id]/evaluations",
+          campaignAppliedId,
+          step: "render",
+        },
+        requestId,
+      ),
+    );
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -206,6 +247,19 @@ export async function POST(request: Request, { params }: RouteContext) {
     await uploadObject(outPath, Buffer.from(pdfOut), "application/pdf");
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not upload generated PDF.";
+    logApiError(
+      "Evaluation POST: upload failed",
+      e,
+      withRequestId(
+        {
+          path: "/api/admin/candidates/[id]/evaluations",
+          campaignAppliedId,
+          step: "upload",
+          storagePath: outPath,
+        },
+        requestId,
+      ),
+    );
     return Response.json({ error: msg }, { status: 500 });
   }
 
@@ -230,6 +284,19 @@ export async function POST(request: Request, { params }: RouteContext) {
   } catch (e) {
     await deleteObject(outPath).catch(() => {});
     const msg = e instanceof Error ? e.message : "Insert failed.";
+    logApiError(
+      "Evaluation POST: insert failed",
+      e,
+      withRequestId(
+        {
+          path: "/api/admin/candidates/[id]/evaluations",
+          campaignAppliedId,
+          step: "insert",
+          storagePath: outPath,
+        },
+        requestId,
+      ),
+    );
     return Response.json({ error: msg }, { status: 500 });
   }
 

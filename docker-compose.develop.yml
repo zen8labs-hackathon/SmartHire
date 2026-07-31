@@ -98,6 +98,7 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENV: development
       NODE_ENV: production
       PORT: "3200"
       DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}
@@ -115,6 +116,11 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+
+  # ─── Logging stack (shared with prod — same Loki/Grafana instance) ──────────
+  # Dev app logs go to the same Loki + Grafana as production.
+  # Grafana is served at /log on both smart-hire.zen8labs.io and smart-hire-dev.zen8labs.io
+  # No additional containers needed — promtail already scrapes smarthire_dev_app.
 
 volumes:
   smarthire_dev_pgdata:

@@ -8,6 +8,7 @@ import {
   syncJobDescriptionViewersFromEmails,
 } from "@/lib/admin/jd-viewer-sync";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { logError } from "@/lib/logger";
 import {
   requireAdministerJobAcl,
   requirePermissionOnJob,
@@ -164,7 +165,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     const mappings = await listJobStageMappings(db, jobId);
     pipelineStages = mappings.map((m) => m.pipeline_stage_id);
   } catch (err) {
-    console.error("Failed to fetch pipeline stages or viewers:", err);
+    logError("Failed to fetch pipeline stages or viewers", err instanceof Error ? err : undefined, { jobId });
   }
 
   return Response.json({

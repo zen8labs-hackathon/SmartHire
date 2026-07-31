@@ -6,6 +6,7 @@ import {
   looksLikePdfBinary,
 } from "@/lib/jd/extract-document-text";
 import { downloadJdFromStorage } from "@/lib/jd/download-jd-from-storage";
+import { logApiError } from "@/lib/logger";
 
 const JD_KEY_PREFIX = "jd/";
 
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
   // ── 1. Download file ──
   const dl = await downloadJdFromStorage(storagePath);
   if ("error" in dl) {
+    logApiError("JD extract: download failed", dl.error, {
+      path: "/api/admin/job-descriptions/extract",
+      storagePath,
+    });
     return Response.json({ error: dl.error }, { status: 500 });
   }
   const { buffer, mimeType } = dl;
@@ -56,6 +61,10 @@ export async function POST(request: Request) {
   try {
     text = await extractTextFromBuffer(buffer, mimeType);
   } catch (e) {
+    logApiError("JD extract: text extraction failed", e, {
+      path: "/api/admin/job-descriptions/extract",
+      storagePath,
+    });
     return Response.json(
       {
         error:

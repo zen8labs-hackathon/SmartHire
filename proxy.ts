@@ -11,6 +11,8 @@ import {
 } from "@/lib/auth/session";
 import type { ProfileRole } from "@/lib/db/users";
 import { getPool } from "@/lib/db/config/client";
+import { logApiError } from "@/lib/logger";
+import { createRequestId, getRequestIdFromRequest, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 type AuthedUser = { id: string; role: ProfileRole };
 
@@ -36,17 +38,24 @@ async function resolveUser(
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   if (!refreshToken) return null;
 
-  const result = await refreshSession(getPool(), refreshToken, {
-    userAgent: request.headers.get("user-agent"),
-    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-  });
-  if (!result.ok) return null;
+  try {
+    const result = await refreshSession(getPool(), refreshToken, {
+      userAgent: request.headers.get("user-agent"),
+      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+    });
+    if (!result.ok) return null;
 
-  pendingCookies.push(
-    buildAccessTokenCookie(result.session.accessToken),
-    buildRefreshTokenCookie(result.session.refreshToken),
-  );
-  return { id: result.session.user.id, role: result.session.user.role };
+    pendingCookies.push(
+      buildAccessTokenCookie(result.session.accessToken),
+      buildRefreshTokenCookie(result.session.refreshToken),
+    );
+    return { id: result.session.user.id, role: result.session.user.role };
+  } catch (error) {
+    logApiError("Middleware session refresh error", error, {
+      path: request.nextUrl.pathname,
+    });
+    return null;
+  }
 }
 
 function applyCookies(
@@ -56,6 +65,11 @@ function applyCookies(
   for (const cookie of pendingCookies) {
     response.cookies.set(cookie);
   }
+  return response;
+}
+
+function attachRequestId(response: NextResponse, requestId: string): NextResponse {
+  response.headers.set(REQUEST_ID_HEADER, requestId);
   return response;
 }
 
@@ -83,6 +97,7 @@ function redirectTo(
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const requestId = getRequestIdFromRequest(request) ?? createRequestId();
   const needsAuthCheck =
     path === "/signup" ||
     path.startsWith("/admin") ||
@@ -91,7 +106,16 @@ export async function proxy(request: NextRequest) {
 
   // Avoid a network call on public routes to keep local dev responsive.
   if (!needsAuthCheck) {
-    return NextResponse.next({ request });
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
+    return attachRequestId(
+      NextResponse.next({
+        request: {
+          headers: requestHeaders,
+        },
+      }),
+      requestId,
+    );
   }
 
   const pendingCookies: SessionCookie[] = [];
@@ -132,6 +156,7 @@ export async function proxy(request: NextRequest) {
       request.cookies.set(cookie.name, cookie.value);
     }
     const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
     const cookieString = request.cookies
       .getAll()
       .map((c) => `${c.name}=${c.value}`)
@@ -144,10 +169,16 @@ export async function proxy(request: NextRequest) {
       },
     });
   } else {
-    response = NextResponse.next({ request });
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(REQUEST_ID_HEADER, requestId);
+    response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
 
-  return applyCookies(response, pendingCookies);
+  return attachRequestId(applyCookies(response, pendingCookies), requestId);
 }
 
 export const config = {

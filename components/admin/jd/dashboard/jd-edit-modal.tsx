@@ -57,84 +57,95 @@ export function JdEditModal() {
             />
 
             {/* Attach JD (optional) — same flow as Create; fills overlapping intake fields */}
-            <Card
-              variant="secondary"
+            <div
               className={
-                editDragOver
-                  ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                editUploadPhase === "uploading" ||
+                editUploadPhase === "extracting"
+                  ? "cv-processing-highlight"
                   : undefined
               }
             >
-              <Card.Content
-                className="items-center gap-3 py-6 text-center"
-                onDragOver={(e: DragEvent) => {
-                  if (
-                    editUploadPhase === "uploading" ||
-                    editUploadPhase === "extracting"
-                  )
-                    return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "copy";
-                  setEditDragOver(true);
-                }}
-                onDragLeave={() => setEditDragOver(false)}
-                onDrop={(e: DragEvent) => {
-                  if (
-                    editUploadPhase === "uploading" ||
-                    editUploadPhase === "extracting"
-                  )
-                    return;
-                  e.preventDefault();
-                  setEditDragOver(false);
-                  const f = e.dataTransfer.files?.[0];
-                  if (f) void ingestJdFileForEdit(f);
-                }}
+              <Card
+                variant="secondary"
+                className={
+                  editDragOver
+                    ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
+                    : undefined
+                }
               >
-                <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
-                  {editUploadPhase === "done" ? (
-                    <CheckCircleIcon className="size-6 text-success" />
-                  ) : (
-                    <span className="text-lg">+</span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-foreground">
-                  Attach JD Document{" "}
-                  <span className="font-normal text-muted">(optional)</span>
-                </p>
-                <p className="text-xs text-muted">
-                  PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
-                  form for you to review.
-                </p>
-                {editUploadPhase === "uploading" && (
-                  <p className="text-xs text-accent">Uploading…</p>
-                )}
-                {editUploadPhase === "extracting" && (
-                  <p className="text-xs text-accent">
-                    Reading document with AI…
-                  </p>
-                )}
-                {editUploadPhase === "done" && editSelectedFileName && (
-                  <p className="text-xs font-medium text-success">
-                    ✓ {editSelectedFileName}
-                  </p>
-                )}
-                {(editUploadPhase === "done" || editUploadPhase === "error") &&
-                  editUploadError && (
-                    <p className="text-xs text-danger">{editUploadError}</p>
-                  )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  isDisabled={
-                    editUploadPhase === "uploading" ||
-                    editUploadPhase === "extracting"
-                  }
-                  onPress={() => editJdFileInputRef.current?.click()}
+                <Card.Content
+                  className="items-center gap-3 py-6 text-center"
+                  onDragOver={(e: DragEvent) => {
+                    if (
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setEditDragOver(true);
+                  }}
+                  onDragLeave={() => setEditDragOver(false)}
+                  onDrop={(e: DragEvent) => {
+                    if (
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    )
+                      return;
+                    e.preventDefault();
+                    setEditDragOver(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) void ingestJdFileForEdit(f);
+                  }}
                 >
-                  Browse Files
-                </Button>
-              </Card.Content>
-            </Card>
+                  <div className="flex size-10 items-center justify-center rounded-full bg-accent/15 text-accent">
+                    {editUploadPhase === "done" ? (
+                      <CheckCircleIcon className="size-6 text-success" />
+                    ) : (
+                      <span className="text-lg">+</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Attach JD Document{" "}
+                    <span className="font-normal text-muted">(optional)</span>
+                  </p>
+                  <p className="text-xs text-muted">
+                    PDF, DOCX or TXT — max 10 MB. After upload, AI fills the
+                    form for you to review.
+                  </p>
+                  {editUploadPhase === "uploading" && (
+                    <p className="rounded-lg bg-accent/10 px-3 py-1.5 text-sm font-semibold text-accent animate-pulse">
+                      Uploading…
+                    </p>
+                  )}
+                  {editUploadPhase === "extracting" && (
+                    <p className="rounded-lg bg-accent/10 px-3 py-1.5 text-sm font-semibold text-accent animate-pulse">
+                      Reading document with AI…
+                    </p>
+                  )}
+                  {editUploadPhase === "done" && editSelectedFileName && (
+                    <p className="text-xs font-medium text-success">
+                      ✓ {editSelectedFileName}
+                    </p>
+                  )}
+                  {(editUploadPhase === "done" || editUploadPhase === "error") &&
+                    editUploadError && (
+                      <p className="text-xs text-danger">{editUploadError}</p>
+                    )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={
+                      editUploadPhase === "uploading" ||
+                      editUploadPhase === "extracting"
+                    }
+                    onPress={() => editJdFileInputRef.current?.click()}
+                  >
+                    Browse Files
+                  </Button>
+                </Card.Content>
+              </Card>
+            </div>
 
             {/* 1 – Role & organisation */}
             <div className="space-y-4">

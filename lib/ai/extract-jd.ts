@@ -13,6 +13,7 @@ import {
   pickHeaderField,
   pickLongFormField,
 } from "@/lib/ai/jd-extract-merge";
+import { logError, toError } from "@/lib/logger";
 import { SYSTEM_PROMPT } from "@/lib/ai/extract-jd-system-prompt";
 import { looksLikePdfBinary } from "@/lib/jd/extract-document-text";
 import {
@@ -234,7 +235,8 @@ export async function extractJdFromDocument(text: string): Promise<ExtractedJd> 
     try {
       const ai = await extractJdWithAI(trimmed);
       merged = mergeHeuristicAndAi(trimmed, ai);
-    } catch {
+    } catch (error) {
+      logError("JD AI extract fell back to heuristics", toError(error));
       merged = mergeHeuristicAndAi(trimmed, EMPTY_EXTRACTED);
     }
   }
