@@ -14,6 +14,10 @@ export type UserRow = {
   email: string;
   username: string;
   role: ProfileRole;
+  /** Real name from the Microsoft Graph profile at SSO provisioning, or self-edited afterward. */
+  display_name: string | null;
+  /** Self-service only -- no source for this in the Graph profile. */
+  phone: string | null;
   password_hash: string | null;
   sso_provider: string | null;
   sso_subject_id: string | null;
@@ -26,7 +30,8 @@ export type PublicUserRow = Omit<
   "password_hash" | "sso_provider" | "sso_subject_id"
 >;
 
-const PUBLIC_COLUMNS = "id, email, username, role, created_at, deleted_at";
+const PUBLIC_COLUMNS =
+  "id, email, username, role, display_name, phone, created_at, deleted_at";
 
 export type CreateUserInput = {
   email: string;
@@ -39,6 +44,8 @@ export type UpdateUserInput = {
   username?: string;
   role?: ProfileRole;
   passwordHash?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
 };
 
 /** Includes `password_hash` -- for `lib/auth/*` password verification only. */
@@ -207,6 +214,8 @@ export async function updateUser(
       username: patch.username,
       role: patch.role,
       password_hash: patch.passwordHash,
+      display_name: patch.displayName,
+      phone: patch.phone,
     },
     2,
   );
@@ -232,14 +241,19 @@ export async function updateUser(
  */
 export async function linkSsoIdentity(
   db: QueryExecutor,
-  input: { email: string; provider: string; subjectId: string },
+  input: {
+    email: string;
+    provider: string;
+    subjectId: string;
+    displayName?: string | null;
+  },
 ): Promise<UserRow | null> {
   const { rows } = await db.query<UserRow>(
     `UPDATE users
-     SET sso_provider = $1, sso_subject_id = $2
+     SET sso_provider = $1, sso_subject_id = $2, display_name = COALESCE(display_name, $4)
      WHERE lower(email) = lower($3) AND sso_provider IS NULL AND deleted_at IS NULL
      RETURNING *`,
-    [input.provider, input.subjectId, input.email],
+    [input.provider, input.subjectId, input.email, input.displayName ?? null],
   );
   return rows[0] ?? null;
 }
@@ -260,13 +274,21 @@ export async function createSsoUser(
     role: ProfileRole;
     provider: string;
     subjectId: string;
+    displayName?: string | null;
   },
 ): Promise<UserRow> {
   const { rows } = await db.query<UserRow>(
-    `INSERT INTO users (email, username, role, sso_provider, sso_subject_id)
-     VALUES ($1, $2, $3::profile_role, $4, $5)
+    `INSERT INTO users (email, username, role, sso_provider, sso_subject_id, display_name)
+     VALUES ($1, $2, $3::profile_role, $4, $5, $6)
      RETURNING *`,
-    [input.email, input.username, input.role, input.provider, input.subjectId],
+    [
+      input.email,
+      input.username,
+      input.role,
+      input.provider,
+      input.subjectId,
+      input.displayName ?? null,
+    ],
   );
   return rows[0];
 }

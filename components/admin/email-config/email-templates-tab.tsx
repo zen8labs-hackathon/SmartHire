@@ -1,0 +1,379 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, ListBox, Modal, Select } from "@heroui/react";
+import { Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+
+import { EmailTemplateFormModal } from "@/components/admin/email-config/email-template-form-modal";
+import { EmailTemplatePreviewModal } from "@/components/admin/email-config/email-template-preview-modal";
+import type { EmailSettingsData, EmailTemplateListItem } from "@/components/admin/email-config/types";
+import { SectionCard } from "@/components/admin/shell/cards";
+import { DataTablePagination } from "@/components/admin/shell/table-system";
+import { useToast } from "@/components/admin/toast-provider";
+import {
+  EMAIL_TRIGGER_CATEGORIES,
+  EMAIL_TRIGGER_CATEGORY_LABELS,
+  EMAIL_TRIGGER_TYPES,
+  type EmailTriggerCategory,
+} from "@/lib/email/trigger-types";
+
+const TRIGGER_LABEL_BY_VALUE = new Map<string, string>(
+  EMAIL_TRIGGER_TYPES.map((t) => [t.value, t.label]),
+);
+const CATEGORY_BY_TRIGGER_VALUE = new Map<string, EmailTriggerCategory>(
+  EMAIL_TRIGGER_TYPES.map((t) => [t.value, t.category]),
+);
+
+const CATEGORY_FILTER_OPTIONS: { id: EmailTriggerCategory | "all"; label: string }[] = [
+  { id: "all", label: "All categories" },
+  ...EMAIL_TRIGGER_CATEGORIES.map((c) => ({ id: c, label: EMAIL_TRIGGER_CATEGORY_LABELS[c] })),
+];
+
+const DEFAULT_PAGE_SIZE = 9;
+const PAGE_SIZE_OPTIONS = [9, 18, 36, 60];
+
+/** Anyone can create a template, but only its creator or an Admin can edit/delete it. */
+function canManageTemplate(
+  t: EmailTemplateListItem,
+  isAdmin: boolean,
+  currentUserId: string,
+): boolean {
+  return isAdmin || t.created_by === currentUserId;
+}
+
+export function EmailTemplatesTab({
+  initialTemplates,
+  isAdmin,
+  currentUserId,
+}: {
+  initialTemplates: EmailTemplateListItem[];
+  isAdmin: boolean;
+  currentUserId: string;
+}) {
+  const { success, error: toastError } = useToast();
+
+  const [templates, setTemplates] = useState(initialTemplates);
+  const [categoryFilter, setCategoryFilter] = useState<EmailTriggerCategory | "all">(
+    "all",
+  );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplateListItem | null>(
+    null,
+  );
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<EmailTemplateListItem | null>(
+    null,
+  );
+  const [previewSettings, setPreviewSettings] = useState<EmailSettingsData | null>(null);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/admin/email/settings", { credentials: "include" });
+      const json = (await res.json()) as { settings?: EmailSettingsData };
+      if (!cancelled) setPreviewSettings(json.settings ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewOpen]);
+
+  const filtered = useMemo(() => {
+    if (categoryFilter === "all") return templates;
+    return templates.filter(
+      (t) => CATEGORY_BY_TRIGGER_VALUE.get(t.trigger_type) === categoryFilter,
+    );
+  }, [templates, categoryFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [categoryFilter]);
+
+  const totalCount = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = totalCount === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const endIdx = totalCount === 0 ? 0 : Math.min(startIdx - 1 + pageSize, totalCount);
+  const paginated = useMemo(
+    () => filtered.slice(startIdx - 1, endIdx),
+    [filtered, startIdx, endIdx],
+  );
+
+  const handlePageSizeChange = useCallback((size: number) => {
+    setPageSize(size);
+    setPage(1);
+  }, []);
+
+  const openCreate = useCallback(() => {
+    setEditingTemplate(null);
+    setFormOpen(true);
+  }, []);
+
+  const openEdit = useCallback((template: EmailTemplateListItem) => {
+    setEditingTemplate(template);
+    setFormOpen(true);
+  }, []);
+
+  const handleSaved = useCallback((saved: EmailTemplateListItem) => {
+    setTemplates((prev) => {
+      const exists = prev.some((t) => t.id === saved.id);
+      return exists
+        ? prev.map((t) => (t.id === saved.id ? saved : t))
+        : [...prev, saved];
+    });
+    setFormOpen(false);
+  }, []);
+
+  const handleDelete = useCallback(
+    async (template: EmailTemplateListItem) => {
+      if (!confirm(`Delete template "${template.name}"?`)) return;
+      setDeletingId(template.id);
+      try {
+        const res = await fetch(`/api/admin/email/templates/${template.id}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const json = (await res.json()) as { error?: string };
+          throw new Error(json.error ?? "Could not delete template.");
+        }
+        setTemplates((prev) => prev.filter((t) => t.id !== template.id));
+        success(`Template "${template.name}" deleted.`);
+      } catch (e) {
+        toastError(e instanceof Error ? e.message : "Could not delete template.");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [success, toastError],
+  );
+
+  const categoryFilterLabel =
+    CATEGORY_FILTER_OPTIONS.find((o) => o.id === categoryFilter)?.label ?? "All categories";
+
+  return (
+    <SectionCard>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-muted">Category:</span>
+            <Select
+              aria-label="Filter by category"
+              value={categoryFilter}
+              onChange={(key) => {
+                if (typeof key === "string")
+                  setCategoryFilter(key as EmailTriggerCategory | "all");
+              }}
+              className="w-48"
+            >
+              <Select.Trigger className="h-9 min-h-9 rounded-xl border border-divider bg-surface-secondary/40 px-2.5 text-xs font-semibold">
+                <span className="truncate">{categoryFilterLabel}</span>
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox className="max-h-72 overflow-y-auto p-1 border border-divider rounded-xl bg-surface-primary shadow-xl">
+                  {CATEGORY_FILTER_OPTIONS.map((opt) => (
+                    <ListBox.Item
+                      key={opt.id}
+                      id={opt.id}
+                      textValue={opt.label}
+                      className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer hover:bg-surface-secondary"
+                    >
+                      {opt.label}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </div>
+
+          <Button
+            variant="primary"
+            className="h-9 gap-1.5 rounded-xl bg-accent px-3.5 text-xs font-semibold text-accent-foreground"
+            onPress={openCreate}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Template
+          </Button>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-divider bg-surface-secondary/20 py-8 text-center text-sm text-muted">
+            No templates yet.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-in fade-in duration-200">
+            {paginated.map((t) => {
+              const triggerCat = CATEGORY_BY_TRIGGER_VALUE.get(t.trigger_type) as EmailTriggerCategory;
+              const triggerCatLabel = EMAIL_TRIGGER_CATEGORY_LABELS[triggerCat] ?? "—";
+              const triggerLabel = TRIGGER_LABEL_BY_VALUE.get(t.trigger_type) ?? t.trigger_type;
+
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-2xl border border-divider bg-surface-primary p-5 shadow-sm transition-all duration-200 hover:border-accent/40 hover:shadow-md flex flex-col justify-between gap-4"
+                >
+                  <div className="space-y-3">
+                    {/* Header: Title and Badges */}
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-sm font-bold text-foreground line-clamp-1" title={t.name}>
+                        {t.name}
+                      </h4>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {t.is_active ? (
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Metadata items */}
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between text-muted">
+                        <span>Recipient</span>
+                        <span className="font-semibold text-foreground capitalize">
+                          {capitalizeFirstLetter(t.recipient_type)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-muted">
+                        <span>Trigger Category</span>
+                        <span className="font-semibold text-foreground">
+                          {capitalizeFirstLetter(triggerCatLabel.toLowerCase())}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-muted">
+                        <span>Trigger Type</span>
+                        <span className="font-semibold text-foreground">
+                          {capitalizeFirstLetter(triggerLabel.toLowerCase())}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-muted">
+                        <span>Auto-send</span>
+                        <span>
+                          {t.is_auto_send ? (
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
+                              Auto
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-surface-secondary px-2 py-0.5 text-[9px] font-semibold text-muted">
+                              Manual
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions footer */}
+                  <div className="flex items-center justify-between border-t border-divider/60 pt-3 mt-1">
+                     <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 rounded-lg border border-divider px-2.5 text-[11px] font-semibold text-muted hover:bg-surface-secondary hover:text-foreground"
+                      onPress={() => {
+                        setPreviewTemplate(t);
+                        setPreviewOpen(true);
+                      }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview
+                    </Button>
+                    
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isIconOnly
+                        aria-label="Edit template"
+                        className="h-7 w-7 rounded-lg border border-divider text-muted hover:bg-surface-secondary hover:text-foreground"
+                        onPress={() => openEdit(t)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      {canManageTemplate(t, isAdmin, currentUserId) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          isIconOnly
+                          aria-label="Delete template"
+                          className="h-7 w-7 rounded-lg border border-divider text-danger hover:bg-danger/10"
+                          isDisabled={deletingId === t.id}
+                          onPress={() => void handleDelete(t)}
+                        >
+                          {deletingId === t.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
+
+                   
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {filtered.length > 0 ? (
+          <DataTablePagination
+            page={safePage}
+            totalPages={totalPages}
+            setPage={setPage}
+            startIdx={startIdx}
+            endIdx={endIdx}
+            totalCount={totalCount}
+            itemTypeLabel="templates"
+            pageSize={pageSize}
+            setPageSize={handlePageSizeChange}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+          />
+        ) : null}
+      </div>
+
+      <EmailTemplateFormModal
+        isOpen={formOpen}
+        onOpenChange={setFormOpen}
+        template={editingTemplate}
+        canEdit={!editingTemplate || canManageTemplate(editingTemplate, isAdmin, currentUserId)}
+        onSaved={handleSaved}
+      />
+
+      {previewTemplate ? (
+        <EmailTemplatePreviewModal
+          isOpen={previewOpen}
+          onOpenChange={setPreviewOpen}
+          name={previewTemplate.name}
+          subjectTemplate={previewTemplate.subject_template}
+          bodyTemplate={previewTemplate.body_template}
+          recipientType={previewTemplate.recipient_type}
+          defaultCc={previewTemplate.default_cc}
+          defaultBcc={previewTemplate.default_bcc}
+          fromEmail={previewSettings?.default_sender}
+          companyName={previewSettings?.company_name}
+          signatureHtml={previewSettings?.signature_html}
+          logoUrl={previewSettings?.logo_url}
+        />
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function capitalizeFirstLetter(str: string): string {
+  if (!str) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+

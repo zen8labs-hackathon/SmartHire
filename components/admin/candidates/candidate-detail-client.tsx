@@ -14,7 +14,8 @@ import {
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
-import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
+import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
+import { EditCandidateModal } from "@/components/admin/jd/edit-candidate-modal";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
@@ -56,6 +57,7 @@ function versionEventLabel(item: CvManagementVersionListItem): string {
 export function CandidateDetailClient({ candidate }: Props) {
   const router = useRouter();
   const editProfileModal = useOverlayState();
+  const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
 
   const [applications, setApplications] = useState<ApplicationListItem[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(true);
@@ -239,7 +241,37 @@ export function CandidateDetailClient({ candidate }: Props) {
         <Breadcrumbs.Item>{candidate.name}</Breadcrumbs.Item>
       </Breadcrumbs>
 
-      <div className="flex gap-6 items-start">
+      <div className="flex border-b border-divider">
+        {(["overview", "email"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all duration-150 ${
+              activeTab === tab
+                ? "border-accent text-accent"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            {tab === "overview" ? "Overview" : "Email"}
+          </button>
+        ))}
+      </div>
+
+      {/* Both tabs stay mounted, toggled with `hidden` rather than an
+          if/else -- unmounting the Overview tab (previously the `else`
+          branch) tore down the CV `<iframe>` every time, forcing a full
+          reload (and losing scroll position) each time the user came back
+          from the Email tab. */}
+      <div className={activeTab === "email" ? undefined : "hidden"}>
+        <CandidateEmailTab
+          campaignAppliedId={candidate.id}
+          candidateId={candidate.candidateId}
+          candidateName={candidate.name}
+          candidateEmail={candidate.email === "—" ? null : candidate.email}
+        />
+      </div>
+      <div className={activeTab === "overview" ? "flex gap-6 items-start" : "hidden"}>
         {/* Left: CV viewer */}
         <div className="w-5/12 shrink-0 sticky top-6">
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
