@@ -111,6 +111,14 @@ function UpcomingSchedules({ campaignAppliedId }: { campaignAppliedId: string })
 
 const SNIPPET_LENGTH = 140;
 
+/** First 2 characters of the sender's local-part (before `@`), matching the
+ * initials pattern used for user avatars elsewhere (`user-modal.tsx`,
+ * `sidebar.tsx`). */
+function emailInitials(email: string): string {
+  const localPart = email.split("@")[0] || email;
+  return localPart.slice(0, 2).toUpperCase();
+}
+
 /** Plain-text preview of an HTML email body, for the collapsed thread state --
  * a rough tag strip is enough here since it's discarded the moment the
  * message is expanded (which renders the real `body_html`). */
@@ -143,13 +151,13 @@ function ThreadMessage({
   return (
     <div className="flex gap-3">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">
-        SH
+        {emailInitials(message.from_email)}
       </div>
       <div className="min-w-0 flex-1 rounded-xl border border-divider bg-surface-secondary/10 p-3.5">
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+          className="flex w-full flex-wrap items-center justify-between gap-2 text-left hover:cursor-pointer"
         >
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">

@@ -11,6 +11,7 @@ import {
   DataTablePagination,
   DataTableToolbar,
 } from "@/components/admin/shell/table-system";
+import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 import { useToast } from "@/components/admin/toast-provider";
 import { formatDisplayDateTime } from "@/lib/format-date";
 
@@ -23,7 +24,7 @@ const STATUSES = [
   "cancelled",
 ] as const;
 
-const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 10;
 
 export function EmailLogsTab() {
   const { error: toastError } = useToast();
@@ -33,6 +34,8 @@ export function EmailLogsTab() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
   const [loading, setLoading] = useState(true);
 
   const [selected, setSelected] = useState<EmailMessageListItem | null>(null);
@@ -45,6 +48,7 @@ export function EmailLogsTab() {
         offset: String((page - 1) * pageSize),
       });
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (debouncedSearchQuery.trim()) params.set("toEmail", debouncedSearchQuery.trim());
 
       const res = await fetch(`/api/admin/email/messages?${params}`, {
         credentials: "include",
@@ -62,11 +66,15 @@ export function EmailLogsTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, toastError]);
+  }, [page, pageSize, statusFilter, debouncedSearchQuery, toastError]);
 
   useEffect(() => {
     void fetchMessages();
   }, [fetchMessages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -128,6 +136,9 @@ export function EmailLogsTab() {
     <SectionCard>
       <div className="flex flex-col gap-3">
         <DataTableToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search by recipient email..."
           filters={filtersElement}
           onRefresh={() => void fetchMessages()}
           isRefreshing={loading}

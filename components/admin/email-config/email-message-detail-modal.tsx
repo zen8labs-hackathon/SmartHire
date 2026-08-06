@@ -61,13 +61,16 @@ export function EmailMessageDetailModal({
           {/* `!flex-row`: HeroUI's own `.modal__header` is `flex-col` and
               wins the cascade over a plain `flex` here, which would make
               `items-center` center this row's content horizontally instead
-              of vertically. */}
-          <Modal.Header className="!flex-row flex items-center justify-between gap-3 border-b border-divider px-6 py-5">
+              of vertically. `pr-12`: `Modal.CloseTrigger` is `absolute top-4
+              right-4`, floating outside normal flow -- without extra right
+              padding the status badge (flush against the header's own right
+              edge via `justify-between`) sits directly underneath it. */}
+          <Modal.Header className="!flex-row flex items-center justify-start gap-3 border-b border-divider px-6 py-5 pr-12">
             <Modal.Heading>Email Details</Modal.Heading>
             {message ? (
               <div className="flex shrink-0 items-center gap-2">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${EMAIL_STATUS_STYLES[message.status] ?? ""}`}
+                  className={`rounded-full px-2 py-0.5 text-[12px] font-semibold ${EMAIL_STATUS_STYLES[message.status] ?? ""}`}
                 >
                   {message.status}
                 </span>

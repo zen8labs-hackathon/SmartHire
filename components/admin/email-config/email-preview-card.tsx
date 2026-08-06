@@ -8,6 +8,14 @@ import type { ReactNode } from "react";
  * form, bulk send, single send -- renders the same look instead of each
  * reinventing its own preview card.
  */
+/** First 2 characters of the sender's local-part (before `@`), matching the
+ * initials pattern used for user avatars elsewhere (`user-modal.tsx`,
+ * `sidebar.tsx`). */
+function emailInitials(email: string): string {
+  const localPart = email.split("@")[0] || email;
+  return localPart.slice(0, 2).toUpperCase();
+}
+
 export function EmailPreviewCard({
   subject,
   bodyHtml,
@@ -34,7 +42,7 @@ export function EmailPreviewCard({
       <div className="flex items-start justify-between gap-4 border-b border-divider bg-surface-secondary/10 p-4">
         <div className="flex gap-3 min-w-0">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 font-bold text-accent">
-            SH
+            {emailInitials(fromEmail)}
           </div>
           <div className="space-y-1.5 min-w-0">
             <h2 className="text-base font-bold text-foreground leading-tight">

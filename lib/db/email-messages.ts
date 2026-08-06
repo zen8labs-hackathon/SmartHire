@@ -79,6 +79,8 @@ export type ListEmailMessagesFilters = PaginationParams & {
   jobId?: string;
   status?: EmailMessageStatus;
   triggerType?: string;
+  /** Case-insensitive partial match against `to_email` -- the Email Logs tab's search box. */
+  toEmail?: string;
 };
 
 export async function createEmailMessage(
@@ -193,6 +195,10 @@ export async function listEmailMessages(
   if (filters.triggerType) {
     values.push(filters.triggerType);
     conditions.push(`trigger_type = $${values.length}`);
+  }
+  if (filters.toEmail) {
+    values.push(`%${filters.toEmail}%`);
+    conditions.push(`to_email ILIKE $${values.length}`);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

@@ -501,11 +501,10 @@ export function EmailTemplateFormModal({
                         <span className={`text-[10px] font-bold uppercase transition-colors duration-150 ${isAutoSend ? "text-accent" : "text-muted"}`}>
                           {isAutoSend ? "ON" : "OFF"}
                           </span>
-                          {/* Disable this feature for now */}
                         <Switch
                           isSelected={isAutoSend}
                           onChange={setIsAutoSend}
-                          disabled={true || disabled}
+                          disabled={disabled}
                           label="Auto send email"
                         />
                       </div>
