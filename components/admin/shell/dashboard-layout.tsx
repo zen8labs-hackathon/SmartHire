@@ -39,8 +39,13 @@ export function DashboardLayout({
           onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
         />
 
-        {/* Scrollable page body */}
-        <main className="flex-1 overflow-y-auto bg-background p-6 md:p-8">
+        {/* Scrollable page body. `scrollbar-gutter: stable` always reserves the
+            vertical scrollbar's width, even when a page's content is short
+            enough not to need it -- without this, switching between tabs/pages
+            whose content heights straddle the viewport (e.g. a long list vs a
+            short form) shifts the available width by the scrollbar's size,
+            visibly jumping the layout. */}
+        <main className="flex-1 overflow-y-auto bg-background p-6 md:p-8 [scrollbar-gutter:stable]">
           <div className="mx-auto w-full max-w-7xl animate-in fade-in slide-in-from-bottom-2 duration-300">
             {children}
           </div>

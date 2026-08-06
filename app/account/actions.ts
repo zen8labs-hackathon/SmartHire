@@ -1,19 +1,17 @@
 "use server";
 
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { hashPassword } from "@/lib/auth/password";
 import { getPool } from "@/lib/db/config/client";
 import { listChapters } from "@/lib/db/chapters";
 import { listMembershipsForUser } from "@/lib/db/profile-chapters";
-import { revokeAllRefreshTokensForUser } from "@/lib/db/refresh-tokens";
-import { getPublicUserById, updateUser, usernameExists } from "@/lib/db/users";
-
-const USERNAME_RE = /^[a-z0-9_]{3,30}$/;
+import { getPublicUserById, updateUser } from "@/lib/db/users";
 
 export type MyProfileFormState = { error?: string; message?: string } | null;
 
 export type MyProfileDetails = {
   username: string;
+  displayName: string | null;
+  phone: string | null;
   role: string;
   chapterNames: string[];
 };
@@ -37,58 +35,30 @@ export async function getMyProfileDetails(): Promise<MyProfileDetails | null> {
 
   return {
     username: current?.username ?? "",
+    displayName: current?.display_name ?? null,
+    phone: current?.phone ?? null,
     role: access.role,
     chapterNames,
   };
 }
 
-export async function updateMyUsername(
-  username: string,
+/** Self-service edit of the account's display name (used for the `user_name` email placeholder) and phone (`user_phone`). */
+export async function updateMyProfile(
+  displayName: string,
+  phone: string,
 ): Promise<MyProfileFormState> {
   const { user } = await getRequestAuth();
   if (!user) return { error: "Not authenticated." };
 
-  const normalized = username.trim().toLowerCase();
-  if (!USERNAME_RE.test(normalized)) {
-    return {
-      error:
-        "Username must be 3-30 characters: lowercase letters, numbers, or underscores.",
-    };
+  const trimmedName = displayName.trim();
+  if (!trimmedName) {
+    return { error: "Name cannot be empty" };
   }
 
   const db = getPool();
-  const current = await getPublicUserById(db, user.id);
-  if (
-    normalized !== current?.username &&
-    (await usernameExists(db, normalized))
-  ) {
-    return { error: "That username is already taken." };
-  }
-
-  await updateUser(db, user.id, { username: normalized });
+  await updateUser(db, user.id, {
+    displayName: trimmedName,
+    phone: phone.trim() || null,
+  });
   return { message: "Profile updated successfully!" };
-}
-
-/**
- * Self-service password change. Revokes every outstanding refresh token
- * (other-device sessions won't survive their next refresh); the caller's
- * *own* access token, if any, still rides out its own short TTL like any
- * other revoke -- see `ACCESS_TOKEN_TTL_SECONDS`.
- */
-export async function updateMyPassword(
-  newPassword: string,
-): Promise<MyProfileFormState> {
-  const { user } = await getRequestAuth();
-  if (!user) return { error: "Not authenticated." };
-
-  if (newPassword.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-
-  const passwordHash = await hashPassword(newPassword);
-  const db = getPool();
-  await updateUser(db, user.id, { passwordHash });
-  await revokeAllRefreshTokensForUser(db, user.id);
-
-  return { message: "Password changed successfully!" };
 }

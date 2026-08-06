@@ -319,19 +319,14 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         {formatSchedule(r.cv_created_at ?? r.created_at) ?? "—"}
       </Table.Cell>
       <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
-        {(resolved.stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
-        "interview" ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            isDisabled={busy}
-            onPress={() => onOpenSchedule(r)}
-          >
-            Schedule
-          </Button>
-        ) : (
-          <span className="text-xs text-muted">—</span>
-        )}
+        <Button
+          size="sm"
+          variant="secondary"
+          isDisabled={busy}
+          onPress={() => onOpenSchedule(r)}
+        >
+          Schedule
+        </Button>
       </Table.Cell>
       <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
         <div className="flex items-center justify-center gap-1">

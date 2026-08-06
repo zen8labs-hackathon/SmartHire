@@ -5,11 +5,10 @@ import { useOverlayTriggerState } from "react-stately";
 import { Button, Input, Modal, Label } from "@heroui/react";
 import {
   getMyProfileDetails,
-  updateMyPassword,
-  updateMyUsername,
+  updateMyProfile,
 } from "@/app/account/actions";
 import { useToast } from "@/components/admin/toast-provider";
-import { Loader2, User, KeyRound, Shield, Compass, Mail } from "lucide-react";
+import { Loader2, Shield, Compass, Mail, Phone } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 export type UserModalProps = {
@@ -31,27 +30,25 @@ export function UserModal({
   });
 
   const { success: triggerSuccess, error: triggerError } = useToast();
-  
-  const [activeTab, setActiveTab] = useState<"details" | "edit" | "password">("details");
-  const [username, setUsername] = useState("");
+
+  const [activeTab, setActiveTab] = useState<"details" | "edit">("details");
+  const [displayName, setDisplayName] = useState("");
+  const [phone, setPhone] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [chapters, setChapters] = useState<string[]>([]);
-  
-  // Password fields
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
 
   // Fetch current profile details on open
   useEffect(() => {
     if (!open) return;
-    
+
     async function loadProfile() {
       setLoadingProfile(true);
       try {
         const details = await getMyProfileDetails();
         if (!details) return;
-        setUsername(details.username);
+        setDisplayName(details.displayName ?? details.username);
+        setPhone(details.phone ?? "");
         setChapters(details.chapterNames);
       } catch (err: any) {
         logError("Error loading user profile details", err instanceof Error ? err : undefined);
@@ -65,14 +62,14 @@ export function UserModal({
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim()) {
+    if (!displayName.trim()) {
       triggerError("Name cannot be empty");
       return;
     }
-    
+
     setUpdating(true);
     try {
-      const result = await updateMyUsername(username.trim());
+      const result = await updateMyProfile(displayName.trim(), phone.trim());
       if (result?.error) {
         triggerError(result.error);
         return;
@@ -86,38 +83,9 @@ export function UserModal({
     }
   };
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password.length < 8) {
-      triggerError("Password must be at least 8 characters");
-      return;
-    }
-    if (password !== confirmPassword) {
-      triggerError("Passwords do not match");
-      return;
-    }
-
-    setUpdating(true);
-    try {
-      const result = await updateMyPassword(password);
-      if (result?.error) {
-        triggerError(result.error);
-        return;
-      }
-      triggerSuccess(result?.message || "Password changed successfully!");
-      setPassword("");
-      setConfirmPassword("");
-      setActiveTab("details");
-    } catch (err: any) {
-      triggerError(err.message || "Failed to update password");
-    } finally {
-      setUpdating(false);
-    }
-  };
-
   // Generate initials for avatar
-  const initials = username
-    ? username.slice(0, 2).toUpperCase()
+  const initials = displayName
+    ? displayName.slice(0, 2).toUpperCase()
     : userEmail.slice(0, 2).toUpperCase();
 
   return (
@@ -133,7 +101,7 @@ export function UserModal({
                 </div>
                 <div className="min-w-0">
                   <Modal.Heading className="text-base font-semibold text-foreground">
-                    {loadingProfile ? "Loading profile..." : username || "My Account"}
+                    {loadingProfile ? "Loading profile..." : displayName || "My Account"}
                   </Modal.Heading>
                   <p className="text-xs text-muted truncate mt-0.5">{userEmail}</p>
                 </div>
@@ -162,18 +130,7 @@ export function UserModal({
                     : "border-transparent text-muted hover:text-foreground"
                 }`}
               >
-                Edit Name
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("password")}
-                className={`px-3 py-2.5 text-xs font-semibold tracking-wide border-b-2 transition-all duration-150 ${
-                  activeTab === "password"
-                    ? "border-accent text-accent"
-                    : "border-transparent text-muted hover:text-foreground"
-                }`}
-              >
-                Security
+                Edit Profile
               </button>
             </div>
 
@@ -188,6 +145,19 @@ export function UserModal({
                       <div className="min-w-0">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Email address</p>
                         <p className="text-sm font-medium text-foreground mt-0.5 truncate">{userEmail}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Phone row */}
+                  <div className="flex items-center justify-between rounded-xl border border-divider/60 bg-surface-secondary/30 p-3.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Phone className="h-4 w-4 text-muted shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Phone number</p>
+                        <p className="text-sm font-medium text-foreground mt-0.5 truncate">
+                          {phone || "Not set"}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -235,11 +205,22 @@ export function UserModal({
                       Display Name
                     </Label>
                     <Input
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="Enter your name"
                       className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background"
                       required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-xs font-semibold text-foreground/80 tracking-wide">
+                      Phone Number
+                    </Label>
+                    <Input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="Enter your phone number"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background"
                     />
                   </div>
                   <Button
@@ -249,45 +230,6 @@ export function UserModal({
                   >
                     {updating && <Loader2 className="h-4 w-4 animate-spin" />}
                     Save changes
-                  </Button>
-                </form>
-              )}
-
-              {activeTab === "password" && (
-                <form onSubmit={handleUpdatePassword} className="space-y-4">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs font-semibold text-foreground/80 tracking-wide">
-                      New Password
-                    </Label>
-                    <Input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-xs font-semibold text-foreground/80 tracking-wide">
-                      Confirm New Password
-                    </Label>
-                    <Input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background"
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-xl text-sm font-semibold shadow-md transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
-                    isDisabled={updating}
-                  >
-                    {updating && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Update Password
                   </Button>
                 </form>
               )}
