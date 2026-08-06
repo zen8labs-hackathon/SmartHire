@@ -1380,7 +1380,7 @@ export function AddCandidateModal({
                         <Input
                           value={expectedSalary}
                           onChange={(e) => setExpectedSalary(e.target.value)}
-                          placeholder="e.g. 18-20 triệu, negotiable…"
+                          placeholder="e.g. 18,000,000-20,000,000 or 18-20 triệu, negotiable…"
                         />
                       </TextField>
                       <p className="mt-1.5 text-xs text-muted">
