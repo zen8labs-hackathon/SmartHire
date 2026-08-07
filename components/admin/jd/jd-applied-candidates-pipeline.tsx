@@ -33,15 +33,14 @@ import { Dialog } from "react-aria-components";
 import type { RangeValue } from "react-aria-components";
 
 import { useToast } from "@/components/admin/toast-provider";
+import { BulkEmailModal } from "@/components/admin/jd/bulk-email-modal";
+import { ConfirmRunJdMatchModal } from "@/components/admin/jd/confirm-run-jd-match-modal";
+import { DeleteCandidateModal } from "@/components/admin/jd/delete-candidate-modal";
+import { EditCandidateModal } from "@/components/admin/jd/edit-candidate-modal";
+import { InterviewScheduleModal } from "@/components/admin/jd/interview-schedule-modal";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
-import {
-  InterviewScheduleModal,
-  DeleteCandidateModal,
-  EditCandidateModal,
-  RationaleModal,
-  ConfirmRunJdMatchModal,
-} from "@/components/admin/jd/jd-pipeline-modals";
+import { RationaleModal } from "@/components/admin/jd/rationale-modal";
 import {
   campaignAppliedAdminRowToTableRow,
   type JdPipelineApplicationRow,
@@ -226,6 +225,7 @@ export function JdAppliedCandidatesPipeline({
   });
 
   const jdMatchConfirmModal = useOverlayState();
+  const bulkEmailModal = useOverlayState();
 
   const openSchedule = useCallback(
     (r: JdPipelineApplicationRow) => {
@@ -978,6 +978,15 @@ export function JdAppliedCandidatesPipeline({
           >
             Run AI JD Match
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="border border-divider bg-surface-primary"
+            isDisabled={pipelineBusy}
+            onPress={() => bulkEmailModal.open()}
+          >
+            Send email
+          </Button>
         </div>
       </div>
     ) : null;
@@ -1245,7 +1254,7 @@ export function JdAppliedCandidatesPipeline({
         onSaved={() => {
           onRefetch(true);
           void fetchPage();
-          toast.success("Interview schedule saved.");
+          toast.success("Schedule updated.");
         }}
       />
 
@@ -1256,6 +1265,30 @@ export function JdAppliedCandidatesPipeline({
         busy={pipelineBusy}
         onCancel={jdMatchConfirmModal.close}
         onConfirm={() => void runJdMatchForSelected()}
+      />
+
+      <BulkEmailModal
+        isOpen={bulkEmailModal.isOpen}
+        onOpenChange={(open) => {
+          bulkEmailModal.setOpen(open);
+          // Clear the table selection only once the modal (including its
+          // result screen) is dismissed -- clearing it on `onSent` instead
+          // would empty `recipients` while the result screen is still
+          // showing, breaking both the header count and the per-row name
+          // lookup (`nameForId`) mid-display.
+          if (!open) setSelected(new Set());
+        }}
+        recipients={selectedRows.map((r) => ({
+          id: r.id,
+          candidate_name: r.candidate_name,
+          candidate_email: r.candidate_email,
+        }))}
+        job={
+          selectedRows[0]
+            ? { position: selectedRows[0].job_position, department: selectedRows[0].job_department }
+            : null
+        }
+        onSent={() => {}}
       />
 
       <DeleteCandidateModal
