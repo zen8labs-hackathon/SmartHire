@@ -1283,11 +1283,6 @@ export function JdAppliedCandidatesPipeline({
           candidate_name: r.candidate_name,
           candidate_email: r.candidate_email,
         }))}
-        job={
-          selectedRows[0]
-            ? { position: selectedRows[0].job_position, department: selectedRows[0].job_department }
-            : null
-        }
         onSent={() => {}}
       />
 
