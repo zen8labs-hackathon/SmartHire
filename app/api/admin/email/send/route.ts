@@ -3,10 +3,10 @@ import { z } from "zod";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { listCampaignAppliedByIds } from "@/lib/db/campaign-applied";
-import { getPool } from "@/lib/db/config/client";
+import { getPool, withTransaction } from "@/lib/db/config/client";
 import {
   copyTemplateAttachmentsToMessage,
-  createEmailAttachment,
+  createEmailAttachments,
 } from "@/lib/db/email-attachments";
 import {
   createEmailMessage,
@@ -124,8 +124,15 @@ export async function POST(request: Request) {
     simulated?: boolean;
   }> = [];
 
-  try {
-    for (const application of applications) {
+  // Each recipient gets its own try/catch (matching the pattern already used
+  // by the auto-send path in lib/email/auto-send-for-trigger.ts) -- a DB or
+  // Graph error for one candidate must not abort the rest of the batch, per
+  // this route's own doc comment above. Wrapping the whole loop in a single
+  // try/catch (the previous shape) broke that guarantee: any thrown error
+  // -- not just an explicit `sendResult.ok === false` -- aborted every
+  // recipient after the failing one.
+  for (const application of applications) {
+    try {
       const composed = await composeEmailForCandidate(
         db,
         application,
@@ -134,7 +141,9 @@ export async function POST(request: Request) {
         {
           senderName: auth.access.email,
           companyName: settings.company_name,
-          signatureHtml: settings.signature_html,
+          // No signatureHtml here -- the compose modal already embeds the
+          // signature into the editable body it sends as `bodyHtml`, so
+          // appending it again here would duplicate it.
           logoUrl: settings.logo_url,
           senderUser,
         },
@@ -147,31 +156,36 @@ export async function POST(request: Request) {
         });
         continue;
       }
+      const toEmail = composed.toEmail;
 
-      const message = await createEmailMessage(db, {
-        campaignAppliedId: application.id,
-        jobId: application.job_id,
-        templateId: templateId ?? null,
-        senderUserId: auth.userId,
-        type: "manual",
-        status: requireApproval ? "pending_approval" : "sending",
-        triggerType: template?.trigger_type ?? null,
-        fromEmail: settings.default_sender,
-        toEmail: composed.toEmail,
-        cc: effectiveCc,
-        bcc: effectiveBcc,
-        subject: composed.subject,
-        bodyHtml: composed.bodyHtml,
-      });
+      // The message row and its attachments must land together -- without a
+      // transaction, an attachment-insert failure would leave a message row
+      // stuck in "sending" with no attachments and no way to retry the copy.
+      const message = await withTransaction(async (tx) => {
+        const message = await createEmailMessage(tx, {
+          campaignAppliedId: application.id,
+          jobId: application.job_id,
+          templateId: templateId ?? null,
+          senderUserId: auth.userId,
+          type: "manual",
+          status: requireApproval ? "pending_approval" : "sending",
+          triggerType: template?.trigger_type ?? null,
+          fromEmail: settings.default_sender,
+          toEmail,
+          cc: effectiveCc,
+          bcc: effectiveBcc,
+          subject: composed.subject,
+          bodyHtml: composed.bodyHtml,
+        });
 
-      if (templateId) {
-        await copyTemplateAttachmentsToMessage(db, message.id, templateId);
-      }
-      if (attachments) {
-        for (const attachment of attachments) {
-          await createEmailAttachment(db, { messageId: message.id, ...attachment });
+        if (templateId) {
+          await copyTemplateAttachmentsToMessage(tx, message.id, templateId);
         }
-      }
+        if (attachments) {
+          await createEmailAttachments(tx, message.id, attachments);
+        }
+        return message;
+      });
 
       if (requireApproval) {
         results.push({
@@ -183,10 +197,14 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // Deliberately outside the transaction above -- this is a network call
+      // to Microsoft Graph, and holding a DB transaction open for the
+      // duration of an external request would tie up a pool connection
+      // (and an email that's actually been sent can't be "rolled back").
       const graphAttachments = await buildGraphAttachmentsForMessage(db, message.id);
       const sendResult = await sendEmail({
         fromEmail: settings.default_sender,
-        toEmail: composed.toEmail,
+        toEmail,
         cc: effectiveCc,
         bcc: effectiveBcc,
         subject: composed.subject,
@@ -221,14 +239,17 @@ export async function POST(request: Request) {
           error: sendResult.error,
         });
       }
+    } catch (error) {
+      logApiError("Email send failed for one recipient", error, {
+        campaignAppliedId: application.id,
+        templateId,
+      });
+      results.push({
+        campaignAppliedId: application.id,
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to send email.",
+      });
     }
-  } catch (error) {
-    logApiError("Email send batch failed", error, {
-      campaignAppliedIds,
-      templateId,
-    });
-    const message = error instanceof Error ? error.message : "Failed to send email.";
-    return Response.json({ error: message, results }, { status: 500 });
   }
 
   return Response.json({ results });

@@ -299,7 +299,8 @@ export function EmailTemplatesTab({
                         className="h-7 w-7 rounded-lg border border-divider text-muted hover:bg-surface-secondary hover:text-foreground"
                         onPress={() => openEdit(t)}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        {canManageTemplate(t, isAdmin, currentUserId) ? (<Pencil className="h-3.5 w-3.5" />) : 
+                        (<Eye className="h-3.5 w-3.5" />)}
                       </Button>
                       {canManageTemplate(t, isAdmin, currentUserId) ? (
                         <Button

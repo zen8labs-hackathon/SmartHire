@@ -39,6 +39,7 @@ export type EmailMessageListItem = {
   id: string;
   campaign_applied_id: string | null;
   job_id: string | null;
+  job_position: string | null;
   template_id: string | null;
   sender_user_id: string | null;
   type: "manual" | "auto" | "scheduled";

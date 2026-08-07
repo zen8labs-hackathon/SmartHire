@@ -11,12 +11,17 @@ export type MyProfileFormState = { error?: string; message?: string } | null;
 export type MyProfileDetails = {
   username: string;
   displayName: string | null;
+  email: string;
   phone: string | null;
   role: string;
   chapterNames: string[];
 };
 
-/** For the "My Account" modal -- the signed-in user's own profile summary. */
+/** For the "My Account" modal -- the signed-in user's own profile summary,
+ * including chapter memberships. Don't reuse this for lighter call sites
+ * that only need name/email/phone (e.g. email-compose prefill) -- the
+ * `listMembershipsForUser` + `listChapters` (full-table) queries here are
+ * pure overhead for those. Use {@link getMySenderIdentity} instead. */
 export async function getMyProfileDetails(): Promise<MyProfileDetails | null> {
   const { user, access } = await getRequestAuth();
   if (!user || !access) return null;
@@ -36,9 +41,33 @@ export async function getMyProfileDetails(): Promise<MyProfileDetails | null> {
   return {
     username: current?.username ?? "",
     displayName: current?.display_name ?? null,
+    email: current?.email ?? access.email,
     phone: current?.phone ?? null,
     role: access.role,
     chapterNames,
+  };
+}
+
+export type MySenderIdentity = {
+  displayName: string | null;
+  email: string;
+  phone: string | null;
+};
+
+/** Signed-in user's name/email/phone only -- a single `users` lookup, no
+ * chapter data. Used by the email compose modal to prefill the
+ * `user_name`/`user_email`/`user_phone`/`hr_name` placeholders as soon as a
+ * template is picked, since a server action is callable directly from a
+ * Client Component without needing a dedicated API route. */
+export async function getMySenderIdentity(): Promise<MySenderIdentity | null> {
+  const { user, access } = await getRequestAuth();
+  if (!user || !access) return null;
+
+  const current = await getPublicUserById(getPool(), user.id);
+  return {
+    displayName: current?.display_name ?? null,
+    email: current?.email ?? access.email,
+    phone: current?.phone ?? null,
   };
 }
 

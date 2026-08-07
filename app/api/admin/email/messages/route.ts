@@ -35,6 +35,7 @@ export async function GET(request: Request) {
   const statusParam = url.searchParams.get("status");
   const triggerType = url.searchParams.get("triggerType") ?? undefined;
   const toEmail = url.searchParams.get("toEmail") ?? undefined;
+  const jobName = url.searchParams.get("jobName") ?? undefined;
 
   if (campaignAppliedId) {
     const access = await requirePermissionForApplication(
@@ -58,6 +59,7 @@ export async function GET(request: Request) {
     status,
     triggerType,
     toEmail,
+    jobName,
     limit: Number(url.searchParams.get("limit")) || undefined,
     offset: Number(url.searchParams.get("offset")) || undefined,
   });

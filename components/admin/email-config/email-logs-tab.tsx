@@ -36,6 +36,8 @@ export function EmailLogsTab() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
+  const [jobSearchQuery, setJobSearchQuery] = useState("");
+  const debouncedJobSearchQuery = useDebouncedValue(jobSearchQuery, 350);
   const [loading, setLoading] = useState(true);
 
   const [selected, setSelected] = useState<EmailMessageListItem | null>(null);
@@ -49,6 +51,7 @@ export function EmailLogsTab() {
       });
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (debouncedSearchQuery.trim()) params.set("toEmail", debouncedSearchQuery.trim());
+      if (debouncedJobSearchQuery.trim()) params.set("jobName", debouncedJobSearchQuery.trim());
 
       const res = await fetch(`/api/admin/email/messages?${params}`, {
         credentials: "include",
@@ -66,7 +69,7 @@ export function EmailLogsTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, statusFilter, debouncedSearchQuery, toastError]);
+  }, [page, pageSize, statusFilter, debouncedSearchQuery, debouncedJobSearchQuery, toastError]);
 
   useEffect(() => {
     void fetchMessages();
@@ -74,7 +77,7 @@ export function EmailLogsTab() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, debouncedJobSearchQuery]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -88,48 +91,57 @@ export function EmailLogsTab() {
 
   const filtersElement = useMemo(
     () => (
-      <Select
-        aria-label="Filter by status"
-        value={statusFilter}
-        onChange={(key) => {
-          if (typeof key !== "string") return;
-          setStatusFilter(key);
-          setPage(1);
-        }}
-        className="w-48"
-      >
-        <Select.Trigger className="h-9 min-h-9 rounded-xl border border-divider bg-surface-secondary/40 px-2.5 text-xs font-semibold">
-          <span className="capitalize">
-            {statusFilter === "all" ? "All statuses" : statusFilter}
-          </span>
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox className="p-1 border border-divider rounded-xl bg-surface-primary shadow-xl">
-            <ListBox.Item
-              id="all"
-              textValue="All statuses"
-              className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer hover:bg-surface-secondary"
-            >
-              All statuses
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-            {STATUSES.map((s) => (
+      <>
+        <input
+          type="text"
+          value={jobSearchQuery}
+          onChange={(e) => setJobSearchQuery(e.target.value)}
+          placeholder="Search by job name..."
+          className="h-9 w-56 rounded-xl border border-divider bg-surface-secondary/40 px-3 text-xs outline-none transition-all placeholder:text-muted/60 hover:border-accent/40 focus:border-accent focus:bg-background"
+        />
+        <Select
+          aria-label="Filter by status"
+          value={statusFilter}
+          onChange={(key) => {
+            if (typeof key !== "string") return;
+            setStatusFilter(key);
+            setPage(1);
+          }}
+          className="w-48"
+        >
+          <Select.Trigger className="h-9 min-h-9 rounded-xl border border-divider bg-surface-secondary/40 px-2.5 text-xs font-semibold">
+            <span className="capitalize">
+              {statusFilter === "all" ? "All statuses" : statusFilter}
+            </span>
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox className="p-1 border border-divider rounded-xl bg-surface-primary shadow-xl">
               <ListBox.Item
-                key={s}
-                id={s}
-                textValue={s}
-                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs capitalize cursor-pointer hover:bg-surface-secondary"
+                id="all"
+                textValue="All statuses"
+                className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer hover:bg-surface-secondary"
               >
-                {s}
+                All statuses
                 <ListBox.ItemIndicator />
               </ListBox.Item>
-            ))}
-          </ListBox>
-        </Select.Popover>
-      </Select>
+              {STATUSES.map((s) => (
+                <ListBox.Item
+                  key={s}
+                  id={s}
+                  textValue={s}
+                  className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs capitalize cursor-pointer hover:bg-surface-secondary"
+                >
+                  {s}
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
+      </>
     ),
-    [statusFilter],
+    [jobSearchQuery, statusFilter],
   );
 
   return (
@@ -148,12 +160,14 @@ export function EmailLogsTab() {
           <Table.ScrollContainer>
             <Table.Content>
               <Table.Header>
-                <Table.Column isRowHeader>To</Table.Column>
+                <Table.Column isRowHeader className="w-[200px]">
+                  To
+                </Table.Column>
                 <Table.Column>Subject</Table.Column>
-                <Table.Column>Trigger</Table.Column>
-                <Table.Column>Type</Table.Column>
-                <Table.Column>Status</Table.Column>
-                <Table.Column>Sent at</Table.Column>
+                <Table.Column className="w-[200px]">Job</Table.Column>
+                <Table.Column className="w-[160px]">Trigger</Table.Column>
+                <Table.Column className="w-[110px]">Status</Table.Column>
+                <Table.Column className="w-[150px]">Sent at</Table.Column>
               </Table.Header>
               <Table.Body
                 key={
@@ -190,14 +204,18 @@ export function EmailLogsTab() {
                       className="cursor-pointer"
                       onAction={() => setSelected(m)}
                     >
-                      <Table.Cell className="py-3.5 text-foreground">{m.to_email}</Table.Cell>
-                      <Table.Cell className="max-w-xs truncate py-3.5 text-foreground">
+                      <Table.Cell className="max-w-[200px] truncate py-3.5 text-foreground">
+                        {m.to_email}
+                      </Table.Cell>
+                      <Table.Cell className="max-w-[320px] truncate py-3.5 text-foreground">
                         {m.subject}
                       </Table.Cell>
-                      <Table.Cell className="py-3.5 text-muted">
+                      <Table.Cell className="max-w-[200px] truncate py-3.5 text-muted">
+                        {m.job_position ?? "—"}
+                      </Table.Cell>
+                      <Table.Cell className="max-w-[160px] truncate py-3.5 text-muted">
                         {m.trigger_type ?? "—"}
                       </Table.Cell>
-                      <Table.Cell className="py-3.5 text-muted capitalize">{m.type}</Table.Cell>
                       <Table.Cell className="py-3.5">
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${EMAIL_STATUS_STYLES[m.status] ?? ""}`}

@@ -658,6 +658,7 @@ export function InterviewScheduleModal({
           row && emailModalSchedule ? scheduleEmailSubject(row, emailModalSchedule) : undefined
         }
         initialBody={emailModalSchedule ? scheduleEmailBody(emailModalSchedule) : undefined}
+        job={row ? { position: row.job_position, department: row.job_department } : null}
         onSent={() => {}}
       />
     </>

@@ -81,7 +81,11 @@ export type ListEmailMessagesFilters = PaginationParams & {
   triggerType?: string;
   /** Case-insensitive partial match against `to_email` -- the Email Logs tab's search box. */
   toEmail?: string;
+  /** Case-insensitive partial match against `jobs.position` -- the Email Logs tab's job search box. */
+  jobName?: string;
 };
+
+export type EmailMessageListRow = EmailMessageRow & { job_position: string | null };
 
 export async function createEmailMessage(
   db: QueryExecutor,
@@ -170,35 +174,39 @@ export async function listEmailMessagesByCampaignApplied(
 export async function listEmailMessages(
   db: QueryExecutor,
   filters: ListEmailMessagesFilters = {},
-): Promise<PaginatedResult<EmailMessageRow>> {
+): Promise<PaginatedResult<EmailMessageListRow>> {
   const conditions: string[] = [];
   const values: unknown[] = [];
 
   if (filters.campaignAppliedId) {
     values.push(filters.campaignAppliedId);
-    conditions.push(`campaign_applied_id = $${values.length}`);
+    conditions.push(`email_messages.campaign_applied_id = $${values.length}`);
   }
   if (filters.candidateId) {
     values.push(filters.candidateId);
     conditions.push(
-      `campaign_applied_id IN (SELECT id FROM campaign_applied WHERE candidate_id = $${values.length} AND deleted_at IS NULL)`,
+      `email_messages.campaign_applied_id IN (SELECT id FROM campaign_applied WHERE candidate_id = $${values.length} AND deleted_at IS NULL)`,
     );
   }
   if (filters.jobId) {
     values.push(filters.jobId);
-    conditions.push(`job_id = $${values.length}`);
+    conditions.push(`email_messages.job_id = $${values.length}`);
   }
   if (filters.status) {
     values.push(filters.status);
-    conditions.push(`status = $${values.length}`);
+    conditions.push(`email_messages.status = $${values.length}`);
   }
   if (filters.triggerType) {
     values.push(filters.triggerType);
-    conditions.push(`trigger_type = $${values.length}`);
+    conditions.push(`email_messages.trigger_type = $${values.length}`);
   }
   if (filters.toEmail) {
     values.push(`%${filters.toEmail}%`);
-    conditions.push(`to_email ILIKE $${values.length}`);
+    conditions.push(`email_messages.to_email ILIKE $${values.length}`);
+  }
+  if (filters.jobName) {
+    values.push(`%${filters.jobName}%`);
+    conditions.push(`jobs.position ILIKE $${values.length}`);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -207,11 +215,12 @@ export async function listEmailMessages(
   const offset = clampOffset(filters.offset);
   values.push(limit, offset);
 
-  const { rows } = await db.query<EmailMessageRow & { total_count: string }>(
-    `SELECT *, count(*) OVER() AS total_count
+  const { rows } = await db.query<EmailMessageListRow & { total_count: string }>(
+    `SELECT email_messages.*, jobs.position AS job_position, count(*) OVER() AS total_count
      FROM email_messages
+     LEFT JOIN jobs ON jobs.id = email_messages.job_id
      ${where}
-     ORDER BY created_at DESC
+     ORDER BY email_messages.created_at DESC
      LIMIT $${values.length - 1} OFFSET $${values.length}`,
     values,
   );

@@ -298,7 +298,7 @@ export function CandidateEmailTab({
 
   return (
     <SectionCard
-      title="Email"
+      title="Email history"
       description={
         candidateId
           ? "Every email sent to this candidate across all of their job applications, oldest first."
@@ -315,7 +315,7 @@ export function CandidateEmailTab({
           }}
         >
           <Mail className="h-3.5 w-3.5" />
-          Soạn mail mới
+          Compose email
         </Button>
       }
     >

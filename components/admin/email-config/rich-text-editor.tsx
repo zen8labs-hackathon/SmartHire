@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "react-aria-components";
-import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -321,6 +321,55 @@ function ColorPanel({ editor, close }: { editor: Editor; close: () => void }) {
 const HTML_TAG_PATTERN = /<([a-z][a-z0-9]*)\b[^>]*>/i;
 
 /**
+ * Snapshot of everything the toolbar reads from the editor -- computed once
+ * per transaction via `useEditorState` (below) instead of every toolbar
+ * button independently calling `editor.isActive(...)`/`getAttributes(...)`
+ * inline during render. The selector itself still runs on every transaction
+ * (Tiptap has no cheaper way to know in advance whether e.g. "is bold
+ * active" changed), but `useEditorState` deep-compares the result and only
+ * triggers a React re-render when a value in here actually differs -- so
+ * moving the cursor around or clicking without changing any mark/alignment
+ * no longer re-renders the whole 20+-button toolbar.
+ */
+type ToolbarState = {
+  isBold: boolean;
+  isItalic: boolean;
+  isUnderline: boolean;
+  isStrike: boolean;
+  fontFamily: string;
+  fontSize: string;
+  isBulletList: boolean;
+  isOrderedList: boolean;
+  isBlockquote: boolean;
+  isAlignLeft: boolean;
+  isAlignCenter: boolean;
+  isAlignRight: boolean;
+  isAlignJustify: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+};
+
+function readToolbarState(editor: Editor): ToolbarState {
+  return {
+    isBold: editor.isActive("bold"),
+    isItalic: editor.isActive("italic"),
+    isUnderline: editor.isActive("underline"),
+    isStrike: editor.isActive("strike"),
+    fontFamily: (editor.getAttributes("textStyle").fontFamily as string) ?? "",
+    fontSize: (editor.getAttributes("textStyle").fontSize as string) ?? "",
+    isBulletList: editor.isActive("bulletList"),
+    isOrderedList: editor.isActive("orderedList"),
+    isBlockquote: editor.isActive("blockquote"),
+    isAlignLeft: editor.isActive({ textAlign: "left" }),
+    isAlignCenter: editor.isActive({ textAlign: "center" }),
+    isAlignRight: editor.isActive({ textAlign: "right" }),
+    isAlignJustify: editor.isActive({ textAlign: "justify" }),
+    canUndo: editor.can().undo(),
+    canRedo: editor.can().redo(),
+  };
+}
+
+/**
  * Tiptap-backed rich text editor for email body/signature fields. Stores and
  * emits HTML (matching `email_templates.body_template` / `email_settings.signature_html`
  * / `email_messages.body_html`, all rendered elsewhere via `dangerouslySetInnerHTML`),
@@ -416,33 +465,29 @@ export function RichTextEditor({
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
 
-  // Toolbar buttons/selects read `editor.isActive(...)` / `getAttributes(...)`
-  // directly during render, but React has no way to know those changed --
-  // `onUpdate` above only fires when a transaction changes the document
-  // (`transaction.docChanged`), not for e.g. toggling bold with no text
-  // selected (that only flips "stored marks") or moving the cursor into a
-  // colored/aligned region. Without this, the toolbar only visibly refreshes
-  // on the next doc-changing keystroke. Subscribing to `transaction` (which
-  // fires for every dispatched transaction, selection-only or not) and
-  // forcing a re-render keeps it in sync immediately on click.
-  const [, forceToolbarUpdate] = useState({});
-  useEffect(() => {
-    if (!editor) return;
-    const rerender = () => forceToolbarUpdate({});
-    editor.on("transaction", rerender);
-    return () => {
-      editor.off("transaction", rerender);
-    };
-  }, [editor]);
+  // Toolbar buttons/selects need to reflect `editor.isActive(...)` /
+  // `getAttributes(...)`, which can change on any transaction -- not just
+  // doc-changing keystrokes (`onUpdate` above), but also selection-only
+  // transactions like moving the cursor into a colored/aligned region or
+  // toggling a mark with nothing selected. `useEditorState` re-runs
+  // `readToolbarState` on every transaction but only re-renders this
+  // component when the result actually differs (deep-equal by default),
+  // instead of unconditionally force-rendering the whole toolbar on every
+  // cursor move/click the way a raw `editor.on("transaction", ...)`
+  // subscription would.
+  const toolbarState = useEditorState({
+    editor,
+    selector: ({ editor }) => (editor ? readToolbarState(editor) : null),
+  });
 
-  if (!editor) return null;
+  if (!editor || !toolbarState) return null;
 
   return (
     <div className="rounded-xl border border-divider bg-surface-primary">
       <div className="flex flex-wrap items-center gap-0 border-b border-divider px-1.5 py-1">
         <ToolbarButton
           label="Bold"
-          active={editor.isActive("bold")}
+          active={toolbarState.isBold}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
@@ -450,7 +495,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Italic"
-          active={editor.isActive("italic")}
+          active={toolbarState.isItalic}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
@@ -458,7 +503,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Underline"
-          active={editor.isActive("underline")}
+          active={toolbarState.isUnderline}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleUnderline().run()}
         >
@@ -466,7 +511,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Strikethrough"
-          active={editor.isActive("strike")}
+          active={toolbarState.isStrike}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleStrike().run()}
         >
@@ -485,7 +530,7 @@ export function RichTextEditor({
         <select
           aria-label="Font family"
           disabled={disabled}
-          value={(editor.getAttributes("textStyle").fontFamily as string) ?? ""}
+          value={toolbarState.fontFamily}
           onChange={(e) => {
             const val = e.target.value;
             if (val) {
@@ -506,7 +551,7 @@ export function RichTextEditor({
         <select
           aria-label="Font size"
           disabled={disabled}
-          value={(editor.getAttributes("textStyle").fontSize as string) ?? ""}
+          value={toolbarState.fontSize}
           onChange={(e) => {
             const val = e.target.value;
             if (val) {
@@ -528,7 +573,7 @@ export function RichTextEditor({
 
         <ToolbarButton
           label="Bullet list"
-          active={editor.isActive("bulletList")}
+          active={toolbarState.isBulletList}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
@@ -536,7 +581,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Numbered list"
-          active={editor.isActive("orderedList")}
+          active={toolbarState.isOrderedList}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
@@ -544,7 +589,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Quote"
-          active={editor.isActive("blockquote")}
+          active={toolbarState.isBlockquote}
           disabled={disabled}
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
         >
@@ -561,10 +606,10 @@ export function RichTextEditor({
           // redundant `style="text-align: left"`). This button still needs to *show* as
           // selected in that default state, so "active" also covers "no alignment set".
           active={
-            editor.isActive({ textAlign: "left" }) ||
-            (!editor.isActive({ textAlign: "center" }) &&
-              !editor.isActive({ textAlign: "right" }) &&
-              !editor.isActive({ textAlign: "justify" }))
+            toolbarState.isAlignLeft ||
+            (!toolbarState.isAlignCenter &&
+              !toolbarState.isAlignRight &&
+              !toolbarState.isAlignJustify)
           }
           disabled={disabled}
           onClick={() => editor.chain().focus().setTextAlign("left").run()}
@@ -573,7 +618,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Align center"
-          active={editor.isActive({ textAlign: "center" })}
+          active={toolbarState.isAlignCenter}
           disabled={disabled}
           onClick={() => editor.chain().focus().setTextAlign("center").run()}
         >
@@ -581,7 +626,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Align right"
-          active={editor.isActive({ textAlign: "right" })}
+          active={toolbarState.isAlignRight}
           disabled={disabled}
           onClick={() => editor.chain().focus().setTextAlign("right").run()}
         >
@@ -589,7 +634,7 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton
           label="Justify"
-          active={editor.isActive({ textAlign: "justify" })}
+          active={toolbarState.isAlignJustify}
           disabled={disabled}
           onClick={() => editor.chain().focus().setTextAlign("justify").run()}
         >
@@ -642,14 +687,14 @@ export function RichTextEditor({
 
         <ToolbarButton
           label="Undo"
-          disabled={disabled || !editor.can().undo()}
+          disabled={disabled || !toolbarState.canUndo}
           onClick={() => editor.chain().focus().undo().run()}
         >
           <Undo className="h-3.5 w-3.5" />
         </ToolbarButton>
         <ToolbarButton
           label="Redo"
-          disabled={disabled || !editor.can().redo()}
+          disabled={disabled || !toolbarState.canRedo}
           onClick={() => editor.chain().focus().redo().run()}
         >
           <Redo className="h-3.5 w-3.5" />

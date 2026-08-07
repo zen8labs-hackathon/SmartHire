@@ -295,7 +295,7 @@ export function EmailTemplateFormModal({
             </Modal.Heading>
           </Modal.Header>
 
-          <Modal.Body className="max-h-[74vh] space-y-6 overflow-y-auto px-6 py-6">
+          <Modal.Body className="max-h-[74vh] space-y-6 overflow-y-auto px-6 pb-6">
             {!canEdit ? (
               <Alert status="warning" className="rounded-xl">
                 <Alert.Indicator />

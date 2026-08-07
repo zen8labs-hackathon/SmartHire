@@ -247,13 +247,13 @@ export function CandidateDetailClient({ candidate }: Props) {
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all duration-150 ${
+            className={`px-4 py-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all duration-150 hover:cursor-pointer ${
               activeTab === tab
                 ? "border-accent text-accent"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            {tab === "overview" ? "Overview" : "Email"}
+            {tab === "overview" ? "Overview" : "Email history"}
           </button>
         ))}
       </div>

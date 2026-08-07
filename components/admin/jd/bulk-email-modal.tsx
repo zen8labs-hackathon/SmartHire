@@ -19,12 +19,57 @@ import type {
   EmailTemplateListItem,
   ReplyToContext,
 } from "@/components/admin/email-config/types";
+import { getMySenderIdentity, type MySenderIdentity } from "@/app/account/actions";
+import { renderEmailTemplate } from "@/lib/email/render-template";
 import { KNOWN_PLACEHOLDERS } from "@/lib/email/template-variables";
 import { formatDisplayDateTime } from "@/lib/format-date";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const FALLBACK_SENDER_EMAIL = "recruiting@smart-hire.test";
 const FALLBACK_COMPANY_NAME = "SmartHire";
+
+/** Embeds the org signature directly into the editable body so it's visible
+ * (and editable) while composing, instead of only appearing once the user
+ * hits Preview -- the send/preview routes no longer append it server-side. */
+function withSignature(bodyHtml: string, signatureHtml: string | null | undefined): string {
+  if (!signatureHtml) return bodyHtml;
+  return bodyHtml ? `${bodyHtml}<br /><br />${signatureHtml}` : signatureHtml;
+}
+
+/** The job every recipient is being emailed about -- omitted (not just
+ * blank) when a compose flow isn't scoped to a single job, e.g.
+ * `CandidateEmailTab`'s "all applications" compose, where a candidate may
+ * have applied to several different jobs and there's no single
+ * `{{position}}`/`{{department}}` to fill in. */
+export type BulkEmailJobContext = {
+  position: string | null;
+  department: string | null;
+};
+
+/** Placeholders that are the same for every recipient and already known the
+ * moment a template is picked (unlike `{{candidate_name}}` and friends,
+ * which stay as literal placeholders until each recipient is resolved at
+ * send/preview time). Only include a key once its value is non-empty, so an
+ * unconfigured setting is left visible as `{{company_name}}` rather than
+ * silently blanked. */
+function knownVarsForPrefill(
+  settings: EmailSettingsData | null,
+  job: BulkEmailJobContext | null | undefined,
+  myProfile: MySenderIdentity | null,
+): Record<string, string> {
+  const vars: Record<string, string> = {};
+  if (settings?.company_name) vars.company_name = settings.company_name;
+  if (job?.position) vars.position = job.position;
+  if (job?.department) vars.department = job.department;
+  // Matches the server's own `hr_name` value (`auth.access.email`, see
+  // send/route.ts) -- the signed-in staff member's login email, not their
+  // display name.
+  if (myProfile?.email) vars.hr_name = myProfile.email;
+  if (myProfile?.displayName) vars.user_name = myProfile.displayName;
+  if (myProfile?.email) vars.user_email = myProfile.email;
+  if (myProfile?.phone) vars.user_phone = myProfile.phone;
+  return vars;
+}
 
 export type BulkEmailRecipient = {
   id: string;
@@ -59,6 +104,7 @@ export function BulkEmailModal({
   initialSubject,
   initialBody,
   replyTo,
+  job,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -71,11 +117,16 @@ export function BulkEmailModal({
   initialBody?: string;
   /** The message being replied to -- see `CandidateEmailTab`'s "Reply" action. When set, the subject gets a "Re:" prefix and the original message renders as a collapsible quote below the (otherwise empty) body editor, instead of being stuffed into `initialBody`. */
   replyTo?: ReplyToContext | null;
+  /** The single job every recipient here is being emailed about -- fills in
+   * `{{position}}`/`{{department}}` as soon as a template is picked. Omit
+   * when a compose flow spans candidates from different jobs (or none). */
+  job?: BulkEmailJobContext | null;
 }) {
   const [step, setStep] = useState<Step>("compose");
 
   const [templates, setTemplates] = useState<EmailTemplateListItem[]>([]);
   const [emailSettings, setEmailSettings] = useState<EmailSettingsData | null>(null);
+  const [myProfile, setMyProfile] = useState<MySenderIdentity | null>(null);
   const defaultSenderEmail = emailSettings?.default_sender ?? FALLBACK_SENDER_EMAIL;
   const defaultSenderName = `${emailSettings?.company_name || FALLBACK_COMPANY_NAME} Recruiting`;
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
@@ -102,23 +153,28 @@ export function BulkEmailModal({
   const [templateSearchQuery, setTemplateSearchQuery] = useState("");
   const [templateSelectOpen, setTemplateSelectOpen] = useState(false);
 
+  // The "Freeform (no template)" compose defaults -- what the subject/body
+  // reset back to both when the modal first opens and whenever the user
+  // switches from a template back to Freeform mid-compose.
+  const freeformSubject = replyTo
+    ? /^re:/i.test(replyTo.subject.trim())
+      ? replyTo.subject
+      : `Re: ${replyTo.subject}`
+    : (initialSubject ?? "");
+  const freeformBody = replyTo ? "" : (initialBody ?? "");
+
   useEffect(() => {
     if (!isOpen) return;
     setStep("compose");
     setSelectedTemplateId("");
+    setSubject(freeformSubject);
+    setBody(freeformBody);
     if (replyTo) {
-      const prefixedSubject = /^re:/i.test(replyTo.subject.trim())
-        ? replyTo.subject
-        : `Re: ${replyTo.subject}`;
       const quotedHeader = replyTo.sentAt
         ? `On ${formatDisplayDateTime(replyTo.sentAt)}, ${replyTo.fromEmail} wrote:`
         : `${replyTo.fromEmail} wrote:`;
-      setSubject(prefixedSubject);
-      setBody("");
       setQuotedHtml(`<p><em>${quotedHeader}</em></p>${replyTo.bodyHtml}`);
     } else {
-      setSubject(initialSubject ?? "");
-      setBody(initialBody ?? "");
       setQuotedHtml("");
     }
     setQuotedVisible(false);
@@ -133,9 +189,10 @@ export function BulkEmailModal({
 
     let cancelled = false;
     (async () => {
-      const [templatesRes, settingsRes] = await Promise.all([
+      const [templatesRes, settingsRes, profile] = await Promise.all([
         fetch("/api/admin/email/templates?isActive=true", { credentials: "include" }),
         fetch("/api/admin/email/settings", { credentials: "include" }),
+        getMySenderIdentity(),
       ]);
       const templatesJson = (await templatesRes.json()) as { rows?: EmailTemplateListItem[] };
       const settingsJson = (await settingsRes.json()) as { settings?: EmailSettingsData };
@@ -143,7 +200,15 @@ export function BulkEmailModal({
         setTemplates(
           (templatesJson.rows ?? []).filter((t) => t.recipient_type === "candidate"),
         );
-        setEmailSettings(settingsJson.settings ?? null);
+        const settings = settingsJson.settings ?? null;
+        setEmailSettings(settings);
+        setMyProfile(profile);
+        // Fill in known-now placeholders (e.g. a schedule-built initialBody's
+        // {{position}}) and embed the signature as soon as both load, rather
+        // than only at preview/send time.
+        const knownVars = knownVarsForPrefill(settings, job, profile);
+        setSubject((prev) => renderEmailTemplate(prev, knownVars));
+        setBody((prev) => withSignature(renderEmailTemplate(prev, knownVars), settings?.signature_html));
       }
     })();
     return () => {
@@ -163,16 +228,27 @@ export function BulkEmailModal({
     // quoted original (`quotedHtml`) lives outside `body` so applying a
     // template here only replaces the reply text, not the quote below it.
     const isReply = !!replyTo;
+    const knownVars = knownVarsForPrefill(emailSettings, job, myProfile);
+    const renderedSubject = renderEmailTemplate(template.subject_template, knownVars);
     const nextSubject =
-      isReply && !/^re:/i.test(template.subject_template.trim())
-        ? `Re: ${template.subject_template}`
-        : template.subject_template;
+      isReply && !/^re:/i.test(renderedSubject.trim()) ? `Re: ${renderedSubject}` : renderedSubject;
     setSubject(nextSubject);
-    setBody(template.body_template);
+    // Only placeholders that are the same for every recipient (e.g.
+    // {{company_name}}, {{position}} when `job` is scoped) get filled in
+    // here -- per-candidate ones like {{candidate_name}} stay as literal
+    // placeholders until send/preview.
+    const renderedBody = renderEmailTemplate(template.body_template, knownVars);
+    setBody(withSignature(renderedBody, emailSettings?.signature_html));
     setCc(template.default_cc ?? "");
     setBcc(template.default_bcc ?? "");
     // replyTo intentionally excluded -- only its presence (not identity)
     // matters here, and the object is recreated every parent render.
+    // emailSettings/myProfile intentionally excluded -- both settle in the
+    // same Promise.all as `templates`, so by the time `templates` is
+    // non-empty enough to pick a template from, they're already current in
+    // this closure; including them here would re-run (and clobber user
+    // edits) on every later refetch. `job` intentionally excluded -- it's a
+    // fresh object every parent render, only its fields matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTemplateId, templates]);
 
@@ -348,7 +424,25 @@ export function BulkEmailModal({
                     value={selectedTemplateId || "__freeform__"}
                     onChange={(key) => {
                       if (typeof key !== "string") return;
-                      setSelectedTemplateId(key === "__freeform__" ? "" : key);
+                      if (key === "__freeform__") {
+                        // Switching back to Freeform clears whatever the
+                        // selected template filled in, resetting to the same
+                        // blank/prefilled starting point the modal opened
+                        // with (still re-filling known vars and the signature).
+                        setSelectedTemplateId("");
+                        const knownVars = knownVarsForPrefill(emailSettings, job, myProfile);
+                        setSubject(renderEmailTemplate(freeformSubject, knownVars));
+                        setBody(
+                          withSignature(
+                            renderEmailTemplate(freeformBody, knownVars),
+                            emailSettings?.signature_html,
+                          ),
+                        );
+                        setCc("");
+                        setBcc("");
+                      } else {
+                        setSelectedTemplateId(key);
+                      }
                     }}
                     isOpen={templateSelectOpen}
                     onOpenChange={(open) => {
@@ -377,10 +471,10 @@ export function BulkEmailModal({
                       <ListBox className="max-h-72 overflow-y-auto p-1 border border-divider rounded-xl bg-surface-primary shadow-xl">
                         <ListBox.Item
                           id="__freeform__"
-                          textValue="Freeform (no template)"
+                          textValue="Write from scratch"
                           className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer hover:bg-surface-secondary"
                         >
-                          Freeform (no template)
+                          Write from scratch
                           <ListBox.ItemIndicator />
                         </ListBox.Item>
                         {templates

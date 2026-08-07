@@ -118,6 +118,30 @@ export async function replaceTemplateAttachments(
   return rows;
 }
 
+/** Batch insert -- one round trip for N attachments instead of N `createEmailAttachment` calls. */
+export async function createEmailAttachments(
+  db: QueryExecutor,
+  messageId: string,
+  attachments: AttachmentFileInput[],
+): Promise<EmailAttachmentRow[]> {
+  if (attachments.length === 0) return [];
+
+  const values: unknown[] = [];
+  const rowsSql = attachments.map((a, i) => {
+    const base = i * 5;
+    values.push(messageId, a.fileName, a.mimeType, a.storagePath, a.fileSize);
+    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
+  });
+
+  const { rows } = await db.query<EmailAttachmentRow>(
+    `INSERT INTO email_attachments (message_id, file_name, mime_type, storage_path, file_size)
+     VALUES ${rowsSql.join(", ")}
+     RETURNING *`,
+    values,
+  );
+  return rows;
+}
+
 /** Copies a template's default attachments onto a message (used when a send is composed from that template). */
 export async function copyTemplateAttachmentsToMessage(
   db: QueryExecutor,
@@ -125,13 +149,14 @@ export async function copyTemplateAttachmentsToMessage(
   templateId: string,
 ): Promise<void> {
   const templateAttachments = await listAttachmentsForTemplate(db, templateId);
-  for (const attachment of templateAttachments) {
-    await createEmailAttachment(db, {
-      messageId,
-      fileName: attachment.file_name,
-      mimeType: attachment.mime_type,
-      storagePath: attachment.storage_path,
-      fileSize: Number(attachment.file_size),
-    });
-  }
+  await createEmailAttachments(
+    db,
+    messageId,
+    templateAttachments.map((a) => ({
+      fileName: a.file_name,
+      mimeType: a.mime_type,
+      storagePath: a.storage_path,
+      fileSize: Number(a.file_size),
+    })),
+  );
 }
