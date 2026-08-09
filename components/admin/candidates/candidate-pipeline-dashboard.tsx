@@ -265,7 +265,6 @@ export const CandidatePipelineDashboard = forwardRef<
           cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
-          dbLoadState={dbLoadState}
           onProfileSaved={(rawC) => {
             const c = "candidate_id" in rawC
               ? campaignAppliedToCandidateDbRow(rawC as any)
