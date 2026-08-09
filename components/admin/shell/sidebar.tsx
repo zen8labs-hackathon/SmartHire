@@ -18,6 +18,7 @@ import {
   ChevronDown,
   LogOut,
   Loader2,
+  Mail,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -220,6 +221,15 @@ export function Sidebar({
                 >
                   <FileSpreadsheet className="h-4 w-4 shrink-0" />
                   {!collapsed && <span>Templates</span>}
+                </Link>
+
+                <Link
+                  href="/admin/email-config"
+                  className={navLinkClass(isLinkActive("/admin/email-config"))}
+                  title={collapsed ? "Email Config" : undefined}
+                >
+                  <Mail className="h-4 w-4 shrink-0" />
+                  {!collapsed && <span>Email Config</span>}
                 </Link>
               </div>
             )}

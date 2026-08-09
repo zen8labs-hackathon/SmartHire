@@ -7,6 +7,7 @@ import {
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
 import { withTransaction } from "@/lib/db/config/client";
+import { cancelPendingSchedulesForCampaignApplied } from "@/lib/db/email-schedules";
 import {
   fetchJobPipelineConfig,
   validateAndBuildPipelineTransition,
@@ -112,6 +113,20 @@ export async function POST(request: Request) {
           hiredAt: result.patch.hiredAt,
         });
         if (updated) byId.set(u.id, updated);
+
+        // Automatic email sends on pipeline-stage transitions are out of
+        // scope for now -- manual send is the priority, and the only
+        // supported automatic path is the account-creation self-notification
+        // (see sendSelfNotificationForTrigger). Still cancel any pending
+        // scheduled sends left over from before this transition, since
+        // whatever stage/sub-stage queued them no longer applies.
+        if (updated) {
+          await cancelPendingSchedulesForCampaignApplied(
+            db,
+            updated.id,
+            "Candidate status changed before the scheduled send.",
+          );
+        }
       }
     });
   } catch (e) {

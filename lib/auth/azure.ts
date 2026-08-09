@@ -152,7 +152,7 @@ export async function exchangeCodeForToken(params: {
   return { ok: true, accessToken };
 }
 
-export type GraphProfile = { subjectId: string; email: string };
+export type GraphProfile = { subjectId: string; email: string; displayName: string | null };
 
 /**
  * Fetches the caller's own verified profile from Microsoft Graph. Graph
@@ -160,7 +160,9 @@ export type GraphProfile = { subjectId: string; email: string };
  * avoids parsing/verifying the RS256-signed id_token (no JWKS fetch/cache/
  * rotation code needed). `id` is the stable per-account object id
  * (-> sso_subject_id); `mail` can be null for some tenants/guest accounts,
- * hence the `userPrincipalName` fallback.
+ * hence the `userPrincipalName` fallback. `displayName` is the tenant's
+ * real display name (e.g. Outlook/Entra profile name) -- used to seed
+ * `users.display_name` at first-time provisioning.
  */
 export async function fetchGraphProfile(
   accessToken: string,
@@ -186,13 +188,19 @@ export async function fetchGraphProfile(
     return null;
   }
 
-  const profile = json as { id?: unknown; mail?: unknown; userPrincipalName?: unknown };
+  const profile = json as {
+    id?: unknown;
+    mail?: unknown;
+    userPrincipalName?: unknown;
+    displayName?: unknown;
+  };
   const subjectId = profile.id;
   const email =
     (typeof profile.mail === "string" && profile.mail) ||
     (typeof profile.userPrincipalName === "string" && profile.userPrincipalName) ||
     null;
+  const displayName = typeof profile.displayName === "string" ? profile.displayName : null;
 
   if (typeof subjectId !== "string" || !subjectId || !email) return null;
-  return { subjectId, email };
+  return { subjectId, email, displayName };
 }
