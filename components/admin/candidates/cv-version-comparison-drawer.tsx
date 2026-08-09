@@ -14,7 +14,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
@@ -206,8 +205,6 @@ export type CvVersionComparisonDrawerProps = {
   cvHistoryLoading?: boolean;
   /** Kept for API compatibility; no longer rendered. */
   cvHistoryError?: string | null;
-  dbLoadState: "loading" | "error" | "ok";
-  canEditProfile?: boolean;
   onProfileSaved?: (candidate: CandidateDbRow) => void;
   /** Not currently called by this component -- see the "assign to another
    * job" handler's comment for why a full list refetch while this drawer
@@ -221,8 +218,6 @@ export function CvVersionComparisonDrawer({
   onOpenChange,
   tableRow,
   dbRow,
-  dbLoadState,
-  canEditProfile = true,
   onProfileSaved = () => {},
   onAfterCvDetailMutation = () => {},
 }: CvVersionComparisonDrawerProps) {
@@ -500,83 +495,97 @@ export function CvVersionComparisonDrawer({
             </div>
 
             <div className="mx-auto w-full max-w-[960px]">
-              <Card className="p-4 sm:p-5">
-                <p className="text-lg font-semibold tracking-tight text-foreground">
-                  Job assignment
-                </p>
-                <p className="mt-1 text-sm text-muted">
-                  {isUnassigned
-                    ? "No Job Assigned yet — this CV is sitting in the candidate pool. Assign a job to move it into that job's pipeline."
-                    : "Already applying to a job. Assigning another one adds a separate application for it, copying over the current CV as its starting version."}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Select
-                    aria-label="Assign to job"
-                    placeholder="Select a job…"
-                    isDisabled={assigningJob}
-                    value={assignJobKey}
-                    onChange={(key) => {
-                      if (typeof key === "string") setAssignJobKey(key);
-                    }}
-                    className="w-96"
-                  >
-                    <Select.Trigger className="h-8 min-h-8 w-full min-w-0 justify-start gap-1 overflow-hidden px-2.5 text-xs">
-                      <Select.Value className="min-w-0 truncate pr-2">
-                        {({ selectedText }) => selectedText}
-                      </Select.Value>
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {jobPickerOptions.map((j) => {
-                          const createdLabel = formatDayMonthYear(j.createdAt);
-                          const textValue =
-                            createdLabel === "—"
-                              ? j.displayTitle
-                              : `${j.displayTitle} (${createdLabel})`;
-                          return (
-                            <ListBox.Item
-                              key={j.id}
-                              id={j.id}
-                              textValue={textValue}
-                            >
-                              <span className="flex min-w-0 flex-col">
-                                <span className="truncate pr-2">
-                                  {j.displayTitle}
-                                </span>
-                                <span className="text-xs text-muted">
-                                  Created at {createdLabel}
-                                </span>
-                              </span>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          );
-                        })}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    className="shrink-0"
-                    isDisabled={!assignJobKey || assigningJob}
-                    onPress={() => void handleAssignJob()}
-                  >
-                    {assigningJob
-                      ? "Assigning…"
-                      : isUnassigned
-                        ? "Assign"
-                        : "Add application"}
-                  </Button>
-                </div>
-                {assignJobError ? (
-                  <p
-                    className="mt-2 text-xs font-semibold text-rose-500"
-                    role="alert"
-                  >
-                    {assignJobError}
+              <Card className="overflow-hidden border border-divider p-0">
+                <div className="px-4 py-4 sm:px-6 sm:py-5">
+                  <p className="text-lg font-semibold tracking-tight text-foreground">
+                    Job assignment
                   </p>
-                ) : null}
+                  <p className="mt-0.5 text-sm font-normal text-muted">
+                    {isUnassigned
+                      ? "No Job Assigned yet — this CV is sitting in the candidate pool. Assign a job to move it into that job's pipeline."
+                      : "Already applying to a job. Assigning another one adds a separate application for it, copying over the current CV as its starting version."}
+                  </p>
+
+                  {jobPickerOptions.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-divider bg-surface-secondary/20 px-3 py-3 text-xs text-muted">
+                      No open jobs left to assign — this candidate already has
+                      an application for every available position.
+                    </p>
+                  ) : (
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Select
+                        aria-label="Assign to job"
+                        placeholder="Select a job…"
+                        isDisabled={assigningJob}
+                        value={assignJobKey}
+                        onChange={(key) => {
+                          if (typeof key === "string") setAssignJobKey(key);
+                        }}
+                        className="min-w-0 w-full flex-1"
+                      >
+                        <Select.Trigger className="h-9 min-h-9 w-full min-w-0 justify-start gap-1 overflow-hidden rounded-xl border border-divider bg-surface-secondary/40 px-3 text-xs">
+                          <Select.Value className="min-w-0 truncate pr-2">
+                            {({ selectedText }) => selectedText}
+                          </Select.Value>
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            {jobPickerOptions.map((j) => {
+                              const createdLabel = formatDayMonthYear(
+                                j.createdAt,
+                              );
+                              const textValue =
+                                createdLabel === "—"
+                                  ? j.displayTitle
+                                  : `${j.displayTitle} (${createdLabel})`;
+                              return (
+                                <ListBox.Item
+                                  key={j.id}
+                                  id={j.id}
+                                  textValue={textValue}
+                                >
+                                  <span className="flex min-w-0 flex-col">
+                                    <span className="truncate pr-2">
+                                      {j.displayTitle}
+                                    </span>
+                                    <span className="text-xs text-muted">
+                                      Created at {createdLabel}
+                                    </span>
+                                  </span>
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              );
+                            })}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        className="h-9 shrink-0 rounded-xl px-4 text-xs font-bold sm:self-auto"
+                        isDisabled={!assignJobKey || assigningJob}
+                        isPending={assigningJob}
+                        onPress={() => void handleAssignJob()}
+                      >
+                        {assigningJob
+                          ? "Assigning…"
+                          : isUnassigned
+                            ? "Assign"
+                            : "Add application"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {assignJobError ? (
+                    <p
+                      className="mt-2 text-xs font-semibold text-rose-500"
+                      role="alert"
+                    >
+                      {assignJobError}
+                    </p>
+                  ) : null}
+                </div>
               </Card>
             </div>
 
@@ -685,20 +694,6 @@ export function CvVersionComparisonDrawer({
                 </Disclosure>
               </Card>
             </div>
-
-            {canEditProfile ? (
-              <div className="mx-auto w-full max-w-[960px]">
-                <CandidateProfileEditSection
-                  candidateId={tableRow.id}
-                  dbRow={dbRow}
-                  canEdit={canEditProfile}
-                  isPreview={false}
-                  dbLoadState={dbLoadState}
-                  onSaved={onProfileSaved}
-                  hidePipelineAndSource
-                />
-              </div>
-            ) : null}
           </Drawer.Body>
         </Drawer.Dialog>
       </Drawer.Content>
