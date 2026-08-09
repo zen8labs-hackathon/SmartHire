@@ -10,6 +10,11 @@ import { formatDisplayDate } from "@/lib/format-date";
  */
 export type CandidateDetailRow = {
   id: string;
+  /** Master candidate identity (`candidates.id`) -- distinct from `id`
+   * above, which is this specific application (`campaign_applied.id`). Used
+   * to fetch data that spans every job application this candidate has on
+   * file, e.g. the "all emails" view. */
+  candidateId: string;
   name: string;
   dateOfBirth: string;
   mobile: string;
@@ -34,6 +39,7 @@ export function campaignAppliedAdminRowToCandidateDetailRow(
 
   return {
     id: r.id,
+    candidateId: r.candidate_id,
     name: r.candidate_name ?? "—",
     dateOfBirth: formatDisplayDate(r.cv_date_of_birth),
     mobile: r.candidate_phone ?? "—",

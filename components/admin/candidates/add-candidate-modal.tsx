@@ -82,11 +82,6 @@ type QueueRow = {
   prefillName?: string | null;
   prefillEmail?: string | null;
   prefillPhone?: string | null;
-  /** Set once, when `/process` is first triggered -- drives the "Scanning…
-   * (Ns)" elapsed-time label so a genuinely slow AI/extraction call reads as
-   * "still working, N seconds in" instead of an indistinguishable stuck
-   * "Scanning" with no sense of how long it's actually been. */
-  processingStartedAt?: number;
 };
 
 type CommitAndProcessResult = {
@@ -322,10 +317,6 @@ export function AddCandidateModal({
    * normal `retryRow` call. */
   const [isRetryingAll, setIsRetryingAll] = useState(false);
   const { success: triggerSuccess, error: triggerError } = useToast();
-  /** Ticks once a second while any row is mid-scan, purely to force a
-   * re-render so the "Scanning… (Ns)" elapsed-time label stays live --
-   * see {@link QueueRow.processingStartedAt}. */
-  const [scanClockTick, setScanClockTick] = useState(() => Date.now());
 
   const isJdPipeline = jdPipelineCampaign != null;
   const isCampaignLocked =
@@ -575,7 +566,6 @@ export function AddCandidateModal({
                 parsing_error: null,
                 jdMatchStatus: null,
                 jdMatchError: null,
-                processingStartedAt: Date.now(),
               }
             : r,
         ),
@@ -763,20 +753,7 @@ export function AddCandidateModal({
     queueRef.current = queue;
   }, [queue]);
 
-  const hasRowMidScan = queue.some(
-    (r) =>
-      r.processingStartedAt != null &&
-      r.uploadPhase !== "error" &&
-      r.parsing_status !== "completed" &&
-      r.parsing_status !== "failed",
-  );
   const hasIncompleteCvs = queue.some(isQueueRowInProgress);
-
-  useEffect(() => {
-    if (!open || !hasRowMidScan) return;
-    const interval = setInterval(() => setScanClockTick(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [open, hasRowMidScan]);
 
   /**
    * Scrolls a newly-added row into view as soon as it appears in the queue --
@@ -1403,7 +1380,7 @@ export function AddCandidateModal({
                         <Input
                           value={expectedSalary}
                           onChange={(e) => setExpectedSalary(e.target.value)}
-                          placeholder="e.g. 18-20 triệu, negotiable…"
+                          placeholder="e.g. 18,000,000-20,000,000 or 18-20 triệu, negotiable…"
                         />
                       </TextField>
                       <p className="mt-1.5 text-xs text-muted">
@@ -1644,32 +1621,12 @@ export function AddCandidateModal({
                                     // reading as a stuck/slow parse.
                                     const isResolvingDuplicate =
                                       resolvingDuplicateRowIds.has(row.rowId);
-                                    const baseChip = isResolvingDuplicate
+                                    const chip = isResolvingDuplicate
                                       ? ({
                                           label: "Resolving duplicate",
                                           color: "default",
                                         } as const)
                                       : statusChip(row);
-                                    // Elapsed-time readout for the generic "Scanning"
-                                    // fallback -- makes a genuinely slow AI/extraction
-                                    // call ("longer than usual" but still working)
-                                    // distinguishable from a silently stuck one, since
-                                    // both otherwise render identically.
-                                    const chip =
-                                      baseChip.label === "Scanning" &&
-                                      row.processingStartedAt != null
-                                        ? {
-                                            ...baseChip,
-                                            label: `Scanning… (${Math.max(
-                                              0,
-                                              Math.floor(
-                                                (scanClockTick -
-                                                  row.processingStartedAt) /
-                                                  1000,
-                                              ),
-                                            )}s)`,
-                                          }
-                                        : baseChip;
                                     return (
                                       <Table.Row key={row.rowId} id={row.rowId}>
                                         <Table.Cell
