@@ -410,7 +410,11 @@ export function CandidateProfileEditSection({
       (stageDraft.stageMappingId !== stageBaseline.stageMappingId ||
         stageDraft.subStateId !== stageBaseline.subStateId);
     if (rawPatch == null && !stagePipelineChanged) {
-      setError("No changes to save.");
+      setError(
+        changeSummary.trim()
+          ? "Change summary alone cannot be saved. Edit at least one profile field."
+          : "No changes to save.",
+      );
       return;
     }
     setBusy(true);
@@ -500,12 +504,12 @@ export function CandidateProfileEditSection({
         return;
       }
 
+      setChangeSummary("");
       onSaved(savedCandidate);
       if (!startInEditMode) {
         setEditing(false);
         setBaseline(null);
         setSkillInput("");
-        setChangeSummary("");
         setStageBaseline(null);
         setStageDraft(null);
       }
@@ -539,10 +543,15 @@ export function CandidateProfileEditSection({
       !!stageBaseline &&
       (stageDraft.stageMappingId !== stageBaseline.stageMappingId ||
         stageDraft.subStateId !== stageBaseline.subStateId);
-    return rawPatch != null || stagePipelineChanged;
+    return (
+      rawPatch != null ||
+      stagePipelineChanged ||
+      changeSummary.trim().length > 0
+    );
   }, [
     baseline,
     canEditSalary,
+    changeSummary,
     draft,
     editing,
     stageBaseline,
