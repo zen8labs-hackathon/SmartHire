@@ -7,6 +7,7 @@ import {
   Disclosure,
   Drawer,
   ListBox,
+  Modal,
   Select,
   Separator,
   Spinner,
@@ -244,6 +245,8 @@ export function CvVersionComparisonDrawer({
   const [assignJobKey, setAssignJobKey] = useState<string | null>(null);
   const [assigningJob, setAssigningJob] = useState(false);
   const [assignJobError, setAssignJobError] = useState<string | null>(null);
+  const [cvPreviewApp, setCvPreviewApp] =
+    useState<OtherApplicationItem | null>(null);
 
   const fetchOtherApps = useCallback(() => {
     if (otherAppsLoadedRef.current) return;
@@ -279,6 +282,7 @@ export function CvVersionComparisonDrawer({
         setAssignableJobsLoaded(false);
         setAssignJobKey(null);
         setAssignJobError(null);
+        setCvPreviewApp(null);
       }
       onOpenChange(open);
     },
@@ -444,6 +448,7 @@ export function CvVersionComparisonDrawer({
   }, [isOpen, loadAssignableJobs, fetchOtherApps]);
 
   return (
+    <>
     <Drawer.Backdrop isOpen={isOpen} onOpenChange={handleOpenChange}>
       <Drawer.Content placement="right">
         <Drawer.Dialog className="flex h-dvh max-h-dvh w-full max-w-[min(100vw-0.5rem,960px)] flex-col">
@@ -652,14 +657,14 @@ export function CvVersionComparisonDrawer({
                                 </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-2">
-                                <a
-                                  href={app.cvDownloadUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex h-8 shrink-0 items-center rounded-xl border border-divider px-3 text-xs font-semibold text-foreground transition-colors hover:bg-surface-secondary"
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 shrink-0 cursor-pointer rounded-xl border border-divider px-3 text-xs font-semibold"
+                                  onPress={() => setCvPreviewApp(app)}
                                 >
                                   Open CV
-                                </a>
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="primary"
@@ -672,7 +677,7 @@ export function CvVersionComparisonDrawer({
                                     }
                                   }}
                                 >
-                                  View detail
+                                  Go to Evaluation
                                 </Button>
                               </div>
                             </div>
@@ -698,5 +703,35 @@ export function CvVersionComparisonDrawer({
         </Drawer.Dialog>
       </Drawer.Content>
     </Drawer.Backdrop>
+
+    <Modal.Backdrop
+      isOpen={cvPreviewApp != null}
+      onOpenChange={(open) => {
+        if (!open) setCvPreviewApp(null);
+      }}
+    >
+      <Modal.Container>
+        <Modal.Dialog className="w-full max-w-4xl overflow-hidden p-0">
+          <Modal.CloseTrigger />
+          <Modal.Header className="border-b border-divider bg-muted/10 px-5 py-4">
+            <Modal.Heading className="truncate text-lg font-bold text-foreground">
+              CV — {cvPreviewApp?.name?.trim() || tableRow.name}
+              {cvPreviewApp?.jobTitle ? ` · ${cvPreviewApp.jobTitle}` : ""}
+            </Modal.Heading>
+          </Modal.Header>
+          <Modal.Body className="p-0">
+            {cvPreviewApp ? (
+              <iframe
+                src={cvPreviewApp.cvDownloadUrl}
+                title={`CV - ${cvPreviewApp.name?.trim() || tableRow.name}`}
+                className="w-full border-0 bg-surface-secondary/40"
+                style={{ height: "min(80vh, 880px)" }}
+              />
+            ) : null}
+          </Modal.Body>
+        </Modal.Dialog>
+      </Modal.Container>
+    </Modal.Backdrop>
+    </>
   );
 }
