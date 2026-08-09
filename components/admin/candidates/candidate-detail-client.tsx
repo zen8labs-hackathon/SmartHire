@@ -16,6 +16,7 @@ import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
+import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import {
   campaignAppliedToCandidateDbRow,
@@ -59,6 +60,7 @@ function versionEventLabel(item: CvManagementVersionListItem): string {
 
 export function CandidateDetailClient({ candidate }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
 
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
@@ -390,6 +392,7 @@ export function CandidateDetailClient({ candidate }: Props) {
                 setProfileDirty(false);
                 refreshAppVersions(candidate.id);
                 router.refresh();
+                toast.success("Candidate profile updated.");
               }}
             />
           </SectionCard>
