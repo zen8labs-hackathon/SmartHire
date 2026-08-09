@@ -506,7 +506,7 @@ export function CvVersionComparisonDrawer({
                 </p>
                 <p className="mt-1 text-sm text-muted">
                   {isUnassigned
-                    ? "No job assigned yet — this CV is sitting in the candidate pool. Assign a job to move it into that job's pipeline."
+                    ? "No Job Assigned yet — this CV is sitting in the candidate pool. Assign a job to move it into that job's pipeline."
                     : "Already applying to a job. Assigning another one adds a separate application for it, copying over the current CV as its starting version."}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">

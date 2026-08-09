@@ -49,7 +49,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 
     const visible = visibleRows.map((row) => ({
       id: row.id,
-      jobTitle: row.job_position ?? "No job assigned",
+      jobTitle: row.job_position ?? "No Job Assigned",
       jobId: row.job_id,
       appliedAt: row.created_at.toISOString(),
       cvUploadedAt: row.cv_created_at
