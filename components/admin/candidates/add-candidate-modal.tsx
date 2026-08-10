@@ -1738,7 +1738,7 @@ export function AddCandidateModal({
                                               historyId == null ||
                                               row.uploadPhase !== "uploaded"
                                             ) {
-                                              return null;
+                                              return <p className="text-sm text-muted text-center">—</p>;
                                             }
                                             return (
                                               <Button
