@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
 import { MicrosoftSignInButton } from "@/components/auth/microsoft-signin-button";
 import { Alert, Card } from "@heroui/react";
+import { isDevEnv } from "@/lib/env";
 
 type Props = {
   searchParams: Promise<{ next?: string; reason?: string }>;
@@ -40,9 +41,8 @@ const REASON_MESSAGES: Record<string, { title: string; description: string }> =
   };
 
 export default async function LoginPage({ searchParams }: Props) {
-  const isDev = process.env.APP_ENV === 'development'
-  if(!isDev){
-   redirect('/login')
+  if (!isDevEnv()) {
+    redirect("/login");
   }
     
   const { next, reason } = await searchParams;

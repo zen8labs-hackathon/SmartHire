@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Input, Label, ListBox, Modal, Select, TextField } from "@heroui/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
@@ -77,7 +77,7 @@ export type BulkEmailRecipient = {
   candidate_email: string | null;
 };
 
-type PreviewResult = {
+export type PreviewResult = {
   campaignAppliedId: string;
   candidateName: string;
   toEmail: string | null;
@@ -85,7 +85,7 @@ type PreviewResult = {
   bodyHtml: string;
 };
 
-type SendResult = {
+export type SendResult = {
   campaignAppliedId: string;
   ok: boolean;
   status?: string;
@@ -105,6 +105,10 @@ export function BulkEmailModal({
   initialBody,
   replyTo,
   job,
+  sendOverride,
+  previewOverride,
+  confirmSendLabel,
+  deliveryNote,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -121,6 +125,35 @@ export function BulkEmailModal({
    * `{{position}}`/`{{department}}` as soon as a template is picked. Omit
    * when a compose flow spans candidates from different jobs (or none). */
   job?: BulkEmailJobContext | null;
+  /**
+   * When set, the confirm-send step calls this with the built previews
+   * instead of POSTing `/api/admin/email/send` -- lets a caller redirect
+   * actual delivery elsewhere (e.g. the delegated-permission test-send flow
+   * in components/admin/dev-test/email-test-panel.tsx) while
+   * still reusing this modal's template picker/preview/compose UI as-is.
+   * Attachments are hidden from the composer in this mode since neither
+   * caller wires them through.
+   */
+  sendOverride?: (previews: PreviewResult[]) => Promise<SendResult[]>;
+  /**
+   * When set, the "Preview" step builds `previews` from this instead of
+   * POSTing `/api/admin/email/send/preview` -- that endpoint requires real
+   * `campaign_applied` rows to resolve per-candidate placeholders, which a
+   * caller like the dev-test panel doesn't have (its `recipients` entry is
+   * synthesized from a typed test address, not a real candidate). Given the
+   * modal's own already-composed `subject`/`bodyHtml`/`cc`/`bcc`, return one
+   * `PreviewResult` per `recipients` entry (usually just one).
+   */
+  previewOverride?: (compose: {
+    subject: string;
+    bodyHtml: string;
+    cc: string;
+    bcc: string;
+  }) => PreviewResult[];
+  /** Footer button label for the confirm-send step; defaults to "Send to N Candidates". */
+  confirmSendLabel?: string;
+  /** Extra note rendered above the compose fields, e.g. clarifying where a test send actually goes. */
+  deliveryNote?: ReactNode;
 }) {
   const [step, setStep] = useState<Step>("compose");
 
@@ -272,6 +305,12 @@ export function BulkEmailModal({
     setError(null);
     setPreviewLoading(true);
     try {
+      if (previewOverride) {
+        setPreviews(previewOverride({ subject, bodyHtml: composedBodyHtml, cc, bcc }));
+        setStep("preview");
+        return;
+      }
+
       const res = await fetch("/api/admin/email/send/preview", {
         method: "POST",
         credentials: "include",
@@ -298,6 +337,14 @@ export function BulkEmailModal({
     setError(null);
     setSending(true);
     try {
+      if (sendOverride) {
+        const overrideResults = await sendOverride(previews);
+        setResults(overrideResults);
+        setStep("result");
+        onSent();
+        return;
+      }
+
       const res = await fetch("/api/admin/email/send", {
         method: "POST",
         credentials: "include",
@@ -414,6 +461,15 @@ export function BulkEmailModal({
 
             {step === "compose" ? (
               <div className="space-y-4">
+                {deliveryNote ? (
+                  <Alert status="warning" className="rounded-xl">
+                    <Alert.Indicator />
+                    <Alert.Content>
+                      <Alert.Description>{deliveryNote}</Alert.Description>
+                    </Alert.Content>
+                  </Alert>
+                ) : null}
+
                 {/* Template Selector Option (Settings Field) */}
                 <div className="flex flex-col gap-1.5 bg-surface-secondary/10 border border-divider/60 rounded-2xl p-4">
                   <Label className="text-xs font-semibold text-muted">
@@ -522,12 +578,14 @@ export function BulkEmailModal({
                     placeholders={KNOWN_PLACEHOLDERS}
                     minHeightClassName={replyTo ? "min-h-[10rem]" : "min-h-[16rem]"}
                     footer={
-                      <div className="flex flex-col gap-2">
-                        {selectedTemplate?.attachments?.length ? (
-                          <TemplateAttachmentsPreview attachments={selectedTemplate.attachments} />
-                        ) : null}
-                        <AttachmentUploader attachments={attachments} onChange={setAttachments} />
-                      </div>
+                      sendOverride ? undefined : (
+                        <div className="flex flex-col gap-2">
+                          {selectedTemplate?.attachments?.length ? (
+                            <TemplateAttachmentsPreview attachments={selectedTemplate.attachments} />
+                          ) : null}
+                          <AttachmentUploader attachments={attachments} onChange={setAttachments} />
+                        </div>
+                      )
                     }
                   />
                 </EmailComposerFields>
@@ -697,7 +755,9 @@ export function BulkEmailModal({
                   isDisabled={sending}
                   onPress={() => void handleConfirmSend()}
                 >
-                  {sending ? "Sending…" : `Send to ${previews.length} Candidates`}
+                  {sending
+                    ? "Sending…"
+                    : (confirmSendLabel ?? `Send to ${previews.length} Candidates`)}
                 </Button>
               </>
             ) : (

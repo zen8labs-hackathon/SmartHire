@@ -8,6 +8,7 @@ export type DashboardLayoutProps = {
   userEmail: string;
   isHr: boolean;
   chapterIds: string[];
+  isDev: boolean;
   children: React.ReactNode;
 };
 
@@ -15,6 +16,7 @@ export function DashboardLayout({
   userEmail,
   isHr,
   chapterIds,
+  isDev,
   children,
 }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -26,6 +28,7 @@ export function DashboardLayout({
         userEmail={userEmail}
         isHr={isHr}
         chapterIds={chapterIds}
+        isDev={isDev}
         collapsed={sidebarCollapsed}
       />
 

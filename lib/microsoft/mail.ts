@@ -16,7 +16,7 @@ export type SendMailViaGraphInput = {
   attachments?: GraphMailAttachment[];
 };
 
-function toRecipients(addresses: string | null | undefined) {
+export function toRecipients(addresses: string | null | undefined) {
   if (!addresses) return undefined;
   return addresses
     .split(",")
