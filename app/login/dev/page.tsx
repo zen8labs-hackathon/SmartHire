@@ -41,8 +41,8 @@ const REASON_MESSAGES: Record<string, { title: string; description: string }> =
   };
 
 export default async function LoginPage({ searchParams }: Props) {
-  if(!isDevEnv){
-   redirect('/login')
+  if (!isDevEnv()) {
+    redirect("/login");
   }
     
   const { next, reason } = await searchParams;
