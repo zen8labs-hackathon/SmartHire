@@ -685,7 +685,7 @@ export function PipelineCandidateEvaluationClient({
                     isDisabled={notesBusy}
                     onPress={() => void saveNoteOnly()}
                   >
-                    {notesBusy ? "Saving…" : "Save note"}
+                    {notesBusy ? "Saving…" : "Save interview note"}
                   </Button>
                   <Button
                     variant="primary"
@@ -696,17 +696,17 @@ export function PipelineCandidateEvaluationClient({
                   >
                     {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                    onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
-                  >
-                    Back to pipeline
-                  </Button>
                 </div>
               </div>
             </div>
           </SectionCard>
+          <Button
+            variant="secondary"
+            className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+            onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
+          >
+            Back to pipeline
+          </Button>
         </div>{/* end right panel */}
       </div>{/* end split row */}
 
