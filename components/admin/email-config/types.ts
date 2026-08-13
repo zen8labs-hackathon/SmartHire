@@ -1,5 +1,3 @@
-import type { EmailRecipientType } from "@/lib/email/trigger-types";
-
 /**
  * Wire shapes for the Email Config client components -- mirror the DB rows
  * field-for-field (snake_case, matching the API's pass-through JSON) but
@@ -11,7 +9,6 @@ export type EmailTemplateListItem = {
   id: string;
   name: string;
   trigger_type: string;
-  recipient_type: EmailRecipientType;
   language: string;
   subject_template: string;
   body_template: string;
@@ -31,7 +28,8 @@ export type EmailSettingsData = {
   id: string;
   default_sender: string;
   company_name: string;
-  signature_html: string | null;
+  layout_type: "default" | "custom";
+  custom_layout_html: string | null;
   logo_url: string | null;
 };
 

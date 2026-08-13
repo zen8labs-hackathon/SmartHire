@@ -4,7 +4,7 @@ import { listCandidateSchedulesByCampaignApplied } from "@/lib/db/candidate-sche
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { getPipelineStageLabelForJobStageMapping } from "@/lib/db/pipeline-stages";
-import { wrapEmailBodyInCard } from "@/lib/email/email-layout";
+import { applyEmailLayout } from "@/lib/email/email-layout";
 import { renderEmailSubjectAndBody } from "@/lib/email/render-template";
 import { buildCandidateEmailVariables } from "@/lib/email/template-variables";
 
@@ -22,10 +22,11 @@ export type ComposedCandidateEmail = {
 export type ComposeEmailForCandidateOptions = {
   senderName?: string | null;
   companyName?: string | null;
-  /** Appended to the rendered body -- the org-wide signature from `email_settings`. */
-  signatureHtml?: string | null;
   /** Rendered in the card header in place of the company name text, when set. */
   logoUrl?: string | null;
+  /** The org-wide layout from `email_settings` -- defaults to the card layout when omitted. */
+  layoutType?: "default" | "custom";
+  customLayoutHtml?: string | null;
   /** The staff account sending this email -- feeds the `user_name`/`user_email`/`user_phone` placeholders. Absent for auto/system sends. */
   senderUser?: { name?: string | null; email?: string | null; phone?: string | null } | null;
 };
@@ -45,7 +46,7 @@ export async function composeEmailForCandidate(
   bodyTemplate: string,
   options: ComposeEmailForCandidateOptions = {},
 ): Promise<ComposedCandidateEmail | null> {
-  const { senderName, companyName, signatureHtml, logoUrl, senderUser } = options;
+  const { senderName, companyName, logoUrl, layoutType, customLayoutHtml, senderUser } = options;
 
   const candidate = await getCandidateById(db, application.candidate_id);
   if (!candidate) return null;
@@ -80,18 +81,18 @@ export async function composeEmailForCandidate(
     vars,
   );
 
-  const bodyWithSignature = signatureHtml ? `${bodyHtml}<br /><br />${signatureHtml}` : bodyHtml;
-
   return {
     campaignAppliedId: application.id,
     jobId: application.job_id,
     candidateName: candidate.name ?? candidate.email ?? "Candidate",
     toEmail: candidate.email,
     subject,
-    bodyHtml: wrapEmailBodyInCard({
-      bodyHtml: bodyWithSignature,
+    bodyHtml: applyEmailLayout({
+      bodyHtml,
       companyName: companyName || FALLBACK_COMPANY_NAME,
       logoUrl,
+      layoutType: layoutType ?? "default",
+      customLayoutHtml,
     }),
   };
 }

@@ -11,7 +11,7 @@ import {
   listAttachmentsForTemplate,
   replaceTemplateAttachments,
 } from "@/lib/db/email-attachments";
-import { EMAIL_RECIPIENT_TYPES, EMAIL_TRIGGER_TYPES } from "@/lib/email/trigger-types";
+import { EMAIL_TRIGGER_TYPES } from "@/lib/email/trigger-types";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -30,7 +30,6 @@ const attachmentSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   triggerType: z.enum(triggerTypeValues).optional(),
-  recipientType: z.enum(EMAIL_RECIPIENT_TYPES).optional(),
   language: z.string().min(2).max(10).optional(),
   subjectTemplate: z.string().min(1).optional(),
   bodyTemplate: z.string().min(1).optional(),

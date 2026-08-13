@@ -1,5 +1,5 @@
 import type { PublicUserRow } from "@/lib/db/users";
-import { wrapEmailBodyInCard } from "@/lib/email/email-layout";
+import { applyEmailLayout } from "@/lib/email/email-layout";
 import { renderEmailSubjectAndBody, type EmailTemplateVariables } from "@/lib/email/render-template";
 
 const FALLBACK_COMPANY_NAME = "SmartHire";
@@ -12,10 +12,11 @@ export type ComposedSelfNotificationEmail = {
 
 export type ComposeSelfNotificationOptions = {
   companyName?: string | null;
-  /** Appended to the rendered body -- the org-wide signature from `email_settings`. */
-  signatureHtml?: string | null;
   /** Rendered in the card header in place of the company name text, when set. */
   logoUrl?: string | null;
+  /** The org-wide layout from `email_settings` -- defaults to the card layout when omitted. */
+  layoutType?: "default" | "custom";
+  customLayoutHtml?: string | null;
   /** The staff account that triggered this notification (e.g. the admin who created the account). Null for self-provisioned signups. */
   actingUser?: { name?: string | null; email?: string | null; phone?: string | null } | null;
 };
@@ -34,7 +35,7 @@ export function composeSelfNotificationEmail(
   options: ComposeSelfNotificationOptions = {},
 ): ComposedSelfNotificationEmail | null {
   if (!recipient.email) return null;
-  const { companyName, signatureHtml, logoUrl, actingUser } = options;
+  const { companyName, logoUrl, layoutType, customLayoutHtml, actingUser } = options;
 
   const vars: EmailTemplateVariables = {
     receiver_name: recipient.display_name || recipient.username,
@@ -50,15 +51,15 @@ export function composeSelfNotificationEmail(
     bodyTemplate,
     vars,
   );
-  const bodyWithSignature = signatureHtml ? `${bodyHtml}<br /><br />${signatureHtml}` : bodyHtml;
-
   return {
     toEmail: recipient.email,
     subject,
-    bodyHtml: wrapEmailBodyInCard({
-      bodyHtml: bodyWithSignature,
+    bodyHtml: applyEmailLayout({
+      bodyHtml,
       companyName: companyName || FALLBACK_COMPANY_NAME,
       logoUrl,
+      layoutType: layoutType ?? "default",
+      customLayoutHtml,
     }),
   };
 }

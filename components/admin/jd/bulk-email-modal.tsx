@@ -22,19 +22,12 @@ import type {
 import { getMySenderIdentity, type MySenderIdentity } from "@/app/account/actions";
 import { renderEmailTemplate } from "@/lib/email/render-template";
 import { KNOWN_PLACEHOLDERS } from "@/lib/email/template-variables";
+import { getRecipientTypeForTrigger } from "@/lib/email/trigger-types";
 import { formatDisplayDateTime } from "@/lib/format-date";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const FALLBACK_SENDER_EMAIL = "recruiting@smart-hire.test";
 const FALLBACK_COMPANY_NAME = "SmartHire";
-
-/** Embeds the org signature directly into the editable body so it's visible
- * (and editable) while composing, instead of only appearing once the user
- * hits Preview -- the send/preview routes no longer append it server-side. */
-function withSignature(bodyHtml: string, signatureHtml: string | null | undefined): string {
-  if (!signatureHtml) return bodyHtml;
-  return bodyHtml ? `${bodyHtml}<br /><br />${signatureHtml}` : signatureHtml;
-}
 
 /** The job every recipient is being emailed about -- omitted (not just
  * blank) when a compose flow isn't scoped to a single job, e.g.
@@ -231,17 +224,19 @@ export function BulkEmailModal({
       const settingsJson = (await settingsRes.json()) as { settings?: EmailSettingsData };
       if (!cancelled) {
         setTemplates(
-          (templatesJson.rows ?? []).filter((t) => t.recipient_type === "candidate"),
+          (templatesJson.rows ?? []).filter(
+            (t) => getRecipientTypeForTrigger(t.trigger_type) === "candidate",
+          ),
         );
         const settings = settingsJson.settings ?? null;
         setEmailSettings(settings);
         setMyProfile(profile);
         // Fill in known-now placeholders (e.g. a schedule-built initialBody's
-        // {{position}}) and embed the signature as soon as both load, rather
-        // than only at preview/send time.
+        // {{position}}) as soon as settings load, rather than only at
+        // preview/send time.
         const knownVars = knownVarsForPrefill(settings, job, profile);
         setSubject((prev) => renderEmailTemplate(prev, knownVars));
-        setBody((prev) => withSignature(renderEmailTemplate(prev, knownVars), settings?.signature_html));
+        setBody((prev) => renderEmailTemplate(prev, knownVars));
       }
     })();
     return () => {
@@ -271,7 +266,7 @@ export function BulkEmailModal({
     // here -- per-candidate ones like {{candidate_name}} stay as literal
     // placeholders until send/preview.
     const renderedBody = renderEmailTemplate(template.body_template, knownVars);
-    setBody(withSignature(renderedBody, emailSettings?.signature_html));
+    setBody(renderedBody);
     setCc(template.default_cc ?? "");
     setBcc(template.default_bcc ?? "");
     // replyTo intentionally excluded -- only its presence (not identity)
@@ -484,16 +479,11 @@ export function BulkEmailModal({
                         // Switching back to Freeform clears whatever the
                         // selected template filled in, resetting to the same
                         // blank/prefilled starting point the modal opened
-                        // with (still re-filling known vars and the signature).
+                        // with (still re-filling known vars).
                         setSelectedTemplateId("");
                         const knownVars = knownVarsForPrefill(emailSettings, job, myProfile);
                         setSubject(renderEmailTemplate(freeformSubject, knownVars));
-                        setBody(
-                          withSignature(
-                            renderEmailTemplate(freeformBody, knownVars),
-                            emailSettings?.signature_html,
-                          ),
-                        );
+                        setBody(renderEmailTemplate(freeformBody, knownVars));
                         setCc("");
                         setBcc("");
                       } else {

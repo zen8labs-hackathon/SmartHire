@@ -29,11 +29,10 @@ import type { EmailSettingsData, EmailTemplateListItem } from "@/components/admi
 import { useToast } from "@/components/admin/toast-provider";
 import { KNOWN_PLACEHOLDERS } from "@/lib/email/template-variables";
 import {
-  EMAIL_RECIPIENT_TYPES,
   EMAIL_TRIGGER_CATEGORIES,
   EMAIL_TRIGGER_CATEGORY_LABELS,
   EMAIL_TRIGGER_TYPES,
-  type EmailRecipientType,
+  getRecipientTypeForTrigger,
 } from "@/lib/email/trigger-types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -136,7 +135,6 @@ export function EmailTemplateFormModal({
 
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<string>(EMAIL_TRIGGER_TYPES[0].value);
-  const [recipientType, setRecipientType] = useState<EmailRecipientType>("candidate");
   const [language, setLanguage] = useState("vi");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -178,7 +176,6 @@ export function EmailTemplateFormModal({
     if (template) {
       setName(template.name);
       setTriggerType(template.trigger_type);
-      setRecipientType(template.recipient_type);
       setLanguage(template.language);
       setSubject(template.subject_template);
       setBody(template.body_template);
@@ -195,7 +192,6 @@ export function EmailTemplateFormModal({
     } else {
       setName("");
       setTriggerType(EMAIL_TRIGGER_TYPES[0].value);
-      setRecipientType("candidate");
       setLanguage("vi");
       setSubject("");
       setBody("");
@@ -234,7 +230,6 @@ export function EmailTemplateFormModal({
       const payload = {
         name: name.trim(),
         triggerType,
-        recipientType,
         language,
         subjectTemplate: subject,
         bodyTemplate: body,
@@ -322,35 +317,6 @@ export function EmailTemplateFormModal({
                 />
                 <FieldError className="text-[10px] text-rose-500 mt-1" />
               </TextField>
-
-              {/* Recipient */}
-              <div className="flex flex-col gap-1 w-1/2 pr-2">
-                <Label className="text-xs font-semibold text-muted">Recipient</Label>
-                <Select
-                  aria-label="Recipient"
-                  isDisabled={disabled}
-                  value={recipientType}
-                  onChange={(key) => {
-                    if (typeof key === "string")
-                      setRecipientType(key as EmailRecipientType);
-                  }}
-                >
-                  <Select.Trigger className={selectTriggerClass}>
-                    <span className="truncate">{capitalizeFirstLetter(recipientType)}</span>
-                    <Select.Indicator />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox className={listBoxClass}>
-                      {EMAIL_RECIPIENT_TYPES.map((r) => (
-                        <ListBox.Item key={r} id={r} textValue={r} className={listBoxItemClass}>
-                          {capitalizeFirstLetter(r)}
-                          <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                      ))}
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
-              </div>
             </div>
 
             {/* Email Content Section (Real Email Composer UI) */}
@@ -375,7 +341,7 @@ export function EmailTemplateFormModal({
                 from={`${defaultSenderName} <${defaultSenderEmail}>`}
                 to={
                   <span className="text-xs font-semibold text-foreground bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-lg capitalize">
-                    {recipientType}
+                    {getRecipientTypeForTrigger(triggerType)}
                   </span>
                 }
                 cc={defaultCc}
@@ -647,12 +613,13 @@ export function EmailTemplateFormModal({
         name={name}
         subjectTemplate={subject}
         bodyTemplate={body}
-        recipientType={recipientType}
+        triggerType={triggerType}
         defaultCc={defaultCc}
         defaultBcc={defaultBcc}
         fromEmail={defaultSenderEmail}
         companyName={emailSettings?.company_name}
-        signatureHtml={emailSettings?.signature_html}
+        layoutType={emailSettings?.layout_type}
+        customLayoutHtml={emailSettings?.custom_layout_html}
         logoUrl={emailSettings?.logo_url}
       />
     </>

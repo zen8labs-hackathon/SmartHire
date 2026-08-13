@@ -2,11 +2,17 @@
 
 import type { ReactNode } from "react";
 
+import { HighlightedText } from "@/components/admin/email-config/highlighted-text";
+import { highlightUnresolvedPlaceholdersHtml } from "@/lib/email/highlight-unresolved-placeholders";
+
 /**
  * Shared "email client" preview visual (subject line, sender/recipient pane
  * with avatar, rendered HTML body) so every compose/preview flow -- template
  * form, bulk send, single send -- renders the same look instead of each
- * reinventing its own preview card.
+ * reinventing its own preview card. Also the single choke point for
+ * highlighting unresolved `{{key}}` placeholders in red: every preview
+ * surface in the app renders through this component, so flagging it here
+ * once covers all of them instead of each caller remembering to do it.
  */
 /** First 2 characters of the sender's local-part (before `@`), matching the
  * initials pattern used for user avatars elsewhere (`user-modal.tsx`,
@@ -46,7 +52,7 @@ export function EmailPreviewCard({
           </div>
           <div className="space-y-1.5 min-w-0">
             <h2 className="text-base font-bold text-foreground leading-tight">
-              {subject || "(No Subject)"}
+              {subject ? <HighlightedText text={subject} /> : "(No Subject)"}
             </h2>
             <div className="flex items-center gap-1.5 flex-wrap text-sm">
               <span className="font-semibold text-foreground">{fromName}</span>
@@ -80,7 +86,7 @@ export function EmailPreviewCard({
       <div className={`p-6 ${bodyMinHeightClassName}`}>
         <div
           className="email-html-preview max-w-none text-foreground text-sm leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: highlightUnresolvedPlaceholdersHtml(bodyHtml) }}
         />
       </div>
     </div>

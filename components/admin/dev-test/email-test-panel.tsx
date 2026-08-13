@@ -11,7 +11,7 @@ import {
   type PreviewResult,
   type SendResult,
 } from "@/components/admin/jd/bulk-email-modal";
-import { wrapEmailBodyInCard } from "@/lib/email/email-layout";
+import { applyEmailLayout } from "@/lib/email/email-layout";
 
 const FALLBACK_COMPANY_NAME = "SmartHire";
 
@@ -177,10 +177,10 @@ export function EmailTestPanel() {
   );
 
   // Mirrors lib/email/compose-for-candidate.ts's own last step -- that's
-  // where real candidate sends get wrapped in the branded card (logo/company
-  // name header, white card, footer), via the exact same wrapEmailBodyInCard
-  // call. Skipping this would make a test send look nothing like what a
-  // candidate actually receives, defeating the point of this tool.
+  // where real candidate sends get wrapped in the org's configured email
+  // layout, via the exact same applyEmailLayout call. Skipping this would
+  // make a test send look nothing like what a candidate actually receives,
+  // defeating the point of this tool.
   const handlePreviewOverride = useCallback(
     ({ subject, bodyHtml }: { subject: string; bodyHtml: string; cc: string; bcc: string }): PreviewResult[] => [
       {
@@ -188,10 +188,12 @@ export function EmailTestPanel() {
         candidateName: "Dev test",
         toEmail: to || null,
         subject,
-        bodyHtml: wrapEmailBodyInCard({
+        bodyHtml: applyEmailLayout({
           bodyHtml,
           companyName: settings?.company_name || FALLBACK_COMPANY_NAME,
           logoUrl: settings?.logo_url,
+          layoutType: settings?.layout_type ?? "default",
+          customLayoutHtml: settings?.custom_layout_html,
         }),
       },
     ],

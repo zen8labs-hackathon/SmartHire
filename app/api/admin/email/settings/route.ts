@@ -7,7 +7,8 @@ import { getEmailSettings, updateEmailSettings } from "@/lib/db/email-settings";
 const updateSchema = z.object({
   defaultSender: z.string().email().optional(),
   companyName: z.string().min(1).optional(),
-  signatureHtml: z.string().nullable().optional(),
+  layoutType: z.enum(["default", "custom"]).optional(),
+  customLayoutHtml: z.string().nullable().optional(),
   logoUrl: z.string().url().nullable().optional(),
 });
 

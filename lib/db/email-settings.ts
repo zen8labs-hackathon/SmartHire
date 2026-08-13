@@ -1,11 +1,14 @@
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { buildSetClause } from "@/lib/db/query-helpers";
 
+export type EmailLayoutType = "default" | "custom";
+
 export type EmailSettingsRow = {
   id: string;
   default_sender: string;
   company_name: string;
-  signature_html: string | null;
+  layout_type: EmailLayoutType;
+  custom_layout_html: string | null;
   logo_url: string | null;
   created_at: Date;
   updated_at: Date;
@@ -14,7 +17,8 @@ export type EmailSettingsRow = {
 export type UpdateEmailSettingsInput = {
   defaultSender?: string;
   companyName?: string;
-  signatureHtml?: string | null;
+  layoutType?: EmailLayoutType;
+  customLayoutHtml?: string | null;
   logoUrl?: string | null;
 };
 
@@ -49,7 +53,8 @@ export async function updateEmailSettings(
     {
       default_sender: patch.defaultSender,
       company_name: patch.companyName,
-      signature_html: patch.signatureHtml,
+      layout_type: patch.layoutType,
+      custom_layout_html: patch.customLayoutHtml,
       logo_url: patch.logoUrl,
     },
     2,

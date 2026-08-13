@@ -10,11 +10,7 @@ import {
   listAttachmentsForTemplateIds,
   replaceTemplateAttachments,
 } from "@/lib/db/email-attachments";
-import {
-  EMAIL_RECIPIENT_TYPES,
-  EMAIL_TRIGGER_CATEGORIES,
-  EMAIL_TRIGGER_TYPES,
-} from "@/lib/email/trigger-types";
+import { EMAIL_TRIGGER_CATEGORIES, EMAIL_TRIGGER_TYPES } from "@/lib/email/trigger-types";
 
 const triggerTypeValues = EMAIL_TRIGGER_TYPES.map((t) => t.value) as [
   string,
@@ -31,7 +27,6 @@ const attachmentSchema = z.object({
 const createSchema = z.object({
   name: z.string().min(1).max(255),
   triggerType: z.enum(triggerTypeValues),
-  recipientType: z.enum(EMAIL_RECIPIENT_TYPES),
   language: z.string().min(2).max(10).optional(),
   subjectTemplate: z.string().min(1),
   bodyTemplate: z.string().min(1),

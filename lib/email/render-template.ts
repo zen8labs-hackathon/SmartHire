@@ -25,3 +25,16 @@ export function renderEmailSubjectAndBody(
     bodyHtml: renderEmailTemplate(bodyTemplate, vars),
   };
 }
+
+/**
+ * Returns every distinct `{{key}}` placeholder still present in `text` --
+ * i.e. one `renderEmailTemplate` never resolved (typo'd placeholder name, or
+ * real per-recipient data that's missing). Used to block a send that would
+ * otherwise deliver literal, unrendered `{{...}}` text to a real recipient --
+ * see `findUnresolvedPlaceholders` call sites in the send routes and
+ * auto-send-for-trigger.ts.
+ */
+export function findUnresolvedPlaceholders(text: string): string[] {
+  const matches = text.match(/\{\{\s*\w+\s*\}\}/g) ?? [];
+  return [...new Set(matches)];
+}

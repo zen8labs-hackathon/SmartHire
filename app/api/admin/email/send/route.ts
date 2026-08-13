@@ -17,6 +17,7 @@ import { getEmailTemplateById } from "@/lib/db/email-templates";
 import { getPublicUserById } from "@/lib/db/users";
 import { composeEmailForCandidate } from "@/lib/email/compose-for-candidate";
 import { buildGraphAttachmentsForMessage } from "@/lib/email/message-attachments";
+import { findUnresolvedPlaceholders } from "@/lib/email/render-template";
 import { sendEmail } from "@/lib/email/send-email";
 import { logApiError } from "@/lib/logger";
 
@@ -141,10 +142,9 @@ export async function POST(request: Request) {
         {
           senderName: auth.access.email,
           companyName: settings.company_name,
-          // No signatureHtml here -- the compose modal already embeds the
-          // signature into the editable body it sends as `bodyHtml`, so
-          // appending it again here would duplicate it.
           logoUrl: settings.logo_url,
+          layoutType: settings.layout_type,
+          customLayoutHtml: settings.custom_layout_html,
           senderUser,
         },
       );
@@ -157,6 +157,21 @@ export async function POST(request: Request) {
         continue;
       }
       const toEmail = composed.toEmail;
+
+      // Hard-blocks a send that would deliver literal, unrendered `{{...}}`
+      // text -- a typo'd placeholder name, or per-recipient data (e.g. an
+      // interview schedule) that isn't actually set yet. The preview step
+      // already highlights these in red; this is the enforcement so a
+      // recipient never actually receives one.
+      const unresolved = findUnresolvedPlaceholders(`${composed.subject}\n${composed.bodyHtml}`);
+      if (unresolved.length > 0) {
+        results.push({
+          campaignAppliedId: application.id,
+          ok: false,
+          error: `Email contains unresolved variables: ${unresolved.join(", ")}`,
+        });
+        continue;
+      }
 
       // The message row and its attachments must land together -- without a
       // transaction, an attachment-insert failure would leave a message row

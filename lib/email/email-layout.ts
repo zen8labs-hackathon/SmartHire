@@ -1,3 +1,5 @@
+import { renderEmailTemplate } from "@/lib/email/render-template";
+
 /**
  * Wraps a rendered email body in a table-based "card" layout (header with
  * logo/company name, white content card, footer) using inline styles only.
@@ -56,4 +58,35 @@ export function wrapEmailBodyInCard(params: {
 <!--[if mso]>
 </td></tr></table>
 <![endif]-->`;
+}
+
+/**
+ * Applies the org's configured email layout to a rendered body -- the single
+ * choke point every compose path (auto-send, manual/bulk send, template
+ * preview, dev-test send) should go through instead of calling
+ * `wrapEmailBodyInCard` directly. `'default'` (or a blank `customLayoutHtml`)
+ * falls back to the card layout above unchanged; `'custom'` treats
+ * `customLayoutHtml` as an admin-authored HTML wrapper and substitutes into
+ * it via the same `{{key}}` syntax email templates already use --
+ * `{{email_content}}` for the rendered body, plus `{{company_name}}`/
+ * `{{logo_url}}` for reuse inside the custom markup.
+ */
+export function applyEmailLayout(params: {
+  bodyHtml: string;
+  companyName: string;
+  logoUrl?: string | null;
+  layoutType: "default" | "custom";
+  customLayoutHtml?: string | null;
+}): string {
+  const { bodyHtml, companyName, logoUrl, layoutType, customLayoutHtml } = params;
+
+  if (layoutType === "custom" && customLayoutHtml?.trim()) {
+    return renderEmailTemplate(customLayoutHtml, {
+      email_content: bodyHtml,
+      company_name: companyName,
+      logo_url: logoUrl ?? "",
+    });
+  }
+
+  return wrapEmailBodyInCard({ bodyHtml, companyName, logoUrl });
 }

@@ -7,13 +7,11 @@ import {
   type PaginatedResult,
   type PaginationParams,
 } from "@/lib/db/query-helpers";
-import type { EmailRecipientType } from "@/lib/email/trigger-types";
 
 export type EmailTemplateRow = {
   id: string;
   name: string;
   trigger_type: string;
-  recipient_type: EmailRecipientType;
   language: string;
   subject_template: string;
   body_template: string;
@@ -32,7 +30,6 @@ export type EmailTemplateRow = {
 export type CreateEmailTemplateInput = {
   name: string;
   triggerType: string;
-  recipientType: EmailRecipientType;
   language?: string;
   subjectTemplate: string;
   bodyTemplate: string;
@@ -127,15 +124,14 @@ export async function createEmailTemplate(
 ): Promise<EmailTemplateRow> {
   const { rows } = await db.query<EmailTemplateRow>(
     `INSERT INTO email_templates
-       (name, trigger_type, recipient_type, language, subject_template, body_template,
+       (name, trigger_type, language, subject_template, body_template,
         is_auto_send, require_approval, is_active, default_cc, default_bcc,
         send_offset_minutes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       input.name,
       input.triggerType,
-      input.recipientType,
       input.language ?? "vi",
       input.subjectTemplate,
       input.bodyTemplate,
@@ -160,7 +156,6 @@ export async function updateEmailTemplate(
     {
       name: patch.name,
       trigger_type: patch.triggerType,
-      recipient_type: patch.recipientType,
       language: patch.language,
       subject_template: patch.subjectTemplate,
       body_template: patch.bodyTemplate,

@@ -157,6 +157,23 @@ body {
   color: var(--muted);
 }
 
+/* Scoped to `.ProseMirror` (Tiptap's own contenteditable root class, not the
+   shared `.email-html-preview` class used for read-only rendering) so these
+   gridlines only aid table editing in RichTextEditor -- they never appear in
+   an email preview or the actual sent HTML, which may intentionally have no
+   visible table borders. */
+.ProseMirror table {
+  border-collapse: collapse;
+  margin-block: 0.5em;
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  min-width: 1em;
+  border: 1px dashed var(--divider);
+  padding: 4px 6px;
+}
+
 @media (prefers-color-scheme: dark) {
   .bg-grid-pattern {
     background-image:
