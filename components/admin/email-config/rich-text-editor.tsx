@@ -725,6 +725,7 @@ export function RichTextEditor({
 
         <ToolbarButton
           label="Insert table"
+
           disabled={disabled || toolbarState.isTable}
           onClick={() =>
             editor.chain().focus().insertTable({ rows: 3, cols: 1, withHeaderRow: false }).run()

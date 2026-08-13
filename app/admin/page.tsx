@@ -167,7 +167,7 @@ async function RecentActivities() {
   const activities = await listRecentCvDetailVersionsForAdmin(getPool(), 5);
 
   const getEventDescription = (activity: (typeof activities)[number]) => {
-    const jobLabel = activity.job_position ?? "no job assigned";
+    const jobLabel = activity.job_position ?? "No Job Assigned";
     const target = activity.candidate_name
       ? `for candidate "${activity.candidate_name}" (${jobLabel})`
       : `for an application to "${jobLabel}"`;

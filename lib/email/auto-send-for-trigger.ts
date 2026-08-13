@@ -38,7 +38,11 @@ export async function sendAutoEmailNow(
   triggerType: string,
   settings: Pick<
     EmailSettingsRow,
-    "default_sender" | "company_name" | "layout_type" | "custom_layout_html" | "logo_url"
+    | "default_sender"
+    | "company_name"
+    | "layout_type"
+    | "custom_layout_html"
+    | "logo_url"
   >,
 ): Promise<{ messageId: string } | null> {
   const fromEmail = settings.default_sender;

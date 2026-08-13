@@ -7,6 +7,7 @@ import {
   type PaginatedResult,
   type PaginationParams,
 } from "@/lib/db/query-helpers";
+
 export type EmailTemplateRow = {
   id: string;
   name: string;
