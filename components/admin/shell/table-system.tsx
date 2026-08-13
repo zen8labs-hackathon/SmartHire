@@ -205,6 +205,8 @@ export type DataTablePaginationProps = {
   itemTypeLabel?: string;
   pageSize?: number;
   setPageSize?: (size: number) => void;
+  /** Options shown in the "Show:" page-size select. Defaults to the classic 10/20/50/100 scale. */
+  pageSizeOptions?: number[];
 };
 
 export function DataTablePagination({
@@ -217,6 +219,7 @@ export function DataTablePagination({
   itemTypeLabel = "items",
   pageSize,
   setPageSize,
+  pageSizeOptions = [10, 20, 50, 100],
 }: DataTablePaginationProps) {
   // Page window helper
   const width = 3;
@@ -246,10 +249,11 @@ export function DataTablePagination({
               }}
               className="h-7 rounded-lg border border-divider bg-surface-secondary/40 hover:bg-surface-secondary px-1.5 text-[11px] font-semibold outline-none cursor-pointer transition-colors focus:border-accent text-foreground"
             >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
+              {pageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
             </select>
           </div>
         )}
