@@ -18,6 +18,8 @@ import {
   ChevronDown,
   LogOut,
   Loader2,
+  Mail,
+  FlaskConical,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -25,6 +27,7 @@ export type SidebarProps = {
   userEmail: string;
   isHr: boolean;
   chapterIds: string[];
+  isDev?: boolean;
   collapsed?: boolean;
 };
 
@@ -32,6 +35,7 @@ export function Sidebar({
   userEmail,
   isHr,
   chapterIds,
+  isDev = false,
   collapsed = false,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -221,8 +225,37 @@ export function Sidebar({
                   <FileSpreadsheet className="h-4 w-4 shrink-0" />
                   {!collapsed && <span>Templates</span>}
                 </Link>
+
+                <Link
+                  href="/admin/email-config"
+                  className={navLinkClass(isLinkActive("/admin/email-config"))}
+                  title={collapsed ? "Email Config" : undefined}
+                >
+                  <Mail className="h-4 w-4 shrink-0" />
+                  {!collapsed && <span>Email Config</span>}
+                </Link>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Dev Tools Group (HR + dev environment only) -- general home for
+            one-off test panels, not scoped to any single feature area. */}
+        {isHr && isDev && (
+          <div className="space-y-1">
+            {!collapsed && (
+              <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-white/40 mb-2">
+                Dev Tools
+              </p>
+            )}
+            <Link
+              href="/admin/dev-test"
+              className={navLinkClass(isLinkActive("/admin/dev-test"))}
+              title={collapsed ? "Dev Test" : undefined}
+            >
+              <FlaskConical className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>Dev Test</span>}
+            </Link>
           </div>
         )}
       </nav>
