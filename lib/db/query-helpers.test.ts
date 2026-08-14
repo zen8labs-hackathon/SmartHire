@@ -6,6 +6,7 @@ import {
   clampLimit,
   clampOffset,
   dbDateToIso,
+  extractWindowCount,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
 
@@ -105,5 +106,20 @@ describe("extractWindowTotal", () => {
 
   it("returns 0 for an empty result set", () => {
     expect(extractWindowTotal([])).toBe(0);
+  });
+});
+
+describe("extractWindowCount", () => {
+  it("reads the named window column off the first row", () => {
+    expect(
+      extractWindowCount(
+        [{ experienced_count: "7" }, { experienced_count: "7" }],
+        "experienced_count",
+      ),
+    ).toBe(7);
+  });
+
+  it("returns 0 for an empty result set", () => {
+    expect(extractWindowCount([], "experienced_count")).toBe(0);
   });
 });

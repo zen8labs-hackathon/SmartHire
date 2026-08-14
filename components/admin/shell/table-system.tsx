@@ -318,8 +318,15 @@ export type DataTableStatsProps = {
 };
 
 export function DataTableStats({ stats }: DataTableStatsProps) {
+  const gridCols =
+    stats.length <= 2
+      ? "grid-cols-1 sm:grid-cols-2"
+      : stats.length === 3
+        ? "grid-cols-1 sm:grid-cols-3"
+        : "grid-cols-2 md:grid-cols-4";
+
   return (
-    <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-3">
+    <div className={`grid gap-4 ${gridCols} mb-3`}>
       {stats.map((stat, idx) => (
         <Card
           key={idx}
