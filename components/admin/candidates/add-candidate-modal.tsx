@@ -1289,14 +1289,8 @@ export function AddCandidateModal({
                       </Label>
                       {isCampaignLocked &&
                       typeof jdPipelineCampaign === "object" ? (
-                        <div className="mt-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-2 text-sm text-foreground">
-                          <span className="font-medium">
-                            {jdPipelineCampaign.title}
-                          </span>
-                          <p className="mt-0.5 text-xs text-muted">
-                            Fixed for this job — eligible for JD-based AI
-                            evaluation.
-                          </p>
+                        <div className="mt-1.5 flex h-10 items-center rounded-xl border border-divider bg-surface-secondary px-3 text-sm font-medium text-foreground">
+                          {jdPipelineCampaign.title}
                         </div>
                       ) : (
                         <Select
@@ -1331,7 +1325,13 @@ export function AddCandidateModal({
                           </Select.Popover>
                         </Select>
                       )}
-                      {isCampaignMissing ? (
+                      {isCampaignLocked &&
+                      typeof jdPipelineCampaign === "object" ? (
+                        <p className="mt-1 text-xs text-muted">
+                          Fixed for this job — eligible for JD-based AI
+                          evaluation.
+                        </p>
+                      ) : isCampaignMissing ? (
                         isJdPipeline ? (
                           <p className="mt-1 text-xs text-muted">
                             Required before you can upload CVs.
