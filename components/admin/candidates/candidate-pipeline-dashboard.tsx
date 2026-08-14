@@ -25,6 +25,14 @@ import {
 } from "@/lib/candidates/db-row";
 import type { CandidateRow } from "@/lib/candidates/types";
 
+const PARSING_STATUS_FILTER_OPTIONS = [
+  { id: "all", label: "All parsing" },
+  { id: "failed", label: "Failed" },
+  { id: "processing", label: "Processing" },
+  { id: "pending", label: "Pending" },
+  { id: "completed", label: "Completed" },
+];
+
 export type CandidatePipelineDashboardHandle = {
   /** Opens the "Add Candidate" modal, callable from a header button that
    * lives outside the Suspense boundary this component is wrapped in. */
@@ -46,6 +54,8 @@ export const CandidatePipelineDashboard = forwardRef<
     setPage,
     query,
     setQuery,
+    parsingStatusKey,
+    setParsingStatusKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -226,6 +236,9 @@ export const CandidatePipelineDashboard = forwardRef<
         query={query}
         setQuery={setQuery}
         searchPlaceholder="Search by name, position, or skill…"
+        statusKey={parsingStatusKey}
+        setStatusKey={setParsingStatusKey}
+        statusFilterOptions={PARSING_STATUS_FILTER_OPTIONS}
         uploadDateRangeFilter={uploadDateRangeFilter}
         setUploadDateRangeFilter={setUploadDateRangeFilter}
         calendarFocusedDate={calendarFocusedDate}

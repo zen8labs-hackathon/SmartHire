@@ -1,4 +1,8 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import {
+  CANDIDATES_LIST_PARSING_STATUSES,
+  type CandidatesListParsingStatus,
+} from "@/lib/candidates/candidates-list-query";
 import { queryDedupedCandidatesList } from "@/lib/candidates/candidates-dedup";
 import { getPool } from "@/lib/db/config/client";
 
@@ -16,6 +20,15 @@ function parseDateParam(raw: string | null): string | undefined {
   return s;
 }
 
+function parseParsingStatus(
+  raw: string | null,
+): CandidatesListParsingStatus | undefined {
+  const s = raw?.trim() ?? "";
+  return (CANDIDATES_LIST_PARSING_STATUSES as readonly string[]).includes(s)
+    ? (s as CandidatesListParsingStatus)
+    : undefined;
+}
+
 export async function GET(request: Request) {
   // Cross-job list returns expected_salary; HR/admin only (matches /admin/candidates).
   const auth = await requireHrForRequest(request);
@@ -26,6 +39,7 @@ export async function GET(request: Request) {
     limit: parsePositiveInt(url.searchParams.get("limit")) ?? 50,
     offset: parsePositiveInt(url.searchParams.get("offset")) ?? 0,
     q: url.searchParams.get("q")?.trim() || undefined,
+    parsingStatus: parseParsingStatus(url.searchParams.get("parsingStatus")),
     uploadFrom: parseDateParam(url.searchParams.get("uploadFrom")),
     uploadTo: parseDateParam(url.searchParams.get("uploadTo")),
   });

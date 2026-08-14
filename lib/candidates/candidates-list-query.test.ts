@@ -93,6 +93,19 @@ describe("parseCandidatesListQuery", () => {
     expect(query.uploadFrom).toBe("2026-01-01");
     expect(query.uploadTo).toBe("2026-01-31");
   });
+  it("parses a valid parsingStatus", () => {
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({ parsingStatus: "failed" }),
+    );
+    expect(query.parsingStatus).toBe("failed");
+  });
+
+  it("drops an invalid parsingStatus", () => {
+    const { query } = parseCandidatesListQuery(
+      new URLSearchParams({ parsingStatus: "nope" }),
+    );
+    expect(query.parsingStatus).toBeUndefined();
+  });
 });
 
 describe("buildCandidatesListSearchParams", () => {
@@ -122,6 +135,14 @@ describe("buildCandidatesListSearchParams", () => {
     expect(params.get("jobId")).toBe(JOB_ID);
     expect(params.get("stageMappingId")).toBe(STAGE_MAPPING_ID);
     expect(params.get("subStateId")).toBe(SUB_STATE_ID);
+  });
+
+  it("round-trips parsingStatus", () => {
+    const params = buildCandidatesListSearchParams({
+      limit: 10,
+      parsingStatus: "failed",
+    });
+    expect(params.get("parsingStatus")).toBe("failed");
   });
 });
 
@@ -161,5 +182,20 @@ describe("queryCandidatesList", () => {
     expect(result.error).toBe("boom");
     expect(result.candidates).toEqual([]);
     expect(result.pagination).toBeNull();
+  });
+
+  it("passes parsingStatus into the SQL filter args", async () => {
+    const db = fakeDb([]);
+
+    await queryCandidatesList(db, {
+      limit: 10,
+      parsingStatus: "failed",
+      q: "ada",
+    });
+
+    expect(db.query).toHaveBeenCalledOnce();
+    const [, values] = db.query.mock.calls[0] as [string, unknown[]];
+    expect(values).toContain("failed");
+    expect(values).toContain("%ada%");
   });
 });

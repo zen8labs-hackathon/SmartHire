@@ -77,6 +77,7 @@ export async function queryDedupedCandidatesList(
   db: QueryExecutor,
   input: {
     q?: string;
+    parsingStatus?: "pending" | "processing" | "completed" | "failed";
     uploadFrom?: string;
     uploadTo?: string;
     limit?: number;
