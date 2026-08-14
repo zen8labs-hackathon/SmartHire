@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { experienceYearsFromWorkStart } from "@/lib/ai/experience-years-from-work-start";
 import { explicitExperienceYearsFromText } from "@/lib/ai/explicit-experience-years-from-text";
+import { sanitizeEarliestWorkStart } from "@/lib/ai/sanitize-earliest-work-start";
 import {
   generateTextWithFallback,
   getConfiguredLanguageModel,
@@ -37,7 +38,7 @@ const parsedResumeSchema = z.object({
     .string()
     .nullable()
     .describe(
-      "Earliest Work Experience start date as YYYY, YYYY-MM, or YYYY-MM-DD (include internships listed under Work Experience; exclude education-only rows). Null if no dated work history exists.",
+      "Earliest professional Work Experience / Employment / Internship start date as YYYY, YYYY-MM, or YYYY-MM-DD. Include internships only when listed under work history. NEVER use Education / Học vấn / university enrollment or graduation years. Null if no dated work history exists.",
     ),
   skills: z.array(z.string()).describe("Concise individual skill tokens, not sentences."),
   degree: z.string().nullable().describe("Degree level, e.g. Bachelor's, Master's."),
@@ -62,7 +63,7 @@ export type ParsedResume = Omit<
   "earliestWorkStart"
 >;
 
-const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values. For earliestWorkStart, copy the earliest dated professional work-experience start from the Work Experience section when present; do not invent dates.`;
+const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values. For earliestWorkStart, copy the earliest dated start from Work Experience / Employment / Internship (or Kinh nghiệm làm việc / Thực tập) only. Never use Education / Học vấn / school enrollment or graduation dates -- those must not become earliestWorkStart even for interns or students. Do not invent dates.`;
 
 const MAX_INPUT_CHARS = 120_000;
 
@@ -146,13 +147,19 @@ export async function parseResumeWithAIDetailed(
     throw e;
   }
 
-  const { earliestWorkStart, experienceYears: aiClaimedYears, ...rest } =
+  const { earliestWorkStart: rawEarliestWorkStart, experienceYears: aiClaimedYears, ...rest } =
     output;
   // Never trust the model's year count alone -- it often invents one (or
   // confuses nearby integers like "Team size 6"). Only keep an "explicit"
   // figure when the resume text itself contains a clear years-of-experience
   // phrase; otherwise derive from the earliest Work Experience start date.
+  // Drop education-only milestones (university enrollment/graduation) so
+  // interns / students are not credited with years spent in school.
   const verifiedExplicit = explicitExperienceYearsFromText(plainText);
+  const earliestWorkStart = sanitizeEarliestWorkStart(
+    plainText,
+    rawEarliestWorkStart,
+  );
   const derivedYears = experienceYearsFromWorkStart(earliestWorkStart);
   const experienceYears = verifiedExplicit ?? derivedYears;
   const experienceYearsSource =
@@ -170,7 +177,7 @@ export async function parseResumeWithAIDetailed(
         aiClaimedYears != null && Number.isFinite(aiClaimedYears)
           ? aiClaimedYears
           : null,
-      earliestWorkStart: earliestWorkStart ?? null,
+      earliestWorkStart,
       experienceYearsSource,
     },
   };
