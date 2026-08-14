@@ -3,7 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# `npm ci` fails here: lockfile is generated with npm 11 locally, image uses npm 10.
+RUN npm install
 
 COPY . .
 RUN npm run build
