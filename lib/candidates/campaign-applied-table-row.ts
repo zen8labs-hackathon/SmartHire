@@ -1,4 +1,5 @@
 import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
+import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 
 /**
@@ -93,12 +94,12 @@ export function campaignAppliedAdminRowToTableRow(
   const fallbackFilename = r.cv_original_filename ?? "CV";
   const name =
     parsing === "completed" && r.candidate_name?.trim()
-      ? r.candidate_name.trim()
+      ? (canonicalizeCandidateName(r.candidate_name) ?? r.candidate_name.trim())
       : parsing === "failed"
         ? `Failed: ${fallbackFilename}`
         : parsing === "processing" || parsing === "pending"
           ? `Processing: ${fallbackFilename}`
-          : r.candidate_name?.trim() || fallbackFilename;
+          : canonicalizeCandidateName(r.candidate_name) || fallbackFilename;
 
   const role =
     parsing === "completed" && r.candidate_role?.trim()

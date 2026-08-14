@@ -299,7 +299,6 @@ export function AddCandidateModal({
     CANDIDATE_SOURCE_VALUES[0],
   );
   const [sourceOther, setSourceOther] = useState("");
-  const [expectedSalary, setExpectedSalary] = useState("");
   const [runJdMatchOnUpload, setRunJdMatchOnUpload] = useState(true);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -683,7 +682,6 @@ export function AddCandidateModal({
             jobId: selectedJobId,
             source: sourceKey,
             sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-            expectedSalary: expectedSalary.trim() || null,
             email,
             phone,
             bypassDuplicateCheck: true,
@@ -729,7 +727,7 @@ export function AddCandidateModal({
         jdMatchError: jdMatchErrorFromResponse(procJson.jdMatch),
       };
     },
-    [selectedJobId, sourceKey, sourceOther, expectedSalary],
+    [selectedJobId, sourceKey, sourceOther],
   );
 
   const loadJobs = useCallback(async () => {
@@ -931,7 +929,6 @@ export function AddCandidateModal({
               jobId: selectedJobId,
               source: sourceKey,
               sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-              expectedSalary: expectedSalary.trim() || null,
               email: email || null,
               phone: phone || null,
             }),
@@ -1011,7 +1008,6 @@ export function AddCandidateModal({
       selectedJobId,
       sourceKey,
       sourceOther,
-      expectedSalary,
       commitAndProcessViaBypass,
       refreshRowContactInfo,
       autoResolveDuplicate,
@@ -1251,7 +1247,7 @@ export function AddCandidateModal({
                     : "Close"
                 }
               />
-              <Modal.Header className="border-b border-divider px-6 py-5">
+              <Modal.Header className="border-b border-divider px-6 py-4">
                 <Modal.Heading className="text-xl">
                   Add candidates
                 </Modal.Heading>
@@ -1261,7 +1257,7 @@ export function AddCandidateModal({
                     : "Upload CVs to private storage; AI extracts profile fields in the background."}
                 </p>
               </Modal.Header>
-              <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
+              <Modal.Body className="max-h-[min(78vh,880px)] space-y-4 overflow-y-auto px-6 py-4">
                 {isCampaignBlocked ? (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
                     <p className="font-semibold text-amber-900 dark:text-amber-100">
@@ -1277,8 +1273,8 @@ export function AddCandidateModal({
                     </p>
                   </div>
                 ) : null}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
-                  <div className="flex min-h-0 min-w-0 flex-col gap-4">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Target campaign
@@ -1293,13 +1289,13 @@ export function AddCandidateModal({
                       </Label>
                       {isCampaignLocked &&
                       typeof jdPipelineCampaign === "object" ? (
-                        <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
+                        <div className="mt-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-2 text-sm text-foreground">
                           <span className="font-medium">
                             {jdPipelineCampaign.title}
                           </span>
-                          <p className="mt-1 text-xs text-muted">
-                            Fixed for this job description — candidates are
-                            eligible for JD-based AI evaluation.
+                          <p className="mt-0.5 text-xs text-muted">
+                            Fixed for this job — eligible for JD-based AI
+                            evaluation.
                           </p>
                         </div>
                       ) : (
@@ -1313,7 +1309,7 @@ export function AddCandidateModal({
                           onChange={(key) => {
                             if (typeof key === "string") setJobKey(key);
                           }}
-                          className="mt-2"
+                          className="mt-1.5"
                         >
                           <Select.Trigger className="w-full min-w-0">
                             <Select.Value />
@@ -1337,13 +1333,12 @@ export function AddCandidateModal({
                       )}
                       {isCampaignMissing ? (
                         isJdPipeline ? (
-                          <p className="mt-1.5 text-xs text-muted">
+                          <p className="mt-1 text-xs text-muted">
                             Required before you can upload CVs.
                           </p>
                         ) : (
-                          <p className="mt-1.5 text-xs text-muted">
-                            No job selected — CVs will be added to the
-                            candidate pool and can be assigned to a job later.
+                          <p className="mt-1 text-xs text-muted">
+                            No job selected — CVs go to the candidate pool.
                           </p>
                         )
                       ) : null}
@@ -1360,7 +1355,7 @@ export function AddCandidateModal({
                           setSourceKey(next);
                           if (next !== "Other") setSourceOther("");
                         }}
-                        className="mt-2"
+                        className="mt-1.5"
                       >
                         <Select.Trigger className="w-full min-w-0">
                           <Select.Value />
@@ -1378,7 +1373,7 @@ export function AddCandidateModal({
                         </Select.Popover>
                       </Select>
                       {sourceKey === "Other" ? (
-                        <TextField className="mt-3">
+                        <TextField className="mt-2">
                           <Label className="text-xs text-muted">
                             Describe the source
                           </Label>
@@ -1391,109 +1386,85 @@ export function AddCandidateModal({
                         </TextField>
                       ) : null}
                     </div>
-
-                    <div>
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Expected salary{" "}
-                        <span className="font-normal normal-case text-muted/70">
-                          (optional)
-                        </span>
-                      </Label>
-                      <TextField className="mt-2">
-                        <Input
-                          value={expectedSalary}
-                          onChange={(e) => setExpectedSalary(e.target.value)}
-                          placeholder="e.g. 18-20 triệu, negotiable…"
-                        />
-                      </TextField>
-                      <p className="mt-1.5 text-xs text-muted">
-                        Only visible to HR and the chapter head in the evaluation
-                        view.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="flex items-center gap-2 text-sm text-foreground">
-                        <input
-                          type="checkbox"
-                          className="size-4 rounded border-divider accent-accent cursor-pointer"
-                          checked={runJdMatchOnUpload}
-                          onChange={(e) =>
-                            setRunJdMatchOnUpload(e.target.checked)
-                          }
-                        />
-                        Run AI JD-match scoring
-                      </label>
-                      <p className="mt-1.5 text-xs text-muted">
-                        Applies to every CV uploaded in this session, right after
-                        AI parsing finishes.
-                      </p>
-                    </div>
                   </div>
 
-                  <div className="flex min-h-0 min-w-0 flex-col md:h-full">
-                    <div
-                      className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
-                        isUploadDisabled
-                          ? "border-divider bg-content2/20 opacity-50"
-                          : dragOver
-                            ? "border-accent bg-accent/5"
-                            : "border-divider bg-content2/30"
-                      }`}
-                      onDragEnter={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragOver={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(false);
-                        void handleFiles(e.dataTransfer.files);
-                      }}
-                    >
+                  <label className="flex items-start gap-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-divider accent-accent"
+                      checked={runJdMatchOnUpload}
+                      onChange={(e) =>
+                        setRunJdMatchOnUpload(e.target.checked)
+                      }
+                    />
+                    <span>
+                      Run AI JD-match scoring
+                      <span className="mt-0.5 block text-xs text-muted">
+                        Runs after parsing for every CV in this session.
+                      </span>
+                    </span>
+                  </label>
+
+                  <div
+                    className={`flex flex-col gap-2 rounded-xl border-2 border-dashed px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                      isUploadDisabled
+                        ? "border-divider bg-content2/20 opacity-50"
+                        : dragOver
+                          ? "border-accent bg-accent/5"
+                          : "border-divider bg-content2/30"
+                    }`}
+                    onDragEnter={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragOver={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(false);
+                      void handleFiles(e.dataTransfer.files);
+                    }}
+                  >
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-foreground">
                         {isCampaignMissing && isJdPipeline
                           ? "Select a target campaign first"
                           : "Drop CVs here to start ingestion"}
                       </p>
-                      <p className="mt-2 max-w-sm text-xs text-muted">
+                      <p className="mt-0.5 text-xs text-muted">
                         {isCampaignMissing && isJdPipeline
-                          ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                          : isCampaignMissing
-                            ? "No job selected — CVs go to the candidate pool and can be assigned to a job later. Select or drop one or more PDF or DOCX files (max 25MB each)."
-                            : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                          ? "Choose a campaign above, then upload PDF or DOCX (max 25MB each)."
+                          : "PDF or DOCX, max 25MB each. Parsing starts as soon as files upload."}
                       </p>
-                      <div className="mt-3 flex justify-center">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={() => fileInputRef.current?.click()}
-                          isDisabled={isUploadDisabled}
-                        >
-                          Select files
-                        </Button>
-                      </div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files;
-                          if (f?.length) void handleFiles(f);
-                          e.target.value = "";
-                        }}
-                      />
                     </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="shrink-0"
+                      onPress={() => fileInputRef.current?.click()}
+                      isDisabled={isUploadDisabled}
+                    >
+                      Select files
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files;
+                        if (f?.length) void handleFiles(f);
+                        e.target.value = "";
+                      }}
+                    />
                   </div>
                 </div>
 
