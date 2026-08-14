@@ -1274,7 +1274,7 @@ export function AddCandidateModal({
                   </div>
                 ) : null}
                 <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-start">
                     <div>
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Target campaign
@@ -1289,14 +1289,8 @@ export function AddCandidateModal({
                       </Label>
                       {isCampaignLocked &&
                       typeof jdPipelineCampaign === "object" ? (
-                        <div className="mt-1.5 rounded-xl border border-divider bg-surface-secondary px-3 py-2 text-sm text-foreground">
-                          <span className="font-medium">
-                            {jdPipelineCampaign.title}
-                          </span>
-                          <p className="mt-0.5 text-xs text-muted">
-                            Fixed for this job — eligible for JD-based AI
-                            evaluation.
-                          </p>
+                        <div className="mt-1.5 flex h-10 items-center rounded-xl border border-divider bg-surface-secondary px-3 text-sm font-medium text-foreground">
+                          {jdPipelineCampaign.title}
                         </div>
                       ) : (
                         <Select
@@ -1311,7 +1305,7 @@ export function AddCandidateModal({
                           }}
                           className="mt-1.5"
                         >
-                          <Select.Trigger className="w-full min-w-0">
+                          <Select.Trigger className="h-10 w-full min-w-0">
                             <Select.Value />
                             <Select.Indicator />
                           </Select.Trigger>
@@ -1331,7 +1325,13 @@ export function AddCandidateModal({
                           </Select.Popover>
                         </Select>
                       )}
-                      {isCampaignMissing ? (
+                      {isCampaignLocked &&
+                      typeof jdPipelineCampaign === "object" ? (
+                        <p className="mt-1 text-xs text-muted">
+                          Fixed for this job — eligible for JD-based AI
+                          evaluation.
+                        </p>
+                      ) : isCampaignMissing ? (
                         isJdPipeline ? (
                           <p className="mt-1 text-xs text-muted">
                             Required before you can upload CVs.
@@ -1357,7 +1357,7 @@ export function AddCandidateModal({
                         }}
                         className="mt-1.5"
                       >
-                        <Select.Trigger className="w-full min-w-0">
+                        <Select.Trigger className="h-10 w-full min-w-0">
                           <Select.Value />
                           <Select.Indicator />
                         </Select.Trigger>
