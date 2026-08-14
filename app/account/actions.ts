@@ -1,24 +1,27 @@
 "use server";
 
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { hashPassword } from "@/lib/auth/password";
 import { getPool } from "@/lib/db/config/client";
 import { listChapters } from "@/lib/db/chapters";
 import { listMembershipsForUser } from "@/lib/db/profile-chapters";
-import { revokeAllRefreshTokensForUser } from "@/lib/db/refresh-tokens";
-import { getPublicUserById, updateUser, usernameExists } from "@/lib/db/users";
-
-const USERNAME_RE = /^[a-z0-9_]{3,30}$/;
+import { getPublicUserById, updateUser } from "@/lib/db/users";
 
 export type MyProfileFormState = { error?: string; message?: string } | null;
 
 export type MyProfileDetails = {
   username: string;
+  displayName: string | null;
+  email: string;
+  phone: string | null;
   role: string;
   chapterNames: string[];
 };
 
-/** For the "My Account" modal -- the signed-in user's own profile summary. */
+/** For the "My Account" modal -- the signed-in user's own profile summary,
+ * including chapter memberships. Don't reuse this for lighter call sites
+ * that only need name/email/phone (e.g. email-compose prefill) -- the
+ * `listMembershipsForUser` + `listChapters` (full-table) queries here are
+ * pure overhead for those. Use {@link getMySenderIdentity} instead. */
 export async function getMyProfileDetails(): Promise<MyProfileDetails | null> {
   const { user, access } = await getRequestAuth();
   if (!user || !access) return null;
@@ -37,58 +40,54 @@ export async function getMyProfileDetails(): Promise<MyProfileDetails | null> {
 
   return {
     username: current?.username ?? "",
+    displayName: current?.display_name ?? null,
+    email: current?.email ?? access.email,
+    phone: current?.phone ?? null,
     role: access.role,
     chapterNames,
   };
 }
 
-export async function updateMyUsername(
-  username: string,
-): Promise<MyProfileFormState> {
-  const { user } = await getRequestAuth();
-  if (!user) return { error: "Not authenticated." };
+export type MySenderIdentity = {
+  displayName: string | null;
+  email: string;
+  phone: string | null;
+};
 
-  const normalized = username.trim().toLowerCase();
-  if (!USERNAME_RE.test(normalized)) {
-    return {
-      error:
-        "Username must be 3-30 characters: lowercase letters, numbers, or underscores.",
-    };
-  }
+/** Signed-in user's name/email/phone only -- a single `users` lookup, no
+ * chapter data. Used by the email compose modal to prefill the
+ * `user_name`/`user_email`/`user_phone`/`hr_name` placeholders as soon as a
+ * template is picked, since a server action is callable directly from a
+ * Client Component without needing a dedicated API route. */
+export async function getMySenderIdentity(): Promise<MySenderIdentity | null> {
+  const { user, access } = await getRequestAuth();
+  if (!user || !access) return null;
 
-  const db = getPool();
-  const current = await getPublicUserById(db, user.id);
-  if (
-    normalized !== current?.username &&
-    (await usernameExists(db, normalized))
-  ) {
-    return { error: "That username is already taken." };
-  }
-
-  await updateUser(db, user.id, { username: normalized });
-  return { message: "Profile updated successfully!" };
+  const current = await getPublicUserById(getPool(), user.id);
+  return {
+    displayName: current?.display_name ?? null,
+    email: current?.email ?? access.email,
+    phone: current?.phone ?? null,
+  };
 }
 
-/**
- * Self-service password change. Revokes every outstanding refresh token
- * (other-device sessions won't survive their next refresh); the caller's
- * *own* access token, if any, still rides out its own short TTL like any
- * other revoke -- see `ACCESS_TOKEN_TTL_SECONDS`.
- */
-export async function updateMyPassword(
-  newPassword: string,
+/** Self-service edit of the account's display name (used for the `user_name` email placeholder) and phone (`user_phone`). */
+export async function updateMyProfile(
+  displayName: string,
+  phone: string,
 ): Promise<MyProfileFormState> {
   const { user } = await getRequestAuth();
   if (!user) return { error: "Not authenticated." };
 
-  if (newPassword.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  const trimmedName = displayName.trim();
+  if (!trimmedName) {
+    return { error: "Name cannot be empty" };
   }
 
-  const passwordHash = await hashPassword(newPassword);
   const db = getPool();
-  await updateUser(db, user.id, { passwordHash });
-  await revokeAllRefreshTokensForUser(db, user.id);
-
-  return { message: "Password changed successfully!" };
+  await updateUser(db, user.id, {
+    displayName: trimmedName,
+    phone: phone.trim() || null,
+  });
+  return { message: "Profile updated successfully!" };
 }
