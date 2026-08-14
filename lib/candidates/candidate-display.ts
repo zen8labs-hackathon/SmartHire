@@ -1,5 +1,15 @@
 import type { CandidateStatus } from "@/lib/candidates/types";
 
+/** Trimmed Unicode uppercase so uploaded CV names display as "ĐÀO QUỐC HUY". */
+export function canonicalizeCandidateName(
+  name: string | null | undefined,
+): string | null {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.toLocaleUpperCase("vi-VN");
+}
+
 export function candidateDisplayInitials(name: string) {
   const parts = name.trim().split(/\s+/);
   const a = parts[0]?.[0] ?? "";

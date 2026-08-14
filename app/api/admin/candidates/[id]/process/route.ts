@@ -13,6 +13,7 @@ import {
 } from "@/lib/candidates/duplicate-detection";
 import { extractTextFromBuffer } from "@/lib/jd/extract-document-text";
 import { cvContentSha256Hex, cvFileSha256Hex } from "@/lib/candidates/cv-hash";
+import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
 import { parseResumeWithAI } from "@/lib/ai/parse-resume";
 import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
@@ -125,7 +126,7 @@ async function runCvParsing(
       ...parsedRaw,
       email: confirmedEmail ?? parsedRaw.email,
       phone: confirmedPhone ?? parsedRaw.phone,
-      name: confirmedName ?? parsedRaw.name,
+      name: canonicalizeCandidateName(confirmedName ?? parsedRaw.name),
       role: cvVersion.role ?? parsedRaw.role,
       degree: cvVersion.degree ?? parsedRaw.degree,
       school: cvVersion.education ?? parsedRaw.school,
