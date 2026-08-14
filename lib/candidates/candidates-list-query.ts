@@ -56,6 +56,8 @@ export type CandidatesListPagination = {
   offset: number;
   total: number;
   hasMore: boolean;
+  /** Present on the deduped Active Candidates list: people with 5+ years. */
+  experiencedTotal?: number;
 };
 
 export type CandidatesListResult = {

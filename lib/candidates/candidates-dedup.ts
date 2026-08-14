@@ -85,11 +85,18 @@ export async function queryDedupedCandidatesList(
   },
 ): Promise<DedupedCandidatesResult> {
   try {
-    const { rows, total, limit, offset } = await listDedupedCandidatesForAdmin(db, input);
+    const { rows, total, experiencedTotal, limit, offset } =
+      await listDedupedCandidatesForAdmin(db, input);
 
     return {
       people: rows.map(toCandidateDbRow),
-      pagination: { limit, offset, total, hasMore: offset + rows.length < total },
+      pagination: {
+        limit,
+        offset,
+        total,
+        experiencedTotal,
+        hasMore: offset + rows.length < total,
+      },
       error: null,
     };
   } catch (err) {
@@ -100,6 +107,7 @@ export async function queryDedupedCandidatesList(
         limit: input.limit ?? 50,
         offset: input.offset ?? 0,
         total: 0,
+        experiencedTotal: 0,
         hasMore: false,
       },
       error: msg,
