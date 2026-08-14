@@ -3,6 +3,7 @@ import type { PaginatedResult, PaginationParams } from "@/lib/db/query-helpers";
 import {
   clampLimit,
   clampOffset,
+  extractWindowCount,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
 
@@ -194,10 +195,16 @@ export type ListDedupedCandidatesForAdminFilters = PaginationParams & {
  * application can legitimately have no job yet (unassigned/pool, CJ4X9M),
  * and that person still has a real `campaign_applied_id` to act on.
  */
+export type DedupedCandidatesListResult =
+  PaginatedResult<DedupedCandidateAdminRow> & {
+    /** People in the filtered set with `experience_years >= 5`. */
+    experiencedTotal: number;
+  };
+
 export async function listDedupedCandidatesForAdmin(
   db: QueryExecutor,
   filters: ListDedupedCandidatesForAdminFilters = {},
-): Promise<PaginatedResult<DedupedCandidateAdminRow>> {
+): Promise<DedupedCandidatesListResult> {
   const limit = clampLimit(filters.limit);
   const offset = clampOffset(filters.offset);
 
@@ -234,7 +241,10 @@ export async function listDedupedCandidatesForAdmin(
   const offsetIdx = values.length;
 
   const { rows } = await db.query<
-    DedupedCandidateAdminRow & { total_count: string }
+    DedupedCandidateAdminRow & {
+      total_count: string;
+      experienced_count: string;
+    }
   >(
     `WITH latest_apps AS (
        SELECT DISTINCT ON (candidate_id) *
@@ -260,7 +270,9 @@ export async function listDedupedCandidatesForAdmin(
        cv.mime_type AS cv_mime_type, cv.parsing_status AS cv_parsing_status,
        cv.parsing_error AS cv_parsing_error, cv.parsed_payload AS cv_parsed_payload,
        cv.created_at AS cv_created_at,
-       count(*) OVER() AS total_count
+       count(*) OVER() AS total_count,
+       count(*) FILTER (WHERE COALESCE(c.experience_years, 0) >= 5) OVER()
+         AS experienced_count
      FROM candidates c
      JOIN latest_apps la ON la.candidate_id = c.id
      LEFT JOIN jobs j ON j.id = la.job_id AND j.deleted_at IS NULL
@@ -275,8 +287,15 @@ export async function listDedupedCandidatesForAdmin(
   );
 
   return {
-    rows: rows.map(({ total_count: _total_count, ...row }) => row),
+    rows: rows.map(
+      ({
+        total_count: _total_count,
+        experienced_count: _experienced_count,
+        ...row
+      }) => row,
+    ),
     total: extractWindowTotal(rows),
+    experiencedTotal: extractWindowCount(rows, "experienced_count"),
     limit,
     offset,
   };

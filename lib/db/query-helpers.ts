@@ -55,6 +55,19 @@ export function extractWindowTotal(
   return Number(rows[0].total_count);
 }
 
+/**
+ * Same empty-page caveat as {@link extractWindowTotal}: when `LIMIT` returns
+ * no rows there is no window value to read, so callers get `0`.
+ */
+export function extractWindowCount(
+  rows: Record<string, unknown>[],
+  key: string,
+): number {
+  if (rows.length === 0) return 0;
+  const n = Number(rows[0][key]);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** True for a Postgres unique-constraint violation (SQLSTATE 23505). */
 export function isUniqueViolation(err: unknown): boolean {
   return (
