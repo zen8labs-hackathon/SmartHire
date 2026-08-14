@@ -79,6 +79,7 @@ type UseCandidatePipelineStateOptions = {
   /** `page` = server pagination + filters; `all` = full list (e.g. JD pipeline table). */
   listMode?: CandidatePipelineListMode;
   initialListTotal?: number;
+  initialExperiencedTotal?: number;
   /** When true, fetch from the deduped endpoint that merges CVs from the same person. */
   deduped?: boolean;
 };
@@ -89,6 +90,7 @@ export function useCandidatePipelineState(
 ) {
   const listMode = options.listMode ?? "page";
   const initialListTotal = options.initialListTotal;
+  const initialExperiencedTotal = options.initialExperiencedTotal;
   const deduped = options.deduped ?? false;
   const [urlPage, setUrlPage] = usePageQueryParam();
   const [localPage, setLocalPage] = useState(1);
@@ -126,6 +128,9 @@ export function useCandidatePipelineState(
   );
   const [listTotal, setListTotal] = useState(
     initialListTotal ?? initialRows?.length ?? 0,
+  );
+  const [listExperiencedTotal, setListExperiencedTotal] = useState(
+    initialExperiencedTotal ?? 0,
   );
   const [listPageSize, setListPageSize] = useState(10);
 
@@ -197,7 +202,7 @@ export function useCandidatePipelineState(
       }
       const json = (await res.json()) as {
         candidates?: any[];
-        pagination?: { total: number };
+        pagination?: { total: number; experiencedTotal?: number };
       };
       const rawCandidates = json.candidates ?? [];
       const mapped = rawCandidates.map((c) => {
@@ -208,6 +213,9 @@ export function useCandidatePipelineState(
       });
       setDbRows(mapped);
       setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
+      if (typeof json.pagination?.experiencedTotal === "number") {
+        setListExperiencedTotal(json.pagination.experiencedTotal);
+      }
       setDbLoadState("ok");
     } catch {
       setDbLoadState("error");
@@ -606,6 +614,7 @@ export function useCandidatePipelineState(
     dbLoadState,
     fetchCandidates,
     listTotal,
+    listExperiencedTotal,
     listPageSize,
     changeListPageSize,
     listMode,
