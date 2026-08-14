@@ -1,4 +1,5 @@
 import type { CandidateRow, CandidateStatus } from "@/lib/candidates/types";
+import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
 import { CANDIDATE_PIPELINE_STATUSES } from "@/lib/candidates/types";
 import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
 import { displayFromParsedPayload } from "./parsed-contact";
@@ -168,12 +169,12 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
   const parsing = r.parsing_status;
   const name =
     parsing === "completed" && r.name?.trim()
-      ? r.name.trim()
+      ? (canonicalizeCandidateName(r.name) ?? r.name.trim())
       : parsing === "failed"
         ? `Failed: ${r.original_filename}`
         : parsing === "processing" || parsing === "pending"
           ? `Processing: ${r.original_filename}`
-          : r.name?.trim() || r.original_filename;
+          : canonicalizeCandidateName(r.name) || r.original_filename;
 
   const role =
     parsing === "completed" && r.role?.trim()

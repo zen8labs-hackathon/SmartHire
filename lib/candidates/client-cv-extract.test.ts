@@ -37,7 +37,7 @@ describe("pickLikelyNameLine", () => {
       { text: "Backend Engineer", height: 12, y: 770 },
       { text: "Huge Footer Text", height: 40, y: 20 },
     ];
-    expect(pickLikelyNameLine(lines, 850)).toBe("Nguyen Van A");
+    expect(pickLikelyNameLine(lines, 850)).toBe("NGUYEN VAN A");
   });
 
   it("ignores lines that look like contact info or headers", () => {
@@ -46,7 +46,7 @@ describe("pickLikelyNameLine", () => {
       { text: "Resume", height: 28, y: 790 },
       { text: "Jane Doe", height: 18, y: 780 },
     ];
-    expect(pickLikelyNameLine(lines, 850)).toBe("Jane Doe");
+    expect(pickLikelyNameLine(lines, 850)).toBe("JANE DOE");
   });
 
   it("returns null when nothing plausible is in the top half", () => {
@@ -57,11 +57,11 @@ describe("pickLikelyNameLine", () => {
 
 describe("guessNameFromPlainText", () => {
   it("returns the first plausible non-empty line", () => {
-    expect(guessNameFromPlainText("\n\nJane Doe\nSoftware Engineer\n")).toBe("Jane Doe");
+    expect(guessNameFromPlainText("\n\nJane Doe\nSoftware Engineer\n")).toBe("JANE DOE");
   });
 
   it("skips a leading header line", () => {
-    expect(guessNameFromPlainText("Curriculum Vitae\nJane Doe\n")).toBe("Jane Doe");
+    expect(guessNameFromPlainText("Curriculum Vitae\nJane Doe\n")).toBe("JANE DOE");
   });
 
   it("returns null when no line qualifies", () => {
