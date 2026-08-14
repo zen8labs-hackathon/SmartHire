@@ -110,3 +110,28 @@ export function sanitizeEarliestWorkStart(
 
   return null;
 }
+
+export type WorkPeriodInput = {
+  start: string;
+  end: string | null;
+};
+
+/**
+ * Drops work intervals whose start year is missing from the CV or only
+ * appears under Education (same rule as {@link sanitizeEarliestWorkStart}).
+ */
+export function sanitizeWorkPeriods(
+  plainText: string,
+  periods: WorkPeriodInput[] | null | undefined,
+): WorkPeriodInput[] {
+  if (!periods?.length) return [];
+
+  const kept: WorkPeriodInput[] = [];
+  for (const period of periods) {
+    const start = sanitizeEarliestWorkStart(plainText, period.start);
+    if (!start) continue;
+    const endRaw = period.end?.trim() || null;
+    kept.push({ start, end: endRaw });
+  }
+  return kept;
+}

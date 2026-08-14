@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   sanitizeEarliestWorkStart,
   splitResumeSections,
+  sanitizeWorkPeriods,
 } from "@/lib/ai/sanitize-earliest-work-start";
 
 describe("splitResumeSections", () => {
@@ -101,5 +102,28 @@ Thực tập
   it("keeps the AI value when there are no section headers", () => {
     const cv = "Jane Doe\nWorked at Acme from 2022 as developer.";
     expect(sanitizeEarliestWorkStart(cv, "2022")).toBe("2022");
+  });
+});
+
+describe("sanitizeWorkPeriods", () => {
+  it("drops education-only starts and keeps work-history intervals", () => {
+    const cv = `
+Education
+2018 - 2022 University
+
+Work Experience
+2020-01 - 2020-03 Intern
+2022-01 - Present Developer
+`;
+    expect(
+      sanitizeWorkPeriods(cv, [
+        { start: "2018", end: "2022" },
+        { start: "2020-01", end: "2020-03" },
+        { start: "2022-01", end: null },
+      ]),
+    ).toEqual([
+      { start: "2020-01", end: "2020-03" },
+      { start: "2022-01", end: null },
+    ]);
   });
 });
