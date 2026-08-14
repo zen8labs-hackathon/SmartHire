@@ -97,13 +97,13 @@ function CandidatePipelineFiltersCardImpl({
     <div className="flex items-center gap-2">
       {statusFilterOptions && setStatusKey && (
         <Select
-          aria-label="Filter by status"
+          aria-label="Filter by parsing status"
           value={statusKey ?? null}
           onChange={(key) => {
             setStatusKey(key);
             onFiltersAdjusted?.();
           }}
-          placeholder="Filter by status"
+          placeholder="Parsing status"
           className="w-48"
         >
           <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
