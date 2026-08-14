@@ -66,6 +66,8 @@ export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   subStateId?: string;
   /** Case-insensitive substring match against candidate name and school (education). */
   q?: string;
+  /** Exact match on the active CV version's `parsing_status`. */
+  parsingStatus?: "pending" | "processing" | "completed" | "failed";
   /** Inclusive lower/upper bound (YYYY-MM-DD) on the active CV version's upload time (falls back to the application's created_at when there's no active version yet). */
   uploadFrom?: string;
   uploadTo?: string;
@@ -253,6 +255,10 @@ export async function listCampaignAppliedForAdmin(
     values.push(`%${filters.q}%`);
     const i = values.length;
     conditions.push(`(c.name ILIKE $${i} OR c.education ILIKE $${i})`);
+  }
+  if (filters.parsingStatus) {
+    values.push(filters.parsingStatus);
+    conditions.push(`cv.parsing_status = $${values.length}`);
   }
 
   values.push(limit);

@@ -172,6 +172,8 @@ export type DedupedCandidateAdminRow = {
 export type ListDedupedCandidatesForAdminFilters = PaginationParams & {
   /** Case-insensitive substring match against name/email/role/degree/CV filename, plus job position and skills. */
   q?: string;
+  /** Exact match on the latest application's active CV version `parsing_status`. */
+  parsingStatus?: "pending" | "processing" | "completed" | "failed";
   /** Inclusive lower/upper bound (YYYY-MM-DD) on the latest application's active CV upload time. */
   uploadFrom?: string;
   uploadTo?: string;
@@ -220,6 +222,10 @@ export async function listDedupedCandidatesForAdmin(
     conditions.push(
       `(c.name ILIKE $${i} OR c.email ILIKE $${i} OR c.role ILIKE $${i} OR c.degree ILIKE $${i} OR cv.original_filename ILIKE $${i} OR j.position ILIKE $${i} OR array_to_string(c.skills, ' ') ILIKE $${i})`,
     );
+  }
+  if (filters.parsingStatus) {
+    values.push(filters.parsingStatus);
+    conditions.push(`cv.parsing_status = $${values.length}`);
   }
 
   values.push(limit);
