@@ -3,8 +3,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
-# No package-lock.json in repo yet — use install until a lockfile is committed.
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run build
