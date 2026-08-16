@@ -13,6 +13,7 @@ import {
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
+import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { useToast } from "@/components/admin/toast-provider";
 import {
@@ -102,6 +103,7 @@ export function PipelineCandidateEvaluationClient({
 }: Props) {
   const router = useRouter();
   const toast = useToast();
+  const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
   const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
     "loading",
@@ -419,7 +421,36 @@ export function PipelineCandidateEvaluationClient({
         <Breadcrumbs.Item>Evaluation</Breadcrumbs.Item>
       </Breadcrumbs>
 
-      <div className="flex gap-6 items-start">
+      <div className="flex border-b border-divider">
+        {(["overview", "email"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2.5 text-sm font-semibold tracking-wide border-b-2 transition-all duration-150 hover:cursor-pointer ${
+              activeTab === tab
+                ? "border-accent text-accent"
+                : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            {tab === "overview" ? "Overview" : "Email history"}
+          </button>
+        ))}
+      </div>
+
+      {/* Both tabs stay mounted, toggled with `hidden` rather than an
+          if/else -- unmounting the Overview tab (previously the `else`
+          branch) tore down the CV `<iframe>` every time, forcing a full
+          reload (and losing scroll position) each time the user came back
+          from the Email tab. */}
+      <div className={activeTab === "email" ? undefined : "hidden"}>
+        <CandidateEmailTab
+          campaignAppliedId={candidate.id}
+          candidateName={candidate.name}
+          candidateEmail={candidate.email === "—" ? null : candidate.email}
+        />
+      </div>
+      <div className={activeTab === "overview" ? "flex gap-6 items-start" : "hidden"}>
         {/* Left: CV viewer */}
         <div className="w-5/12 shrink-0 sticky top-6">
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
