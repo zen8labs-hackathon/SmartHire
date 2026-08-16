@@ -51,8 +51,7 @@ const parsedResumeSchema = z.object({
     )
     .describe(
       "Dated jobs from Work Experience / Employment / Internship (Kinh nghiệm làm việc / Thực tập) only. One entry per role. Include internships listed under work history. NEVER include Education / Học vấn / school enrollment or graduation ranges. Empty array if no dated work history exists.",
-    )
-    .default([]),
+    ),
   skills: z.array(z.string()).describe("Concise individual skill tokens, not sentences."),
   degree: z.string().nullable().describe("Degree level, e.g. Bachelor's, Master's."),
   school: z.string().nullable(),
