@@ -101,6 +101,79 @@ body {
   border: 1px solid rgba(20, 47, 33, 0.12);
 }
 
+/*
+ * Styles raw HTML email bodies rendered via dangerouslySetInnerHTML (send
+ * previews, sent-mail logs, thread view). There's no @tailwindcss/typography
+ * plugin in this build, so the `prose` classes historically sprinkled on
+ * these containers are no-ops -- links, lists, and bold text all rendered as
+ * indistinguishable plain text. This gives them real, visible formatting.
+ */
+.email-html-preview a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.email-html-preview strong,
+.email-html-preview b {
+  font-weight: 700;
+}
+
+.email-html-preview em,
+.email-html-preview i {
+  font-style: italic;
+}
+
+.email-html-preview ul,
+.email-html-preview ol {
+  margin-block: 0.5em;
+  padding-inline-start: 1.5em;
+}
+
+.email-html-preview ul {
+  list-style-type: disc;
+}
+
+.email-html-preview ol {
+  list-style-type: decimal;
+}
+
+.email-html-preview p {
+  margin-block: 0.5em;
+}
+
+.email-html-preview p:first-child {
+  margin-top: 0;
+}
+
+.email-html-preview p:last-child {
+  margin-bottom: 0;
+}
+
+.email-html-preview blockquote {
+  margin-block: 0.5em;
+  padding-left: 1em;
+  border-left: 3px solid var(--divider);
+  color: var(--muted);
+}
+
+/* Scoped to `.ProseMirror` (Tiptap's own contenteditable root class, not the
+   shared `.email-html-preview` class used for read-only rendering) so these
+   gridlines only aid table editing in RichTextEditor -- they never appear in
+   an email preview or the actual sent HTML, which may intentionally have no
+   visible table borders. */
+.ProseMirror table {
+  border-collapse: collapse;
+  margin-block: 0.5em;
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  min-width: 1em;
+  border: 1px dashed var(--divider);
+  padding: 4px 6px;
+}
+
 @media (prefers-color-scheme: dark) {
   .bg-grid-pattern {
     background-image:

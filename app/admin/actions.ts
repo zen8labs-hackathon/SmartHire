@@ -23,6 +23,8 @@ import {
   updateUser,
   type ProfileRole,
 } from "@/lib/db/users";
+import { sendSelfNotificationForTrigger } from "@/lib/email/auto-send-for-trigger";
+import { logApiError } from "@/lib/logger";
 
 export type AdminUserFormState = { error?: string; message?: string } | null;
 
@@ -104,7 +106,7 @@ export async function adminAddUser(
   _prev: AdminUserFormState,
   formData: FormData,
 ): Promise<AdminUserFormState> {
-  const { access } = await getRequestAuth();
+  const { user: actingAuthUser, access } = await getRequestAuth();
   if (!access?.isHr) {
     return { error: "Not authorized." };
   }
@@ -165,6 +167,22 @@ export async function adminAddUser(
     return {
       error: `Account was created but ${result.error.charAt(0).toLowerCase()}${result.error.slice(1)}`,
     };
+  }
+
+  try {
+    const actingUser = actingAuthUser
+      ? await getPublicUserById(getPool(), actingAuthUser.id)
+      : null;
+    await sendSelfNotificationForTrigger(getPool(), user, "user_account_created", {
+      name: actingUser?.display_name || actingUser?.username,
+      email: actingUser?.email,
+      phone: actingUser?.phone,
+    });
+  } catch (err) {
+    // Never block account creation on a notification-email failure.
+    logApiError("Failed to send account-created notification", err, {
+      newUserId: user.id,
+    });
   }
 
   revalidatePath("/admin");

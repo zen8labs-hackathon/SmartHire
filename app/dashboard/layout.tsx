@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardLayout } from "@/components/admin/shell/dashboard-layout";
 import { getRequestAuth } from "@/lib/admin/request-auth";
+import { isDevEnv } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function DashboardLayoutWrapper({
       userEmail={user.email ?? ""}
       isHr={access?.isHr === true}
       chapterIds={access?.chapterIds ?? []}
+      isDev={isDevEnv()}
     >
       {children}
     </DashboardLayout>

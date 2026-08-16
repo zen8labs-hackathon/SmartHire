@@ -51,6 +51,7 @@ export type CampaignAppliedAdminRow = {
   cv_student_years: string | null;
   cv_created_at: Date | null;
   job_position: string | null;
+  job_department: string | null;
   stage_code: string | null;
   stage_label: string | null;
   stage_color: string | null;
@@ -124,7 +125,7 @@ const ADMIN_ROW_SELECT = `
   cv.parsing_error AS cv_parsing_error, cv.gpa AS cv_gpa, cv.english_level AS cv_english_level,
   cv.date_of_birth AS cv_date_of_birth, cv.student_years AS cv_student_years,
   cv.created_at AS cv_created_at,
-  j.position AS job_position,
+  j.position AS job_position, j.department AS job_department,
   ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
   pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
 `;
