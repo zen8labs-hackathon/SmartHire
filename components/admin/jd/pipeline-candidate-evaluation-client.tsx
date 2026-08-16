@@ -60,7 +60,11 @@ type InterviewNoteRow = {
 
 function PipelineStageBadge({ candidate }: { candidate: JobPipelineCandidateRow }) {
   if (!candidate.stageLabel || !candidate.subStageLabel) {
-    return <p className="font-semibold text-foreground text-sm">Not started</p>;
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        Not started
+      </span>
+    );
   }
   const surfaceClass = getStageColorClasses(candidate.stageColor, "badge");
   const surfaceStyle = getStageColorStyles(candidate.stageColor, "badge");
@@ -79,14 +83,14 @@ function PipelineStageBadge({ candidate }: { candidate: JobPipelineCandidateRow 
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        "inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
         surfaceClass,
       )}
       style={surfaceStyle}
     >
-      <span className="text-sm text-foreground">{candidate.stageLabel}</span>
-      <span className="mx-1 text-sm text-muted">·</span>
-      <span className={cn("text-sm", detailClass)} style={detailStyle}>
+      <span className="text-foreground">{candidate.stageLabel}</span>
+      <span className="text-muted">·</span>
+      <span className={detailClass} style={detailStyle}>
         {candidate.subStageLabel}
       </span>
     </span>
@@ -499,9 +503,9 @@ export function PipelineCandidateEvaluationClient({
           >
             {canEditProfile ? (
               <div className="flex flex-col gap-3 pt-2">
-                <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                  <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                    Pipeline Status
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
+                    Pipeline
                   </span>
                   <PipelineStageBadge candidate={candidate} />
                 </div>
