@@ -440,9 +440,12 @@ export function PipelineCandidateEvaluationClient({
         {/* Right: Evaluation info */}
         <div className="flex-1 min-w-0 flex flex-col gap-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {candidate.name}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                {candidate.name}
+              </h1>
+              <PipelineStageBadge candidate={candidate} />
+            </div>
             <p className="mt-1 text-sm text-muted font-medium">
               Interview evaluation — {jobTitle}
             </p>
@@ -471,14 +474,7 @@ export function PipelineCandidateEvaluationClient({
             }
           >
             {canEditProfile ? (
-              <div className="flex flex-col gap-3 pt-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted">
-                    Pipeline
-                  </span>
-                  <PipelineStageBadge candidate={candidate} />
-                </div>
-                <CandidateProfileEditSection
+              <CandidateProfileEditSection
                   candidateId={candidate.id}
                   dbRow={dbRow}
                   canEdit={canEditProfile}
@@ -498,7 +494,6 @@ export function PipelineCandidateEvaluationClient({
                     toast.success("Candidate profile updated.");
                   }}
                 />
-              </div>
             ) : (
             <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
@@ -514,18 +509,14 @@ export function PipelineCandidateEvaluationClient({
                 <p className="font-semibold text-foreground text-sm">{candidate.dateOfBirth}</p>
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Pipeline Status</span>
-                <PipelineStageBadge candidate={candidate} />
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
               </div>
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Education</span>
                 <p className="font-semibold text-foreground text-sm">
                   {candidate.studentYears} · {candidate.majorSchool} · GPA {candidate.gpa}
                 </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
-                <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Source</span>
