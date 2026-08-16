@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -10,11 +10,10 @@ import {
   TextArea,
   TextField,
   cn,
-  useOverlayState,
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
-import { EditCandidateModal } from "@/components/admin/jd/jd-pipeline-modals";
+import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { useToast } from "@/components/admin/toast-provider";
 import {
   getStageColorClasses,
@@ -26,6 +25,11 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
+import {
+  campaignAppliedToCandidateDbRow,
+  type CandidateDbRow,
+} from "@/lib/candidates/db-row";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 
 type Props = {
   jobId: string;
@@ -98,7 +102,14 @@ export function PipelineCandidateEvaluationClient({
 }: Props) {
   const router = useRouter();
   const toast = useToast();
-  const editProfileModal = useOverlayState();
+  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    "loading",
+  );
+  const [canEditSalary, setCanEditSalary] = useState(false);
+  const [profileDirty, setProfileDirty] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const profileSaveRef = useRef<(() => void) | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [notesBusy, setNotesBusy] = useState(false);
   const [evalBusy, setEvalBusy] = useState(false);
@@ -111,6 +122,51 @@ export function PipelineCandidateEvaluationClient({
   const [preInterviewSaveBusy, setPreInterviewSaveBusy] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  useEffect(() => {
+    if (!canEditProfile) return;
+    const ac = new AbortController();
+    setDbRow(null);
+    setDbLoadState("loading");
+    setCanEditSalary(false);
+    setProfileDirty(false);
+    setProfileBusy(false);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${candidate.id}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const json = (await res.json()) as {
+          candidate?: unknown;
+          canViewSalary?: boolean;
+        };
+        if (ac.signal.aborted || !json.candidate) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const c =
+          json.candidate &&
+          typeof json.candidate === "object" &&
+          "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(
+                json.candidate as CampaignAppliedAdminRow,
+              )
+            : (json.candidate as CandidateDbRow);
+        setDbRow(c);
+        setCanEditSalary(json.canViewSalary === true);
+        setDbLoadState("ok");
+      } catch {
+        if (!ac.signal.aborted) setDbLoadState("error");
+      }
+    })();
+    return () => ac.abort();
+  }, [candidate.id, canEditProfile]);
 
   const loadLatest = useCallback(async () => {
     try {
@@ -390,20 +446,56 @@ export function PipelineCandidateEvaluationClient({
 
           <SectionCard
             title="Candidate Details"
-            description="Personal profile, academic background, and timeline records."
+            description={
+              canEditProfile
+                ? "Edit personal profile fields. Save when you're done."
+                : "Personal profile, academic background, and timeline records."
+            }
             actions={
               canEditProfile ? (
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   size="sm"
-                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  onPress={() => editProfileModal.open()}
+                  className="h-8 px-3 rounded-lg text-xs font-bold"
+                  isDisabled={!profileDirty || profileBusy}
+                  isPending={profileBusy}
+                  onPress={() => profileSaveRef.current?.()}
                 >
-                  Edit profile
+                  Save
                 </Button>
               ) : null
             }
           >
+            {canEditProfile ? (
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                  <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
+                    Pipeline Status
+                  </span>
+                  <PipelineStageBadge candidate={candidate} />
+                </div>
+                <CandidateProfileEditSection
+                  candidateId={candidate.id}
+                  dbRow={dbRow}
+                  canEdit={canEditProfile}
+                  canEditSalary={canEditSalary}
+                  isPreview={false}
+                  dbLoadState={dbLoadState}
+                  startInEditMode
+                  embedded
+                  hidePipelineAndSource
+                  onDirtyChange={setProfileDirty}
+                  onBusyChange={setProfileBusy}
+                  saveActionRef={profileSaveRef}
+                  onSaved={(saved) => {
+                    setDbRow(saved);
+                    setProfileDirty(false);
+                    router.refresh();
+                    toast.success("Candidate profile updated.");
+                  }}
+                />
+              </div>
+            ) : (
             <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Email</span>
@@ -448,6 +540,7 @@ export function PipelineCandidateEvaluationClient({
                 <p className="font-semibold text-foreground text-sm">{candidate.relatedSkills}</p>
               </div>
             </div>
+            )}
           </SectionCard>
 
           <SectionCard
@@ -678,20 +771,6 @@ export function PipelineCandidateEvaluationClient({
           </Button>
         </div>{/* end right panel */}
       </div>{/* end split row */}
-
-      {canEditProfile ? (
-        <EditCandidateModal
-          isOpen={editProfileModal.isOpen}
-          onOpenChange={editProfileModal.setOpen}
-          row={{ id: candidate.id, name: candidate.name }}
-          canEdit={canEditProfile}
-          onSaved={() => {
-            editProfileModal.close();
-            router.refresh();
-            toast.success("Candidate profile updated.");
-          }}
-        />
-      ) : null}
     </div>
   );
 }
