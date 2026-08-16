@@ -242,6 +242,21 @@ export type CreateJobStageMappingInput = {
   sequenceNumber: number;
 };
 
+/** Parent pipeline_stages.label for a job_stage_mappings row -- used for the `pipeline_stage` email template variable. */
+export async function getPipelineStageLabelForJobStageMapping(
+  db: QueryExecutor,
+  jobStageMappingId: string,
+): Promise<string | null> {
+  const { rows } = await db.query<{ label: string }>(
+    `SELECT ps.label
+     FROM job_stage_mappings jsm
+     JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
+     WHERE jsm.id = $1 AND jsm.deleted_at IS NULL AND ps.deleted_at IS NULL`,
+    [jobStageMappingId],
+  );
+  return rows[0]?.label ?? null;
+}
+
 export async function getJobStageMappingById(
   db: QueryExecutor,
   id: string,
