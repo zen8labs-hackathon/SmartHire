@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { DashboardLayout } from "@/components/admin/shell/dashboard-layout";
 import { getRequestAuth } from "@/lib/admin/request-auth";
 import { hasAdminAccess, hasRolePermission } from "@/lib/authz/can";
+import { isDevEnv } from "@/lib/env";
 
 export default async function AdminLayout({
   children,
@@ -29,6 +30,7 @@ export default async function AdminLayout({
       userEmail={user.email ?? ""}
       isHr={canManage}
       chapterIds={access.chapterIds}
+      isDev={isDevEnv()}
     >
       {children}
     </DashboardLayout>

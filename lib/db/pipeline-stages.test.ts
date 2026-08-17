@@ -6,6 +6,7 @@ import {
   createPipelineSubStage,
   getJobStageMappingById,
   getPipelineStageById,
+  getPipelineStageLabelForJobStageMapping,
   getPipelineSubStageById,
   listJobStageMappings,
   listPipelineStages,
@@ -218,6 +219,21 @@ describe("job_stage_mappings", () => {
       expect.stringContaining("SET deleted_at = now(), updated_at = now()"),
       ["m1"],
     );
+  });
+
+  it("getPipelineStageLabelForJobStageMapping joins to the parent stage's label", async () => {
+    const db = fakeDb([{ label: "Interview" }]);
+    const result = await getPipelineStageLabelForJobStageMapping(db, "m1");
+    expect(result).toBe("Interview");
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id");
+    expect(values).toEqual(["m1"]);
+  });
+
+  it("getPipelineStageLabelForJobStageMapping returns null when no match", async () => {
+    const db = fakeDb([]);
+    const result = await getPipelineStageLabelForJobStageMapping(db, "missing");
+    expect(result).toBeNull();
   });
 });
 
