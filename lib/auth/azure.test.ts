@@ -102,7 +102,7 @@ describe("fetchGraphProfile", () => {
       }),
     );
     const profile = await fetchGraphProfile("token");
-    expect(profile).toEqual({ subjectId: "obj-1", email: "a@b.com" });
+    expect(profile).toEqual({ subjectId: "obj-1", email: "a@b.com", displayName: null });
   });
 
   it("falls back to userPrincipalName when mail is null", async () => {
@@ -114,7 +114,19 @@ describe("fetchGraphProfile", () => {
       }),
     );
     const profile = await fetchGraphProfile("token");
-    expect(profile).toEqual({ subjectId: "obj-1", email: "a@b.com" });
+    expect(profile).toEqual({ subjectId: "obj-1", email: "a@b.com", displayName: null });
+  });
+
+  it("includes displayName when present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: "obj-1", mail: "a@b.com", displayName: "Nguyen Van A" }),
+      }),
+    );
+    const profile = await fetchGraphProfile("token");
+    expect(profile).toEqual({ subjectId: "obj-1", email: "a@b.com", displayName: "Nguyen Van A" });
   });
 
   it("returns null on a non-200 response", async () => {

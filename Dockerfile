@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package*.json ./
-# No package-lock.json in repo yet — use install until a lockfile is committed.
+# `npm ci` fails here: lockfile is generated with npm 11 locally, image uses npm 10.
 RUN npm install
 
 COPY . .

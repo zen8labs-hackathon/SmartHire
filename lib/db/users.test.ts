@@ -66,7 +66,7 @@ describe("getPublicUserById / getPublicUserByEmail", () => {
     await getPublicUserById(db, "u-1");
     const [sql] = db.query.mock.calls[0];
     expect(sql).not.toContain("password_hash");
-    expect(sql).toContain("id, email, username, role, created_at, deleted_at");
+    expect(sql).toContain("id, email, username, role, display_name, phone, created_at, deleted_at");
   });
 
   it("looks up by case-insensitive email", async () => {
@@ -200,8 +200,24 @@ describe("createSsoUser", () => {
 
     expect(result).toEqual(row);
     const [sql, values] = db.query.mock.calls[0];
-    expect(sql).toContain("INSERT INTO users (email, username, role, sso_provider, sso_subject_id)");
-    expect(values).toEqual(["a@b.com", "auser", "hr", "azure_ad", "obj-1"]);
+    expect(sql).toContain(
+      "INSERT INTO users (email, username, role, sso_provider, sso_subject_id, display_name)",
+    );
+    expect(values).toEqual(["a@b.com", "auser", "hr", "azure_ad", "obj-1", null]);
+  });
+
+  it("passes through displayName when provided", async () => {
+    const db = fakeDb([{}]);
+    await createSsoUser(db, {
+      email: "a@b.com",
+      username: "auser",
+      role: "hr",
+      provider: "azure_ad",
+      subjectId: "obj-1",
+      displayName: "Nguyen Van A",
+    });
+    const [, values] = db.query.mock.calls[0];
+    expect(values).toEqual(["a@b.com", "auser", "hr", "azure_ad", "obj-1", "Nguyen Van A"]);
   });
 });
 
@@ -253,7 +269,7 @@ describe("updateUser", () => {
 
     expect(result).toEqual(row);
     expect(db.query).toHaveBeenCalledWith(
-      `SELECT id, email, username, role, created_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT id, email, username, role, display_name, phone, created_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`,
       ["u-1"],
     );
   });
@@ -273,7 +289,20 @@ describe("linkSsoIdentity", () => {
     expect(result).toEqual(row);
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("WHERE lower(email) = lower($3) AND sso_provider IS NULL AND deleted_at IS NULL");
-    expect(values).toEqual(["azure_ad", "obj-1", "A@B.com"]);
+    expect(values).toEqual(["azure_ad", "obj-1", "A@B.com", null]);
+  });
+
+  it("passes through displayName for the COALESCE backfill", async () => {
+    const db = fakeDb([{}]);
+    await linkSsoIdentity(db, {
+      email: "a@b.com",
+      provider: "azure_ad",
+      subjectId: "obj-1",
+      displayName: "Nguyen Van A",
+    });
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("display_name = COALESCE(display_name, $4)");
+    expect(values).toEqual(["azure_ad", "obj-1", "a@b.com", "Nguyen Van A"]);
   });
 
   it("returns null when no row matches", async () => {
