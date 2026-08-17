@@ -101,6 +101,49 @@ export type CandidateProfilePatchInput = z.infer<
   typeof candidateProfilePatchSchema
 >;
 
+/**
+ * Structured conflict payload attached to a 409 from `PATCH .../profile`
+ * when the new email/phone would collide with exactly one *other* existing
+ * candidate -- lets the frontend offer a "merge into this candidate"
+ * confirmation instead of just an inline error. Omitted (the route falls
+ * back to a plain-text error) when 2+ distinct candidates match, since a
+ * merge target must be unambiguous.
+ */
+export type ProfileEditConflict = {
+  candidateId: string;
+  candidateName: string | null;
+  matchedFields: Array<"email" | "phone">;
+  applications: Array<{
+    id: string;
+    jobId: string | null;
+    jobTitle: string | null;
+    stageLabel: string | null;
+    stageColor: string | null;
+    subStageCode: string | null;
+    subStageLabel: string | null;
+    subStageIsPassed: boolean | null;
+    appliedAt: string;
+  }>;
+};
+
+/**
+ * Shared "source=Other requires a non-empty source_other" check used by both
+ * `PATCH .../profile` and `PUT .../resolve-profile-conflict` -- both build
+ * `nextSource`/`nextSourceOther` the same way (patch value falling back to
+ * the current row) before validating.
+ */
+export function validateSourceOther(
+  nextSource: string | null,
+  nextSourceOther: string | null,
+): string | null {
+  if (nextSource !== "Other") return null;
+  const detail = typeof nextSourceOther === "string" ? nextSourceOther.trim() : "";
+  if (!detail) {
+    return "When source is Other, source_other must be a non-empty description (or set source to a fixed channel).";
+  }
+  return null;
+}
+
 export type ProfileMergeFields = {
   name?: string | null;
   role?: string | null;

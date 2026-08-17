@@ -60,6 +60,21 @@ describe("findCandidatesByDedupeSignals", () => {
     expect(values[4]).toBe("app-1");
   });
 
+  it("strips non-digits from candidates.phone before comparing, so raw-formatted DB values still match digit-only phoneVariants", async () => {
+    // `candidates.phone` is written as-typed/as-AI-parsed (may contain
+    // spaces, '+', dashes) at every write path -- it's never normalized on
+    // write. Without stripping it here too, a stored "+84 912 345 678"
+    // would never match the digit-only variants normalizePhoneFromPayload
+    // produces for a freshly-typed "0912345678", even though they're the
+    // same number.
+    const db = fakeDb([]);
+
+    await findCandidatesByDedupeSignals(db, { phoneVariants: ["0912345678"] });
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("regexp_replace(c.phone, '\\D', '', 'g') = ANY($2)");
+  });
+
   it("excludes matches whose job is soft-deleted", async () => {
     const db = fakeDb([]);
 

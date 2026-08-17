@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useOverlayTriggerState } from "react-stately";
 
 import { Button, Modal, Spinner } from "@heroui/react";
@@ -100,33 +101,57 @@ export function CvUploadHistorySubModal({
                 <p className="text-sm text-muted">No JDs found.</p>
               ) : (
                 <div className="space-y-3">
-                  {applications.map((app) => (
-                    <div
-                      key={app.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-divider p-3"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-foreground">
-                            {app.jobTitle}
+                  {applications.map((app) => {
+                    const cardContent = (
+                      <>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground">
+                              {app.jobTitle}
+                            </p>
+                            {app.id === applicationId ? (
+                              <span className="shrink-0 rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-accent">
+                                This upload
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted">
+                            Uploaded {formatDisplayDateTime(app.cvUploadedAt)}
                           </p>
-                          {app.id === applicationId ? (
-                            <span className="shrink-0 rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold uppercase text-accent">
-                              This upload
-                            </span>
-                          ) : null}
                         </div>
-                        <p className="mt-0.5 text-xs text-muted">
-                          Uploaded {formatDisplayDateTime(app.cvUploadedAt)}
-                        </p>
-                      </div>
-                      <PipelineStatusBadge
-                        app={app}
-                        hasJob={app.jobId != null}
-                        className="shrink-0"
-                      />
-                    </div>
-                  ))}
+                        <PipelineStatusBadge
+                          app={app}
+                          hasJob={app.jobId != null}
+                          className="shrink-0"
+                        />
+                      </>
+                    );
+
+                    // Unassigned/pool applications have no job, so there's no
+                    // evaluation page to link to -- render as a plain, inert card.
+                    if (app.jobId == null) {
+                      return (
+                        <div
+                          key={app.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-divider p-3"
+                        >
+                          {cardContent}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <Link
+                        key={app.id}
+                        href={`/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between gap-3 rounded-xl border border-divider p-3 transition-colors hover:border-accent/40 hover:bg-muted/10"
+                      >
+                        {cardContent}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </Modal.Body>

@@ -28,8 +28,11 @@ import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 import {
   type CandidateProfileFormSnapshot,
+  type ProfileEditConflict,
   diffProfileSnapshotsToPatch,
 } from "@/lib/candidates/candidate-profile-patch";
+import { MergeConflictingCandidateModal } from "@/components/admin/candidates/merge-conflicting-candidate-modal";
+import { useToast } from "@/components/admin/toast-provider";
 import {
   CANDIDATE_SOURCE_VALUES,
   isCandidateSource,
@@ -55,6 +58,19 @@ export type CandidateProfileEditSectionProps = {
   isPreview: boolean;
   dbLoadState: "loading" | "error" | "ok";
   onSaved: (candidate: CandidateDbRow) => void;
+  /**
+   * Called instead of `onSaved` when a profile-edit conflict was resolved by
+   * merging into another candidate's application (see
+   * `resolve-profile-conflict`) *and* that merge folded this application
+   * into a different, pre-existing `campaign_applied` row -- i.e. the id
+   * this section was opened with no longer refers to anything. Callers that
+   * key navigation off `candidateId` (a campaign_applied id) need to know to
+   * redirect. Falls back to `onSaved` when omitted.
+   */
+  onCandidateIdChanged?: (
+    newCampaignAppliedId: string,
+    candidate: CandidateDbRow,
+  ) => void;
   /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
   startInEditMode?: boolean;
   /**
@@ -181,6 +197,7 @@ export function CandidateProfileEditSection({
   isPreview,
   dbLoadState,
   onSaved,
+  onCandidateIdChanged,
   startInEditMode = false,
   hidePipelineAndSource = false,
   onCancel,
@@ -189,6 +206,7 @@ export function CandidateProfileEditSection({
   onBusyChange,
   saveActionRef,
 }: CandidateProfileEditSectionProps) {
+  const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [baseline, setBaseline] = useState<CandidateProfileFormSnapshot | null>(
     null,
@@ -210,6 +228,9 @@ export function CandidateProfileEditSection({
   const [changeSummary, setChangeSummary] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<ProfileEditConflict | null>(null);
+  const [mergeSubmitting, setMergeSubmitting] = useState(false);
+  const pendingPatchBodyRef = useRef<Record<string, unknown> | null>(null);
   const prevCandidateIdRef = useRef<string | null>(null);
   const prevDbRowRef = useRef<CandidateDbRow | null>(null);
 
@@ -440,19 +461,34 @@ export function CandidateProfileEditSection({
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
+            conflict?: ProfileEditConflict;
           };
-          const raw = body.error ?? "Could not save profile.";
-          if (
-            res.status === 409 &&
-            typeof raw === "string" &&
-            raw.toLowerCase().includes("archived")
-          ) {
-            setError(
-              "This profile was archived (superseded by a newer CV upload). Refresh the candidate list and open the active row to edit.",
-            );
-          } else {
-            setError(raw);
+          if (res.status === 409 && body.conflict) {
+            // Offer a merge instead of a dead-end error -- keep the exact
+            // patch body so confirmMerge() can resend it unchanged.
+            pendingPatchBodyRef.current = patchBody;
+            setConflict(body.conflict);
+            return;
           }
+          const raw = body.error ?? "Could not save profile.";
+          if (res.status === 409) {
+            // Every 409 from this route is a contact-info conflict --
+            // either an archived-profile race, an ambiguous match against
+            // 2+ other candidates (no single merge target), or a rare
+            // write-time unique-constraint race. None of these leave
+            // anything for the user to fix inline on this form, so surface
+            // as a toast instead of a persistent inline warning; the modal
+            // above already handles the common single-match case.
+            if (typeof raw === "string" && raw.toLowerCase().includes("archived")) {
+              toast.error(
+                "This profile was archived (superseded by a newer CV upload). Refresh the candidate list and open the active row to edit.",
+              );
+            } else {
+              toast.error(raw);
+            }
+            return;
+          }
+          setError(raw);
           return;
         }
         const json = (await res.json()) as { candidate?: unknown };
@@ -529,6 +565,81 @@ export function CandidateProfileEditSection({
     stageBaseline,
     stageDraft,
     startInEditMode,
+    toast,
+  ]);
+
+  const confirmMerge = useCallback(async () => {
+    if (!conflict || !pendingPatchBodyRef.current) return;
+    setMergeSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/candidates/${candidateId}/resolve-profile-conflict`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetCandidateId: conflict.candidateId,
+            patch: pendingPatchBodyRef.current,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setConflict(null);
+        toast.error(body.error ?? "Could not merge candidates.");
+        return;
+      }
+      const json = (await res.json()) as {
+        candidate?: unknown;
+        survivingCampaignAppliedId?: string;
+        applicationIdChanged?: boolean;
+      };
+      if (!json.candidate || typeof json.candidate !== "object") {
+        setConflict(null);
+        toast.error("Merge succeeded but response was incomplete.");
+        return;
+      }
+      const savedCandidate =
+        "candidate_id" in json.candidate
+          ? campaignAppliedToCandidateDbRow(json.candidate as CampaignAppliedAdminRow)
+          : (json.candidate as CandidateDbRow);
+
+      setConflict(null);
+      pendingPatchBodyRef.current = null;
+      setChangeSummary("");
+      if (json.applicationIdChanged && json.survivingCampaignAppliedId) {
+        if (onCandidateIdChanged) {
+          onCandidateIdChanged(json.survivingCampaignAppliedId, savedCandidate);
+        } else {
+          onSaved(savedCandidate);
+        }
+      } else {
+        onSaved(savedCandidate);
+      }
+      if (!startInEditMode) {
+        setEditing(false);
+        setBaseline(null);
+        setSkillInput("");
+        setStageBaseline(null);
+        setStageDraft(null);
+      }
+    } catch {
+      setConflict(null);
+      toast.error("Could not merge candidates.");
+    } finally {
+      setMergeSubmitting(false);
+    }
+  }, [
+    candidateId,
+    conflict,
+    onCandidateIdChanged,
+    onSaved,
+    startInEditMode,
+    toast,
   ]);
 
   const isDirty = useMemo(() => {
@@ -959,6 +1070,18 @@ export function CandidateProfileEditSection({
           </p>
         ) : null}
         {formFields}
+        {conflict ? (
+          <MergeConflictingCandidateModal
+            open
+            onOpenChange={(o) => {
+              if (!o) setConflict(null);
+            }}
+            conflict={conflict}
+            isSubmitting={mergeSubmitting}
+            onMerge={confirmMerge}
+            onCancel={() => setConflict(null)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -966,6 +1089,18 @@ export function CandidateProfileEditSection({
   return (
     <Card className="overflow-hidden border border-divider bg-background shadow-sm">
       <Card.Content className="flex flex-col gap-0 p-0">
+        {conflict ? (
+          <MergeConflictingCandidateModal
+            open
+            onOpenChange={(o) => {
+              if (!o) setConflict(null);
+            }}
+            conflict={conflict}
+            isSubmitting={mergeSubmitting}
+            onMerge={confirmMerge}
+            onCancel={() => setConflict(null)}
+          />
+        ) : null}
         {!editing ? (
           <div className="px-4 py-4 sm:px-6 sm:py-5">
             <div className="flex flex-wrap items-center gap-2">
