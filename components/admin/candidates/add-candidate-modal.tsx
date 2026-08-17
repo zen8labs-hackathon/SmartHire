@@ -1315,8 +1315,8 @@ export function AddCandidateModal({
                     </p>
                   </div>
                 ) : null}
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-start">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-stretch">
+                  <div className="flex flex-col gap-3">
                     <div>
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Target campaign
@@ -1428,27 +1428,27 @@ export function AddCandidateModal({
                         </TextField>
                       ) : null}
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="flex items-center gap-2 text-sm text-foreground">
-                      <input
-                        type="checkbox"
-                        className="size-4 shrink-0 cursor-pointer rounded border-divider accent-accent"
-                        checked={runJdMatchOnUpload}
-                        onChange={(e) =>
-                          setRunJdMatchOnUpload(e.target.checked)
-                        }
-                      />
-                      Run AI JD-match scoring
-                    </label>
-                    <p className="mt-1 text-xs text-muted">
-                      Runs after parsing for every CV in this session.
-                    </p>
+                    <div>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          className="size-4 shrink-0 cursor-pointer rounded border-divider accent-accent"
+                          checked={runJdMatchOnUpload}
+                          onChange={(e) =>
+                            setRunJdMatchOnUpload(e.target.checked)
+                          }
+                        />
+                        Run AI JD-match scoring
+                      </label>
+                      <p className="mt-1 text-xs text-muted">
+                        Runs after parsing for every CV in this session.
+                      </p>
+                    </div>
                   </div>
 
                   <div
-                    className={`flex flex-col gap-2 rounded-xl border-2 border-dashed px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                    className={`flex h-full min-h-0 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-4 ${
                       isUploadDisabled
                         ? "border-divider bg-content2/20 opacity-50"
                         : dragOver
@@ -1474,7 +1474,7 @@ export function AddCandidateModal({
                       void handleFiles(e.dataTransfer.files);
                     }}
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 text-center">
                       <p className="text-sm font-semibold text-foreground">
                         {isCampaignMissing && isJdPipeline
                           ? "Select a target campaign first"
