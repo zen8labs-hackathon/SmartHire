@@ -440,6 +440,18 @@ export function AddCandidateModal({
    * doesn't have an application in this job yet, so the freshly-created
    * application is repointed onto their existing identity, becoming a new
    * CV for this job. Errors leave the row flagged in the queue.
+   *
+   * A same-job hit is only trusted when it's *also* the best-matched
+   * candidate overall. `cv_file`/`cv_content` hash hits can be stale: when
+   * an HR-confirmed identity merge (`resolveProfileConflict`) folds one
+   * person's CV into a different candidate's application, that application
+   * inherits the original file's hash going forward (deliberately -- it's
+   * now genuinely the CV on file for that application). A *later*,
+   * unrelated re-upload of that same physical file for its original owner
+   * then hash-matches the merge target's same-job application even though
+   * email/phone clearly point elsewhere -- an identity signal must win over
+   * a same-job hash-only signal, or the new upload silently attaches to the
+   * wrong person.
    */
   const autoResolveDuplicate = useCallback(
     async (
@@ -464,13 +476,24 @@ export function AddCandidateModal({
       }
       setResolvingDuplicateRowIds((prev) => new Set(prev).add(rowId));
       try {
-        const sameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
+        const isIdentityMatch = (matchedOn: DuplicateCandidateHit["matchedOn"]) =>
+          matchedOn === "email" || matchedOn === "phone" || matchedOn === "email_or_phone";
+        const identityHit = hits.find((h) => isIdentityMatch(h.matchedOn));
+        const rawSameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
+        const sameJobHit =
+          rawSameJobHit &&
+          (!identityHit ||
+            isIdentityMatch(rawSameJobHit.matchedOn) ||
+            identityHit.candidateId === rawSameJobHit.candidateId)
+            ? rawSameJobHit
+            : undefined;
+        const bestHit = identityHit ?? hits[0];
 
         if (!sameJobHit) {
           // Cross-job duplicate: keep this application (it's for a different
           // job), but repoint it onto the existing person instead of leaving
           // it under the throwaway blank candidate created for it.
-          const existingCandidateId = hits[0]?.candidateId;
+          const existingCandidateId = bestHit?.candidateId;
           if (existingCandidateId) {
             const linkRes = await fetch(
               `/api/admin/candidates/${candidateId}/link-to-candidate`,

@@ -524,6 +524,17 @@ export function PipelineCandidateEvaluationClient({
                     router.refresh();
                     toast.success("Candidate profile updated.");
                   }}
+                  onCandidateIdChanged={(newCampaignAppliedId) => {
+                    // Merging moved this profile onto a different candidate's
+                    // application -- `candidate.id` (this page's own URL param) no
+                    // longer refers to a live application, so refreshing in place
+                    // would just 404. Navigate to the surviving application's own
+                    // evaluation page instead.
+                    toast.success(
+                      "Candidate profile updated (merged with an existing candidate).",
+                    );
+                    router.push(`/admin/jd/${jobId}/pipeline/${newCampaignAppliedId}/evaluation`);
+                  }}
                 />
             ) : (
             <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">

@@ -1,11 +1,13 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { canViewSalary } from "@/lib/authz/can";
 import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
 
-import { mergeDuplicateApplicationIntoExisting } from "@/lib/candidates/merge-duplicate-application";
+import { resolveProfileConflict } from "@/lib/candidates/resolve-profile-conflict";
+import { candidateProfilePatchSchema } from "@/lib/candidates/candidate-profile-patch";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
-import { getPool, withTransaction } from "@/lib/db/config/client";
+import { getPool } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 const UUID_RE =
@@ -15,26 +17,32 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 const bodySchema = z
   .object({
-    newCandidateId: z.string().regex(UUID_RE),
-    matchedOn: z
-      .enum(["email", "phone", "email_or_phone", "cv_content", "cv_file"])
-      .optional(),
+    targetCandidateId: z.string().regex(UUID_RE),
+    patch: candidateProfilePatchSchema,
   })
   .strict();
 
+/**
+ * Confirms a merge offered by `PATCH .../profile`'s 409 conflict response:
+ * HR is telling us the application at `[id]` actually belongs to
+ * `targetCandidateId`, not the candidate it's currently under. Moves just
+ * that one application onto the target candidate and applies the rest of
+ * the pending edit in the same transaction -- see
+ * `lib/candidates/resolve-profile-conflict.ts` for the actual logic.
+ */
 export async function PUT(request: Request, { params }: RouteContext) {
   const auth = await requireStaffForRequest(request);
   if (!auth.ok) return auth.response;
 
-  const { id: existingCampaignAppliedId } = await params;
-  if (!existingCampaignAppliedId || !UUID_RE.test(existingCampaignAppliedId)) {
-    return Response.json({ error: "Invalid candidate id." }, { status: 400 });
+  const { id: editedCampaignAppliedId } = await params;
+  if (!editedCampaignAppliedId || !UUID_RE.test(editedCampaignAppliedId)) {
+    return Response.json({ error: "Not found." }, { status: 404 });
   }
 
   const manageAccess = await requirePermissionForApplication(
     auth.access,
     "candidate.manage",
-    existingCampaignAppliedId,
+    editedCampaignAppliedId,
   );
   if (!manageAccess.ok) return manageAccess.response;
 
@@ -52,30 +60,32 @@ export async function PUT(request: Request, { params }: RouteContext) {
       { status: 400 },
     );
   }
-  const { newCandidateId: newCampaignAppliedId, matchedOn } = parsed.data;
-  if (newCampaignAppliedId === existingCampaignAppliedId) {
-    return Response.json(
-      { error: "newCandidateId must differ from the existing candidate id." },
-      { status: 400 },
+  const { targetCandidateId, patch } = parsed.data;
+
+  if (patch.expected_salary !== undefined) {
+    const allowed = await canViewSalary(
+      getPool(),
+      auth.access,
+      manageAccess.application.job_id,
     );
+    if (!allowed) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   try {
-    const result = await withTransaction((tx) =>
-      mergeDuplicateApplicationIntoExisting(
-        tx,
-        existingCampaignAppliedId,
-        newCampaignAppliedId,
-        matchedOn ?? null,
-        auth.userId,
-      ),
-    );
+    const result = await resolveProfileConflict({
+      editedCampaignAppliedId,
+      targetCandidateId,
+      patch,
+      createdBy: auth.userId,
+    });
     if (!result.ok) {
       return Response.json({ error: result.error }, { status: result.status });
     }
 
     const db = getPool();
-    const enriched = await getCampaignAppliedAdminRowById(db, existingCampaignAppliedId);
+    const enriched = await getCampaignAppliedAdminRowById(db, result.survivingCampaignAppliedId);
     if (!enriched) {
       return Response.json(
         { error: "Could not load updated candidate." },
@@ -85,13 +95,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
     return Response.json({
       candidate: await redactAdminRowSalaryForAccess(db, auth.access, enriched),
+      survivingCampaignAppliedId: result.survivingCampaignAppliedId,
+      applicationIdChanged: result.survivingCampaignAppliedId !== editedCampaignAppliedId,
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
       return Response.json(
         {
           error:
-            "This CV's email or phone number already belongs to another candidate profile. Refresh and check for duplicates before retrying.",
+            "Another candidate already uses this email or phone number. Use different contact info.",
         },
         { status: 409 },
       );

@@ -16,6 +16,7 @@ import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
+import { ReassignCvVersionModal } from "@/components/admin/candidates/reassign-cv-version-modal";
 import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import {
@@ -98,6 +99,8 @@ export function CandidateDetailClient({ candidate }: Props) {
 
   const [selectedVersion, setSelectedVersion] =
     useState<SelectedVersion | null>(null);
+
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
 
   const loadApplications = useCallback(async () => {
     if (applicationsFetchedRef.current) return;
@@ -394,6 +397,18 @@ export function CandidateDetailClient({ candidate }: Props) {
                 router.refresh();
                 toast.success("Candidate profile updated.");
               }}
+              onCandidateIdChanged={(newCampaignAppliedId, saved) => {
+                setDbRow(saved);
+                setProfileDirty(false);
+                toast.success(
+                  "Candidate profile updated (merged with an existing candidate).",
+                );
+                // The edited application no longer exists under this id --
+                // it was folded into an existing application belonging to
+                // the matched candidate. Navigate there instead of trying
+                // to keep rendering this now-gone campaign_applied id.
+                router.replace(`/admin/candidate-detail/${newCampaignAppliedId}`);
+              }}
             />
           </SectionCard>
 
@@ -617,7 +632,7 @@ export function CandidateDetailClient({ candidate }: Props) {
             </div>
           </SectionCard>
 
-          <div>
+          <div className="flex items-center justify-between gap-3">
             <Button
               variant="secondary"
               className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
@@ -625,10 +640,34 @@ export function CandidateDetailClient({ candidate }: Props) {
             >
               Back to candidates
             </Button>
+            <Button
+              variant="tertiary"
+              className="h-8 px-3 rounded-lg text-xs font-bold text-muted"
+              onPress={() => setReassignModalOpen(true)}
+            >
+              Wrong CV on this candidate?
+            </Button>
           </div>
         </div>
       </div>
 
+      <ReassignCvVersionModal
+        open={reassignModalOpen}
+        onOpenChange={setReassignModalOpen}
+        sourceCampaignAppliedId={candidate.id}
+        onReassigned={() => {
+          // A plain `router.refresh()` + `refreshAppVersions` isn't enough
+          // here: the CV preview iframe re-navigates only when the `cvUrl`
+          // it computes changes, and reassigning doesn't change that string
+          // (same application id, no versionId param either way) even
+          // though the *active* CV behind it just changed on the backend --
+          // it would keep showing the stale (misattributed) file. This is a
+          // rare, deliberate admin action, not a hot path, so a full reload
+          // is the simplest way to guarantee every panel (iframe, profile,
+          // version list) reflects the new state.
+          window.location.reload();
+        }}
+      />
     </div>
   );
 }
