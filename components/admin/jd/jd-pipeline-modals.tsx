@@ -534,6 +534,15 @@ type EditCandidateModalProps = {
   row: { id: string; name: string } | null;
   canEdit: boolean;
   onSaved: () => void;
+  /** Forwarded to `CandidateProfileEditSection` -- see its docstring. Called
+   * instead of `onSaved` when a profile-edit conflict was resolved by
+   * merging into a *different* candidate's application (so `row.id` no
+   * longer refers to a live application -- the caller must navigate rather
+   * than just refresh in place). Falls back to `onSaved` when omitted. */
+  onCandidateIdChanged?: (
+    newCampaignAppliedId: string,
+    candidate: CandidateDbRow,
+  ) => void;
   /** Forwarded to `CandidateProfileEditSection` -- see its docstring. */
   hidePipelineAndSource?: boolean;
 };
@@ -544,6 +553,7 @@ export function EditCandidateModal({
   row,
   canEdit,
   onSaved,
+  onCandidateIdChanged,
   hidePipelineAndSource,
 }: EditCandidateModalProps) {
   const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
@@ -619,6 +629,7 @@ export function EditCandidateModal({
                   dbLoadState={dbLoadState}
                   startInEditMode
                   onSaved={onSaved}
+                  onCandidateIdChanged={onCandidateIdChanged ?? (() => onSaved())}
                   hidePipelineAndSource={hidePipelineAndSource}
                   onCancel={() => onOpenChange(false)}
                 />
