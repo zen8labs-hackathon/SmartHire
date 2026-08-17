@@ -23,6 +23,7 @@ import type {
 } from "@/lib/candidates/db-row";
 import type {
   DuplicateCandidateHit,
+  DuplicateMatchedOn,
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
@@ -87,6 +88,17 @@ type QueueRow = {
    * "still working, N seconds in" instead of an indistinguishable stuck
    * "Scanning" with no sense of how long it's actually been. */
   processingStartedAt?: number;
+  /**
+   * True when dedupe found an existing person by email and/or phone (CV
+   * bytes/content may differ). Drives the Exists column + amber row highlight
+   * so recruiters see "this candidate is already in the system" after parse.
+   */
+  existsByContact?: boolean;
+  /** Which contact signal(s) triggered `existsByContact`, for the Exists chip. */
+  existsMatchedOn?: Extract<
+    DuplicateMatchedOn,
+    "email" | "phone" | "email_or_phone"
+  >;
 };
 
 type CommitAndProcessResult = {
@@ -119,6 +131,30 @@ function formatBytes(n: number) {
 function dash(v: string | null | undefined): string {
   if (v == null || v.trim() === "") return "—";
   return v;
+}
+
+/** Contact-only duplicate (not file/content hash): person already in system. */
+function contactExistsMatchedOn(
+  hits: DuplicateCandidateHit[],
+): Extract<DuplicateMatchedOn, "email" | "phone" | "email_or_phone"> | null {
+  for (const hit of hits) {
+    if (
+      hit.matchedOn === "email" ||
+      hit.matchedOn === "phone" ||
+      hit.matchedOn === "email_or_phone"
+    ) {
+      return hit.matchedOn;
+    }
+  }
+  return null;
+}
+
+function existsChipLabel(
+  matchedOn: Extract<DuplicateMatchedOn, "email" | "phone" | "email_or_phone">,
+): string {
+  if (matchedOn === "email") return "Email";
+  if (matchedOn === "phone") return "Phone";
+  return "Email · Phone";
 }
 
 /** Caps how many `/process` calls (AI resume parsing + JD-match, both LLM
@@ -429,6 +465,20 @@ export function AddCandidateModal({
       hits: DuplicateCandidateHit[],
     ) => {
       if (hits.length === 0) return;
+      const existsMatchedOn = contactExistsMatchedOn(hits);
+      if (existsMatchedOn) {
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  existsByContact: true,
+                  existsMatchedOn,
+                }
+              : r,
+          ),
+        );
+      }
       setResolvingDuplicateRowIds((prev) => new Set(prev).add(rowId));
       try {
         const sameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
@@ -1479,7 +1529,8 @@ export function AddCandidateModal({
                         finish uploading. Duplicates are resolved automatically:
                         matched against an existing person, a CV becomes a new
                         version for this job if they already applied here, or a
-                        new application if they haven't.
+                        new application if they haven't. Rows matched by email or
+                        phone show Exists and are highlighted.
                       </p>
                     </div>
                   </div>
@@ -1591,6 +1642,7 @@ export function AddCandidateModal({
                                 <Table.Column>Name</Table.Column>
                                 <Table.Column>Email</Table.Column>
                                 <Table.Column>Phone</Table.Column>
+                                <Table.Column>Exists</Table.Column>
                                 <Table.Column>Status</Table.Column>
                                 <Table.Column>Actions</Table.Column>
                               </Table.Header>
@@ -1598,7 +1650,7 @@ export function AddCandidateModal({
                                 {queue.length === 0 ? (
                                   <Table.Row id="empty">
                                     <Table.Cell
-                                      colSpan={6}
+                                      colSpan={7}
                                       className="text-center text-sm text-muted"
                                     >
                                       No files in this session yet.
@@ -1642,7 +1694,15 @@ export function AddCandidateModal({
                                           }
                                         : baseChip;
                                     return (
-                                      <Table.Row key={row.rowId} id={row.rowId}>
+                                      <Table.Row
+                                        key={row.rowId}
+                                        id={row.rowId}
+                                        className={
+                                          row.existsByContact
+                                            ? "bg-amber-500/10"
+                                            : undefined
+                                        }
+                                      >
                                         <Table.Cell
                                           ref={(
                                             el: HTMLTableCellElement | null,
@@ -1688,6 +1748,26 @@ export function AddCandidateModal({
                                         </Table.Cell>
                                         <Table.Cell className="text-sm text-muted">
                                           {dash(row.prefillPhone)}
+                                        </Table.Cell>
+                                        <Table.Cell>
+                                          {row.existsByContact &&
+                                          row.existsMatchedOn ? (
+                                            <Chip
+                                              size="sm"
+                                              variant="soft"
+                                              color="warning"
+                                              className="text-[10px] font-bold uppercase"
+                                              title="Matching email or phone already exists in the system"
+                                            >
+                                              {existsChipLabel(
+                                                row.existsMatchedOn,
+                                              )}
+                                            </Chip>
+                                          ) : (
+                                            <span className="text-sm text-muted">
+                                              —
+                                            </span>
+                                          )}
                                         </Table.Cell>
                                         <Table.Cell>
                                           <Chip
