@@ -144,14 +144,6 @@ function contactExistsMatchedOn(
   return null;
 }
 
-function existsChipLabel(
-  matchedOn: Extract<DuplicateMatchedOn, "email" | "phone" | "email_or_phone">,
-): string {
-  if (matchedOn === "email") return "Email";
-  if (matchedOn === "phone") return "Phone";
-  return "Email · Phone";
-}
-
 /** Caps how many `/process` calls (AI resume parsing + JD-match, both LLM
  * calls) run at once. Every CV now auto-triggers processing the moment its
  * upload finishes with no manual per-row/bulk confirm step to naturally
@@ -1507,7 +1499,7 @@ export function AddCandidateModal({
                         matched against an existing person, a CV becomes a new
                         version for this job if they already applied here, or a
                         new application if they haven't. Rows matched by email or
-                        phone show Exists and are highlighted.
+                        phone show Exists = Yes and are highlighted.
                       </p>
                     </div>
                   </div>
@@ -1650,15 +1642,22 @@ export function AddCandidateModal({
                                           color: "default",
                                         } as const)
                                       : statusChip(row);
+                                    const existsRowClass = row.existsByContact
+                                      ? "bg-amber-500/15"
+                                      : undefined;
+                                    const existsMatchTitle =
+                                      row.existsMatchedOn === "email"
+                                        ? "Matching email already exists in the system"
+                                        : row.existsMatchedOn === "phone"
+                                          ? "Matching phone already exists in the system"
+                                          : row.existsMatchedOn ===
+                                              "email_or_phone"
+                                            ? "Matching email and phone already exist in the system"
+                                            : undefined;
                                     return (
                                       <Table.Row
                                         key={row.rowId}
                                         id={row.rowId}
-                                        className={
-                                          row.existsByContact
-                                            ? "bg-amber-500/10"
-                                            : undefined
-                                        }
                                       >
                                         <Table.Cell
                                           ref={(
@@ -1668,19 +1667,36 @@ export function AddCandidateModal({
                                             // forward a plain `ref` prop to its rendered
                                             // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
                                             // forward it, so anchor here and walk up.
+                                            // Also paint the row highlight on the `<tr>`
+                                            // here: Row `className` is unreliable for
+                                            // background, while the cell ref always sees
+                                            // the live DOM node.
                                             const tr =
                                               el?.closest("tr") ?? null;
-                                            if (tr)
+                                            if (tr) {
                                               rowElRefs.current.set(
                                                 row.rowId,
                                                 tr,
                                               );
-                                            else
+                                              tr.classList.toggle(
+                                                "bg-amber-500/15",
+                                                Boolean(row.existsByContact),
+                                              );
+                                              tr.style.boxShadow =
+                                                row.existsByContact
+                                                  ? "inset 4px 0 0 0 rgb(245 158 11)"
+                                                  : "";
+                                            } else
                                               rowElRefs.current.delete(
                                                 row.rowId,
                                               );
                                           }}
-                                          className="max-w-[200px]"
+                                          className={[
+                                            "max-w-[200px]",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
                                         >
                                           <div className="flex items-center gap-3">
                                             <FileIcon className="size-8 shrink-0 text-muted" />
@@ -1697,36 +1713,58 @@ export function AddCandidateModal({
                                             </div>
                                           </div>
                                         </Table.Cell>
-                                        <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
+                                        <Table.Cell
+                                          className={[
+                                            "max-w-[160px] truncate text-sm text-foreground",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillName)}
                                         </Table.Cell>
-                                        <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
+                                        <Table.Cell
+                                          className={[
+                                            "max-w-[200px] truncate text-sm text-muted",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillEmail)}
                                         </Table.Cell>
-                                        <Table.Cell className="text-sm text-muted">
+                                        <Table.Cell
+                                          className={[
+                                            "text-sm text-muted",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillPhone)}
                                         </Table.Cell>
-                                        <Table.Cell>
-                                          {row.existsByContact &&
-                                          row.existsMatchedOn ? (
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
+                                          {row.existsByContact ? (
                                             <Chip
                                               size="sm"
                                               variant="soft"
                                               color="warning"
                                               className="text-[10px] font-bold uppercase"
-                                              title="Matching email or phone already exists in the system"
+                                              title={existsMatchTitle}
                                             >
-                                              {existsChipLabel(
-                                                row.existsMatchedOn,
-                                              )}
+                                              Yes
                                             </Chip>
                                           ) : (
                                             <span className="text-sm text-muted">
-                                              —
+                                              No
                                             </span>
                                           )}
                                         </Table.Cell>
-                                        <Table.Cell>
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
                                           <Chip
                                             size="sm"
                                             variant="soft"
@@ -1737,7 +1775,9 @@ export function AddCandidateModal({
                                           </Chip>
                                         </Table.Cell>
 
-                                        <Table.Cell>
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
                                           {(() => {
                                             const historyId =
                                               row.mergedApplicationId ??
