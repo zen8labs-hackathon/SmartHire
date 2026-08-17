@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { linkApplicationToExistingCandidate } from "@/lib/candidates/merge-duplicate-application";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
-import { getPool } from "@/lib/db/config/client";
+import { getPool, withTransaction } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 const UUID_RE =
@@ -59,9 +59,8 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const { existingCandidateId } = parsed.data;
 
   try {
-    const result = await linkApplicationToExistingCandidate(
-      newCampaignAppliedId,
-      existingCandidateId,
+    const result = await withTransaction((tx) =>
+      linkApplicationToExistingCandidate(tx, newCampaignAppliedId, existingCandidateId),
     );
     if (!result.ok) {
       return Response.json({ error: result.error }, { status: result.status });

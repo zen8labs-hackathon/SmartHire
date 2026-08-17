@@ -15,6 +15,7 @@ import {
 import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
+import { ReassignCvVersionModal } from "@/components/admin/candidates/reassign-cv-version-modal";
 import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import {
@@ -97,6 +98,8 @@ export function CandidateDetailClient({ candidate }: Props) {
 
   const [selectedVersion, setSelectedVersion] =
     useState<SelectedVersion | null>(null);
+
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
 
   const loadApplications = useCallback(async () => {
     if (applicationsFetchedRef.current) return;
@@ -353,6 +356,12 @@ export function CandidateDetailClient({ candidate }: Props) {
               startInEditMode
               embedded
               hidePipelineAndSource
+              // A profile-edit conflict here must be fixed by changing the
+              // contact info, not by merging into another candidate --
+              // that's a deliberate, cross-candidate action reserved for the
+              // "Wrong CV on this candidate?" recovery tool below, so
+              // `onCandidateIdChanged` is unreachable and omitted.
+              allowProfileConflictMerge={false}
               onDirtyChange={setProfileDirty}
               onBusyChange={setProfileBusy}
               saveActionRef={profileSaveRef}
@@ -586,7 +595,7 @@ export function CandidateDetailClient({ candidate }: Props) {
             </div>
           </SectionCard>
 
-          <div>
+          <div className="flex items-center justify-between gap-3">
             <Button
               variant="secondary"
               className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
@@ -594,10 +603,42 @@ export function CandidateDetailClient({ candidate }: Props) {
             >
               Back to candidates
             </Button>
+            <Button
+              variant="tertiary"
+              className="h-8 px-3 rounded-lg text-xs font-bold text-muted"
+              onPress={() => setReassignModalOpen(true)}
+            >
+              Wrong CV on this candidate?
+            </Button>
           </div>
         </div>
       </div>
 
+      <ReassignCvVersionModal
+        open={reassignModalOpen}
+        onOpenChange={setReassignModalOpen}
+        sourceCampaignAppliedId={candidate.id}
+        onReassigned={(sourceApplicationDeleted) => {
+          if (sourceApplicationDeleted) {
+            // This application had no CV of its own to roll back to, so it
+            // (and its candidate, if orphaned) was deleted outright --
+            // `candidate.id` no longer refers to anything. Reloading in
+            // place would just 404.
+            router.push("/admin/candidates");
+            return;
+          }
+          // A plain `router.refresh()` + `refreshAppVersions` isn't enough
+          // here: the CV preview iframe re-navigates only when the `cvUrl`
+          // it computes changes, and reassigning doesn't change that string
+          // (same application id, no versionId param either way) even
+          // though the *active* CV behind it just changed on the backend --
+          // it would keep showing the stale (misattributed) file. This is a
+          // rare, deliberate admin action, not a hot path, so a full reload
+          // is the simplest way to guarantee every panel (iframe, profile,
+          // version list) reflects the new state.
+          window.location.reload();
+        }}
+      />
     </div>
   );
 }
