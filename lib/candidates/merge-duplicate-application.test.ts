@@ -68,6 +68,17 @@ class FakeTx {
       const row = this.cvVersions.get(values[0] as string);
       return { rows: row ? [{ ...row }] : [] };
     }
+    if (
+      sql.startsWith(
+        "SELECT * FROM cv_detail_versions WHERE campaign_applied_id = $1 ORDER BY version_number DESC",
+      )
+    ) {
+      const campaignAppliedId = values[0] as string;
+      const rows = [...this.cvVersions.values()]
+        .filter((v) => v.campaign_applied_id === campaignAppliedId)
+        .sort((a, b) => (b.version_number as number) - (a.version_number as number));
+      return { rows: rows.map((r) => ({ ...r })) };
+    }
     if (sql.startsWith("SELECT id FROM campaign_applied WHERE id = $1 FOR UPDATE")) {
       const row = this.campaignApplied.get(values[0] as string);
       return { rows: row ? [{ id: row.id }] : [] };
@@ -211,6 +222,7 @@ describe("mergeDuplicateApplicationIntoExisting", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.duplicateApplicationDeleted).toBe(true);
     expect(fakeTx.cvVersions.get(result.mergedCvVersionId)?.source_event).toBe(
       "file_replaced",
     );
@@ -219,6 +231,64 @@ describe("mergeDuplicateApplicationIntoExisting", () => {
     expect(fakeTx.campaignApplied.get("app-existing")?.active_cv_version_id).toBe(
       result.mergedCvVersionId,
     );
+  });
+
+  it("rolls the duplicate application back to its own earlier CV version instead of deleting it, when it has one", async () => {
+    // Mirrors resolveProfileConflict's Path B: the "duplicate" side here is a
+    // real candidate (A) that uploaded 2 CVs of its own for this job before
+    // HR edited its profile to match an existing candidate (B) who already
+    // has an application for the same job. Only the misattributed CV should
+    // move to B -- A's own earlier CV, and A itself, must survive.
+    fakeTx.seedCandidate({ id: "cand-B" });
+    fakeTx.seedCandidate({ id: "cand-A" });
+    fakeTx.seedCvVersion({
+      id: "cv-A-old",
+      campaign_applied_id: "app-A",
+      version_number: 1,
+      cv_storage_path: "s3://a-old.pdf",
+      original_filename: "a-old.pdf",
+      jd_match_status: "completed",
+      jd_match_score: 42,
+    });
+    fakeTx.seedCvVersion({
+      id: "cv-A-new",
+      campaign_applied_id: "app-A",
+      version_number: 2,
+      cv_storage_path: "s3://a-new.pdf",
+      original_filename: "a-new.pdf",
+    });
+    fakeTx.seedApplication({
+      id: "app-B",
+      candidate_id: "cand-B",
+      active_cv_version_id: null,
+    });
+    fakeTx.seedApplication({
+      id: "app-A",
+      candidate_id: "cand-A",
+      active_cv_version_id: "cv-A-new",
+    });
+
+    const result = await mergeDuplicateApplicationIntoExisting(
+      fakeTx,
+      "app-B",
+      "app-A",
+      "email",
+      "user-1",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.duplicateApplicationDeleted).toBe(false);
+    // The copy landed on B, not a mutation of A's own row.
+    expect(fakeTx.campaignApplied.get("app-B")?.active_cv_version_id).toBe(
+      result.mergedCvVersionId,
+    );
+    // A survives, rolled back to its own earlier version -- not deleted.
+    expect(fakeTx.campaignApplied.has("app-A")).toBe(true);
+    expect(fakeTx.campaignApplied.get("app-A")?.active_cv_version_id).toBe("cv-A-old");
+    expect(fakeTx.campaignApplied.get("app-A")?.jd_match_status).toBe("completed");
+    expect(fakeTx.campaignApplied.get("app-A")?.jd_match_score).toBe(42);
+    expect(fakeTx.candidates.has("cand-A")).toBe(true);
   });
 });
 

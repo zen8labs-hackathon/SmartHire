@@ -108,6 +108,18 @@ class FakeTx {
       return { rows: row ? [{ ...row }] : [] };
     }
 
+    if (
+      sql.startsWith(
+        "SELECT * FROM cv_detail_versions WHERE campaign_applied_id = $1 ORDER BY version_number DESC",
+      )
+    ) {
+      const campaignAppliedId = values[0] as string;
+      const rows = [...this.cvVersions.values()]
+        .filter((v) => v.campaign_applied_id === campaignAppliedId)
+        .sort((a, b) => (b.version_number as number) - (a.version_number as number));
+      return { rows: rows.map((r) => ({ ...r })) };
+    }
+
     // findCandidatesByDedupeSignals
     if (sql.startsWith("SELECT c.id AS candidate_id")) {
       const [email, phoneVariants, , , excludeId] = values as [
@@ -510,6 +522,93 @@ describe("resolveProfileConflict", () => {
     expect(activeVersion.parsed_payload).toMatchObject({
       name: "Nguyen Van A Duplicate",
     });
+  });
+
+  it("Path B: rolls the source application back to its own earlier CV instead of deleting it, when it has one", async () => {
+    seedBaseline();
+    // app-edited already has an earlier version of its own (uploaded before
+    // "cv-edited") -- HR then edits its info to collide with cand-target on
+    // the same job. Only the currently-active "cv-edited" is misattributed;
+    // the earlier version is genuinely this candidate's own history.
+    fakeTx.seedCvVersion({
+      id: "cv-edited-old",
+      campaign_applied_id: "app-edited",
+      version_number: 1,
+      parsed_payload: { name: "Nguyen Van A" },
+      skills: [],
+      role: null,
+      degree: null,
+      education: null,
+      experience_years: null,
+      gpa: null,
+      english_level: null,
+      date_of_birth: null,
+      student_years: null,
+      matched_on: null,
+      cv_storage_path: "s3://cv-edited-old.pdf",
+      original_filename: "edited-old.pdf",
+      mime_type: "application/pdf",
+      cv_file_sha256: "sha-edited-old",
+      cv_content_sha256: "content-edited-old",
+      parsing_status: "completed",
+      parsing_error: null,
+      jd_match_status: "completed",
+      jd_match_score: 77,
+    });
+    fakeTx.cvVersions.get("cv-edited")!.version_number = 2;
+
+    fakeTx.seedCvVersion({
+      id: "cv-colliding",
+      campaign_applied_id: "app-colliding",
+      version_number: 1,
+      source_event: "initial_upload",
+      parsed_payload: {},
+      skills: [],
+      role: null,
+      degree: null,
+      education: null,
+      experience_years: null,
+      gpa: null,
+      english_level: null,
+      date_of_birth: null,
+      student_years: null,
+      matched_on: null,
+      cv_storage_path: null,
+      original_filename: null,
+      mime_type: null,
+      cv_file_sha256: null,
+      cv_content_sha256: null,
+      parsing_status: "completed",
+      parsing_error: null,
+    });
+    fakeTx.seedApplication({
+      id: "app-colliding",
+      candidate_id: "cand-target",
+      job_id: "job-1",
+      active_cv_version_id: "cv-colliding",
+      source: "TopCV",
+      source_other: null,
+    });
+
+    const result = await resolveProfileConflict({
+      editedCampaignAppliedId: "app-edited",
+      targetCandidateId: "cand-target",
+      patch: patch({ email: "shared@example.com" }),
+      createdBy: "user-1",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.survivingCampaignAppliedId).toBe("app-colliding");
+
+    // app-edited survives, rolled back to its own earlier CV -- not deleted.
+    expect(fakeTx.campaignApplied.has("app-edited")).toBe(true);
+    expect(fakeTx.campaignApplied.get("app-edited")!.active_cv_version_id).toBe(
+      "cv-edited-old",
+    );
+    expect(fakeTx.campaignApplied.get("app-edited")!.jd_match_score).toBe(77);
+    expect(fakeTx.campaignApplied.get("app-edited")!.candidate_id).toBe("cand-source");
+    expect(fakeTx.candidates.has("cand-source")).toBe(true);
   });
 
   it("leaves the source candidate's unrelated other application untouched", async () => {
