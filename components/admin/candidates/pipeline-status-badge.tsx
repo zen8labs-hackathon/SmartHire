@@ -37,9 +37,14 @@ export function PipelineStatusBadge({
     );
   }
   if (!app.stageLabel || !app.subStageLabel) {
+    // Reachable once the job's pipeline config genuinely can't be resolved
+    // (e.g. deleted/misconfigured job) -- callers are expected to resolve
+    // stage/sub-stage via `resolveApplicationStages` first (which falls back
+    // to the job's first stage for a brand-new, never-moved application), so
+    // this is "we don't know", not "nothing has happened yet".
     return (
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
-        Not started
+        N/a
       </span>
     );
   }

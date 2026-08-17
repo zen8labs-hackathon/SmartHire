@@ -3,6 +3,7 @@ import { requirePermissionForApplication } from "@/lib/authz/require-permission"
 import { z } from "zod";
 
 import { mergeDuplicateApplicationIntoExisting } from "@/lib/candidates/merge-duplicate-application";
+import { withTransaction } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 const UUID_RE =
@@ -54,11 +55,14 @@ export async function POST(request: Request, { params }: RouteContext) {
   }
 
   try {
-    const result = await mergeDuplicateApplicationIntoExisting(
-      existingCampaignAppliedId,
-      newCampaignAppliedId,
-      matchedOn ?? "email_or_phone",
-      auth.userId,
+    const result = await withTransaction((tx) =>
+      mergeDuplicateApplicationIntoExisting(
+        tx,
+        existingCampaignAppliedId,
+        newCampaignAppliedId,
+        matchedOn ?? "email_or_phone",
+        auth.userId,
+      ),
     );
     if (!result.ok) {
       return Response.json({ error: result.error }, { status: result.status });

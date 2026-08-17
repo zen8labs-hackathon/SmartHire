@@ -5,7 +5,25 @@ import {
   candidateProfilePatchSchema,
   diffProfileSnapshotsToPatch,
   mergeProfileIntoParsedPayload,
+  validateSourceOther,
 } from "./candidate-profile-patch";
+
+describe("validateSourceOther", () => {
+  it("requires a non-empty source_other when source is Other", () => {
+    expect(validateSourceOther("Other", null)).toMatch(/non-empty description/);
+    expect(validateSourceOther("Other", "")).toMatch(/non-empty description/);
+    expect(validateSourceOther("Other", "   ")).toMatch(/non-empty description/);
+  });
+
+  it("passes when source is Other and source_other is set", () => {
+    expect(validateSourceOther("Other", "Referral")).toBeNull();
+  });
+
+  it("ignores source_other for any fixed-channel source", () => {
+    expect(validateSourceOther("LinkedIn", null)).toBeNull();
+    expect(validateSourceOther("LinkedIn", "")).toBeNull();
+  });
+});
 
 describe("mergeProfileIntoParsedPayload", () => {
   it("merges over existing object and preserves unrelated keys", () => {

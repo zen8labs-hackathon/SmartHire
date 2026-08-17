@@ -96,7 +96,13 @@ export async function findCandidatesByDedupeSignals(
   ];
   const matchClauses = [
     `($1::text IS NOT NULL AND lower(c.email) = $1)`,
-    `($2::text[] IS NOT NULL AND c.phone = ANY($2))`,
+    // `candidates.phone` is stored as-typed/as-parsed (may contain spaces,
+    // '+', dashes -- see the "why doesn't phone match" investigation),
+    // while `$2` (phoneVariants, from normalizePhoneFromPayload) is always
+    // digit-only. Stripping non-digits from `c.phone` here makes both sides
+    // of the comparison symmetric without touching how phone is stored or
+    // displayed anywhere.
+    `($2::text[] IS NOT NULL AND regexp_replace(c.phone, '\\D', '', 'g') = ANY($2))`,
     `($3::text IS NOT NULL AND cv.cv_file_sha256 = $3)`,
     `($4::text IS NOT NULL AND cv.cv_content_sha256 = $4)`,
   ];
