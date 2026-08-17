@@ -387,6 +387,12 @@ export function CandidateDetailClient({ candidate }: Props) {
               startInEditMode
               embedded
               hidePipelineAndSource
+              // A profile-edit conflict here must be fixed by changing the
+              // contact info, not by merging into another candidate --
+              // that's a deliberate, cross-candidate action reserved for the
+              // "Wrong CV on this candidate?" recovery tool below, so
+              // `onCandidateIdChanged` is unreachable and omitted.
+              allowProfileConflictMerge={false}
               onDirtyChange={setProfileDirty}
               onBusyChange={setProfileBusy}
               saveActionRef={profileSaveRef}
@@ -396,18 +402,6 @@ export function CandidateDetailClient({ candidate }: Props) {
                 refreshAppVersions(candidate.id);
                 router.refresh();
                 toast.success("Candidate profile updated.");
-              }}
-              onCandidateIdChanged={(newCampaignAppliedId, saved) => {
-                setDbRow(saved);
-                setProfileDirty(false);
-                toast.success(
-                  "Candidate profile updated (merged with an existing candidate).",
-                );
-                // The edited application no longer exists under this id --
-                // it was folded into an existing application belonging to
-                // the matched candidate. Navigate there instead of trying
-                // to keep rendering this now-gone campaign_applied id.
-                router.replace(`/admin/candidate-detail/${newCampaignAppliedId}`);
               }}
             />
           </SectionCard>
@@ -655,7 +649,15 @@ export function CandidateDetailClient({ candidate }: Props) {
         open={reassignModalOpen}
         onOpenChange={setReassignModalOpen}
         sourceCampaignAppliedId={candidate.id}
-        onReassigned={() => {
+        onReassigned={(sourceApplicationDeleted) => {
+          if (sourceApplicationDeleted) {
+            // This application had no CV of its own to roll back to, so it
+            // (and its candidate, if orphaned) was deleted outright --
+            // `candidate.id` no longer refers to anything. Reloading in
+            // place would just 404.
+            router.push("/admin/candidates");
+            return;
+          }
           // A plain `router.refresh()` + `refreshAppVersions` isn't enough
           // here: the CV preview iframe re-navigates only when the `cvUrl`
           // it computes changes, and reassigning doesn't change that string

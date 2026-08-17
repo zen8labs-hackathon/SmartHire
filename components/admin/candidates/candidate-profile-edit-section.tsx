@@ -71,6 +71,14 @@ export type CandidateProfileEditSectionProps = {
     newCampaignAppliedId: string,
     candidate: CandidateDbRow,
   ) => void;
+  /**
+   * When false, a single-match profile-edit conflict is surfaced as a plain
+   * dead-end error (same as the "2+ candidates matched" case) instead of
+   * offering `MergeConflictingCandidateModal`. Defaults to true. Used to
+   * keep this destructive, cross-candidate action out of contexts where it
+   * shouldn't be triggerable, e.g. the plain candidate-detail page.
+   */
+  allowProfileConflictMerge?: boolean;
   /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
   startInEditMode?: boolean;
   /**
@@ -198,6 +206,7 @@ export function CandidateProfileEditSection({
   dbLoadState,
   onSaved,
   onCandidateIdChanged,
+  allowProfileConflictMerge = true,
   startInEditMode = false,
   hidePipelineAndSource = false,
   onCancel,
@@ -463,7 +472,7 @@ export function CandidateProfileEditSection({
             error?: string;
             conflict?: ProfileEditConflict;
           };
-          if (res.status === 409 && body.conflict) {
+          if (res.status === 409 && body.conflict && allowProfileConflictMerge) {
             // Offer a merge instead of a dead-end error -- keep the exact
             // patch body so confirmMerge() can resend it unchanged.
             pendingPatchBodyRef.current = patchBody;
@@ -474,11 +483,12 @@ export function CandidateProfileEditSection({
           if (res.status === 409) {
             // Every 409 from this route is a contact-info conflict --
             // either an archived-profile race, an ambiguous match against
-            // 2+ other candidates (no single merge target), or a rare
-            // write-time unique-constraint race. None of these leave
-            // anything for the user to fix inline on this form, so surface
-            // as a toast instead of a persistent inline warning; the modal
-            // above already handles the common single-match case.
+            // 2+ other candidates (no single merge target), a single match
+            // but merging is disallowed here (`allowProfileConflictMerge`
+            // false), or a rare write-time unique-constraint race. None of
+            // these leave anything for the user to fix inline on this form,
+            // so surface as a toast instead of a persistent inline warning;
+            // the modal above already handles the common single-match case.
             if (typeof raw === "string" && raw.toLowerCase().includes("archived")) {
               toast.error(
                 "This profile was archived (superseded by a newer CV upload). Refresh the candidate list and open the active row to edit.",
@@ -555,6 +565,7 @@ export function CandidateProfileEditSection({
       setBusy(false);
     }
   }, [
+    allowProfileConflictMerge,
     baseline,
     canEditSalary,
     candidateId,
@@ -1070,7 +1081,7 @@ export function CandidateProfileEditSection({
           </p>
         ) : null}
         {formFields}
-        {conflict ? (
+        {conflict && allowProfileConflictMerge ? (
           <MergeConflictingCandidateModal
             open
             onOpenChange={(o) => {
@@ -1089,7 +1100,7 @@ export function CandidateProfileEditSection({
   return (
     <Card className="overflow-hidden border border-divider bg-background shadow-sm">
       <Card.Content className="flex flex-col gap-0 p-0">
-        {conflict ? (
+        {conflict && allowProfileConflictMerge ? (
           <MergeConflictingCandidateModal
             open
             onOpenChange={(o) => {

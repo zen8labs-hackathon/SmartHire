@@ -9,9 +9,19 @@ import {
   type CvDetailVersionRow,
 } from "@/lib/db/cv-detail-versions";
 import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
+import { deleteCandidateIfNoOtherApplications } from "@/lib/candidates/merge-duplicate-application";
 
 export type ReassignCvVersionResult =
-  | { ok: true; newCvVersionId: string; sourceActiveCvVersionId: string | null }
+  | {
+      ok: true;
+      newCvVersionId: string;
+      sourceActiveCvVersionId: string | null;
+      /** True when the source application had no other CV version to roll
+       * back to, so it (and its candidate, if nothing else references it)
+       * was deleted outright instead -- callers rendering the source
+       * application's own page must navigate away, not just refresh. */
+      sourceApplicationDeleted: boolean;
+    }
   | { ok: false; error: string; status: number };
 
 export type ReassignCvVersionParams = {
@@ -39,10 +49,17 @@ export type ReassignCvVersionParams = {
  * `source_event`/`matched_on` to keep them meaningful, defeating the point of
  * "immutable"). Instead, exactly like `restore-version`, it *copies* the
  * misattributed version onto the target application as a new
- * `file_replaced` row, then rolls the source application's active pointer
- * back to whatever was active before the bad merge. The original
- * (misattributed) row is left in place on the source application's own
- * history, purely as an audit trail of what happened and when it was fixed.
+ * `file_replaced` row. What happens to the source application then depends
+ * on whether it has anything left of its own:
+ * - Has an earlier version of its own -- roll its active pointer back to it.
+ *   The misattributed (now-inactive) row is left in place on the source
+ *   application's own history, purely as an audit trail of what happened
+ *   and when it was fixed.
+ * - Has *no* earlier version (the misattributed CV was the only thing it
+ *   ever had -- there's nothing genuinely "the source's own" to preserve) --
+ *   delete the source application outright (and its candidate too, if
+ *   nothing else references it), the same as discarding a throwaway
+ *   duplicate upload.
  *
  * Requires `targetCampaignAppliedId` to be for the *same job* as the source
  * -- this tool exists for the "right job, wrong candidate" case, not general
@@ -99,25 +116,22 @@ export async function reassignCvVersionToApplication(
     };
   }
 
-  // Resolve every precondition -- including whether a source rollback is
-  // even possible -- *before* any write below. `withTransaction` only rolls
-  // back on a thrown error, not on an `{ ok: false }` return, so returning
-  // an error after already writing (e.g. the new version on target) would
-  // silently commit that partial write instead of aborting cleanly.
+  // Resolve every precondition -- including what happens to the source --
+  // *before* any write below. `withTransaction` only rolls back on a thrown
+  // error, not on an `{ ok: false }` return, so returning an error after
+  // already writing (e.g. the new version on target) would silently commit
+  // that partial write instead of aborting cleanly.
   const movingSourcesActiveVersion = sourceApp.active_cv_version_id === cvVersionId;
   let previousSourceVersion: CvDetailVersionRow | null = null;
   if (movingSourcesActiveVersion) {
     const remaining = await listCvDetailVersionsByCampaignApplied(db, sourceCampaignAppliedId);
     previousSourceVersion = remaining.find((v) => v.id !== cvVersionId) ?? null;
-    if (!previousSourceVersion) {
-      return {
-        ok: false,
-        error:
-          "This is the only CV version on the source application -- reassigning it would leave the application without a CV. Delete the source application instead if it was created entirely by mistake.",
-        status: 400,
-      };
-    }
   }
+  // No earlier version to roll back to -- the misattributed CV was the only
+  // thing this application ever had, so there's nothing of the source's own
+  // left to preserve. The one row it does have is already being copied to
+  // target above, so deleting it loses nothing.
+  const deleteEmptySource = movingSourcesActiveVersion && !previousSourceVersion;
 
   const nextVersionNum = await getNextCvVersionNumber(db, targetCampaignAppliedId);
   const newVersion = await createCvDetailVersion(db, {
@@ -193,12 +207,22 @@ export async function reassignCvVersionToApplication(
       jdMatchRationale: previousSourceVersion.jd_match_rationale,
     });
     sourceActiveCvVersionId = previousSourceVersion.id;
+  } else if (deleteEmptySource) {
+    // Nothing legitimately "the source's own" is left -- same disposition as
+    // discarding a throwaway duplicate upload (see
+    // deleteCandidateIfNoOtherApplications). The row's one CV version is
+    // cascade-deleted along with it, but that's already safely copied to
+    // target above.
+    await db.query("DELETE FROM campaign_applied WHERE id = $1", [sourceCampaignAppliedId]);
+    await deleteCandidateIfNoOtherApplications(db, sourceApp.candidate_id);
+    sourceActiveCvVersionId = null;
   }
 
   // Cross-candidate aggregate sync -- source and target belong to different
   // candidates, whose identity fields could collide with each other (same
   // savepoint pattern as mergeDuplicateApplicationIntoExisting /
-  // resolveProfileConflict).
+  // resolveProfileConflict). A no-op if the source candidate was just
+  // deleted above.
   for (const candidateId of [sourceApp.candidate_id, targetApp.candidate_id]) {
     await db.query("SAVEPOINT sync_reassign");
     try {
@@ -210,5 +234,10 @@ export async function reassignCvVersionToApplication(
     }
   }
 
-  return { ok: true, newCvVersionId: newVersion.id, sourceActiveCvVersionId };
+  return {
+    ok: true,
+    newCvVersionId: newVersion.id,
+    sourceActiveCvVersionId,
+    sourceApplicationDeleted: deleteEmptySource,
+  };
 }

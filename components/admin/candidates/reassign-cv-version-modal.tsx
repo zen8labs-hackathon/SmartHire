@@ -14,8 +14,12 @@ export type ReassignCvVersionModalProps = {
   onOpenChange: (open: boolean) => void;
   /** `campaign_applied` id this CV is currently (wrongly) attached to. */
   sourceCampaignAppliedId: string;
-  /** Called after a successful reassign, before the modal closes. */
-  onReassigned: () => void;
+  /** Called after a successful reassign, before the modal closes.
+   * `sourceApplicationDeleted` is true when the source application had no
+   * CV of its own to roll back to and was deleted outright -- the caller
+   * (rendering that now-gone application's own page) must navigate away
+   * rather than just refresh in place. */
+  onReassigned: (sourceApplicationDeleted: boolean) => void;
 };
 
 /**
@@ -68,7 +72,10 @@ export function ReassignCvVersionModal({
           }),
         },
       );
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        sourceApplicationDeleted?: boolean;
+      };
       if (!res.ok) {
         setError(json.error ?? "Could not reassign this CV.");
         return;
@@ -76,7 +83,7 @@ export function ReassignCvVersionModal({
       toast.success("CV reassigned to the correct candidate.");
       setTargetId("");
       setNote("");
-      onReassigned();
+      onReassigned(json.sourceApplicationDeleted === true);
       onOpenChange(false);
     } catch {
       setError("Could not reassign this CV.");

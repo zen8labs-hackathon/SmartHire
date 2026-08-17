@@ -102,6 +102,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       candidate: await redactAdminRowSalaryForAccess(db, auth.access, enrichedTarget),
       newCvVersionId: result.newCvVersionId,
       sourceActiveCvVersionId: result.sourceActiveCvVersionId,
+      sourceApplicationDeleted: result.sourceApplicationDeleted,
     });
   } catch (err) {
     if (isUniqueViolation(err)) {

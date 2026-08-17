@@ -112,6 +112,18 @@ class FakeTx {
     if (sql.startsWith("UPDATE candidates") && sql.includes("skills = $2")) {
       return { rows: [] };
     }
+    if (sql.startsWith("DELETE FROM campaign_applied WHERE id = $1")) {
+      this.campaignApplied.delete(values[0] as string);
+      return { rows: [] };
+    }
+    if (sql.startsWith("DELETE FROM candidates")) {
+      const id = values[0] as string;
+      const hasOther = [...this.campaignApplied.values()].some(
+        (ca) => !ca.deleted_at && ca.candidate_id === id,
+      );
+      if (!hasOther) this.candidates.delete(id);
+      return { rows: [] };
+    }
     if (
       sql.startsWith("SAVEPOINT ") ||
       sql.startsWith("RELEASE SAVEPOINT ") ||
@@ -196,6 +208,7 @@ describe("reassignCvVersionToApplication", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.sourceApplicationDeleted).toBe(false);
 
     // Target now has the reassigned CV as its own new version.
     const target = fakeTx.campaignApplied.get("app-B")!;
@@ -294,10 +307,11 @@ describe("reassignCvVersionToApplication", () => {
     expect(result.status).toBe(400);
   });
 
-  it("rejects when the active version is the only version the source has, writing nothing", async () => {
+  it("deletes the source application (and its candidate) when the misattributed version was the only CV it ever had", async () => {
     seedTwoApplicationsOnSameJob();
+    // app-A never had a genuine CV of its own -- cv-wrong (misattributed
+    // from B) is the only version it's ever had.
     fakeTx.cvVersions.delete("cv-A-original");
-    const cvVersionCountBefore = fakeTx.cvVersions.size;
 
     const result = await reassignCvVersionToApplication(fakeTx, {
       sourceCampaignAppliedId: "app-A",
@@ -306,19 +320,55 @@ describe("reassignCvVersionToApplication", () => {
       createdBy: "user-1",
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.status).toBe(400);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sourceApplicationDeleted).toBe(true);
+    expect(result.sourceActiveCvVersionId).toBeNull();
 
-    // Regression guard: this must be rejected *before* anything is written --
-    // `withTransaction` only rolls back on a thrown error, not on an
-    // `{ ok: false }` return, so an error surfacing after a partial write
-    // would silently commit it instead of aborting cleanly.
-    expect(fakeTx.cvVersions.size).toBe(cvVersionCountBefore);
-    expect(fakeTx.campaignApplied.get("app-A")!.active_cv_version_id).toBe(
-      "cv-wrong",
+    // Source application and its (now-orphaned) candidate are both gone.
+    expect(fakeTx.campaignApplied.has("app-A")).toBe(false);
+    expect(fakeTx.candidates.has("cand-A")).toBe(false);
+
+    // The one CV it had is still safely copied onto target first.
+    const target = fakeTx.campaignApplied.get("app-B")!;
+    expect(target.active_cv_version_id).toBe(result.newCvVersionId);
+    expect(fakeTx.cvVersions.get(result.newCvVersionId)?.original_filename).toBe(
+      "b-cv.pdf",
     );
-    expect(fakeTx.campaignApplied.get("app-B")!.active_cv_version_id).toBeNull();
+  });
+
+  it("deletes only the source application, keeping its candidate, when the candidate has another unrelated application", async () => {
+    seedTwoApplicationsOnSameJob();
+    fakeTx.cvVersions.delete("cv-A-original");
+    // cand-A also has a live application for a different job -- must survive.
+    fakeTx.seedCvVersion({
+      id: "cv-other-job",
+      campaign_applied_id: "app-A-other-job",
+      version_number: 1,
+      parsed_payload: {},
+      skills: [],
+    });
+    fakeTx.seedApplication({
+      id: "app-A-other-job",
+      candidate_id: "cand-A",
+      job_id: "job-9",
+      active_cv_version_id: "cv-other-job",
+    });
+
+    const result = await reassignCvVersionToApplication(fakeTx, {
+      sourceCampaignAppliedId: "app-A",
+      targetCampaignAppliedId: "app-B",
+      changeSummary: null,
+      createdBy: "user-1",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sourceApplicationDeleted).toBe(true);
+    expect(fakeTx.campaignApplied.has("app-A")).toBe(false);
+    // cand-A survives -- app-A-other-job still references it.
+    expect(fakeTx.candidates.has("cand-A")).toBe(true);
+    expect(fakeTx.campaignApplied.has("app-A-other-job")).toBe(true);
   });
 
   it("rejects source and target being the same application", async () => {
