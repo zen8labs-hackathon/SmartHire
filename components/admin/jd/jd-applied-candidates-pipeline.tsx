@@ -230,7 +230,6 @@ export function JdAppliedCandidatesPipeline({
   const bulkActionConfirmModal = useOverlayState();
   const [pendingBulkAction, setPendingBulkAction] =
     useState<BulkActionType | null>(null);
-  const bulkEmailModal = useOverlayState();
 
   const openSchedule = useCallback(
     (r: JdPipelineApplicationRow) => {
@@ -1049,10 +1048,10 @@ export function JdAppliedCandidatesPipeline({
           size="sm"
           variant="secondary"
           className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
-          isDisabled={!hasSelection || pipelineBusy}
-          onPress={() => bulkEmailModal.open()}
+          isDisabled={!hasSelection || !canEditPipeline || pipelineBusy}
+          onPress={() => confirmBulkAction("jd-match")}
         >
-          Send email
+          Run AI JD Match
         </Button>
       </div>
     </div>
