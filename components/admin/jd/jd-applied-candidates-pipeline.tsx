@@ -933,54 +933,69 @@ export function JdAppliedCandidatesPipeline({
     </div>
   );
 
-  const bulkActionsElement =
-    selected.size > 0 ? (
-      <div className="flex flex-wrap items-center gap-3 border border-accent/25 bg-accent/5 p-3 rounded-xl">
-        <span className="text-xs font-semibold text-accent">
-          {selected.size} selected candidates
-        </span>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={
-              !canEditPipeline || pipelineBusy || !bulkInterviewEligible
-            }
-            onPress={() => void moveSelectedToInterview()}
-          >
-            Move to interview
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={!canEditPipeline || pipelineBusy || !bulkOfferEligible}
-            onPress={() => void moveSelectedToOffer()}
-          >
-            Move to offer
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="border border-divider bg-surface-primary"
-            isDisabled={!canEditPipeline || pipelineBusy || !bulkFailEligible}
-            onPress={() => void markSelectedFailed()}
-          >
-            Mark failed
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="border border-divider bg-surface-primary"
-            isDisabled={!canEditPipeline || pipelineBusy}
-            onPress={() => jdMatchConfirmModal.open()}
-          >
-            Run AI JD Match
-          </Button>
-        </div>
+  const hasSelection = selected.size > 0;
+  const bulkActionsElement = (
+    <div className="flex flex-wrap items-center gap-3 border border-accent/25 bg-accent/5 p-3 rounded-xl">
+      <span className="text-xs font-semibold text-accent">
+        {hasSelection
+          ? `${selected.size} selected candidates`
+          : "Select candidates to use bulk actions"}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="primary"
+          className="bg-accent text-accent-foreground"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkInterviewEligible
+          }
+          onPress={() => void moveSelectedToInterview()}
+        >
+          Move to interview
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          className="bg-accent text-accent-foreground"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkOfferEligible
+          }
+          onPress={() => void moveSelectedToOffer()}
+        >
+          Move to offer
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-divider bg-surface-primary"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkFailEligible
+          }
+          onPress={() => void markSelectedFailed()}
+        >
+          Mark failed
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-divider bg-surface-primary"
+          isDisabled={!hasSelection || !canEditPipeline || pipelineBusy}
+          onPress={() => jdMatchConfirmModal.open()}
+        >
+          Run AI JD Match
+        </Button>
       </div>
-    ) : null;
+    </div>
+  );
 
   const pipelineStats = [
     {
