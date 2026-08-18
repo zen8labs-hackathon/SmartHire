@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   listChapterIdsForUser,
+  listHeadEmailsForChapters,
   listMembersOfChapter,
   listMembershipsForUser,
   listMembershipsForUsers,
@@ -56,6 +57,25 @@ describe("listMembershipsForUsers", () => {
       { chapterId: "c-2", role: "member" },
     ]);
     expect(result.get("u-2")).toEqual([{ chapterId: "c-1", role: "member" }]);
+  });
+});
+
+describe("listHeadEmailsForChapters", () => {
+  it("returns an empty list without querying for no chapter ids", async () => {
+    const db = fakeDb([]);
+    const result = await listHeadEmailsForChapters(db, []);
+    expect(result).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("filters to role='head' and multiple chapter ids in one query", async () => {
+    const db = fakeDb([[{ email: "head1@x.com" }, { email: "head2@x.com" }]]);
+    const result = await listHeadEmailsForChapters(db, ["c-1", "c-2"]);
+    expect(result).toEqual(["head1@x.com", "head2@x.com"]);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("pc.role = 'head'");
+    expect(sql).toContain("chapter_id = ANY($1::uuid[])");
+    expect(values).toEqual([["c-1", "c-2"]]);
   });
 });
 

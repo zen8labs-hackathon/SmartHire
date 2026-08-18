@@ -9,9 +9,12 @@ import { Chip, Input, Label, TextField } from "@heroui/react";
 export function JdViewerEmailSearch({
   getHeaders,
   onPickEmail,
+  searchUrl = "/api/admin/accounts/search",
 }: {
   getHeaders: () => Promise<Record<string, string>>;
   onPickEmail: (email: string) => void;
+  /** Endpoint returning `{ accounts: { email: string }[] }` for a `?q=` substring search. Defaults to the org-wide account search; pass a different one to scope suggestions (e.g. to a job's interview participants). */
+  searchUrl?: string;
 }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<{ email: string }[]>([]);
@@ -31,7 +34,7 @@ export function JdViewerEmailSearch({
         try {
           const headers = await getHeaders();
           const res = await fetch(
-            `/api/admin/accounts/search?q=${encodeURIComponent(q)}`,
+            `${searchUrl}?q=${encodeURIComponent(q)}`,
             { credentials: "include", headers },
           );
           const json = (await res.json()) as {
@@ -50,7 +53,7 @@ export function JdViewerEmailSearch({
       })();
     }, 320);
     return () => window.clearTimeout(timer);
-  }, [query, getHeaders]);
+  }, [query, getHeaders, searchUrl]);
 
   const pick = useCallback(
     (email: string) => {
@@ -124,10 +127,12 @@ export function JdViewerEmailsField({
   emails,
   onChange,
   getHeaders,
+  searchUrl,
 }: {
   emails: readonly string[];
   onChange: (emails: string[]) => void;
   getHeaders: () => Promise<Record<string, string>>;
+  searchUrl?: string;
 }) {
   const addEmail = useCallback(
     (raw: string) => {
@@ -144,7 +149,7 @@ export function JdViewerEmailsField({
 
   return (
     <div className="space-y-2">
-      <JdViewerEmailSearch getHeaders={getHeaders} onPickEmail={addEmail} />
+      <JdViewerEmailSearch getHeaders={getHeaders} onPickEmail={addEmail} searchUrl={searchUrl} />
 
       {emails.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 rounded-lg border border-divider p-2">
