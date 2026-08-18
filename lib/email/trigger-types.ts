@@ -81,3 +81,19 @@ export const EMAIL_TRIGGER_TYPES = [
 ] as const;
 
 export type EmailTriggerType = (typeof EMAIL_TRIGGER_TYPES)[number]["value"];
+
+const RECIPIENT_TYPE_BY_TRIGGER = new Map<string, EmailRecipientType>(
+  EMAIL_TRIGGER_TYPES.map((t) => [t.value, t.recipientType]),
+);
+
+/**
+ * The audience a template with this trigger is meant for -- derived from the
+ * trigger's own static metadata above rather than a per-template DB column
+ * (`email_templates.recipient_type` was dropped, see migrations/
+ * 1785960000000_email-templates-drop-recipient-type.sql, in favor of this).
+ * Falls back to "candidate" for an unrecognized trigger_type rather than
+ * throwing, since every caller already has a real row it needs to route.
+ */
+export function getRecipientTypeForTrigger(triggerType: string): EmailRecipientType {
+  return RECIPIENT_TYPE_BY_TRIGGER.get(triggerType) ?? "candidate";
+}

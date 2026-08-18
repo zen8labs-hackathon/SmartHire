@@ -2,14 +2,26 @@ import {
   createCvDetailVersion,
   getCvDetailVersionById,
   getNextCvVersionNumber,
+  listCvDetailVersionsByCampaignApplied,
   type CvMatchedOn,
 } from "@/lib/db/cv-detail-versions";
 import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
 import { syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { getPool, withTransaction, type QueryExecutor } from "@/lib/db/config/client";
-import { dbDateToIso } from "@/lib/db/query-helpers";
+import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
 
 export type MergeDuplicateApplicationResult =
+  | {
+      ok: true;
+      mergedCvVersionId: string;
+      /** True when the duplicate application had no earlier CV version of
+       * its own to roll back to, so it (and its candidate, if nothing else
+       * references it) was deleted outright instead of kept alive. */
+      duplicateApplicationDeleted: boolean;
+    }
+  | { ok: false; error: string; status: number };
+
+export type LinkApplicationResult =
   | { ok: true }
   | { ok: false; error: string; status: number };
 
@@ -47,30 +59,43 @@ export async function deleteCandidateIfNoOtherApplications(
 }
 
 /**
- * Merges a throwaway "duplicate upload" application into an existing one:
- * copies the duplicate's active CV file into a new `file_replaced` version on
- * the existing application, then deletes the duplicate's `campaign_applied`
- * row and (if nothing else references it) its `candidates` row. Usually
- * safe because `POST .../temp-upload/confirm` always creates a brand new,
+ * Merges a duplicate application into an existing one: copies the
+ * duplicate's active CV file into a new `file_replaced` version on the
+ * existing application. What happens to the duplicate side then depends on
+ * whether it has an earlier CV version of its own to fall back to -- if so,
+ * its active pointer is simply rolled back to that version (it stays alive,
+ * same disposition as `reassignCvVersionToApplication`); if not (the CV just
+ * copied away was the only thing it ever had), its `campaign_applied` row is
+ * deleted outright, and its `candidates` row too if nothing else references
+ * it -- see {@link deleteCandidateIfNoOtherApplications}. For the two
+ * throwaway-upload callers below this is always the delete case in
+ * practice, since `POST .../temp-upload/confirm` creates a brand new,
  * single-application `candidates` row per upload (see
- * app/api/admin/candidates/temp-upload/confirm/route.ts) -- but see
- * {@link deleteCandidateIfNoOtherApplications} for why that's checked rather
- * than assumed.
+ * app/api/admin/candidates/temp-upload/confirm/route.ts) -- the rollback
+ * case only actually triggers for `resolveProfileConflict`, where the
+ * duplicate side can be a real, existing application with CV history of its
+ * own.
  *
  * Shared by `POST /api/admin/candidates/[id]/replace` (HR intentionally
- * re-uploads a CV for a known candidate) and
- * `PUT /api/admin/candidates/[id]/update-with-history` (HR confirms a
- * system-detected duplicate should merge) -- both flows collapse to the same
- * operation under this schema.
+ * re-uploads a CV for a known candidate), `PUT /api/admin/candidates/[id]/update-with-history`
+ * (HR confirms a system-detected duplicate should merge), and
+ * `resolveProfileConflict` (HR confirms a profile-edit email/phone conflict
+ * is the same person, same job) -- all three collapse to the same operation
+ * under this schema.
+ *
+ * Takes `db` as a `QueryExecutor` rather than opening its own transaction so
+ * callers that need to compose this with other writes (see
+ * `resolveProfileConflict`) can run it against an outer `tx`. Callers that
+ * just need this write alone (the two routes above) wrap it themselves:
+ * `withTransaction((tx) => mergeDuplicateApplicationIntoExisting(tx, ...))`.
  */
 export async function mergeDuplicateApplicationIntoExisting(
+  db: QueryExecutor,
   existingCampaignAppliedId: string,
   duplicateCampaignAppliedId: string,
   matchedOn: CvMatchedOn | null,
   createdBy: string,
 ): Promise<MergeDuplicateApplicationResult> {
-  const db = getPool();
-
   const existingCampaign = await getCampaignAppliedById(db, existingCampaignAppliedId);
   if (!existingCampaign) {
     return { ok: false, error: "Existing application not found.", status: 404 };
@@ -90,78 +115,141 @@ export async function mergeDuplicateApplicationIntoExisting(
     return { ok: false, error: "New CV version not found.", status: 404 };
   }
 
-  await withTransaction(async (tx) => {
-    // Lock the target application before computing the next version number.
-    // Without this, two duplicate CVs from the same upload batch that both
-    // match this same application (now common -- the upload modal
-    // auto-resolves every duplicate concurrently, with no manual per-row
-    // gating) can both read the same MAX(version_number) and then both try
-    // to insert it, tripping `cv_detail_versions_campaign_version_unique`.
-    // The route layer can't tell that apart from a real email/phone
-    // conflict (both are Postgres error code 23505), so the race surfaced
-    // as the misleading "already belongs to another candidate profile"
-    // message. Locking here serializes concurrent merges onto the same
-    // application so each one sees the other's committed version number.
-    await tx.query(`SELECT id FROM campaign_applied WHERE id = $1 FOR UPDATE`, [
-      existingCampaignAppliedId,
-    ]);
-    const nextVersionNum = await getNextCvVersionNumber(tx, existingCampaignAppliedId);
+  // Resolve what happens to the duplicate side *before* any write below --
+  // same reasoning as reassignCvVersionToApplication: withTransaction only
+  // rolls back on a thrown error, not on an `{ ok: false }` return, and there
+  // are no further validation failures possible past this point anyway, so
+  // this is purely about keeping the "does duplicate get deleted or rolled
+  // back" decision made once, up front, from a consistent read.
+  const duplicateRemainingVersions = await listCvDetailVersionsByCampaignApplied(
+    db,
+    duplicateCampaignAppliedId,
+  );
+  const previousDuplicateVersion =
+    duplicateRemainingVersions.find((v) => v.id !== duplicateCampaign.active_cv_version_id) ??
+    null;
 
-    // 1. Re-associate the duplicate's CV file with the existing application as a new version
-    const mergedCvVersion = await createCvDetailVersion(tx, {
-      campaignAppliedId: existingCampaignAppliedId,
-      versionNumber: nextVersionNum,
-      sourceEvent: "file_replaced",
-      cvStoragePath: duplicateCvVersion.cv_storage_path,
-      originalFilename: duplicateCvVersion.original_filename,
-      mimeType: duplicateCvVersion.mime_type,
-      cvFileSha256: duplicateCvVersion.cv_file_sha256,
-      cvContentSha256: duplicateCvVersion.cv_content_sha256,
-      parsingStatus: duplicateCvVersion.parsing_status,
-      parsingError: duplicateCvVersion.parsing_error,
-      parsedPayload: duplicateCvVersion.parsed_payload,
-      skills: duplicateCvVersion.skills,
-      role: duplicateCvVersion.role,
-      degree: duplicateCvVersion.degree,
-      education: duplicateCvVersion.education,
-      experienceYears: duplicateCvVersion.experience_years
-        ? parseFloat(duplicateCvVersion.experience_years)
-        : null,
-      gpa: duplicateCvVersion.gpa,
-      englishLevel: duplicateCvVersion.english_level,
-      dateOfBirth: dbDateToIso(duplicateCvVersion.date_of_birth),
-      studentYears: duplicateCvVersion.student_years,
-      matchedOn,
-      createdBy,
-    });
+  // Lock the target application before computing the next version number.
+  // Without this, two duplicate CVs from the same upload batch that both
+  // match this same application (now common -- the upload modal
+  // auto-resolves every duplicate concurrently, with no manual per-row
+  // gating) can both read the same MAX(version_number) and then both try
+  // to insert it, tripping `cv_detail_versions_campaign_version_unique`.
+  // The route layer can't tell that apart from a real email/phone
+  // conflict (both are Postgres error code 23505), so the race surfaced
+  // as the misleading "already belongs to another candidate profile"
+  // message. Locking here serializes concurrent merges onto the same
+  // application so each one sees the other's committed version number.
+  await db.query(`SELECT id FROM campaign_applied WHERE id = $1 FOR UPDATE`, [
+    existingCampaignAppliedId,
+  ]);
+  const nextVersionNum = await getNextCvVersionNumber(db, existingCampaignAppliedId);
 
-    // 2. Point the existing application's active CV at the new version.
-    // Also clear the cached JD-match result: it was computed against the
-    // *previous* CV, and leaving `jd_match_status: "completed"` in place
-    // would both show a stale score for the new CV and make
-    // `runJdMatchForCandidate`'s "already_scored" guard silently skip any
-    // future re-score attempt. JD-match itself stays opt-in (not re-run
-    // here) -- HR re-triggers it explicitly via "Run AI JD Match", same as
-    // for a brand-new upload.
-    await updateCampaignApplied(tx, existingCampaignAppliedId, {
-      activeCvVersionId: mergedCvVersion.id,
-      jdMatchStatus: duplicateCampaign.jd_match_status,
-      jdMatchScore: duplicateCampaign.jd_match_score,
-      jdMatchError: duplicateCampaign.jd_match_error,
-      jdMatchRationale: duplicateCampaign.jd_match_rationale,
-    });
-
-    // 3. Delete the throwaway duplicate application, then its person row --
-    // but only if nothing else references that candidate (see
-    // deleteCandidateIfNoOtherApplications).
-    await tx.query("DELETE FROM campaign_applied WHERE id = $1", [duplicateCampaignAppliedId]);
-    await deleteCandidateIfNoOtherApplications(tx, duplicateCampaign.candidate_id);
-
-    // 4. Refresh the existing person's pool-search aggregate fields
-    await syncCandidateAggregateFields(tx, existingCampaign.candidate_id);
+  // 1. Re-associate the duplicate's CV file with the existing application as a new version
+  const mergedCvVersion = await createCvDetailVersion(db, {
+    campaignAppliedId: existingCampaignAppliedId,
+    versionNumber: nextVersionNum,
+    sourceEvent: "file_replaced",
+    cvStoragePath: duplicateCvVersion.cv_storage_path,
+    originalFilename: duplicateCvVersion.original_filename,
+    mimeType: duplicateCvVersion.mime_type,
+    cvFileSha256: duplicateCvVersion.cv_file_sha256,
+    cvContentSha256: duplicateCvVersion.cv_content_sha256,
+    parsingStatus: duplicateCvVersion.parsing_status,
+    parsingError: duplicateCvVersion.parsing_error,
+    parsedPayload: duplicateCvVersion.parsed_payload,
+    skills: duplicateCvVersion.skills,
+    role: duplicateCvVersion.role,
+    degree: duplicateCvVersion.degree,
+    education: duplicateCvVersion.education,
+    experienceYears: duplicateCvVersion.experience_years
+      ? parseFloat(duplicateCvVersion.experience_years)
+      : null,
+    gpa: duplicateCvVersion.gpa,
+    englishLevel: duplicateCvVersion.english_level,
+    dateOfBirth: dbDateToIso(duplicateCvVersion.date_of_birth),
+    studentYears: duplicateCvVersion.student_years,
+    matchedOn,
+    createdBy,
   });
 
-  return { ok: true };
+  // 2. Point the existing application's active CV at the new version.
+  // Also clear the cached JD-match result: it was computed against the
+  // *previous* CV, and leaving `jd_match_status: "completed"` in place
+  // would both show a stale score for the new CV and make
+  // `runJdMatchForCandidate`'s "already_scored" guard silently skip any
+  // future re-score attempt. JD-match itself stays opt-in (not re-run
+  // here) -- HR re-triggers it explicitly via "Run AI JD Match", same as
+  // for a brand-new upload.
+  await updateCampaignApplied(db, existingCampaignAppliedId, {
+    activeCvVersionId: mergedCvVersion.id,
+    jdMatchStatus: duplicateCampaign.jd_match_status,
+    jdMatchScore: duplicateCampaign.jd_match_score,
+    jdMatchError: duplicateCampaign.jd_match_error,
+    jdMatchRationale: duplicateCampaign.jd_match_rationale,
+  });
+
+  // 3. What happens to the duplicate application depends on whether it has
+  // anything of its own left, same disposition as
+  // reassignCvVersionToApplication:
+  // - Has an earlier version of its own -- the row just copied in step 1
+  //   was never mutated (only copied), so it's still right here in the
+  //   duplicate's own history; roll its active pointer back to whatever was
+  //   active before it, restoring that version's own jd_match_* columns.
+  //   The application (and its candidate) stays alive.
+  // - Has *no* earlier version -- there's nothing genuinely "the duplicate's
+  //   own" left to preserve (the one CV it had is already safely copied to
+  //   `existingCampaignAppliedId` above), so delete it outright, and its
+  //   person row too if nothing else references it (see
+  //   deleteCandidateIfNoOtherApplications).
+  const duplicateApplicationDeleted = !previousDuplicateVersion;
+  if (previousDuplicateVersion) {
+    await updateCampaignApplied(db, duplicateCampaignAppliedId, {
+      activeCvVersionId: previousDuplicateVersion.id,
+      // `jd_match_status` is NOT NULL on campaign_applied (defaults to
+      // "pending"), unlike the per-version column it's read from here, which
+      // is null whenever that version was never scored.
+      jdMatchStatus: previousDuplicateVersion.jd_match_status ?? "pending",
+      jdMatchScore: previousDuplicateVersion.jd_match_score,
+      jdMatchError: previousDuplicateVersion.jd_match_error,
+      jdMatchRationale: previousDuplicateVersion.jd_match_rationale,
+    });
+  } else {
+    await db.query("DELETE FROM campaign_applied WHERE id = $1", [duplicateCampaignAppliedId]);
+    await deleteCandidateIfNoOtherApplications(db, duplicateCampaign.candidate_id);
+  }
+
+  // 4. Refresh pool-search aggregate fields for the existing candidate, and
+  // for the duplicate's own candidate too when it was kept alive above (its
+  // active CV changed, so its cached name/email/phone/etc. may be stale).
+  // The CV version copied in step 1 carries the *duplicate* application's
+  // own identity in its `parsed_payload` (name/email/phone) -- normally
+  // harmless (the duplicate side is usually a throwaway single-application
+  // candidate that just got deleted, so nothing else holds that email/phone
+  // anymore). But `resolveProfileConflict`'s Path B calls this with a *real*
+  // existing candidate as the duplicate side, one that can still have other
+  // live applications -- syncing that same email/phone onto
+  // `existingCampaign`'s candidate here would collide with it via
+  // `candidates_email_unique_idx`/`candidates_phone_unique_idx`. A savepoint
+  // lets that be treated as "nothing to sync yet" rather than failing the
+  // whole merge -- the caller's own follow-up write (e.g.
+  // `resolveProfileConflict` applying the patch with the *correct* identity
+  // right after) re-syncs with the right values anyway.
+  const candidateIdsToSync = duplicateApplicationDeleted
+    ? [existingCampaign.candidate_id]
+    : [existingCampaign.candidate_id, duplicateCampaign.candidate_id];
+  for (const candidateId of candidateIdsToSync) {
+    await db.query("SAVEPOINT sync_aggregate_after_merge");
+    try {
+      await syncCandidateAggregateFields(db, candidateId);
+      await db.query("RELEASE SAVEPOINT sync_aggregate_after_merge");
+    } catch (syncErr) {
+      if (!isUniqueViolation(syncErr)) throw syncErr;
+      await db.query("ROLLBACK TO SAVEPOINT sync_aggregate_after_merge");
+    }
+  }
+
+  return { ok: true, mergedCvVersionId: mergedCvVersion.id, duplicateApplicationDeleted };
 }
 
 /**
@@ -172,13 +260,16 @@ export async function mergeDuplicateApplicationIntoExisting(
  * the new application is kept (it's a legitimate new job application), only
  * its person identity changes; the throwaway blank candidate row is deleted
  * once nothing references it anymore.
+ *
+ * Takes `db` as a `QueryExecutor` -- see the note on
+ * {@link mergeDuplicateApplicationIntoExisting} for why callers own the
+ * transaction rather than this function opening its own.
  */
 export async function linkApplicationToExistingCandidate(
+  db: QueryExecutor,
   newCampaignAppliedId: string,
   existingCandidateId: string,
-): Promise<MergeDuplicateApplicationResult> {
-  const db = getPool();
-
+): Promise<LinkApplicationResult> {
   const application = await getCampaignAppliedById(db, newCampaignAppliedId);
   if (!application) {
     return { ok: false, error: "Application not found.", status: 404 };
@@ -189,17 +280,15 @@ export async function linkApplicationToExistingCandidate(
 
   const orphanCandidateId = application.candidate_id;
 
-  await withTransaction(async (tx) => {
-    await tx.query(
-      `UPDATE campaign_applied SET candidate_id = $2, updated_at = now() WHERE id = $1`,
-      [newCampaignAppliedId, existingCandidateId],
-    );
-    // The application above no longer points at `orphanCandidateId` -- but
-    // only delete that candidate row if this was truly its last application
-    // (see deleteCandidateIfNoOtherApplications).
-    await deleteCandidateIfNoOtherApplications(tx, orphanCandidateId);
-    await syncCandidateAggregateFields(tx, existingCandidateId);
-  });
+  await db.query(
+    `UPDATE campaign_applied SET candidate_id = $2, updated_at = now() WHERE id = $1`,
+    [newCampaignAppliedId, existingCandidateId],
+  );
+  // The application above no longer points at `orphanCandidateId` -- but
+  // only delete that candidate row if this was truly its last application
+  // (see deleteCandidateIfNoOtherApplications).
+  await deleteCandidateIfNoOtherApplications(db, orphanCandidateId);
+  await syncCandidateAggregateFields(db, existingCandidateId);
 
   return { ok: true };
 }
@@ -215,7 +304,7 @@ export async function linkApplicationToExistingCandidate(
  */
 export async function discardDuplicateApplication(
   campaignAppliedId: string,
-): Promise<MergeDuplicateApplicationResult> {
+): Promise<LinkApplicationResult> {
   const db = getPool();
 
   const application = await getCampaignAppliedById(db, campaignAppliedId);

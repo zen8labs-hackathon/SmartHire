@@ -60,7 +60,6 @@ describe("createEmailTemplate", () => {
     const result = await createEmailTemplate(db, {
       name: "Welcome",
       triggerType: "application_received",
-      recipientType: "candidate",
       subjectTemplate: "Hi {{candidate_name}}",
       bodyTemplate: "<p>Body</p>",
     });
@@ -71,7 +70,6 @@ describe("createEmailTemplate", () => {
     expect(values).toEqual([
       "Welcome",
       "application_received",
-      "candidate",
       "vi",
       "Hi {{candidate_name}}",
       "<p>Body</p>",

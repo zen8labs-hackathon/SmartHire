@@ -10,11 +10,18 @@ import TiptapImage from "@tiptap/extension-image";
 import { TextStyleKit } from "@tiptap/extension-text-style";
 import TextAlign from "@tiptap/extension-text-align";
 import {
+  Table as TiptapTable,
+  TableCell as TiptapTableCell,
+  TableHeader as TiptapTableHeader,
+  TableRow as TiptapTableRow,
+} from "@tiptap/extension-table";
+import {
   AlignCenter,
   AlignJustify,
   AlignLeft,
   AlignRight,
   Bold,
+  Columns3,
   ImageIcon,
   Italic,
   Link as LinkIcon,
@@ -23,7 +30,10 @@ import {
   Palette,
   Quote,
   Redo,
+  Rows3,
   Strikethrough,
+  Table as TableIcon,
+  Trash2,
   Underline,
   Undo,
   Variable,
@@ -70,7 +80,7 @@ const TEXT_COLOR_SWATCHES = [
 
 export type EmailPlaceholder = { key: string; label: string };
 
-function ToolbarButton({
+export function ToolbarButton({
   onClick,
   active,
   disabled,
@@ -100,7 +110,7 @@ function ToolbarButton({
   );
 }
 
-function ToolbarDivider() {
+export function ToolbarDivider() {
   return <div className="mx-1 h-4 w-px shrink-0 bg-divider" />;
 }
 
@@ -121,7 +131,7 @@ function ToolbarDivider() {
  * and it collision-detects the viewport on its own instead of needing manual
  * clamped coordinates.
  */
-function ToolbarPopover({
+export function ToolbarPopover({
   label,
   icon,
   disabled,
@@ -313,6 +323,70 @@ function ColorPanel({ editor, close }: { editor: Editor; close: () => void }) {
 }
 
 /**
+ * None of `@tiptap/extension-table`'s nodes preserve an element's raw `style`
+ * (or the legacy `role`/`width`/`cellpadding`/`cellspacing` attributes) --
+ * only `colspan`/`rowspan`/`colwidth`/`align` round-trip by default. Custom
+ * email layouts are authored as Outlook-safe `<table>` markup with inline
+ * styles on every element (see lib/email/email-layout.ts's docblock), so
+ * without this passthrough, editing a pasted/typed table layout here would
+ * silently strip every `style="..."` on save.
+ */
+function passthroughAttribute(name: string) {
+  return {
+    default: null as string | null,
+    parseHTML: (element: HTMLElement) => element.getAttribute(name),
+    renderHTML: (attributes: Record<string, unknown>) => {
+      const value = attributes[name];
+      return value ? { [name]: value } : {};
+    },
+  };
+}
+
+const EmailLayoutTable = TiptapTable.extend({
+  addAttributes() {
+    return {
+      style: passthroughAttribute("style"),
+      role: passthroughAttribute("role"),
+      width: passthroughAttribute("width"),
+      align: passthroughAttribute("align"),
+      cellpadding: passthroughAttribute("cellpadding"),
+      cellspacing: passthroughAttribute("cellspacing"),
+    };
+  },
+}).configure({ resizable: false });
+
+const EmailLayoutTableRow = TiptapTableRow.extend({
+  addAttributes() {
+    return { style: passthroughAttribute("style") };
+  },
+});
+
+// `align` intentionally dropped from the base TableCell/TableHeader attrs --
+// its renderHTML also writes a `style="text-align:..."` attribute, which
+// would collide with (and unpredictably overwrite or be overwritten by) the
+// raw `style` passthrough below. Since `style` now owns that DOM attribute
+// entirely, text alignment is just part of whatever style string is typed.
+const EmailLayoutTableCell = TiptapTableCell.extend({
+  addAttributes() {
+    return {
+      colspan: { default: 1 },
+      rowspan: { default: 1 },
+      style: passthroughAttribute("style"),
+    };
+  },
+});
+
+const EmailLayoutTableHeader = TiptapTableHeader.extend({
+  addAttributes() {
+    return {
+      colspan: { default: 1 },
+      rowspan: { default: 1 },
+      style: passthroughAttribute("style"),
+    };
+  },
+});
+
+/**
  * Matches an opening HTML tag (e.g. `<p>`, `<a href="...">`). Used to tell
  * apart "someone pasted markup source as text" from an ordinary plain-text
  * paste, since only the former should be parsed as HTML -- see `handlePaste`
@@ -345,6 +419,7 @@ type ToolbarState = {
   isAlignCenter: boolean;
   isAlignRight: boolean;
   isAlignJustify: boolean;
+  isTable: boolean;
   canUndo: boolean;
   canRedo: boolean;
 };
@@ -364,16 +439,17 @@ function readToolbarState(editor: Editor): ToolbarState {
     isAlignCenter: editor.isActive({ textAlign: "center" }),
     isAlignRight: editor.isActive({ textAlign: "right" }),
     isAlignJustify: editor.isActive({ textAlign: "justify" }),
+    isTable: editor.isActive("table"),
     canUndo: editor.can().undo(),
     canRedo: editor.can().redo(),
   };
 }
 
 /**
- * Tiptap-backed rich text editor for email body/signature fields. Stores and
- * emits HTML (matching `email_templates.body_template` / `email_settings.signature_html`
- * / `email_messages.body_html`, all rendered elsewhere via `dangerouslySetInnerHTML`),
- * so no markdown/JSON conversion layer is needed at the call sites.
+ * Tiptap-backed rich text editor for email body fields. Stores and emits
+ * HTML (matching `email_templates.body_template` / `email_messages.body_html`,
+ * both rendered elsewhere via `dangerouslySetInnerHTML`), so no markdown/JSON
+ * conversion layer is needed at the call sites.
  */
 export function RichTextEditor({
   value,
@@ -413,6 +489,10 @@ export function RichTextEditor({
       TiptapImage,
       TextStyleKit.configure({ backgroundColor: false, lineHeight: false }),
       TextAlign.configure({ types: ["paragraph", "heading"] }),
+      EmailLayoutTable,
+      EmailLayoutTableRow,
+      EmailLayoutTableHeader,
+      EmailLayoutTableCell,
     ],
     content: value,
     editable: !disabled,
@@ -640,6 +720,44 @@ export function RichTextEditor({
         >
           <AlignJustify className="h-3.5 w-3.5" />
         </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          label="Insert table"
+
+          disabled={disabled || toolbarState.isTable}
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 1, withHeaderRow: false }).run()
+          }
+        >
+          <TableIcon className="h-3.5 w-3.5" />
+        </ToolbarButton>
+        {toolbarState.isTable ? (
+          <>
+            <ToolbarButton
+              label="Add row below"
+              disabled={disabled}
+              onClick={() => editor.chain().focus().addRowAfter().run()}
+            >
+              <Rows3 className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Add column right"
+              disabled={disabled}
+              onClick={() => editor.chain().focus().addColumnAfter().run()}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <ToolbarButton
+              label="Delete table"
+              disabled={disabled}
+              onClick={() => editor.chain().focus().deleteTable().run()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </ToolbarButton>
+          </>
+        ) : null}
 
         {placeholders && placeholders.length > 0 ? (
           <>

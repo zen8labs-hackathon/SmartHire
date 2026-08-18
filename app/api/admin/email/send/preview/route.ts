@@ -88,10 +88,9 @@ export async function POST(request: Request) {
       {
         senderName: auth.access.email,
         companyName: settings.company_name,
-        // No signatureHtml here -- the compose modal already embeds the
-        // signature into the editable body it sends as `bodyHtml`, so
-        // appending it again here would duplicate it.
         logoUrl: settings.logo_url,
+        layoutType: settings.layout_type,
+        customLayoutHtml: settings.custom_layout_html,
         senderUser,
       },
     );

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, ListBox, Modal, Select } from "@heroui/react";
-import { Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, FileText, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { EmailTemplateFormModal } from "@/components/admin/email-config/email-template-form-modal";
 import { EmailTemplatePreviewModal } from "@/components/admin/email-config/email-template-preview-modal";
@@ -39,6 +39,26 @@ function canManageTemplate(
   currentUserId: string,
 ): boolean {
   return isAdmin || t.created_by === currentUserId;
+}
+
+export function SheetSkeleton() {
+  return <div className="relative w-[76px] h-[90px] bg-white border border-gray-200 rounded-sm shadow-[0_5px_12px_-6px_rgba(16,24,40,0.18)] p-[11px_9px_9px]
+  before:content-[''] before:absolute before:top-0 before:right-0
+  before:[border-style:solid] before:[border-width:0_11px_11px_0]
+  before:[border-color:transparent_#f9fafb_transparent_transparent]
+  after:content-[''] after:absolute after:top-0 after:right-0
+  after:[border-style:solid] after:[border-width:0_11px_11px_0]
+  after:[border-color:transparent_#fff_transparent_transparent]
+  after:[filter:drop-shadow(-1px_1px_1px_rgba(16,24,40,0.16))]
+  after:[clip-path:polygon(100%_0,0_0,100%_100%)]
+  after:scale-[0.86] after:translate-x-px after:translate-y-px">
+
+    <div className="w-[70%] h-1.5 rounded-[3px] bg-gray-300 mb-2"></div>
+    <div className="w-[88%] h-1 rounded-[3px] bg-[#eceef1] mb-[5px]"></div>
+    <div className="w-[72%] h-1 rounded-[3px] bg-[#eceef1] mb-[5px]"></div>
+    <div className="w-[80%] h-1 rounded-[3px] bg-[#eceef1] mb-[5px]"></div>
+    <div className="w-1/2 h-1 rounded-[3px] bg-[#eceef1] mb-[5px]"></div>
+  </div>
 }
 
 export function EmailTemplatesTab({
@@ -217,12 +237,26 @@ export function EmailTemplatesTab({
               return (
                 <div
                   key={t.id}
-                  className="rounded-2xl border border-divider bg-surface-primary p-5 shadow-sm transition-all duration-200 hover:border-accent/40 hover:shadow-md flex flex-col justify-between gap-4"
+                  className="flex flex-col gap-3 rounded-2xl border border-divider bg-surface-primary p-4 shadow-sm transition-all duration-200 hover:border-accent/40 hover:shadow-md"
                 >
-                  <div className="space-y-3">
-                    {/* Header: Title and Badges */}
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-sm font-bold text-foreground line-clamp-1" title={t.name}>
+                  {/* Thumbnail: a generic "document" preview -- templates have
+                      no thumbnail/attachment of their own, this just gives
+                      the grid the same document-card visual language as
+                      other file listings in the app. */}
+                  <div className="bg-grid-pattern relative flex h-28 items-center justify-center overflow-hidden rounded-xl bg-surface-secondary/50">
+                    <span className="absolute left-2 top-2 rounded-md bg-surface-primary/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-muted shadow-sm">
+                      Doc
+                    </span>
+                    <div className="flex h-20 w-18 items-center justify-center rounded-lg bg-surface-primary shadow-sm">
+                      {/* <FileText className="h-10 w-10 text-muted/60" /> */}
+                      <SheetSkeleton />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {/* Header: Title and status badge */}
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="truncate text-sm font-bold text-foreground" title={t.name}>
                         {t.name}
                       </h4>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -239,13 +273,7 @@ export function EmailTemplatesTab({
                     </div>
 
                     {/* Metadata items */}
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between text-muted">
-                        <span>Recipient</span>
-                        <span className="font-semibold text-foreground capitalize">
-                          {capitalizeFirstLetter(t.recipient_type)}
-                        </span>
-                      </div>
+                    {/* <div className="space-y-1.5 text-xs">
                       <div className="flex items-center justify-between text-muted">
                         <span>Trigger Category</span>
                         <span className="font-semibold text-foreground">
@@ -272,15 +300,15 @@ export function EmailTemplatesTab({
                           )}
                         </span>
                       </div>
-                    </div>
+                    </div> */}
                   </div>
 
                   {/* Actions footer */}
-                  <div className="flex items-center justify-between border-t border-divider/60 pt-3 mt-1">
-                     <Button
+                  <div className="flex items-center justify-between border-t border-divider/60 pt-3">
+                    <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 gap-1 rounded-lg border border-divider px-2.5 text-[11px] font-semibold text-muted hover:bg-surface-secondary hover:text-foreground"
+                      className="h-8 gap-1.5 rounded-full border border-divider px-3 text-[11px] font-semibold text-muted hover:bg-surface-secondary hover:text-foreground"
                       onPress={() => {
                         setPreviewTemplate(t);
                         setPreviewOpen(true);
@@ -289,18 +317,21 @@ export function EmailTemplatesTab({
                       <Eye className="h-3.5 w-3.5" />
                       Preview
                     </Button>
-                    
+
                     <div className="flex items-center gap-1.5">
                       <Button
                         size="sm"
                         variant="ghost"
                         isIconOnly
-                        aria-label="Edit template"
-                        className="h-7 w-7 rounded-lg border border-divider text-muted hover:bg-surface-secondary hover:text-foreground"
+                        aria-label={canManageTemplate(t, isAdmin, currentUserId) ? "Edit template" : "View template details"}
+                        className="h-8 w-8 rounded-full border border-divider text-muted hover:bg-surface-secondary hover:text-foreground"
                         onPress={() => openEdit(t)}
                       >
-                        {canManageTemplate(t, isAdmin, currentUserId) ? (<Pencil className="h-3.5 w-3.5" />) : 
-                        (<Eye className="h-3.5 w-3.5" />)}
+                        {canManageTemplate(t, isAdmin, currentUserId) ? (
+                          <Pencil className="h-3.5 w-3.5" />
+                        ) : (
+                          <FileText className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                       {canManageTemplate(t, isAdmin, currentUserId) ? (
                         <Button
@@ -308,7 +339,7 @@ export function EmailTemplatesTab({
                           variant="ghost"
                           isIconOnly
                           aria-label="Delete template"
-                          className="h-7 w-7 rounded-lg border border-divider text-danger hover:bg-danger/10"
+                          className="h-8 w-8 rounded-full bg-danger/10 text-danger hover:bg-danger/20"
                           isDisabled={deletingId === t.id}
                           onPress={() => void handleDelete(t)}
                         >
@@ -320,8 +351,6 @@ export function EmailTemplatesTab({
                         </Button>
                       ) : null}
                     </div>
-
-                   
                   </div>
                 </div>
               );
@@ -360,12 +389,13 @@ export function EmailTemplatesTab({
           name={previewTemplate.name}
           subjectTemplate={previewTemplate.subject_template}
           bodyTemplate={previewTemplate.body_template}
-          recipientType={previewTemplate.recipient_type}
+          triggerType={previewTemplate.trigger_type}
           defaultCc={previewTemplate.default_cc}
           defaultBcc={previewTemplate.default_bcc}
           fromEmail={previewSettings?.default_sender}
           companyName={previewSettings?.company_name}
-          signatureHtml={previewSettings?.signature_html}
+          layoutType={previewSettings?.layout_type}
+          customLayoutHtml={previewSettings?.custom_layout_html}
           logoUrl={previewSettings?.logo_url}
         />
       ) : null}

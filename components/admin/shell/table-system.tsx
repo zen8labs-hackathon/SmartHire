@@ -209,6 +209,35 @@ export type DataTablePaginationProps = {
   pageSizeOptions?: number[];
 };
 
+/** Page numbers with first/last always visible and ellipsis gaps when needed. */
+function getPaginationItems(
+  page: number,
+  totalPages: number,
+): (number | "ellipsis")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const items: (number | "ellipsis")[] = [1];
+
+  if (page > 3) {
+    items.push("ellipsis");
+  }
+
+  const start = Math.max(2, page - 1);
+  const end = Math.min(totalPages - 1, page + 1);
+  for (let i = start; i <= end; i++) {
+    items.push(i);
+  }
+
+  if (page < totalPages - 2) {
+    items.push("ellipsis");
+  }
+
+  items.push(totalPages);
+  return items;
+}
+
 export function DataTablePagination({
   page,
   totalPages,
@@ -221,12 +250,7 @@ export function DataTablePagination({
   setPageSize,
   pageSizeOptions = [10, 20, 50, 100],
 }: DataTablePaginationProps) {
-  // Page window helper
-  const width = 3;
-  let start = Math.max(1, page - Math.floor(width / 2));
-  const end = Math.min(totalPages, start + width - 1);
-  start = Math.max(1, end - width + 1);
-  const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  const pages = getPaginationItems(page, totalPages);
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between py-4 border-t border-divider/60 font-sans">
@@ -273,21 +297,32 @@ export function DataTablePagination({
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
-          {pages.map((p) => (
-            <Button
-              key={p}
-              variant={p === page ? "primary" : "ghost"}
-              size="sm"
-              onPress={() => setPage(p)}
-              className={`h-8 w-8 rounded-lg text-xs font-semibold ${
-                p === page
-                  ? "bg-accent text-accent-foreground shadow-sm"
-                  : "border border-divider/40 hover:bg-surface-secondary text-muted"
-              }`}
-            >
-              {p}
-            </Button>
-          ))}
+          {pages.map((p, i) =>
+            p === "ellipsis" ? (
+              <span
+                key={`ellipsis-${i}`}
+                className="flex h-8 w-8 items-center justify-center text-xs font-semibold text-muted"
+                aria-hidden
+              >
+                …
+              </span>
+            ) : (
+              <Button
+                key={p}
+                variant={p === page ? "primary" : "ghost"}
+                size="sm"
+                onPress={() => setPage(p)}
+                aria-current={p === page ? "page" : undefined}
+                className={`h-8 w-8 rounded-lg text-xs font-semibold ${
+                  p === page
+                    ? "bg-accent text-accent-foreground shadow-sm"
+                    : "border border-divider/40 hover:bg-surface-secondary text-muted"
+                }`}
+              >
+                {p}
+              </Button>
+            ),
+          )}
 
           <Button
             isIconOnly
@@ -322,8 +357,15 @@ export type DataTableStatsProps = {
 };
 
 export function DataTableStats({ stats }: DataTableStatsProps) {
+  const gridCols =
+    stats.length <= 2
+      ? "grid-cols-1 sm:grid-cols-2"
+      : stats.length === 3
+        ? "grid-cols-1 sm:grid-cols-3"
+        : "grid-cols-2 md:grid-cols-4";
+
   return (
-    <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-3">
+    <div className={`grid gap-4 ${gridCols} mb-3`}>
       {stats.map((stat, idx) => (
         <Card
           key={idx}

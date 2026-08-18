@@ -3,17 +3,19 @@ import { canViewSalary } from "@/lib/authz/can";
 import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 
-import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { getCampaignAppliedAdminRowById, listApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
 import { getCampaignAppliedById, updateCampaignApplied } from "@/lib/db/campaign-applied";
-import { getCvDetailVersionById, getNextCvVersionNumber, createCvDetailVersion } from "@/lib/db/cv-detail-versions";
-import { getCandidateById, updateCandidate, syncCandidateAggregateFields } from "@/lib/db/candidates";
+import { getCvDetailVersionById } from "@/lib/db/cv-detail-versions";
+import { getCandidateById, syncCandidateAggregateFields } from "@/lib/db/candidates";
 import { findCandidatesByDedupeSignals } from "@/lib/db/candidates-dedupe";
 import { getPool, withTransaction } from "@/lib/db/config/client";
-import { dbDateToIso, isUniqueViolation } from "@/lib/db/query-helpers";
+import { isUniqueViolation } from "@/lib/db/query-helpers";
+import { applyManualProfileEdit } from "@/lib/candidates/apply-manual-profile-edit";
+import { resolveApplicationStages } from "@/lib/candidates/resolve-application-stage";
 import {
   candidateProfilePatchSchema,
-  mergeProfileIntoParsedPayload,
-  patchInputToMergeFields,
+  validateSourceOther,
+  type ProfileEditConflict,
 } from "@/lib/candidates/candidate-profile-patch";
 import {
   normalizeEmailFromPayload,
@@ -118,16 +120,14 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   const nextSource = patch.source !== undefined ? patch.source : campaignApplied.source;
   const nextSourceOther = patch.source_other !== undefined ? patch.source_other : campaignApplied.source_other;
 
-  if (nextSource === "Other") {
-    const detail = typeof nextSourceOther === "string" ? nextSourceOther.trim() : "";
-    if (!detail) {
-      return Response.json(
-        {
-          error:
-            "When source is Other, source_other must be a non-empty description (or set source to a fixed channel).",
-        },
-        { status: 400 },
-      );
+  // Only validate when this patch actually touches source/source_other --
+  // otherwise an unrelated edit (e.g. skills-only) on a row with pre-existing
+  // "Other" + no description would be spuriously blocked by data it never
+  // asked to change.
+  if (patch.source !== undefined || patch.source_other !== undefined) {
+    const sourceOtherError = validateSourceOther(nextSource, nextSourceOther);
+    if (sourceOtherError) {
+      return Response.json({ error: sourceOtherError }, { status: 400 });
     }
   }
 
@@ -157,15 +157,22 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     if (otherPersonMatches.length > 0) {
       const seen = new Set<string>();
       const conflicts: string[] = [];
+      let matchedFields: Array<"email" | "phone"> = [];
+      let onlyMatch: (typeof otherPersonMatches)[number] | null = null;
       for (const m of otherPersonMatches) {
         if (seen.has(m.candidate_id)) continue;
         seen.add(m.candidate_id);
+        onlyMatch = m;
         const emailHit =
           !!normalizedEmail && m.candidate_email?.toLowerCase() === normalizedEmail;
         const phoneHit =
           phoneVariants.length > 0 &&
           !!m.candidate_phone &&
           phoneVariants.includes(m.candidate_phone);
+        matchedFields = [
+          ...(emailHit ? (["email"] as const) : []),
+          ...(phoneHit ? (["phone"] as const) : []),
+        ];
         const field =
           emailHit && phoneHit
             ? "email and phone"
@@ -176,76 +183,58 @@ export async function PATCH(request: Request, { params }: RouteContext) {
                 : "email/phone";
         conflicts.push(`${m.candidate_name ?? "another candidate"} (${field})`);
       }
+
+      // Only offer a merge action when the conflict is unambiguous (exactly
+      // one other candidate matched) -- with 2+ distinct candidates, there's
+      // no single sensible merge target, so fall back to the plain-text
+      // error only, same as before this feature existed.
+      let conflict: ProfileEditConflict | undefined;
+      if (seen.size === 1 && onlyMatch) {
+        const applications = await listApplicationsForCandidate(db, onlyMatch.candidate_id);
+        // `listApplicationsForCandidate`'s stage/sub-stage columns are raw
+        // (possibly-NULL) `current_job_stage_mapping_id`/`current_sub_state_id`
+        // joins -- a brand-new, never-manually-moved application has both
+        // NULL even though it obviously already has a CV on file. Resolve
+        // through the same helper the candidate-detail page's application
+        // list and dashboard drawer use, so a fresh application shows its
+        // real initial stage (e.g. "CV Scan · New") instead of misleadingly
+        // reading as if nothing had been submitted yet.
+        const resolvedByRow = await resolveApplicationStages(db, applications);
+        conflict = {
+          candidateId: onlyMatch.candidate_id,
+          candidateName: onlyMatch.candidate_name,
+          matchedFields,
+          applications: applications.map((a) => ({
+            id: a.id,
+            jobId: a.job_id,
+            jobTitle: a.job_position,
+            appliedAt: a.created_at.toISOString(),
+            ...resolvedByRow.get(a)!,
+          })),
+        };
+      }
+
       return Response.json(
         {
           error: `Cannot save -- this would match an existing candidate's contact info: ${conflicts.join(", ")}. Use different contact info, or resolve the duplicate from the candidate list before editing.`,
+          ...(conflict ? { conflict } : {}),
         },
         { status: 409 },
       );
     }
   }
 
-  const mergeFields = patchInputToMergeFields(patch);
-  let mergedPayload = cvVersion.parsed_payload;
-  if (Object.keys(mergeFields).length > 0) {
-    mergedPayload = mergeProfileIntoParsedPayload(
-      cvVersion.parsed_payload,
-      mergeFields,
-    );
-  }
-
   try {
-    const nextVersionNum = await getNextCvVersionNumber(db, campaignAppliedId);
-
     await withTransaction(async (tx) => {
-      // 1. Create a new version representing the profile edit
-      const nextVersion = await createCvDetailVersion(tx, {
+      await applyManualProfileEdit(tx, {
         campaignAppliedId,
-        versionNumber: nextVersionNum,
-        sourceEvent: "manual_edit",
-        cvStoragePath: cvVersion.cv_storage_path,
-        originalFilename: cvVersion.original_filename,
-        mimeType: cvVersion.mime_type,
-        cvFileSha256: cvVersion.cv_file_sha256,
-        cvContentSha256: cvVersion.cv_content_sha256,
-        parsingStatus: cvVersion.parsing_status,
-        parsingError: cvVersion.parsing_error,
-        parsedPayload: mergedPayload,
-        skills: patch.skills !== undefined ? patch.skills : cvVersion.skills,
-        role: patch.role !== undefined ? patch.role : cvVersion.role,
-        degree: patch.degree !== undefined ? patch.degree : cvVersion.degree,
-        education: patch.school !== undefined ? patch.school : cvVersion.education,
-        experienceYears: patch.experience_years !== undefined ? patch.experience_years : (cvVersion.experience_years ? parseFloat(cvVersion.experience_years) : null),
-        gpa: cvVersion.gpa,
-        englishLevel: cvVersion.english_level,
-        dateOfBirth: dbDateToIso(cvVersion.date_of_birth),
-        studentYears: cvVersion.student_years,
-        matchedOn: cvVersion.matched_on,
-        changeSummary: patch.change_summary ?? null,
+        candidateId: campaignApplied.candidate_id,
+        baseCvVersion: cvVersion,
+        nextSource,
+        nextSourceOther,
+        patch,
         createdBy: auth.userId,
       });
-
-      // 2. Update campaign_applied active CV version, source, and salary
-      await updateCampaignApplied(tx, campaignAppliedId, {
-        activeCvVersionId: nextVersion.id,
-        source: nextSource,
-        sourceOther: nextSource === "Other" ? nextSourceOther : null,
-        ...(patch.expected_salary !== undefined
-          ? { expectedSalary: patch.expected_salary }
-          : {}),
-      });
-
-      // 3. Update candidate (person) fields (name, email, phone)
-      const candidatePatch: Parameters<typeof updateCandidate>[2] = {};
-      if (patch.name !== undefined) candidatePatch.name = patch.name;
-      if (patch.email !== undefined) candidatePatch.email = patch.email;
-      if (patch.phone !== undefined) candidatePatch.phone = patch.phone;
-
-      if (Object.keys(candidatePatch).length > 0) {
-        await updateCandidate(tx, campaignApplied.candidate_id, candidatePatch);
-      }
-
-      // 4. Sync aggregate fields
       await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
     });
 

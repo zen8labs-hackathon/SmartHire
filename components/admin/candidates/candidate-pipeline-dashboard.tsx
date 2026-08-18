@@ -15,8 +15,6 @@ import { useToast } from "@/components/admin/toast-provider";
 import {
   Users as UsersIcon,
   Layers as LayersIcon,
-  Clock as ClockIcon,
-  CheckCircle2 as CheckIcon,
 } from "lucide-react";
 import {
   type CandidateDbRow,
@@ -25,6 +23,14 @@ import {
 } from "@/lib/candidates/db-row";
 import type { CandidateRow } from "@/lib/candidates/types";
 
+const PARSING_STATUS_FILTER_OPTIONS = [
+  { id: "all", label: "All parsing" },
+  { id: "failed", label: "Failed" },
+  { id: "processing", label: "Processing" },
+  { id: "pending", label: "Pending" },
+  { id: "completed", label: "Completed" },
+];
+
 export type CandidatePipelineDashboardHandle = {
   /** Opens the "Add Candidate" modal, callable from a header button that
    * lives outside the Suspense boundary this component is wrapped in. */
@@ -32,20 +38,30 @@ export type CandidatePipelineDashboardHandle = {
 };
 
 type Props = {
-  candidatesPromise: Promise<{ rows: CandidateDbRow[]; total: number }>;
+  candidatesPromise: Promise<{
+    rows: CandidateDbRow[];
+    total: number;
+    experiencedTotal: number;
+  }>;
 };
 
 export const CandidatePipelineDashboard = forwardRef<
   CandidatePipelineDashboardHandle,
   Props
 >(function CandidatePipelineDashboard({ candidatesPromise }, ref) {
-  const { rows: initialRows, total: initialListTotal } = use(candidatesPromise);
+  const {
+    rows: initialRows,
+    total: initialListTotal,
+    experiencedTotal: initialExperiencedTotal,
+  } = use(candidatesPromise);
   const toast = useToast();
   const {
     page,
     setPage,
     query,
     setQuery,
+    parsingStatusKey,
+    setParsingStatusKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -73,6 +89,7 @@ export const CandidatePipelineDashboard = forwardRef<
     fetchCandidates,
     filteredRows,
     listTotal,
+    listExperiencedTotal,
     listPageSize,
     changeListPageSize,
     tableSourceRows,
@@ -83,6 +100,7 @@ export const CandidatePipelineDashboard = forwardRef<
   } = useCandidatePipelineState(initialRows, {
     listMode: "page",
     initialListTotal,
+    initialExperiencedTotal,
     deduped: true,
   });
 
@@ -163,30 +181,15 @@ export const CandidatePipelineDashboard = forwardRef<
   const candidateStats = [
     {
       label: "Candidates",
-      value: tableSourceRows.length,
+      value: listTotal,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
       description: "Total uploaded CVs",
     },
     {
       label: "Experienced staff",
-      value: tableSourceRows.filter((r) => (r.experienceYears ?? 0) >= 5)
-        .length,
+      value: listExperiencedTotal,
       icon: <LayersIcon className="h-4.5 w-4.5" />,
       description: "5+ years of experience",
-    },
-    {
-      label: "Screened CVs",
-      value: tableSourceRows.filter((r) => r.status.toUpperCase() !== "NEW")
-        .length,
-      icon: <ClockIcon className="h-4.5 w-4.5 text-accent" />,
-      description: "In review or further stages",
-    },
-    {
-      label: "Offers Extended",
-      value: tableSourceRows.filter((r) => r.status.toUpperCase() === "OFFER")
-        .length,
-      icon: <CheckIcon className="h-4.5 w-4.5 text-success" />,
-      description: "Hiring final stages",
     },
   ];
 
@@ -226,6 +229,9 @@ export const CandidatePipelineDashboard = forwardRef<
         query={query}
         setQuery={setQuery}
         searchPlaceholder="Search by name, position, or skill…"
+        statusKey={parsingStatusKey}
+        setStatusKey={setParsingStatusKey}
+        statusFilterOptions={PARSING_STATUS_FILTER_OPTIONS}
         uploadDateRangeFilter={uploadDateRangeFilter}
         setUploadDateRangeFilter={setUploadDateRangeFilter}
         calendarFocusedDate={calendarFocusedDate}
@@ -265,7 +271,6 @@ export const CandidatePipelineDashboard = forwardRef<
           cvVersions={cvVersions}
           cvHistoryLoading={cvHistoryLoading}
           cvHistoryError={cvHistoryError}
-          dbLoadState={dbLoadState}
           onProfileSaved={(rawC) => {
             const c = "candidate_id" in rawC
               ? campaignAppliedToCandidateDbRow(rawC as any)

@@ -21,7 +21,6 @@ async function getInitialTemplates(): Promise<EmailTemplateListItem[]> {
     id: t.id,
     name: t.name,
     trigger_type: t.trigger_type,
-    recipient_type: t.recipient_type,
     language: t.language,
     subject_template: t.subject_template,
     body_template: t.body_template,

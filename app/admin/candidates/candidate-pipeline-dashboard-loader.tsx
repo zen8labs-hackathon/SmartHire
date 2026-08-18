@@ -25,7 +25,11 @@ function CandidatesErrorFallback() {
 export function CandidatePipelineDashboardLoader({
   candidatesPromise,
 }: {
-  candidatesPromise: Promise<{ rows: CandidateDbRow[]; total: number }>;
+  candidatesPromise: Promise<{
+    rows: CandidateDbRow[];
+    total: number;
+    experiencedTotal: number;
+  }>;
 }) {
   return (
     <div className="flex flex-col gap-4 font-sans">

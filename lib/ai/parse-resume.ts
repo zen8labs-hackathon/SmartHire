@@ -1,8 +1,9 @@
 import { Output } from "ai";
 import { z } from "zod";
 
-import { experienceYearsFromWorkStart } from "@/lib/ai/experience-years-from-work-start";
+import { experienceYearsFromWorkPeriods } from "@/lib/ai/experience-years-from-work-periods";
 import { explicitExperienceYearsFromText } from "@/lib/ai/explicit-experience-years-from-text";
+import { sanitizeWorkPeriods } from "@/lib/ai/sanitize-earliest-work-start";
 import {
   generateTextWithFallback,
   getConfiguredLanguageModel,
@@ -15,9 +16,10 @@ import {
  * `dateOfBirth`/`studentYears`, which are separate `cv_detail_versions`
  * columns rather than part of the JSON payload.
  *
- * `earliestWorkStart` is AI-only scaffolding: used to derive `experienceYears`
- * when the CV never states an explicit year count, then stripped before return
- * so `parsed_payload` stays on the NormalizedParsedResume shape.
+ * `workPeriods` is AI-only scaffolding: used to derive `experienceYears`
+ * (union of dated jobs, overlaps merged, gaps skipped) when the CV never
+ * states an explicit year count, then stripped before return so
+ * `parsed_payload` stays on the NormalizedParsedResume shape.
  */
 const parsedResumeSchema = z.object({
   name: z.string().nullable().describe("Candidate's full name."),
@@ -33,11 +35,22 @@ const parsedResumeSchema = z.object({
     .describe(
       "Total years of professional experience ONLY when the resume contains an explicit phrase such as '5 years of experience' / '5 năm kinh nghiệm'. Otherwise null. Never invent a number from job dates, age, education length, or unrelated integers (e.g. team size).",
     ),
-  earliestWorkStart: z
-    .string()
-    .nullable()
+  workPeriods: z
+    .array(
+      z.object({
+        start: z
+          .string()
+          .describe("Job start as YYYY, YYYY-MM, or YYYY-MM-DD. Prefer YYYY-MM."),
+        end: z
+          .string()
+          .nullable()
+          .describe(
+            "Job end as YYYY, YYYY-MM, or YYYY-MM-DD. Null if Present/Now/current. Prefer YYYY-MM.",
+          ),
+      }),
+    )
     .describe(
-      "Earliest Work Experience start date as YYYY, YYYY-MM, or YYYY-MM-DD (include internships listed under Work Experience; exclude education-only rows). Null if no dated work history exists.",
+      "Dated jobs from Work Experience / Employment / Internship (Kinh nghiệm làm việc / Thực tập) only. One entry per role. Include internships listed under work history. NEVER include Education / Học vấn / school enrollment or graduation ranges. Empty array if no dated work history exists.",
     ),
   skills: z.array(z.string()).describe("Concise individual skill tokens, not sentences."),
   degree: z.string().nullable().describe("Degree level, e.g. Bachelor's, Master's."),
@@ -59,10 +72,10 @@ const parsedResumeSchema = z.object({
 
 export type ParsedResume = Omit<
   z.infer<typeof parsedResumeSchema>,
-  "earliestWorkStart"
+  "workPeriods"
 >;
 
-const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values. For earliestWorkStart, copy the earliest dated professional work-experience start from the Work Experience section when present; do not invent dates.`;
+const SYSTEM_PROMPT = `You extract structured candidate data from resume text. Use null for any field that is not clearly stated in the document -- never guess or fabricate values. For workPeriods, list every dated job from Work Experience / Employment / Internship (or Kinh nghiệm làm việc / Thực tập) only, with start and end dates copied from the CV. Overlapping jobs are allowed -- do not merge them yourself. Never include Education / Học vấn / school enrollment or graduation ranges, even for interns or students. Use null end for Present/Now/current roles. Do not invent dates.`;
 
 const MAX_INPUT_CHARS = 120_000;
 
@@ -82,12 +95,14 @@ export type ResumeExperienceMeta = {
   explicitExperienceYears: number | null;
   /** Raw `experienceYears` the model returned (may be hallucinated). */
   aiClaimedExperienceYears: number | null;
-  /** Earliest Work Experience start the model extracted (`YYYY` / `YYYY-MM` / `YYYY-MM-DD`). */
+  /** Earliest kept work-period start (`YYYY` / `YYYY-MM` / `YYYY-MM-DD`). */
   earliestWorkStart: string | null;
+  /** Dated work intervals used to derive years (overlaps already as extracted). */
+  workPeriods: Array<{ start: string; end: string | null }>;
   /** How `parsed.experienceYears` was resolved. */
   experienceYearsSource:
     | "explicit"
-    | "derived_from_work_start"
+    | "derived_from_work_periods"
     | "none";
 };
 
@@ -98,7 +113,7 @@ export type ParsedResumeDetailed = {
 
 /**
  * Same extraction as {@link parseResumeWithAI}, plus how `experienceYears`
- * was resolved (explicit statement vs derived from earliest work start).
+ * was resolved (explicit statement vs union of work periods).
  * Used by the local PDF runner; production callers can keep using
  * {@link parseResumeWithAI}.
  */
@@ -146,20 +161,22 @@ export async function parseResumeWithAIDetailed(
     throw e;
   }
 
-  const { earliestWorkStart, experienceYears: aiClaimedYears, ...rest } =
+  const { workPeriods: rawWorkPeriods, experienceYears: aiClaimedYears, ...rest } =
     output;
   // Never trust the model's year count alone -- it often invents one (or
   // confuses nearby integers like "Team size 6"). Only keep an "explicit"
   // figure when the resume text itself contains a clear years-of-experience
-  // phrase; otherwise derive from the earliest Work Experience start date.
+  // phrase; otherwise union dated Work Experience intervals (merge overlaps,
+  // skip gaps, ignore education-only rows).
   const verifiedExplicit = explicitExperienceYearsFromText(plainText);
-  const derivedYears = experienceYearsFromWorkStart(earliestWorkStart);
+  const workPeriods = sanitizeWorkPeriods(plainText, rawWorkPeriods);
+  const derivedYears = experienceYearsFromWorkPeriods(workPeriods);
   const experienceYears = verifiedExplicit ?? derivedYears;
   const experienceYearsSource =
     verifiedExplicit != null
       ? ("explicit" as const)
       : derivedYears != null
-        ? ("derived_from_work_start" as const)
+        ? ("derived_from_work_periods" as const)
         : ("none" as const);
 
   return {
@@ -170,7 +187,11 @@ export async function parseResumeWithAIDetailed(
         aiClaimedYears != null && Number.isFinite(aiClaimedYears)
           ? aiClaimedYears
           : null,
-      earliestWorkStart: earliestWorkStart ?? null,
+      earliestWorkStart: workPeriods[0]
+        ? [...workPeriods].sort((a, b) => a.start.localeCompare(b.start))[0]
+            .start
+        : null,
+      workPeriods,
       experienceYearsSource,
     },
   };

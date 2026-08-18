@@ -273,7 +273,7 @@ describe("syncCandidateAggregateFields", () => {
     await syncCandidateAggregateFields(db, "c1");
 
     const [, updateValues] = db.query.mock.calls[1];
-    expect(updateValues[6]).toBe("Ada Lovelace");
+    expect(updateValues[6]).toBe("ADA LOVELACE");
     expect(updateValues[7]).toBe("Ada@Example.com");
     expect(updateValues[8]).toBe("0901234567");
   });

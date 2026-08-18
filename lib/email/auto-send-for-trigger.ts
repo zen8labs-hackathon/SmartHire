@@ -1,9 +1,5 @@
 import type { CampaignAppliedRow } from "@/lib/db/campaign-applied";
 import type { QueryExecutor } from "@/lib/db/config/client";
-import {
-  cancelPendingSchedulesForCampaignApplied,
-  createEmailSchedule,
-} from "@/lib/db/email-schedules";
 import { copyTemplateAttachmentsToMessage } from "@/lib/db/email-attachments";
 import {
   createEmailMessage,
@@ -15,61 +11,18 @@ import type { PublicUserRow } from "@/lib/db/users";
 import { composeEmailForCandidate } from "@/lib/email/compose-for-candidate";
 import { composeSelfNotificationEmail } from "@/lib/email/compose-self-notification";
 import { buildGraphAttachmentsForMessage } from "@/lib/email/message-attachments";
+import { findUnresolvedPlaceholders } from "@/lib/email/render-template";
 import { sendEmail } from "@/lib/email/send-email";
+import { getRecipientTypeForTrigger } from "@/lib/email/trigger-types";
 import { logApiError } from "@/lib/logger";
 
 /**
- * Called after a pipeline stage transition commits (or as part of the same
- * transaction). First cancels any pending scheduled emails for this
- * application -- their trigger no longer applies once the candidate has
- * moved on to a different stage. Then, for every active `is_auto_send`
- * candidate-facing template matching the new trigger, either sends
- * immediately (`send_offset_minutes === 0`) or queues an `email_schedules`
- * row for later (fired by the `schedules/process` poller).
- */
-export async function handlePipelineTransitionEmailTriggers(
-  db: QueryExecutor,
-  application: CampaignAppliedRow,
-  triggerType: string | null,
-): Promise<void> {
-  await cancelPendingSchedulesForCampaignApplied(
-    db,
-    application.id,
-    "Candidate status changed before the scheduled send.",
-  );
-
-  if (!triggerType) return;
-
-  const templates = (
-    await listActiveEmailTemplatesByTriggerType(db, triggerType)
-  ).filter((t) => t.recipient_type === "candidate" && t.is_auto_send);
-  if (templates.length === 0) return;
-
-  const settings = await getEmailSettings(db);
-
-  for (const template of templates) {
-    if (template.send_offset_minutes !== 0) {
-      const scheduledFor = new Date(
-        Date.now() + template.send_offset_minutes * 60_000,
-      );
-      await createEmailSchedule(db, {
-        jobId: application.job_id,
-        campaignAppliedId: application.id,
-        templateId: template.id,
-        scheduledFor,
-      });
-      continue;
-    }
-
-    await sendAutoEmailNow(db, application, template, triggerType, settings);
-  }
-}
-
-/**
- * Fires a single auto/scheduled email immediately -- shared by the
- * zero-offset path above and the due-schedules poller
- * (`schedules/process/route.ts`), which both need identical
- * compose→create-message→send→status-update behavior.
+ * Fires a single auto/scheduled candidate email immediately -- used by the
+ * due-schedules poller (`schedules/process/route.ts`) for rows created via
+ * `POST /api/admin/email/schedules` (the manual "send later" flow). There is
+ * currently no trigger-based auto-send dispatcher wired up to pipeline
+ * transitions; that's expected to be reintroduced as explicit per-trigger
+ * functions rather than a generic recipient-type-filtered dispatcher.
  */
 export async function sendAutoEmailNow(
   db: QueryExecutor,
@@ -85,7 +38,11 @@ export async function sendAutoEmailNow(
   triggerType: string,
   settings: Pick<
     EmailSettingsRow,
-    "default_sender" | "company_name" | "signature_html" | "logo_url"
+    | "default_sender"
+    | "company_name"
+    | "layout_type"
+    | "custom_layout_html"
+    | "logo_url"
   >,
 ): Promise<{ messageId: string } | null> {
   const fromEmail = settings.default_sender;
@@ -97,11 +54,18 @@ export async function sendAutoEmailNow(
       template.body_template,
       {
         companyName: settings.company_name,
-        signatureHtml: settings.signature_html,
+        layoutType: settings.layout_type,
+        customLayoutHtml: settings.custom_layout_html,
         logoUrl: settings.logo_url,
       },
     );
     if (!composed || !composed.toEmail) return null;
+
+    // Hard-blocks an auto-send that would deliver literal, unrendered
+    // `{{...}}` text -- a typo'd placeholder name, or per-recipient data
+    // (e.g. an interview schedule) that isn't actually set yet. There's no
+    // interactive preview step for auto-sends, so this is the only guard.
+    const unresolved = findUnresolvedPlaceholders(`${composed.subject}\n${composed.bodyHtml}`);
 
     const message = await createEmailMessage(db, {
       campaignAppliedId: application.id,
@@ -109,7 +73,7 @@ export async function sendAutoEmailNow(
       templateId: template.id,
       senderUserId: null,
       type: "auto",
-      status: template.require_approval ? "pending_approval" : "sending",
+      status: unresolved.length > 0 ? "failed" : template.require_approval ? "pending_approval" : "sending",
       triggerType,
       fromEmail,
       toEmail: composed.toEmail,
@@ -120,6 +84,19 @@ export async function sendAutoEmailNow(
     });
 
     await copyTemplateAttachmentsToMessage(db, message.id, template.id);
+
+    if (unresolved.length > 0) {
+      await updateEmailMessageStatus(db, message.id, {
+        status: "failed",
+        errorMessage: `Unresolved variables: ${unresolved.join(", ")}`,
+      });
+      logApiError(
+        "Auto-send email blocked -- unresolved placeholders",
+        new Error(unresolved.join(", ")),
+        { campaignAppliedId: application.id, triggerType, templateId: template.id },
+      );
+      return { messageId: message.id };
+    }
 
     if (template.require_approval) return { messageId: message.id };
 
@@ -159,13 +136,15 @@ export async function sendAutoEmailNow(
 }
 
 /**
- * Fires every active `recipient_type: 'self'`, `is_auto_send` template
- * matching `triggerType` -- addressed to `recipient`'s own email rather than
- * a candidate's. Called right after a `users` row is created (admin-invited
- * or first-time SSO self-provisioning) for `user_account_created`; not tied
- * to any campaign/job, so `campaign_applied_id`/`job_id` are left null on the
- * resulting `email_messages` row. Swallows and logs errors -- a notification
- * failure must never block account creation.
+ * Fires every active, `is_auto_send` template whose trigger resolves to a
+ * "self" audience (`getRecipientTypeForTrigger`, see lib/email/trigger-types.ts)
+ * and matches `triggerType` -- addressed to `recipient`'s own email rather
+ * than a candidate's. Called right after a `users` row is created
+ * (admin-invited or first-time SSO self-provisioning) for
+ * `user_account_created`; not tied to any campaign/job, so
+ * `campaign_applied_id`/`job_id` are left null on the resulting
+ * `email_messages` row. Swallows and logs errors -- a notification failure
+ * must never block account creation.
  */
 export async function sendSelfNotificationForTrigger(
   db: QueryExecutor,
@@ -175,7 +154,7 @@ export async function sendSelfNotificationForTrigger(
 ): Promise<void> {
   const templates = (
     await listActiveEmailTemplatesByTriggerType(db, triggerType)
-  ).filter((t) => t.recipient_type === "self" && t.is_auto_send);
+  ).filter((t) => getRecipientTypeForTrigger(t.trigger_type) === "self" && t.is_auto_send);
   if (templates.length === 0) return;
 
   const settings = await getEmailSettings(db);
@@ -188,12 +167,15 @@ export async function sendSelfNotificationForTrigger(
         template.body_template,
         {
           companyName: settings.company_name,
-          signatureHtml: settings.signature_html,
+          layoutType: settings.layout_type,
+          customLayoutHtml: settings.custom_layout_html,
           logoUrl: settings.logo_url,
           actingUser,
         },
       );
       if (!composed) continue;
+
+      const unresolved = findUnresolvedPlaceholders(`${composed.subject}\n${composed.bodyHtml}`);
 
       const message = await createEmailMessage(db, {
         campaignAppliedId: null,
@@ -201,7 +183,7 @@ export async function sendSelfNotificationForTrigger(
         templateId: template.id,
         senderUserId: null,
         type: "auto",
-        status: template.require_approval ? "pending_approval" : "sending",
+        status: unresolved.length > 0 ? "failed" : template.require_approval ? "pending_approval" : "sending",
         triggerType,
         fromEmail: settings.default_sender,
         toEmail: composed.toEmail,
@@ -212,6 +194,19 @@ export async function sendSelfNotificationForTrigger(
       });
 
       await copyTemplateAttachmentsToMessage(db, message.id, template.id);
+
+      if (unresolved.length > 0) {
+        await updateEmailMessageStatus(db, message.id, {
+          status: "failed",
+          errorMessage: `Unresolved variables: ${unresolved.join(", ")}`,
+        });
+        logApiError(
+          "Self-notification email blocked -- unresolved placeholders",
+          new Error(unresolved.join(", ")),
+          { recipientUserId: recipient.id, triggerType, templateId: template.id },
+        );
+        continue;
+      }
 
       if (template.require_approval) continue;
 

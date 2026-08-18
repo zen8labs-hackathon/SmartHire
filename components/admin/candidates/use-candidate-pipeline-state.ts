@@ -15,6 +15,7 @@ import {
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
   buildCandidatesListSearchParams,
+  type CandidatesListParsingStatus,
   type CandidatesListQuery,
 } from "@/lib/candidates/candidates-list-query";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/pipelines/transition-validator";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
+import type { Key } from "@heroui/react";
 
 export type PipelineConfigForJob = {
   stageMappings: StageMapping[];
@@ -55,10 +57,29 @@ export function uploadDateKeyLocal(iso: string | null): string | null {
 
 export type CandidatePipelineListMode = "page" | "all";
 
+const PARSING_STATUS_KEYS = new Set<string>([
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+]);
+
+function parsingStatusFromKey(
+  key: Key | null,
+): CandidatesListParsingStatus | undefined {
+  if (key == null) return undefined;
+  const s = String(key);
+  if (s === "all") return undefined;
+  return PARSING_STATUS_KEYS.has(s)
+    ? (s as CandidatesListParsingStatus)
+    : undefined;
+}
+
 type UseCandidatePipelineStateOptions = {
   /** `page` = server pagination + filters; `all` = full list (e.g. JD pipeline table). */
   listMode?: CandidatePipelineListMode;
   initialListTotal?: number;
+  initialExperiencedTotal?: number;
   /** When true, fetch from the deduped endpoint that merges CVs from the same person. */
   deduped?: boolean;
 };
@@ -69,6 +90,7 @@ export function useCandidatePipelineState(
 ) {
   const listMode = options.listMode ?? "page";
   const initialListTotal = options.initialListTotal;
+  const initialExperiencedTotal = options.initialExperiencedTotal;
   const deduped = options.deduped ?? false;
   const [urlPage, setUrlPage] = usePageQueryParam();
   const [localPage, setLocalPage] = useState(1);
@@ -76,6 +98,7 @@ export function useCandidatePipelineState(
   const setPage = listMode === "page" ? setUrlPage : setLocalPage;
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 350);
+  const [parsingStatusKey, setParsingStatusKey] = useState<Key | null>("all");
   const [uploadDateRangeFilter, setUploadDateRangeFilter] =
     useState<RangeValue<CalendarDate> | null>(null);
   const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
@@ -106,6 +129,9 @@ export function useCandidatePipelineState(
   const [listTotal, setListTotal] = useState(
     initialListTotal ?? initialRows?.length ?? 0,
   );
+  const [listExperiencedTotal, setListExperiencedTotal] = useState(
+    initialExperiencedTotal ?? 0,
+  );
   const [listPageSize, setListPageSize] = useState(10);
 
   const changeListPageSize = useCallback((size: number) => {
@@ -120,6 +146,7 @@ export function useCandidatePipelineState(
     const uploadFrom = uploadDateRangeFilter?.start.toString();
     const uploadTo = uploadDateRangeFilter?.end.toString();
     const q = debouncedQuery.trim() || undefined;
+    const parsingStatus = parsingStatusFromKey(parsingStatusKey);
 
     if (listMode === "all") {
       return {
@@ -127,6 +154,7 @@ export function useCandidatePipelineState(
         uploadFrom,
         uploadTo,
         q,
+        parsingStatus,
       };
     }
 
@@ -136,8 +164,16 @@ export function useCandidatePipelineState(
       uploadFrom,
       uploadTo,
       q,
+      parsingStatus,
     };
-  }, [debouncedQuery, listMode, page, uploadDateRangeFilter, listPageSize]);
+  }, [
+    debouncedQuery,
+    listMode,
+    page,
+    parsingStatusKey,
+    uploadDateRangeFilter,
+    listPageSize,
+  ]);
 
   const fetchCandidates = useCallback(async () => {
     setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
@@ -149,6 +185,9 @@ export function useCandidatePipelineState(
         params.set("limit", String(listQuery.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT));
         params.set("offset", String(listQuery.offset ?? 0));
         if (listQuery.q) params.set("q", listQuery.q);
+        if (listQuery.parsingStatus) {
+          params.set("parsingStatus", listQuery.parsingStatus);
+        }
         if (listQuery.uploadFrom) params.set("uploadFrom", listQuery.uploadFrom);
         if (listQuery.uploadTo) params.set("uploadTo", listQuery.uploadTo);
         url = `/api/admin/candidates/deduped?${params}`;
@@ -163,7 +202,7 @@ export function useCandidatePipelineState(
       }
       const json = (await res.json()) as {
         candidates?: any[];
-        pagination?: { total: number };
+        pagination?: { total: number; experiencedTotal?: number };
       };
       const rawCandidates = json.candidates ?? [];
       const mapped = rawCandidates.map((c) => {
@@ -174,6 +213,9 @@ export function useCandidatePipelineState(
       });
       setDbRows(mapped);
       setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
+      if (typeof json.pagination?.experiencedTotal === "number") {
+        setListExperiencedTotal(json.pagination.experiencedTotal);
+      }
       setDbLoadState("ok");
     } catch {
       setDbLoadState("error");
@@ -216,11 +258,18 @@ export function useCandidatePipelineState(
       JSON.stringify({
         listMode,
         query: debouncedQuery,
+        parsingStatus: parsingStatusFromKey(parsingStatusKey) ?? "all",
         uploadFrom: uploadDateRangeFilter?.start.toString() ?? null,
         uploadTo: uploadDateRangeFilter?.end.toString() ?? null,
         listPageSize,
       }),
-    [debouncedQuery, listMode, uploadDateRangeFilter, listPageSize],
+    [
+      debouncedQuery,
+      listMode,
+      parsingStatusKey,
+      uploadDateRangeFilter,
+      listPageSize,
+    ],
   );
 
   useEffect(() => {
@@ -534,6 +583,8 @@ export function useCandidatePipelineState(
     setPage,
     query,
     setQuery,
+    parsingStatusKey,
+    setParsingStatusKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
     calendarFocusedDate,
@@ -563,6 +614,7 @@ export function useCandidatePipelineState(
     dbLoadState,
     fetchCandidates,
     listTotal,
+    listExperiencedTotal,
     listPageSize,
     changeListPageSize,
     listMode,

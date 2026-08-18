@@ -16,6 +16,7 @@ import type { QueryExecutor } from "@/lib/db/config/client";
 export type InitialCandidatesData = {
   rows: CandidateDbRow[];
   total: number;
+  experiencedTotal: number;
 };
 
 // queryDedupedCandidatesList never rejects (it resolves with `error`
@@ -31,7 +32,11 @@ async function getInitialCandidates(
     offset: 0,
   });
   if (result.error) throw new Error(result.error);
-  return { rows: result.people, total: result.pagination.total };
+  return {
+    rows: result.people,
+    total: result.pagination.total,
+    experiencedTotal: result.pagination.experiencedTotal ?? 0,
+  };
 }
 
 export default async function AdminCandidatesPage() {

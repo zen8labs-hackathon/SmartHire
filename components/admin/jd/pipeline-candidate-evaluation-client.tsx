@@ -4,19 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  Alert,
   Breadcrumbs,
   Button,
   Label,
   TextArea,
   TextField,
   cn,
-  useOverlayState,
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
-import { EditCandidateModal } from "@/components/admin/jd/edit-candidate-modal";
+import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
+import { CvViewer } from "@/components/admin/candidates/cv-viewer";
 import { useToast } from "@/components/admin/toast-provider";
 import {
   getStageColorClasses,
@@ -28,6 +27,11 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
+import {
+  campaignAppliedToCandidateDbRow,
+  type CandidateDbRow,
+} from "@/lib/candidates/db-row";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 
 type Props = {
   jobId: string;
@@ -57,7 +61,11 @@ type InterviewNoteRow = {
 
 function PipelineStageBadge({ candidate }: { candidate: JobPipelineCandidateRow }) {
   if (!candidate.stageLabel || !candidate.subStageLabel) {
-    return <p className="font-semibold text-foreground text-sm">Not started</p>;
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        Not started
+      </span>
+    );
   }
   const surfaceClass = getStageColorClasses(candidate.stageColor, "badge");
   const surfaceStyle = getStageColorStyles(candidate.stageColor, "badge");
@@ -76,14 +84,14 @@ function PipelineStageBadge({ candidate }: { candidate: JobPipelineCandidateRow 
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        "inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
         surfaceClass,
       )}
       style={surfaceStyle}
     >
-      <span className="text-sm text-foreground">{candidate.stageLabel}</span>
-      <span className="mx-1 text-sm text-muted">·</span>
-      <span className={cn("text-sm", detailClass)} style={detailStyle}>
+      <span className="text-foreground">{candidate.stageLabel}</span>
+      <span className="text-muted">·</span>
+      <span className={detailClass} style={detailStyle}>
         {candidate.subStageLabel}
       </span>
     </span>
@@ -100,46 +108,74 @@ export function PipelineCandidateEvaluationClient({
 }: Props) {
   const router = useRouter();
   const toast = useToast();
-  const editProfileModal = useOverlayState();
   const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
+  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    "loading",
+  );
+  const [canEditSalary, setCanEditSalary] = useState(false);
+  const [profileDirty, setProfileDirty] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const profileSaveRef = useRef<(() => void) | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [notesBusy, setNotesBusy] = useState(false);
   const [evalBusy, setEvalBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [latest, setLatest] = useState<LatestEval | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [notes, setNotes] = useState<InterviewNoteRow[]>([]);
-  const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [editBusy, setEditBusy] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   const [preInterviewNote, setPreInterviewNote] = useState("");
-  const [preInterviewLoadError, setPreInterviewLoadError] = useState<
-    string | null
-  >(null);
   const [preInterviewSaveBusy, setPreInterviewSaveBusy] = useState(false);
-  const [preInterviewSaveSuccess, setPreInterviewSaveSuccess] = useState(false);
-  const preInterviewSuccessTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-
-  const clearPreInterviewSuccessTimer = useCallback(() => {
-    if (preInterviewSuccessTimerRef.current) {
-      clearTimeout(preInterviewSuccessTimerRef.current);
-      preInterviewSuccessTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(
-    () => () => clearPreInterviewSuccessTimer(),
-    [clearPreInterviewSuccessTimer],
-  );
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
+  useEffect(() => {
+    if (!canEditProfile) return;
+    const ac = new AbortController();
+    setDbRow(null);
+    setDbLoadState("loading");
+    setCanEditSalary(false);
+    setProfileDirty(false);
+    setProfileBusy(false);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${candidate.id}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const json = (await res.json()) as {
+          candidate?: unknown;
+          canViewSalary?: boolean;
+        };
+        if (ac.signal.aborted || !json.candidate) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const c =
+          json.candidate &&
+          typeof json.candidate === "object" &&
+          "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(
+                json.candidate as CampaignAppliedAdminRow,
+              )
+            : (json.candidate as CandidateDbRow);
+        setDbRow(c);
+        setCanEditSalary(json.canViewSalary === true);
+        setDbLoadState("ok");
+      } catch {
+        if (!ac.signal.aborted) setDbLoadState("error");
+      }
+    })();
+    return () => ac.abort();
+  }, [candidate.id, canEditProfile]);
+
   const loadLatest = useCallback(async () => {
-    setLoadError(null);
     try {
       const res = await fetch(
         `/api/admin/candidates/${encodeURIComponent(candidate.id)}/evaluations`,
@@ -150,17 +186,16 @@ export function PipelineCandidateEvaluationClient({
         error?: string;
       };
       if (!res.ok) {
-        setLoadError(json.error ?? "Could not load evaluations.");
+        toast.error(json.error ?? "Could not load evaluations.");
         return;
       }
       setLatest(json.latest);
     } catch {
-      setLoadError("Could not load evaluations.");
+      toast.error("Could not load evaluations.");
     }
-  }, [candidate.id]);
+  }, [candidate.id, toast]);
 
   const loadNotes = useCallback(async () => {
-    setNotesLoadError(null);
     try {
       const res = await fetch(
         `/api/admin/candidates/${encodeURIComponent(candidate.id)}/interview-notes`,
@@ -171,17 +206,16 @@ export function PipelineCandidateEvaluationClient({
         error?: string;
       };
       if (!res.ok) {
-        setNotesLoadError(json.error ?? "Could not load interview notes.");
+        toast.error(json.error ?? "Could not load interview notes.");
         return;
       }
       setNotes(json.notes ?? []);
     } catch {
-      setNotesLoadError("Could not load interview notes.");
+      toast.error("Could not load interview notes.");
     }
-  }, [candidate.id]);
+  }, [candidate.id, toast]);
 
   const loadPreInterviewNote = useCallback(async () => {
-    setPreInterviewLoadError(null);
     try {
       const res = await fetch(
         `/api/admin/candidates/${encodeURIComponent(candidate.id)}/pre-interview-note`,
@@ -192,16 +226,14 @@ export function PipelineCandidateEvaluationClient({
         error?: string;
       };
       if (!res.ok) {
-        setPreInterviewLoadError(
-          json.error ?? "Could not load pre-interview note.",
-        );
+        toast.error(json.error ?? "Could not load pre-interview note.");
         return;
       }
       setPreInterviewNote(json.preInterviewNote ?? "");
     } catch {
-      setPreInterviewLoadError("Could not load pre-interview note.");
+      toast.error("Could not load pre-interview note.");
     }
-  }, [candidate.id]);
+  }, [candidate.id, toast]);
 
   useEffect(() => {
     void loadLatest();
@@ -227,10 +259,9 @@ export function PipelineCandidateEvaluationClient({
   );
 
   const saveNoteOnly = async () => {
-    setError(null);
     const trimmed = draftNote.trim();
     if (trimmed.length < 2) {
-      setError("Enter a note with at least a couple of characters.");
+      toast.error("Enter a note with at least a couple of characters.");
       return;
     }
     setNotesBusy(true);
@@ -246,20 +277,20 @@ export function PipelineCandidateEvaluationClient({
       );
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "Could not save note.");
+        toast.error(json.error ?? "Could not save note.");
         return;
       }
       setDraftNote("");
       await loadNotes();
+      toast.success("Note saved.");
     } catch {
-      setError("Could not save note.");
+      toast.error("Could not save note.");
     } finally {
       setNotesBusy(false);
     }
   };
 
   const startEditNote = (note: InterviewNoteRow) => {
-    setEditError(null);
     setEditingNoteId(note.id);
     setEditDraft(note.body);
   };
@@ -267,15 +298,13 @@ export function PipelineCandidateEvaluationClient({
   const cancelEditNote = () => {
     setEditingNoteId(null);
     setEditDraft("");
-    setEditError(null);
   };
 
   const saveEditedNote = async () => {
     if (!editingNoteId) return;
-    setEditError(null);
     const trimmed = editDraft.trim();
     if (trimmed.length < 2) {
-      setEditError("Enter a note with at least a couple of characters.");
+      toast.error("Enter a note with at least a couple of characters.");
       return;
     }
     setEditBusy(true);
@@ -294,20 +323,20 @@ export function PipelineCandidateEvaluationClient({
       );
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setEditError(json.error ?? "Could not save note.");
+        toast.error(json.error ?? "Could not save note.");
         return;
       }
       cancelEditNote();
       await loadNotes();
+      toast.success("Note updated.");
     } catch {
-      setEditError("Could not save note.");
+      toast.error("Could not save note.");
     } finally {
       setEditBusy(false);
     }
   };
 
   const regenerateEvaluation = async () => {
-    setError(null);
     setEvalBusy(true);
     try {
       const trimmedDraft = draftNote.trim();
@@ -331,7 +360,7 @@ export function PipelineCandidateEvaluationClient({
         downloadUrl?: string | null;
       };
       if (!res.ok) {
-        setError(
+        toast.error(
           json.error ??
             "Evaluation PDF generation isn't available yet on the new database — this part of the migration hasn't shipped.",
         );
@@ -342,20 +371,18 @@ export function PipelineCandidateEvaluationClient({
         await loadNotes();
       }
       await loadLatest();
+      toast.success("Evaluation PDF generated.");
       if (json.downloadUrl) {
         window.open(json.downloadUrl, "_blank", "noopener,noreferrer");
       }
     } catch {
-      setError("Generation failed.");
+      toast.error("Generation failed.");
     } finally {
       setEvalBusy(false);
     }
   };
 
   const savePreInterviewNote = async () => {
-    setError(null);
-    clearPreInterviewSuccessTimer();
-    setPreInterviewSaveSuccess(false);
     setPreInterviewSaveBusy(true);
     try {
       const res = await fetch(
@@ -372,20 +399,15 @@ export function PipelineCandidateEvaluationClient({
         preInterviewNote?: string;
       };
       if (!res.ok) {
-        setError(json.error ?? "Could not save pre-interview note.");
+        toast.error(json.error ?? "Could not save pre-interview note.");
         return;
       }
       if (typeof json.preInterviewNote === "string") {
         setPreInterviewNote(json.preInterviewNote);
       }
-      setPreInterviewSaveSuccess(true);
-      clearPreInterviewSuccessTimer();
-      preInterviewSuccessTimerRef.current = setTimeout(() => {
-        setPreInterviewSaveSuccess(false);
-        preInterviewSuccessTimerRef.current = null;
-      }, 4500);
+      toast.success("Pre-interview note saved.");
     } catch {
-      setError("Could not save pre-interview note.");
+      toast.error("Could not save pre-interview note.");
     } finally {
       setPreInterviewSaveBusy(false);
     }
@@ -439,8 +461,8 @@ export function PipelineCandidateEvaluationClient({
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
           </p>
-          <iframe
-            src={cvUrl}
+          <CvViewer
+            cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
             className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
             style={{ height: "calc(100vh - 120px)" }}
@@ -450,9 +472,12 @@ export function PipelineCandidateEvaluationClient({
         {/* Right: Evaluation info */}
         <div className="flex-1 min-w-0 flex flex-col gap-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {candidate.name}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                {candidate.name}
+              </h1>
+              <PipelineStageBadge candidate={candidate} />
+            </div>
             <p className="mt-1 text-sm text-muted font-medium">
               Interview evaluation — {jobTitle}
             </p>
@@ -460,20 +485,59 @@ export function PipelineCandidateEvaluationClient({
 
           <SectionCard
             title="Candidate Details"
-            description="Personal profile, academic background, and timeline records."
+            description={
+              canEditProfile
+                ? "Edit personal profile fields. Save when you're done."
+                : "Personal profile, academic background, and timeline records."
+            }
             actions={
               canEditProfile ? (
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   size="sm"
-                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  onPress={() => editProfileModal.open()}
+                  className="h-8 px-3 rounded-lg text-xs font-bold"
+                  isDisabled={!profileDirty || profileBusy}
+                  isPending={profileBusy}
+                  onPress={() => profileSaveRef.current?.()}
                 >
-                  Edit profile
+                  Save
                 </Button>
               ) : null
             }
           >
+            {canEditProfile ? (
+              <CandidateProfileEditSection
+                  candidateId={candidate.id}
+                  dbRow={dbRow}
+                  canEdit={canEditProfile}
+                  canEditSalary={canEditSalary}
+                  isPreview={false}
+                  dbLoadState={dbLoadState}
+                  startInEditMode
+                  embedded
+                  hidePipelineAndSource
+                  onDirtyChange={setProfileDirty}
+                  onBusyChange={setProfileBusy}
+                  saveActionRef={profileSaveRef}
+                  onSaved={(saved) => {
+                    setDbRow(saved);
+                    setProfileDirty(false);
+                    router.refresh();
+                    toast.success("Candidate profile updated.");
+                  }}
+                  onCandidateIdChanged={(newCampaignAppliedId) => {
+                    // Merging moved this profile onto a different candidate's
+                    // application -- `candidate.id` (this page's own URL param) no
+                    // longer refers to a live application, so refreshing in place
+                    // would just 404. Navigate to the surviving application's own
+                    // evaluation page instead.
+                    toast.success(
+                      "Candidate profile updated (merged with an existing candidate).",
+                    );
+                    router.push(`/admin/jd/${jobId}/pipeline/${newCampaignAppliedId}/evaluation`);
+                  }}
+                />
+            ) : (
             <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Email</span>
@@ -488,18 +552,14 @@ export function PipelineCandidateEvaluationClient({
                 <p className="font-semibold text-foreground text-sm">{candidate.dateOfBirth}</p>
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Pipeline Status</span>
-                <PipelineStageBadge candidate={candidate} />
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
+                <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
               </div>
               <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Education</span>
                 <p className="font-semibold text-foreground text-sm">
                   {candidate.studentYears} · {candidate.majorSchool} · GPA {candidate.gpa}
                 </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">English</span>
-                <p className="font-semibold text-foreground text-sm">{candidate.english}</p>
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Source</span>
@@ -518,6 +578,7 @@ export function PipelineCandidateEvaluationClient({
                 <p className="font-semibold text-foreground text-sm">{candidate.relatedSkills}</p>
               </div>
             </div>
+            )}
           </SectionCard>
 
           <SectionCard
@@ -525,26 +586,9 @@ export function PipelineCandidateEvaluationClient({
             description="Write questions or topics to cover with the candidate during the interview. This is saved per candidate for this role and is included when you generate the evaluation PDF."
           >
             <div className="flex flex-col gap-3 pt-2">
-              {preInterviewLoadError ? (
-                <p className="text-xs text-rose-500 font-semibold" role="alert">
-                  {preInterviewLoadError}
-                </p>
-              ) : null}
-              {preInterviewSaveSuccess ? (
-                <Alert status="success" role="status" className="rounded-xl">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Title>Save success</Alert.Title>
-                  </Alert.Content>
-                </Alert>
-              ) : null}
               <TextField
                 value={preInterviewNote}
-                onChange={(v) => {
-                  clearPreInterviewSuccessTimer();
-                  setPreInterviewSaveSuccess(false);
-                  setPreInterviewNote(v);
-                }}
+                onChange={setPreInterviewNote}
                 aria-label="Pre-interview note input"
               >
                 <TextArea
@@ -554,8 +598,7 @@ export function PipelineCandidateEvaluationClient({
               </TextField>
               <Button
                 variant="secondary"
-                size="sm"
-                className="w-fit h-8 px-4 rounded-lg bg-surface-secondary border border-divider text-xs font-bold"
+                className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
                 isDisabled={preInterviewSaveBusy}
                 onPress={() => void savePreInterviewNote()}
               >
@@ -563,12 +606,6 @@ export function PipelineCandidateEvaluationClient({
               </Button>
             </div>
           </SectionCard>
-
-          {loadError ? (
-            <p className="text-xs text-rose-500 font-semibold" role="alert">
-              {loadError}
-            </p>
-          ) : null}
 
           {latest ? (
             <SectionCard
@@ -636,7 +673,7 @@ export function PipelineCandidateEvaluationClient({
           <SectionCard
             title={
               <div className="flex items-center gap-2">
-                <span>Saved interview notes</span>
+                <span>Interview notes</span>
                 {notes.length > 0 ? (
                   <span className="text-xs font-normal text-muted tabular-nums">
                     ({notes.length})
@@ -646,12 +683,7 @@ export function PipelineCandidateEvaluationClient({
             }
             description="Everyone on the hiring team can add notes. The PDF uses the combined notes in chronological order."
           >
-            <div className="flex flex-col gap-4 pt-2">
-              {notesLoadError ? (
-                <p className="text-xs text-rose-500 font-semibold" role="alert">
-                  {notesLoadError}
-                </p>
-              ) : null}
+            <div className="flex flex-col gap-4">
               {notes.length === 0 ? (
                 <p className="text-xs text-muted py-4 text-center bg-surface-secondary/20 rounded-xl border border-dashed border-divider">
                   No notes saved yet.
@@ -690,14 +722,6 @@ export function PipelineCandidateEvaluationClient({
 
                         {isEditing ? (
                           <div className="flex flex-col gap-2">
-                            {editError ? (
-                              <p
-                                className="text-xs text-rose-500 font-semibold"
-                                role="alert"
-                              >
-                                {editError}
-                              </p>
-                            ) : null}
                             <TextField
                               value={editDraft}
                               onChange={setEditDraft}
@@ -734,72 +758,57 @@ export function PipelineCandidateEvaluationClient({
                   })}
                 </ul>
               )}
-            </div>
-          </SectionCard>
 
-          <SectionCard
-            title="Add a note after interview"
-            description="Write in Vietnamese or English; the evaluation follows your language. Save a note on its own, or type and use “Regenerate” to save that text and create the PDF in one step."
-          >
-            <div className="flex flex-col gap-3 pt-2">
-              {error ? (
-                <p className="text-xs text-rose-500 font-semibold" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <TextField
-                value={draftNote}
-                onChange={setDraftNote}
-                aria-label="New interview note input"
-              >
-                <TextArea
-                  placeholder="Strengths, concerns, recommendation, scores, etc."
-                  className="min-h-[10rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent"
-                />
-              </TextField>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  isDisabled={notesBusy}
-                  onPress={() => void saveNoteOnly()}
+              <div className="flex flex-col gap-3 pt-3 border-t border-divider">
+                <div>
+                  <p className="text-xs font-bold text-foreground mb-0.5">
+                    Add a note after interview
+                  </p>
+                  <p className="text-xs text-muted">
+                    Write in Vietnamese or English; the evaluation follows your language. Save a note on its own, or type and use “Regenerate” to save that text and create the PDF in one step.
+                  </p>
+                </div>
+                <TextField
+                  value={draftNote}
+                  onChange={setDraftNote}
+                  aria-label="New interview note input"
                 >
-                  {notesBusy ? "Saving…" : "Save note"}
-                </Button>
-                <Button
-                  variant="primary"
-                  className="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-bold"
-                  isDisabled={evalBusy}
-                  onPress={() => void regenerateEvaluation()}
-                >
-                  {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                  onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
-                >
-                  Back to pipeline
-                </Button>
+                  <TextArea
+                    placeholder="Strengths, concerns, recommendation, scores, etc."
+                    className="min-h-[10rem] w-full rounded-xl border border-divider bg-surface-secondary/20 p-3 text-xs outline-none focus:border-accent"
+                  />
+                </TextField>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+                    isDisabled={notesBusy}
+                    onPress={() => void saveNoteOnly()}
+                  >
+                    {notesBusy ? "Saving…" : "Save interview note"}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    className="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-bold"
+                    isDisabled={evalBusy}
+                    onPress={() => void regenerateEvaluation()}
+                    hidden={true}
+                  >
+                    {evalBusy ? "Generating…" : "Regenerate evaluation PDF"}
+                  </Button>
+                </div>
               </div>
             </div>
           </SectionCard>
+          <Button
+            variant="secondary"
+            className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
+            onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
+          >
+            Back to pipeline
+          </Button>
         </div>{/* end right panel */}
       </div>{/* end split row */}
-
-      {canEditProfile ? (
-        <EditCandidateModal
-          isOpen={editProfileModal.isOpen}
-          onOpenChange={editProfileModal.setOpen}
-          row={{ id: candidate.id, name: candidate.name }}
-          canEdit={canEditProfile}
-          onSaved={() => {
-            editProfileModal.close();
-            router.refresh();
-            toast.success("Candidate profile updated.");
-          }}
-        />
-      ) : null}
     </div>
   );
 }

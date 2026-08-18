@@ -23,6 +23,7 @@ import type {
 } from "@/lib/candidates/db-row";
 import type {
   DuplicateCandidateHit,
+  DuplicateMatchedOn,
   DuplicateNewUploadPreview,
 } from "@/lib/candidates/duplicate-detection";
 import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
@@ -82,6 +83,17 @@ type QueueRow = {
   prefillName?: string | null;
   prefillEmail?: string | null;
   prefillPhone?: string | null;
+  /**
+   * True when dedupe found an existing person by email and/or phone (CV
+   * bytes/content may differ). Drives the Exists column + amber row highlight
+   * so recruiters see "this candidate is already in the system" after parse.
+   */
+  existsByContact?: boolean;
+  /** Which contact signal(s) triggered `existsByContact`, for the Exists chip. */
+  existsMatchedOn?: Extract<
+    DuplicateMatchedOn,
+    "email" | "phone" | "email_or_phone"
+  >;
 };
 
 type CommitAndProcessResult = {
@@ -114,6 +126,22 @@ function formatBytes(n: number) {
 function dash(v: string | null | undefined): string {
   if (v == null || v.trim() === "") return "—";
   return v;
+}
+
+/** Contact-only duplicate (not file/content hash): person already in system. */
+function contactExistsMatchedOn(
+  hits: DuplicateCandidateHit[],
+): Extract<DuplicateMatchedOn, "email" | "phone" | "email_or_phone"> | null {
+  for (const hit of hits) {
+    if (
+      hit.matchedOn === "email" ||
+      hit.matchedOn === "phone" ||
+      hit.matchedOn === "email_or_phone"
+    ) {
+      return hit.matchedOn;
+    }
+  }
+  return null;
 }
 
 /** Caps how many `/process` calls (AI resume parsing + JD-match, both LLM
@@ -294,7 +322,6 @@ export function AddCandidateModal({
     CANDIDATE_SOURCE_VALUES[0],
   );
   const [sourceOther, setSourceOther] = useState("");
-  const [expectedSalary, setExpectedSalary] = useState("");
   const [runJdMatchOnUpload, setRunJdMatchOnUpload] = useState(true);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -413,6 +440,18 @@ export function AddCandidateModal({
    * doesn't have an application in this job yet, so the freshly-created
    * application is repointed onto their existing identity, becoming a new
    * CV for this job. Errors leave the row flagged in the queue.
+   *
+   * A same-job hit is only trusted when it's *also* the best-matched
+   * candidate overall. `cv_file`/`cv_content` hash hits can be stale: when
+   * an HR-confirmed identity merge (`resolveProfileConflict`) folds one
+   * person's CV into a different candidate's application, that application
+   * inherits the original file's hash going forward (deliberately -- it's
+   * now genuinely the CV on file for that application). A *later*,
+   * unrelated re-upload of that same physical file for its original owner
+   * then hash-matches the merge target's same-job application even though
+   * email/phone clearly point elsewhere -- an identity signal must win over
+   * a same-job hash-only signal, or the new upload silently attaches to the
+   * wrong person.
    */
   const autoResolveDuplicate = useCallback(
     async (
@@ -421,15 +460,40 @@ export function AddCandidateModal({
       hits: DuplicateCandidateHit[],
     ) => {
       if (hits.length === 0) return;
+      const existsMatchedOn = contactExistsMatchedOn(hits);
+      if (existsMatchedOn) {
+        setQueue((q) =>
+          q.map((r) =>
+            r.rowId === rowId
+              ? {
+                  ...r,
+                  existsByContact: true,
+                  existsMatchedOn,
+                }
+              : r,
+          ),
+        );
+      }
       setResolvingDuplicateRowIds((prev) => new Set(prev).add(rowId));
       try {
-        const sameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
+        const isIdentityMatch = (matchedOn: DuplicateCandidateHit["matchedOn"]) =>
+          matchedOn === "email" || matchedOn === "phone" || matchedOn === "email_or_phone";
+        const identityHit = hits.find((h) => isIdentityMatch(h.matchedOn));
+        const rawSameJobHit = hits.find((h) => h.jobOpeningId === selectedJobId);
+        const sameJobHit =
+          rawSameJobHit &&
+          (!identityHit ||
+            isIdentityMatch(rawSameJobHit.matchedOn) ||
+            identityHit.candidateId === rawSameJobHit.candidateId)
+            ? rawSameJobHit
+            : undefined;
+        const bestHit = identityHit ?? hits[0];
 
         if (!sameJobHit) {
           // Cross-job duplicate: keep this application (it's for a different
           // job), but repoint it onto the existing person instead of leaving
           // it under the throwaway blank candidate created for it.
-          const existingCandidateId = hits[0]?.candidateId;
+          const existingCandidateId = bestHit?.candidateId;
           if (existingCandidateId) {
             const linkRes = await fetch(
               `/api/admin/candidates/${candidateId}/link-to-candidate`,
@@ -673,7 +737,6 @@ export function AddCandidateModal({
             jobId: selectedJobId,
             source: sourceKey,
             sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-            expectedSalary: expectedSalary.trim() || null,
             email,
             phone,
             bypassDuplicateCheck: true,
@@ -719,7 +782,7 @@ export function AddCandidateModal({
         jdMatchError: jdMatchErrorFromResponse(procJson.jdMatch),
       };
     },
-    [selectedJobId, sourceKey, sourceOther, expectedSalary],
+    [selectedJobId, sourceKey, sourceOther],
   );
 
   const loadJobs = useCallback(async () => {
@@ -908,7 +971,6 @@ export function AddCandidateModal({
               jobId: selectedJobId,
               source: sourceKey,
               sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
-              expectedSalary: expectedSalary.trim() || null,
               email: email || null,
               phone: phone || null,
             }),
@@ -988,7 +1050,6 @@ export function AddCandidateModal({
       selectedJobId,
       sourceKey,
       sourceOther,
-      expectedSalary,
       commitAndProcessViaBypass,
       refreshRowContactInfo,
       autoResolveDuplicate,
@@ -1228,7 +1289,7 @@ export function AddCandidateModal({
                     : "Close"
                 }
               />
-              <Modal.Header className="border-b border-divider px-6 py-5">
+              <Modal.Header className="border-b border-divider px-6 py-4">
                 <Modal.Heading className="text-xl">
                   Add candidates
                 </Modal.Heading>
@@ -1238,7 +1299,7 @@ export function AddCandidateModal({
                     : "Upload CVs to private storage; AI extracts profile fields in the background."}
                 </p>
               </Modal.Header>
-              <Modal.Body className="max-h-[min(78vh,880px)] space-y-5 overflow-y-auto px-6 py-5">
+              <Modal.Body className="max-h-[min(78vh,880px)] space-y-4 overflow-y-auto px-6 py-4">
                 {isCampaignBlocked ? (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
                     <p className="font-semibold text-amber-900 dark:text-amber-100">
@@ -1254,8 +1315,8 @@ export function AddCandidateModal({
                     </p>
                   </div>
                 ) : null}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch md:gap-6">
-                  <div className="flex min-h-0 min-w-0 flex-col gap-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-stretch">
+                  <div className="flex flex-col gap-3">
                     <div>
                       <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Target campaign
@@ -1270,14 +1331,8 @@ export function AddCandidateModal({
                       </Label>
                       {isCampaignLocked &&
                       typeof jdPipelineCampaign === "object" ? (
-                        <div className="mt-2 rounded-xl border border-divider bg-surface-secondary px-3 py-2.5 text-sm text-foreground">
-                          <span className="font-medium">
-                            {jdPipelineCampaign.title}
-                          </span>
-                          <p className="mt-1 text-xs text-muted">
-                            Fixed for this job description — candidates are
-                            eligible for JD-based AI evaluation.
-                          </p>
+                        <div className="mt-1.5 flex h-10 items-center rounded-xl border border-divider bg-surface-secondary px-3 text-sm font-medium text-foreground">
+                          {jdPipelineCampaign.title}
                         </div>
                       ) : (
                         <Select
@@ -1290,9 +1345,9 @@ export function AddCandidateModal({
                           onChange={(key) => {
                             if (typeof key === "string") setJobKey(key);
                           }}
-                          className="mt-2"
+                          className="mt-1.5"
                         >
-                          <Select.Trigger className="w-full min-w-0">
+                          <Select.Trigger className="h-10 w-full min-w-0">
                             <Select.Value />
                             <Select.Indicator />
                           </Select.Trigger>
@@ -1312,15 +1367,20 @@ export function AddCandidateModal({
                           </Select.Popover>
                         </Select>
                       )}
-                      {isCampaignMissing ? (
+                      {isCampaignLocked &&
+                      typeof jdPipelineCampaign === "object" ? (
+                        <p className="mt-1 text-xs text-muted">
+                          Fixed for this job — eligible for JD-based AI
+                          evaluation.
+                        </p>
+                      ) : isCampaignMissing ? (
                         isJdPipeline ? (
-                          <p className="mt-1.5 text-xs text-muted">
+                          <p className="mt-1 text-xs text-muted">
                             Required before you can upload CVs.
                           </p>
                         ) : (
-                          <p className="mt-1.5 text-xs text-muted">
-                            No job selected — CVs will be added to the
-                            candidate pool and can be assigned to a job later.
+                          <p className="mt-1 text-xs text-muted">
+                            No job selected — CVs go to the candidate pool.
                           </p>
                         )
                       ) : null}
@@ -1337,9 +1397,9 @@ export function AddCandidateModal({
                           setSourceKey(next);
                           if (next !== "Other") setSourceOther("");
                         }}
-                        className="mt-2"
+                        className="mt-1.5"
                       >
-                        <Select.Trigger className="w-full min-w-0">
+                        <Select.Trigger className="h-10 w-full min-w-0">
                           <Select.Value />
                           <Select.Indicator />
                         </Select.Trigger>
@@ -1355,7 +1415,7 @@ export function AddCandidateModal({
                         </Select.Popover>
                       </Select>
                       {sourceKey === "Other" ? (
-                        <TextField className="mt-3">
+                        <TextField className="mt-2">
                           <Label className="text-xs text-muted">
                             Describe the source
                           </Label>
@@ -1370,30 +1430,10 @@ export function AddCandidateModal({
                     </div>
 
                     <div>
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Expected salary{" "}
-                        <span className="font-normal normal-case text-muted/70">
-                          (optional)
-                        </span>
-                      </Label>
-                      <TextField className="mt-2">
-                        <Input
-                          value={expectedSalary}
-                          onChange={(e) => setExpectedSalary(e.target.value)}
-                          placeholder="e.g. 18-20 triệu, negotiable…"
-                        />
-                      </TextField>
-                      <p className="mt-1.5 text-xs text-muted">
-                        Only visible to HR and the chapter head in the evaluation
-                        view.
-                      </p>
-                    </div>
-
-                    <div>
                       <label className="flex items-center gap-2 text-sm text-foreground">
                         <input
                           type="checkbox"
-                          className="size-4 rounded border-divider accent-accent cursor-pointer"
+                          className="size-4 shrink-0 cursor-pointer rounded border-divider accent-accent"
                           checked={runJdMatchOnUpload}
                           onChange={(e) =>
                             setRunJdMatchOnUpload(e.target.checked)
@@ -1401,76 +1441,72 @@ export function AddCandidateModal({
                         />
                         Run AI JD-match scoring
                       </label>
-                      <p className="mt-1.5 text-xs text-muted">
-                        Applies to every CV uploaded in this session, right after
-                        AI parsing finishes.
+                      <p className="mt-1 text-xs text-muted">
+                        Runs after parsing for every CV in this session.
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex min-h-0 min-w-0 flex-col md:h-full">
-                    <div
-                      className={`flex h-full min-h-[160px] flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
-                        isUploadDisabled
-                          ? "border-divider bg-content2/20 opacity-50"
-                          : dragOver
-                            ? "border-accent bg-accent/5"
-                            : "border-divider bg-content2/30"
-                      }`}
-                      onDragEnter={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(true);
-                      }}
-                      onDragOver={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setDragOver(true);
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={(e) => {
-                        if (isUploadDisabled) return;
-                        e.preventDefault();
-                        setDragOver(false);
-                        void handleFiles(e.dataTransfer.files);
-                      }}
-                    >
+                  <div
+                    className={`flex h-full min-h-0 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-4 ${
+                      isUploadDisabled
+                        ? "border-divider bg-content2/20 opacity-50"
+                        : dragOver
+                          ? "border-accent bg-accent/5"
+                          : "border-divider bg-content2/30"
+                    }`}
+                    onDragEnter={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragOver={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      if (isUploadDisabled) return;
+                      e.preventDefault();
+                      setDragOver(false);
+                      void handleFiles(e.dataTransfer.files);
+                    }}
+                  >
+                    <div className="min-w-0 text-center">
                       <p className="text-sm font-semibold text-foreground">
                         {isCampaignMissing && isJdPipeline
                           ? "Select a target campaign first"
                           : "Drop CVs here to start ingestion"}
                       </p>
-                      <p className="mt-2 max-w-sm text-xs text-muted">
+                      <p className="mt-0.5 text-xs text-muted">
                         {isCampaignMissing && isJdPipeline
-                          ? "Choose a campaign on the left, then upload PDF or DOCX files (max 25MB each)."
-                          : isCampaignMissing
-                            ? "No job selected — CVs go to the candidate pool and can be assigned to a job later. Select or drop one or more PDF or DOCX files (max 25MB each)."
-                            : "CVs go straight to AI parsing (and JD-match scoring, if enabled) once uploaded — no review step. Select or drop one or more PDF or DOCX files (max 25MB each)."}
+                          ? "Choose a campaign above, then upload PDF or DOCX (max 25MB each)."
+                          : "PDF or DOCX, max 25MB each. Parsing starts as soon as files upload."}
                       </p>
-                      <div className="mt-3 flex justify-center">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onPress={() => fileInputRef.current?.click()}
-                          isDisabled={isUploadDisabled}
-                        >
-                          Select files
-                        </Button>
-                      </div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files;
-                          if (f?.length) void handleFiles(f);
-                          e.target.value = "";
-                        }}
-                      />
                     </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="shrink-0"
+                      onPress={() => fileInputRef.current?.click()}
+                      isDisabled={isUploadDisabled}
+                    >
+                      Select files
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files;
+                        if (f?.length) void handleFiles(f);
+                        e.target.value = "";
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -1485,7 +1521,8 @@ export function AddCandidateModal({
                         finish uploading. Duplicates are resolved automatically:
                         matched against an existing person, a CV becomes a new
                         version for this job if they already applied here, or a
-                        new application if they haven't.
+                        new application if they haven't. Rows matched by email or
+                        phone show Exists = Yes and are highlighted.
                       </p>
                     </div>
                   </div>
@@ -1597,6 +1634,7 @@ export function AddCandidateModal({
                                 <Table.Column>Name</Table.Column>
                                 <Table.Column>Email</Table.Column>
                                 <Table.Column>Phone</Table.Column>
+                                <Table.Column>Exists</Table.Column>
                                 <Table.Column>Status</Table.Column>
                                 <Table.Column>Actions</Table.Column>
                               </Table.Header>
@@ -1604,7 +1642,7 @@ export function AddCandidateModal({
                                 {queue.length === 0 ? (
                                   <Table.Row id="empty">
                                     <Table.Cell
-                                      colSpan={6}
+                                      colSpan={7}
                                       className="text-center text-sm text-muted"
                                     >
                                       No files in this session yet.
@@ -1627,8 +1665,23 @@ export function AddCandidateModal({
                                           color: "default",
                                         } as const)
                                       : statusChip(row);
+                                    const existsRowClass = row.existsByContact
+                                      ? "bg-amber-500/15"
+                                      : undefined;
+                                    const existsMatchTitle =
+                                      row.existsMatchedOn === "email"
+                                        ? "Matching email already exists in the system"
+                                        : row.existsMatchedOn === "phone"
+                                          ? "Matching phone already exists in the system"
+                                          : row.existsMatchedOn ===
+                                              "email_or_phone"
+                                            ? "Matching email and phone already exist in the system"
+                                            : undefined;
                                     return (
-                                      <Table.Row key={row.rowId} id={row.rowId}>
+                                      <Table.Row
+                                        key={row.rowId}
+                                        id={row.rowId}
+                                      >
                                         <Table.Cell
                                           ref={(
                                             el: HTMLTableCellElement | null,
@@ -1637,19 +1690,36 @@ export function AddCandidateModal({
                                             // forward a plain `ref` prop to its rendered
                                             // `<tr>` -- `Table.Cell`'s HeroUI wrapper does
                                             // forward it, so anchor here and walk up.
+                                            // Also paint the row highlight on the `<tr>`
+                                            // here: Row `className` is unreliable for
+                                            // background, while the cell ref always sees
+                                            // the live DOM node.
                                             const tr =
                                               el?.closest("tr") ?? null;
-                                            if (tr)
+                                            if (tr) {
                                               rowElRefs.current.set(
                                                 row.rowId,
                                                 tr,
                                               );
-                                            else
+                                              tr.classList.toggle(
+                                                "bg-amber-500/15",
+                                                Boolean(row.existsByContact),
+                                              );
+                                              tr.style.boxShadow =
+                                                row.existsByContact
+                                                  ? "inset 4px 0 0 0 rgb(245 158 11)"
+                                                  : "";
+                                            } else
                                               rowElRefs.current.delete(
                                                 row.rowId,
                                               );
                                           }}
-                                          className="max-w-[200px]"
+                                          className={[
+                                            "max-w-[200px]",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
                                         >
                                           <div className="flex items-center gap-3">
                                             <FileIcon className="size-8 shrink-0 text-muted" />
@@ -1666,16 +1736,58 @@ export function AddCandidateModal({
                                             </div>
                                           </div>
                                         </Table.Cell>
-                                        <Table.Cell className="max-w-[160px] truncate text-sm text-foreground">
+                                        <Table.Cell
+                                          className={[
+                                            "max-w-[160px] truncate text-sm text-foreground",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillName)}
                                         </Table.Cell>
-                                        <Table.Cell className="max-w-[200px] truncate text-sm text-muted">
+                                        <Table.Cell
+                                          className={[
+                                            "max-w-[200px] truncate text-sm text-muted",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillEmail)}
                                         </Table.Cell>
-                                        <Table.Cell className="text-sm text-muted">
+                                        <Table.Cell
+                                          className={[
+                                            "text-sm text-muted",
+                                            existsRowClass,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" ")}
+                                        >
                                           {dash(row.prefillPhone)}
                                         </Table.Cell>
-                                        <Table.Cell>
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
+                                          {row.existsByContact ? (
+                                            <Chip
+                                              size="sm"
+                                              variant="soft"
+                                              color="warning"
+                                              className="text-[10px] font-bold uppercase"
+                                              title={existsMatchTitle}
+                                            >
+                                              Yes
+                                            </Chip>
+                                          ) : (
+                                            <span className="text-sm text-muted">
+                                              No
+                                            </span>
+                                          )}
+                                        </Table.Cell>
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
                                           <Chip
                                             size="sm"
                                             variant="soft"
@@ -1686,7 +1798,9 @@ export function AddCandidateModal({
                                           </Chip>
                                         </Table.Cell>
 
-                                        <Table.Cell>
+                                        <Table.Cell
+                                          className={existsRowClass}
+                                        >
                                           {(() => {
                                             const historyId =
                                               row.mergedApplicationId ??
@@ -1695,7 +1809,7 @@ export function AddCandidateModal({
                                               historyId == null ||
                                               row.uploadPhase !== "uploaded"
                                             ) {
-                                              return null;
+                                              return <p className="text-sm text-muted text-center">—</p>;
                                             }
                                             return (
                                               <Button

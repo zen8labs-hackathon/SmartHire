@@ -60,6 +60,21 @@ describe("findCandidatesByDedupeSignals", () => {
     expect(values[4]).toBe("app-1");
   });
 
+  it("strips non-digits from candidates.phone before comparing, so raw-formatted DB values still match digit-only phoneVariants", async () => {
+    // `candidates.phone` is written as-typed/as-AI-parsed (may contain
+    // spaces, '+', dashes) at every write path -- it's never normalized on
+    // write. Without stripping it here too, a stored "+84 912 345 678"
+    // would never match the digit-only variants normalizePhoneFromPayload
+    // produces for a freshly-typed "0912345678", even though they're the
+    // same number.
+    const db = fakeDb([]);
+
+    await findCandidatesByDedupeSignals(db, { phoneVariants: ["0912345678"] });
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("regexp_replace(c.phone, '\\D', '', 'g') = ANY($2)");
+  });
+
   it("excludes matches whose job is soft-deleted", async () => {
     const db = fakeDb([]);
 
@@ -139,6 +154,7 @@ describe("listDedupedCandidatesForAdmin", () => {
     expect(result).toEqual({
       rows: [{ id: "cand-1" }],
       total: 1,
+      experiencedTotal: 0,
       limit: 10,
       offset: 0,
     });
@@ -149,7 +165,28 @@ describe("listDedupedCandidatesForAdmin", () => {
 
     const result = await listDedupedCandidatesForAdmin(db, {});
 
-    expect(result).toEqual({ rows: [], total: 0, limit: 50, offset: 0 });
+    expect(result).toEqual({
+      rows: [],
+      total: 0,
+      experiencedTotal: 0,
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  it("reads experiencedTotal from the window aggregate", async () => {
+    const db = fakeDb([
+      { id: "cand-1", total_count: "3", experienced_count: "2" },
+    ]);
+
+    const result = await listDedupedCandidatesForAdmin(db, {
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(result.experiencedTotal).toBe(2);
+    expect(result.total).toBe(3);
+    expect(result.rows[0]).toEqual({ id: "cand-1" });
   });
 
   it("dedupes to the latest non-deleted application per candidate via DISTINCT ON", async () => {
@@ -160,6 +197,9 @@ describe("listDedupedCandidatesForAdmin", () => {
     const [sql] = db.query.mock.calls[0];
     expect(sql).toContain("SELECT DISTINCT ON (candidate_id) *");
     expect(sql).toContain("ORDER BY candidate_id, id DESC");
+    expect(sql).toContain(
+      "count(*) FILTER (WHERE COALESCE(c.experience_years, 0) >= 5) OVER()",
+    );
   });
 
   it("inner-joins latest_apps so a person with no live application is excluded, not surfaced with a null campaign_applied_id", async () => {

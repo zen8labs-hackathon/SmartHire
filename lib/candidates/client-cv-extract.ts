@@ -11,6 +11,7 @@
 import mammoth from "mammoth";
 import { extractText, getDocumentProxy } from "unpdf";
 
+import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
 import { extensionFromFilename } from "./upload-constants";
 import { extractContactFromText } from "./regex-contact-extraction";
 
@@ -95,7 +96,7 @@ export function pickLikelyNameLine(lines: TextLine[], pageHeight: number): strin
   if (candidates.length === 0) return null;
 
   const best = candidates.reduce((a, b) => (b.height > a.height ? b : a));
-  return best.text;
+  return canonicalizeCandidateName(best.text);
 }
 
 /** DOCX has no font-size metadata once run through `mammoth.extractRawText`,
@@ -103,7 +104,7 @@ export function pickLikelyNameLine(lines: TextLine[], pageHeight: number): strin
 export function guessNameFromPlainText(plainText: string): string | null {
   for (const rawLine of plainText.split("\n")) {
     const line = rawLine.trim();
-    if (line && looksLikeName(line)) return line;
+    if (line && looksLikeName(line)) return canonicalizeCandidateName(line);
   }
   return null;
 }

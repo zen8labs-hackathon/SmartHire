@@ -3,22 +3,12 @@
 import { Button, Modal } from "@heroui/react";
 
 import { EmailPreviewCard } from "@/components/admin/email-config/email-preview-card";
-import { wrapEmailBodyInCard } from "@/lib/email/email-layout";
+import { applyEmailLayout } from "@/lib/email/email-layout";
 import { renderEmailTemplate } from "@/lib/email/render-template";
+import { getRecipientTypeForTrigger } from "@/lib/email/trigger-types";
 
 const FALLBACK_SENDER_EMAIL = "recruiting@smart-hire.test";
 const FALLBACK_COMPANY_NAME = "SmartHire";
-
-export const SAMPLE_VARS: Record<string, string> = {
-  candidate_name: "Nguyễn Văn A",
-  candidate_email: "nguyenvana@example.com",
-  position: "Backend Engineer",
-  department: "Engineering",
-  hr_name: "hr@smart-hire.test",
-  interview_date: "10/08/2026",
-  interview_time: "14:30",
-  interview_location: "Phòng họp A, Tầng 5",
-};
 
 function capitalizeFirstLetter(str: string): string {
   if (!str) return str;
@@ -39,12 +29,13 @@ export function EmailTemplatePreviewModal({
   name,
   subjectTemplate,
   bodyTemplate,
-  recipientType,
+  triggerType,
   defaultCc,
   defaultBcc,
   fromEmail,
   companyName,
-  signatureHtml,
+  layoutType,
+  customLayoutHtml,
   logoUrl,
 }: {
   isOpen: boolean;
@@ -52,25 +43,32 @@ export function EmailTemplatePreviewModal({
   name: string;
   subjectTemplate: string;
   bodyTemplate: string;
-  recipientType: string;
+  /** Determines the sample "To:" audience label via `getRecipientTypeForTrigger` -- see lib/email/trigger-types.ts. */
+  triggerType: string;
   defaultCc?: string | null;
   defaultBcc?: string | null;
   fromEmail?: string;
   companyName?: string | null;
-  signatureHtml?: string | null;
+  layoutType?: "default" | "custom";
+  customLayoutHtml?: string | null;
   logoUrl?: string | null;
 }) {
   const effectiveCompanyName = companyName || FALLBACK_COMPANY_NAME;
-  const sampleVars = { ...SAMPLE_VARS, company_name: effectiveCompanyName };
-  const previewSubject = renderEmailTemplate(subjectTemplate, sampleVars);
-  const renderedBody = renderEmailTemplate(bodyTemplate, sampleVars);
-  const bodyWithSignature = signatureHtml
-    ? `${renderedBody}<br /><br />${signatureHtml}`
-    : renderedBody;
-  const previewBody = wrapEmailBodyInCard({
-    bodyHtml: bodyWithSignature,
+  const recipientType = getRecipientTypeForTrigger(triggerType);
+  // No sample candidate/schedule data -- `{{candidate_name}}`,
+  // `{{interview_date}}`, etc. are left as literal placeholders (and shown
+  // highlighted, see EmailPreviewCard) rather than filled with fake values
+  // that could be mistaken for real content. `company_name` is real
+  // configured data, not a sample, so it's still substituted.
+  const vars = { company_name: effectiveCompanyName };
+  const previewSubject = renderEmailTemplate(subjectTemplate, vars);
+  const renderedBody = renderEmailTemplate(bodyTemplate, vars);
+  const previewBody = applyEmailLayout({
+    bodyHtml: renderedBody,
     companyName: effectiveCompanyName,
     logoUrl,
+    layoutType: layoutType ?? "default",
+    customLayoutHtml,
   });
 
   return (

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { renderEmailSubjectAndBody, renderEmailTemplate } from "@/lib/email/render-template";
+import {
+  findUnresolvedPlaceholders,
+  renderEmailSubjectAndBody,
+  renderEmailTemplate,
+} from "@/lib/email/render-template";
 
 describe("renderEmailTemplate", () => {
   it("substitutes known placeholders", () => {
@@ -42,5 +46,26 @@ describe("renderEmailSubjectAndBody", () => {
       subject: "Offer for Backend Engineer",
       bodyHtml: "<p>Dear An</p>",
     });
+  });
+});
+
+describe("findUnresolvedPlaceholders", () => {
+  it("returns an empty array when every placeholder was resolved", () => {
+    const result = findUnresolvedPlaceholders(renderEmailTemplate("Hi {{candidate_name}}", {
+      candidate_name: "An",
+    }));
+    expect(result).toEqual([]);
+  });
+
+  it("returns each distinct unresolved placeholder", () => {
+    const result = findUnresolvedPlaceholders(
+      "Hi {{candidate_name}}, interview at {{interview_date}} for {{position}}",
+    );
+    expect(result).toEqual(["{{candidate_name}}", "{{interview_date}}", "{{position}}"]);
+  });
+
+  it("de-duplicates repeated placeholders", () => {
+    const result = findUnresolvedPlaceholders("{{position}} -- {{position}} again");
+    expect(result).toEqual(["{{position}}"]);
   });
 });

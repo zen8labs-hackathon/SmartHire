@@ -1,3 +1,5 @@
+import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
+
 /**
  * Normalized shape for `candidates.parsed_payload` from process-cv / grokParseResume.
  * Kept in sync with supabase/functions/process-cv ParsedResume + safeParseParsedResume.
@@ -42,7 +44,7 @@ export function normalizeParsedResume(
     gpa = gpaRaw.trim();
   }
   return {
-    name: typeof o.name === "string" ? o.name : null,
+    name: typeof o.name === "string" ? canonicalizeCandidateName(o.name) : null,
     email: typeof o.email === "string" ? o.email : null,
     phone: typeof o.phone === "string" ? o.phone : null,
     role: typeof o.role === "string" ? o.role : null,

@@ -10,16 +10,22 @@ import {
   cn,
   Disclosure,
   ListBox,
-  useOverlayState,
 } from "@heroui/react";
 
 import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateEmailTab } from "@/components/admin/candidates/candidate-email-tab";
-import { EditCandidateModal } from "@/components/admin/jd/edit-candidate-modal";
+import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
+import { ReassignCvVersionModal } from "@/components/admin/candidates/reassign-cv-version-modal";
+import { CvViewer } from "@/components/admin/candidates/cv-viewer";
+import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
+import {
+  campaignAppliedToCandidateDbRow,
+  type CandidateDbRow,
+} from "@/lib/candidates/db-row";
+import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
-import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 
 type Props = {
@@ -56,8 +62,17 @@ function versionEventLabel(item: CvManagementVersionListItem): string {
 
 export function CandidateDetailClient({ candidate }: Props) {
   const router = useRouter();
-  const editProfileModal = useOverlayState();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
+
+  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
+  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
+    "loading",
+  );
+  const [canEditSalary, setCanEditSalary] = useState(false);
+  const [profileDirty, setProfileDirty] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const profileSaveRef = useRef<(() => void) | null>(null);
 
   const [applications, setApplications] = useState<ApplicationListItem[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(true);
@@ -85,6 +100,8 @@ export function CandidateDetailClient({ candidate }: Props) {
 
   const [selectedVersion, setSelectedVersion] =
     useState<SelectedVersion | null>(null);
+
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
 
   const loadApplications = useCallback(async () => {
     if (applicationsFetchedRef.current) return;
@@ -115,6 +132,50 @@ export function CandidateDetailClient({ candidate }: Props) {
   useEffect(() => {
     void loadApplications();
   }, [loadApplications]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    setDbRow(null);
+    setDbLoadState("loading");
+    setCanEditSalary(false);
+    setProfileDirty(false);
+    setProfileBusy(false);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/candidates/${candidate.id}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const json = (await res.json()) as {
+          candidate?: unknown;
+          canViewSalary?: boolean;
+        };
+        if (ac.signal.aborted || !json.candidate) {
+          if (!ac.signal.aborted) setDbLoadState("error");
+          return;
+        }
+        const c =
+          json.candidate &&
+          typeof json.candidate === "object" &&
+          "candidate_id" in json.candidate
+            ? campaignAppliedToCandidateDbRow(
+                json.candidate as CampaignAppliedAdminRow,
+              )
+            : (json.candidate as CandidateDbRow);
+        setDbRow(c);
+        setCanEditSalary(json.canViewSalary === true);
+        setDbLoadState("ok");
+      } catch {
+        if (!ac.signal.aborted) setDbLoadState("error");
+      }
+    })();
+    return () => ac.abort();
+  }, [candidate.id]);
 
   const loadAppVersions = useCallback(async (appId: string) => {
     if (fetchedAppVersionIdsRef.current.has(appId)) return;
@@ -210,29 +271,6 @@ export function CandidateDetailClient({ candidate }: Props) {
       : `/api/admin/candidates/${selectedVersion.applicationId}/cv-download`
     : `/api/admin/candidates/${candidate.id}/cv-download`;
 
-  // Switching CV versions re-navigates the same iframe. Setting `src` as a
-  // normal React prop does a push-style navigation each time, which joins
-  // the tab's session history -- the navbar's "Go back" button then steps
-  // through past CV versions before ever leaving this page. Driving the
-  // navigation imperatively via `location.replace()` instead replaces the
-  // iframe's history entry in place, so browsing CV versions here never
-  // shows up in the page's own back/forward history. `replace()` is one of
-  // the few Location members still callable across origins, so this keeps
-  // working once the iframe has followed the storage redirect off-origin.
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    try {
-      if (iframe.contentWindow) {
-        iframe.contentWindow.location.replace(cvUrl);
-        return;
-      }
-    } catch {
-      // Fall through to a plain `src` assignment below.
-    }
-    iframe.src = cvUrl;
-  }, [cvUrl]);
 
   return (
     <div className="flex flex-col gap-4 font-sans">
@@ -277,11 +315,11 @@ export function CandidateDetailClient({ candidate }: Props) {
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
             {selectedVersionItem
-              ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle ?? "No job assigned"} · ${versionEventLabel(selectedVersionItem)}`
-              : ` · ${candidate.jobTitle ?? "No job assigned"}`}
+              ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle ?? "No Job Assigned"} · ${versionEventLabel(selectedVersionItem)}`
+              : ` · ${candidate.jobTitle ?? "No Job Assigned"}`}
           </p>
-          <iframe
-            ref={iframeRef}
+          <CvViewer
+            cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
             className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
             style={{ height: "calc(100vh - 120px)" }}
@@ -297,91 +335,53 @@ export function CandidateDetailClient({ candidate }: Props) {
             <p className="mt-1 text-sm text-muted font-medium">
               {candidate.jobTitle
                 ? `Applied for ${candidate.jobTitle}`
-                : "No job assigned"}
+                : "No Job Assigned"}
             </p>
           </div>
 
           <SectionCard
             title="Candidate Details"
-            description="Personal profile and academic background."
+            description="Edit personal profile fields. Save when you're done."
             actions={
               <Button
-                variant="secondary"
+                variant="primary"
                 size="sm"
-                className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-                onPress={() => editProfileModal.open()}
+                className="h-8 px-3 rounded-lg text-xs font-bold"
+                isDisabled={!profileDirty || profileBusy}
+                isPending={profileBusy}
+                onPress={() => profileSaveRef.current?.()}
               >
-                Edit profile
+                Save
               </Button>
             }
           >
-            <div className="grid gap-3 text-xs sm:grid-cols-2 pt-2">
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Email
-                </span>
-                <p className="font-semibold text-foreground text-sm truncate">
-                  {candidate.email}
-                </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Phone
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.mobile}
-                </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  D.O.B.
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.dateOfBirth}
-                </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  English
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.english}
-                </p>
-              </div>
-              <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Education
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.studentYears} · {candidate.majorSchool} · GPA{" "}
-                  {candidate.gpa}
-                </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Source
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.sourceLabel}
-                </p>
-              </div>
-              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Expected Salary
-                </span>
-                <p className="font-semibold text-foreground text-sm tabular-nums tracking-tight">
-                  {formatExpectedSalaryDisplay(candidate.expectedSalary)}
-                </p>
-              </div>
-              <div className="sm:col-span-2 bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
-                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">
-                  Skills
-                </span>
-                <p className="font-semibold text-foreground text-sm">
-                  {candidate.relatedSkills}
-                </p>
-              </div>
-            </div>
+            <CandidateProfileEditSection
+              candidateId={candidate.id}
+              dbRow={dbRow}
+              canEdit
+              canEditSalary={canEditSalary}
+              isPreview={false}
+              dbLoadState={dbLoadState}
+              startInEditMode
+              embedded
+              hidePipelineAndSource
+              // A profile-edit conflict here must be fixed by changing the
+              // contact info, not by merging into another candidate --
+              // that's a deliberate, cross-candidate action reserved for the
+              // "Wrong CV on this candidate?" recovery tool below, so
+              // `onCandidateIdChanged` is unreachable and omitted.
+              allowProfileConflictMerge={false}
+              onDirtyChange={setProfileDirty}
+              onBusyChange={setProfileBusy}
+              saveActionRef={profileSaveRef}
+              onSaved={(saved) => {
+                setDbRow(saved);
+                setProfileDirty(false);
+                refreshAppVersions(candidate.id);
+                router.refresh();
+                toast.success("Candidate profile updated.");
+              }}
+            />
           </SectionCard>
 
           <SectionCard
@@ -561,25 +561,22 @@ export function CandidateDetailClient({ candidate }: Props) {
                                           </p>
                                         ) : null}
                                       </div>
-                                      {v.isLatest && (
+                                      {v.isLatest && app.jobId != null ? (
                                         <div className="flex items-center justify-center gap-3">
                                           <Button
                                             variant="secondary"
                                             size="sm"
                                             className="h-7 px-3 rounded-lg border border-divider text-[10px] font-bold shrink-0"
-                                            isDisabled={app.jobId == null}
                                             onPress={() => {
-                                              if (app.jobId != null) {
-                                                router.push(
-                                                  `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
-                                                );
-                                              }
+                                              router.push(
+                                                `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
+                                              );
                                             }}
                                           >
                                             Go to Evaluation
                                           </Button>
                                         </div>
-                                      )}
+                                      ) : null}
                                     </ListBox.Item>
                                   );
                                 })}
@@ -607,7 +604,7 @@ export function CandidateDetailClient({ candidate }: Props) {
             </div>
           </SectionCard>
 
-          <div>
+          <div className="flex items-center justify-between gap-3">
             <Button
               variant="secondary"
               className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
@@ -615,20 +612,40 @@ export function CandidateDetailClient({ candidate }: Props) {
             >
               Back to candidates
             </Button>
+            <Button
+              variant="tertiary"
+              className="h-8 px-3 rounded-lg text-xs font-bold text-muted"
+              onPress={() => setReassignModalOpen(true)}
+            >
+              Wrong CV on this candidate?
+            </Button>
           </div>
         </div>
       </div>
 
-      <EditCandidateModal
-        isOpen={editProfileModal.isOpen}
-        onOpenChange={editProfileModal.setOpen}
-        row={{ id: candidate.id, name: candidate.name }}
-        canEdit
-        hidePipelineAndSource
-        onSaved={() => {
-          editProfileModal.close();
-          refreshAppVersions(candidate.id);
-          router.refresh();
+      <ReassignCvVersionModal
+        open={reassignModalOpen}
+        onOpenChange={setReassignModalOpen}
+        sourceCampaignAppliedId={candidate.id}
+        onReassigned={(sourceApplicationDeleted) => {
+          if (sourceApplicationDeleted) {
+            // This application had no CV of its own to roll back to, so it
+            // (and its candidate, if orphaned) was deleted outright --
+            // `candidate.id` no longer refers to anything. Reloading in
+            // place would just 404.
+            router.push("/admin/candidates");
+            return;
+          }
+          // A plain `router.refresh()` + `refreshAppVersions` isn't enough
+          // here: the CV preview iframe re-navigates only when the `cvUrl`
+          // it computes changes, and reassigning doesn't change that string
+          // (same application id, no versionId param either way) even
+          // though the *active* CV behind it just changed on the backend --
+          // it would keep showing the stale (misattributed) file. This is a
+          // rare, deliberate admin action, not a hot path, so a full reload
+          // is the simplest way to guarantee every panel (iframe, profile,
+          // version list) reflects the new state.
+          window.location.reload();
         }}
       />
     </div>

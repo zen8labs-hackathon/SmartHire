@@ -19,6 +19,16 @@ export type CandidatesListSortColumn =
   (typeof CANDIDATES_LIST_SORT_COLUMNS)[number];
 export type CandidatesListSortDir = "asc" | "desc";
 
+/** Whitelisted `cv_detail_versions.parsing_status` values for list filters. */
+export const CANDIDATES_LIST_PARSING_STATUSES = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+] as const;
+export type CandidatesListParsingStatus =
+  (typeof CANDIDATES_LIST_PARSING_STATUSES)[number];
+
 export type CandidatesListQuery = {
   /** `jobs.id` -- DB7X2K merged job_openings + job_descriptions, so there's a single id now. */
   jobId?: string;
@@ -29,6 +39,8 @@ export type CandidatesListQuery = {
   uploadFrom?: string;
   uploadTo?: string;
   q?: string;
+  /** Exact match on the active CV version's `parsing_status`. */
+  parsingStatus?: CandidatesListParsingStatus;
   limit?: number;
   offset?: number;
   /** When true, return up to {@link CANDIDATES_LIST_MAX_ALL} rows (no offset). */
@@ -44,6 +56,8 @@ export type CandidatesListPagination = {
   offset: number;
   total: number;
   hasMore: boolean;
+  /** Present on the deduped Active Candidates list: people with 5+ years. */
+  experiencedTotal?: number;
 };
 
 export type CandidatesListResult = {
@@ -108,6 +122,13 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   const sortDir: CandidatesListSortDir | undefined =
     sortDirRaw === "asc" || sortDirRaw === "desc" ? sortDirRaw : undefined;
 
+  const parsingStatusRaw = searchParams.get("parsingStatus")?.trim() ?? "";
+  const parsingStatus = (
+    CANDIDATES_LIST_PARSING_STATUSES as readonly string[]
+  ).includes(parsingStatusRaw)
+    ? (parsingStatusRaw as CandidatesListParsingStatus)
+    : undefined;
+
   return {
     query: {
       jobId,
@@ -116,6 +137,7 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
       uploadFrom: parseDateParam(searchParams.get("uploadFrom")),
       uploadTo: parseDateParam(searchParams.get("uploadTo")),
       q: searchParams.get("q")?.trim() || undefined,
+      parsingStatus,
       limit,
       offset,
       all: all || limit == null,
@@ -136,6 +158,7 @@ export function buildCandidatesListSearchParams(
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
+  if (query.parsingStatus) params.set("parsingStatus", query.parsingStatus);
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortDir) params.set("sortDir", query.sortDir);
   if (query.all) {
@@ -174,6 +197,7 @@ export async function queryCandidatesList(
       stageMappingId: input.stageMappingId,
       subStateId: input.subStateId,
       q: input.q,
+      parsingStatus: input.parsingStatus,
       uploadFrom: input.uploadFrom,
       uploadTo: input.uploadTo,
       sortBy: input.sortBy,
