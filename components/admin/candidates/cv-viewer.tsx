@@ -109,8 +109,40 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
 
   if (mode === "docx") {
     return (
-      <div className={className} style={{ ...style, overflow: "auto" }}>
-        <div ref={docxContainerRef} />
+      <div
+        className={className}
+        style={{ ...style, overflow: "auto" }}
+      >
+        <div className="min-h-full bg-surface-secondary/40 px-3 py-4 md:px-4 md:py-5">
+          <div ref={docxContainerRef} />
+        </div>
+        <style jsx global>{`
+          .docx-preview-wrapper {
+            padding: 0 !important;
+            background: transparent !important;
+            width: max-content;
+            min-width: 100%;
+          }
+
+          .docx-preview {
+            margin: 0 auto 20px !important;
+            width: auto !important;
+            max-width: none !important;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1) !important;
+            border: 1px solid rgba(148, 163, 184, 0.18) !important;
+            border-radius: 14px !important;
+            overflow: hidden;
+            background: white !important;
+          }
+
+          .docx-preview:last-child {
+            margin-bottom: 0 !important;
+          }
+
+          .docx-preview section {
+            box-sizing: border-box;
+          }
+        `}</style>
       </div>
     );
   }
