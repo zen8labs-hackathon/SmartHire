@@ -45,8 +45,33 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "CV version file not found." }, { status: 404 });
   }
 
+  const url = new URL(request.url);
+  const mimeType = cvVersion.mime_type ?? "application/pdf";
+
+  // ?meta=1 returns lightweight JSON so the client can decide how to render
+  // (iframe for PDF, mammoth.js for DOCX) without downloading the file.
+  if (url.searchParams.get("meta") === "1") {
+    return Response.json({ mimeType });
+  }
+
   try {
     const signedUrl = await createSignedDownloadUrl(cvVersion.cv_storage_path, 120);
+
+    // ?proxy=1 streams the file through this route. Used only for DOCX
+    // files which must be fetched as a blob for client-side conversion.
+    if (url.searchParams.get("proxy") === "1") {
+      const upstream = await fetch(signedUrl);
+      if (!upstream.ok) {
+        return Response.json({ error: "Failed to fetch file from storage." }, { status: 502 });
+      }
+      return new Response(upstream.body, {
+        headers: {
+          "Content-Type": mimeType,
+          "Cache-Control": "private, max-age=300",
+        },
+      });
+    }
+
     return Response.redirect(signedUrl, 302);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create download link.";
