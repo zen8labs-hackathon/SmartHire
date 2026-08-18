@@ -124,9 +124,12 @@ export async function updateCandidateSchedule(
   return rows[0] ?? null;
 }
 
+export type InterviewerRsvpStatus = "none" | "accepted" | "declined" | "tentative";
+
 export type CandidateScheduleInterviewerRow = {
   schedule_id: string;
   profile_id: string;
+  rsvp_status: InterviewerRsvpStatus;
   created_at: Date;
 };
 
@@ -137,6 +140,19 @@ export async function listScheduleInterviewers(
   const { rows } = await db.query<CandidateScheduleInterviewerRow>(
     `SELECT * FROM candidate_schedule_interviewers WHERE schedule_id = $1`,
     [scheduleId],
+  );
+  return rows;
+}
+
+/** Bulk lookup for the timeline GET route -- one query for every schedule's interviewers instead of one per row. */
+export async function listInterviewersByScheduleIds(
+  db: QueryExecutor,
+  scheduleIds: string[],
+): Promise<CandidateScheduleInterviewerRow[]> {
+  if (scheduleIds.length === 0) return [];
+  const { rows } = await db.query<CandidateScheduleInterviewerRow>(
+    `SELECT * FROM candidate_schedule_interviewers WHERE schedule_id = ANY($1::bigint[])`,
+    [scheduleIds],
   );
   return rows;
 }
@@ -163,5 +179,19 @@ export async function removeScheduleInterviewer(
     `DELETE FROM candidate_schedule_interviewers
      WHERE schedule_id = $1 AND profile_id = $2`,
     [scheduleId, profileId],
+  );
+}
+
+/** Carries interviewers over from a rescheduled row to its replacement in one INSERT...SELECT (no per-interviewer round trip). Used by the reschedule path in timeline/route.ts so changing the time doesn't silently drop the assigned interviewers. */
+export async function copyScheduleInterviewers(
+  db: QueryExecutor,
+  fromScheduleId: string,
+  toScheduleId: string,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO candidate_schedule_interviewers (schedule_id, profile_id)
+     SELECT $2, profile_id FROM candidate_schedule_interviewers WHERE schedule_id = $1
+     ON CONFLICT (schedule_id, profile_id) DO NOTHING`,
+    [fromScheduleId, toScheduleId],
   );
 }

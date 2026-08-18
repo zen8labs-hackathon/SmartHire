@@ -130,6 +130,21 @@ export async function getUsersByEmails(
   return rows;
 }
 
+/** Every non-deleted user with one of the given roles -- e.g. `["admin", "hr"]` for the interview-participant-suggestions default list. */
+export async function listUsersByRoles(
+  db: QueryExecutor,
+  roles: ProfileRole[],
+): Promise<PublicUserRow[]> {
+  if (roles.length === 0) return [];
+  const { rows } = await db.query<PublicUserRow>(
+    `SELECT ${PUBLIC_COLUMNS} FROM users
+     WHERE deleted_at IS NULL AND role = ANY($1::profile_role[])
+     ORDER BY email ASC`,
+    [roles],
+  );
+  return rows;
+}
+
 /** Case-insensitive email substring search (HR autocomplete), capped at `limit`. */
 export async function searchUsersByEmail(
   db: QueryExecutor,
