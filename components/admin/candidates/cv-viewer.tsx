@@ -19,15 +19,14 @@ function isDocx(mime: string): boolean {
 
 export function CvViewer({ cvUrl, title, className, style }: Props) {
   const [mode, setMode] = useState<"loading" | "pdf" | "docx" | "error">("loading");
-  const [docxHtml, setDocxHtml] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const prevCvUrl = useRef("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const docxContainerRef = useRef<HTMLDivElement>(null);
 
   const loadCv = useCallback(async (url: string) => {
     setMode("loading");
     setErrorMsg("");
-    setDocxHtml("");
 
     try {
       const metaUrl = url + (url.includes("?") ? "&" : "?") + "meta=1";
@@ -47,14 +46,26 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
           setErrorMsg("Could not download CV file.");
           return;
         }
-        const arrayBuffer = await fileRes.arrayBuffer();
-        const mammoth = (await import("mammoth")).default;
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        setDocxHtml(result.value);
+        const blob = await fileRes.blob();
         setMode("docx");
+
+        // Wait for the docx container to mount, then render into it.
+        requestAnimationFrame(async () => {
+          const container = docxContainerRef.current;
+          if (!container) return;
+          container.innerHTML = "";
+          const { renderAsync } = await import("docx-preview");
+          await renderAsync(blob, container, undefined, {
+            className: "docx-preview",
+            ignoreWidth: false,
+            ignoreHeight: true,
+            ignoreFonts: false,
+            breakPages: true,
+            useBase64URL: true,
+          });
+        });
       } else {
         setMode("pdf");
-        // Let the iframe load via the redirect-based URL directly.
         const iframe = iframeRef.current;
         if (iframe) {
           try {
@@ -99,10 +110,7 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
   if (mode === "docx") {
     return (
       <div className={className} style={{ ...style, overflow: "auto" }}>
-        <div
-          className="p-6 bg-white text-black prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: docxHtml }}
-        />
+        <div ref={docxContainerRef} />
       </div>
     );
   }
