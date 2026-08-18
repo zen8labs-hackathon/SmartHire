@@ -1048,6 +1048,15 @@ export function JdAppliedCandidatesPipeline({
           size="sm"
           variant="secondary"
           className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
+          isDisabled={!hasSelection || !canEditPipeline || pipelineBusy}
+          onPress={() => confirmBulkAction("jd-match")}
+        >
+          Run AI JD Match
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
           isDisabled={!hasSelection || pipelineBusy}
           onPress={() => bulkEmailModal.open()}
         >
