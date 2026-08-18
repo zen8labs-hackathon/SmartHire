@@ -474,14 +474,21 @@ type ConfirmRunJdMatchModalProps = {
   onConfirm: () => void;
 };
 
-export function ConfirmRunJdMatchModal({
+export function ConfirmBulkPipelineActionModal({
   isOpen,
   onOpenChange,
+  title,
+  description,
+  confirmLabel,
   candidateCount,
   busy,
   onCancel,
   onConfirm,
-}: ConfirmRunJdMatchModalProps) {
+}: ConfirmRunJdMatchModalProps & {
+  title: string;
+  description: string;
+  confirmLabel: string;
+}) {
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
@@ -489,17 +496,16 @@ export function ConfirmRunJdMatchModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              Run AI JD Match
+              {title}
             </Modal.Heading>
           </Modal.Header>
           <Modal.Body className="px-5 py-4">
             <p className="text-sm text-muted">
-              Run AI JD matching for{" "}
+              {description} for{" "}
               <span className="font-semibold text-foreground">
                 {candidateCount}
               </span>{" "}
-              selected candidate{candidateCount === 1 ? "" : "s"}? This may
-              take a while and will overwrite any existing match scores.
+              selected candidate{candidateCount === 1 ? "" : "s"}?
             </p>
           </Modal.Body>
           <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
@@ -512,7 +518,7 @@ export function ConfirmRunJdMatchModal({
               isDisabled={busy}
               onPress={onConfirm}
             >
-              {busy ? "Running…" : "Run match"}
+              {busy ? "Processing…" : confirmLabel}
             </Button>
           </Modal.Footer>
         </Modal.Dialog>
