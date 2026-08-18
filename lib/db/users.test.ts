@@ -14,6 +14,7 @@ import {
   getUsersByIds,
   linkSsoIdentity,
   listPublicUsers,
+  listUsersByRoles,
   searchUsersByEmail,
   softDeleteUser,
   updateUser,
@@ -86,6 +87,24 @@ describe("listPublicUsers", () => {
     expect(sql).toContain("WHERE deleted_at IS NULL");
     expect(sql).toContain("ORDER BY email ASC");
     expect(sql).not.toContain("password_hash");
+  });
+});
+
+describe("listUsersByRoles", () => {
+  it("returns [] without querying for an empty roles list", async () => {
+    const db = fakeDb([]);
+    const result = await listUsersByRoles(db, []);
+    expect(result).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("filters by role = ANY($1::profile_role[])", async () => {
+    const db = fakeDb([{ id: "u-1", email: "admin@x.com", role: "admin" }]);
+    const result = await listUsersByRoles(db, ["admin", "hr"]);
+    expect(result).toEqual([{ id: "u-1", email: "admin@x.com", role: "admin" }]);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("role = ANY($1::profile_role[])");
+    expect(values).toEqual([["admin", "hr"]]);
   });
 });
 

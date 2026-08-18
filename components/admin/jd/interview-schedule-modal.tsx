@@ -21,7 +21,6 @@ import {
   type CalendarDateTime,
 } from "@internationalized/date";
 import {
-  ArrowLeft,
   Calendar as CalendarIcon,
   CalendarClock,
   Clock,
@@ -31,16 +30,31 @@ import {
   Pencil,
   Plus,
   Trash2,
+  X as XIcon,
 } from "lucide-react";
 import { Dialog, type TimeValue } from "react-aria-components";
 
 import { BulkEmailModal } from "@/components/admin/jd/bulk-email-modal";
+import {
+  JdViewerEmailSearch,
+  JdViewerEmailsField,
+} from "@/components/admin/jd/jd-viewer-email-search";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
+import { isValidEmail, normalizeEmail } from "@/lib/auth/email";
 import {
   calendarDateTimeToIso,
   formatSchedule,
   isoToCalendarDateTime,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
+
+export type ScheduleInterviewer = {
+  profileId: string;
+  email: string | null;
+  displayName: string | null;
+  rsvpStatus: string;
+};
+
+export type CalendarSyncStatus = "pending" | "synced" | "failed" | "cancelled";
 
 export type ScheduleHistoryItem = {
   id: string;
@@ -49,7 +63,122 @@ export type ScheduleHistoryItem = {
   duration_minutes: number | null;
   location: string | null;
   status: string;
+  interviewers?: ScheduleInterviewer[];
+  calendarSync?: { status: CalendarSyncStatus; error_message: string | null } | null;
 };
+
+/**
+ * Assigned-interviewer chips for one schedule, with the same search-and-pick
+ * email field (`JdViewerEmailSearch`) used by the create form's "Interview
+ * participants" field, so the two forms look and behave the same way. Every
+ * add/remove re-syncs that schedule's Microsoft Graph calendar event (see
+ * the interviewers route), so the chip list is always what's actually on
+ * interviewers' calendars.
+ */
+function ScheduleInterviewers({
+  campaignAppliedId,
+  schedule,
+  canEdit,
+  onChanged,
+  bordered = true,
+}: {
+  campaignAppliedId: string;
+  schedule: ScheduleHistoryItem;
+  canEdit: boolean;
+  onChanged: () => void;
+  /** Top border/padding used to separate this block from the schedule details above it in the list-card view. Turned off when embedded under its own `<Label>` in the edit form, where that border would otherwise read as a stray line under the label instead of a separator. */
+  bordered?: boolean;
+}) {
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const interviewersUrl = `/api/admin/candidates/${campaignAppliedId}/schedules/${schedule.id}/interviewers`;
+
+  const handleAdd = useCallback(
+    async (rawEmail: string) => {
+      const email = normalizeEmail(rawEmail);
+      if (!isValidEmail(email)) {
+        setError("Invalid email.");
+        return;
+      }
+      setError(null);
+      try {
+        const res = await fetch(interviewersUrl, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const json = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(json.error ?? "Failed to add interviewer.");
+        onChanged();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to add interviewer.");
+      }
+    },
+    [interviewersUrl, onChanged],
+  );
+
+  const handleRemove = useCallback(
+    async (profileId: string) => {
+      setRemovingId(profileId);
+      setError(null);
+      try {
+        const res = await fetch(interviewersUrl, {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profileId }),
+        });
+        const json = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(json.error ?? "Failed to remove interviewer.");
+        onChanged();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to remove interviewer.");
+      } finally {
+        setRemovingId(null);
+      }
+    },
+    [interviewersUrl, onChanged],
+  );
+
+  const interviewers = schedule.interviewers ?? [];
+
+  return (
+    <div className={`space-y-2 ${bordered ? "border-t border-divider pt-2" : ""}`}>
+      {canEdit ? (
+        <JdViewerEmailSearch
+          getHeaders={async () => ({ "Content-Type": "application/json" })}
+          onPickEmail={(email) => void handleAdd(email)}
+          searchUrl={`/api/admin/candidates/${campaignAppliedId}/interview-participant-suggestions`}
+        />
+      ) : null}
+      {interviewers.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-divider p-2">
+          {interviewers.map((i) => (
+            <Chip key={i.profileId} size="sm" variant="soft" color="default" className="gap-1 pr-1">
+              <Chip.Label className="font-mono text-[11px]">{i.email ?? i.profileId}</Chip.Label>
+              {canEdit ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${i.email ?? i.profileId}`}
+                  disabled={removingId === i.profileId}
+                  onClick={() => void handleRemove(i.profileId)}
+                  className="rounded-full p-0.5 hover:bg-foreground/10"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              ) : null}
+            </Chip>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted">No interviewer assigned yet.</p>
+      )}
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
+    </div>
+  );
+}
 
 const ACTIVE_SCHEDULE_STATUSES = new Set(["Scheduled", "Confirmed"]);
 
@@ -122,23 +251,6 @@ function scheduleEmailSubject(
   return `[SmartHire] ${label}${position}`;
 }
 
-function scheduleEmailBody(schedule: ScheduleHistoryItem): string {
-  const when = formatSchedule(schedule.scheduled_at) ?? schedule.scheduled_at;
-  const details: string[] = [`<p><strong>Thời gian:</strong> ${when}</p>`];
-  if (schedule.duration_minutes) {
-    details.push(`<p><strong>Thời lượng:</strong> ${schedule.duration_minutes} phút</p>`);
-  }
-  if (schedule.location) {
-    details.push(`<p><strong>Địa điểm:</strong> ${schedule.location}</p>`);
-  }
-  return [
-    `<p>Kính gửi {{candidate_name}},</p>`,
-    `<p>Chúng tôi xin thông báo lịch "${schedule.round_label?.trim() || "hẹn"}" cho vị trí <strong>{{position}}</strong> như sau:</p>`,
-    ...details,
-    `<p>Vui lòng phản hồi email này nếu bạn cần đổi thời gian. Hẹn gặp bạn!</p>`,
-  ].join("");
-}
-
 type InterviewScheduleModalProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -180,6 +292,7 @@ export function InterviewScheduleModal({
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [emailModalSchedule, setEmailModalSchedule] = useState<ScheduleHistoryItem | null>(null);
+  const [participantEmails, setParticipantEmails] = useState<string[]>([]);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
@@ -187,11 +300,19 @@ export function InterviewScheduleModal({
     setScheduledAt(null);
     setDurationMinutes("");
     setLocation("");
+    setParticipantEmails([]);
     setView("list");
   }, []);
 
-  const loadSchedules = useCallback(async (rowId: string) => {
-    setLoading(true);
+  /**
+   * `silent` skips the `loading` flag -- used when this is just a background
+   * refresh after an interviewer add/remove (see `ScheduleInterviewers`'s
+   * `onChanged`), so the whole modal body (including the open form) doesn't
+   * flash to "Loading…" and back while the user is mid-edit. Full loads (on
+   * open, after save/cancel) still show it.
+   */
+  const loadSchedules = useCallback(async (rowId: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/admin/candidates/${rowId}/timeline`, {
@@ -206,7 +327,7 @@ export function InterviewScheduleModal({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load schedules.");
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, []);
 
@@ -231,13 +352,31 @@ export function InterviewScheduleModal({
   const startAdd = useCallback(() => {
     resetForm();
     setView("form");
-  }, [resetForm]);
+    if (row) {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `/api/admin/candidates/${row.id}/interview-participant-suggestions`,
+            { credentials: "include" },
+          );
+          const json = (await res.json()) as { suggestions?: string[] };
+          if (res.ok) setParticipantEmails(json.suggestions ?? []);
+        } catch {
+          // Auto-fill is a convenience, not required -- leave the field empty on failure.
+        }
+      })();
+    }
+  }, [resetForm, row]);
 
   const handleSave = useCallback(async () => {
     if (!row) return;
     const iso = calendarDateTimeToIso(scheduledAt);
     if (!iso) {
       setError("Please set a valid date and time.");
+      return;
+    }
+    if (!roundLabel.trim()) {
+      setError("Please enter a round label.");
       return;
     }
     setSaving(true);
@@ -257,8 +396,24 @@ export function InterviewScheduleModal({
           location: location.trim() || undefined,
         }),
       });
-      const json = (await res.json()) as { error?: string };
+      const json = (await res.json()) as { schedule?: { id: string }; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Failed to save schedule.");
+
+      // Only on creation (not edit/reschedule) -- attaches the auto-filled /
+      // hand-picked participant list in one bulk call so the calendar event
+      // only syncs once, not once per interviewer.
+      if (!editingId && json.schedule && participantEmails.length > 0) {
+        await fetch(
+          `/api/admin/candidates/${row.id}/schedules/${json.schedule.id}/interviewers`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ emails: participantEmails }),
+          },
+        );
+      }
+
       onSaved();
       resetForm();
       await loadSchedules(row.id);
@@ -267,7 +422,7 @@ export function InterviewScheduleModal({
     } finally {
       setSaving(false);
     }
-  }, [row, scheduledAt, editingId, roundLabel, durationMinutes, location, onSaved, resetForm, loadSchedules]);
+  }, [row, scheduledAt, editingId, roundLabel, durationMinutes, location, participantEmails, onSaved, resetForm, loadSchedules]);
 
   const handleCancelSchedule = useCallback(
     async (item: ScheduleHistoryItem) => {
@@ -340,33 +495,27 @@ export function InterviewScheduleModal({
                 <p className="text-sm text-danger">{error}</p>
               ) : view === "form" ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      {editingId ? "Edit schedule" : "Add schedule"}
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className={SCHEDULE_HEADER_BUTTON_CLASS}
-                      isDisabled={saving}
-                      onPress={resetForm}
-                    >
-                      <ArrowLeft className="size-3.5" />
-                      Back to list
-                    </Button>
-                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                    {editingId ? "Edit schedule" : "Add schedule"}
+                  </p>
                   <div className="space-y-1">
-                    <Label className="text-xs font-medium">Round label</Label>
+                    <Label className="text-xs font-medium">
+                      Round label <span className="text-danger">*</span>
+                    </Label>
                     <Input
                       value={roundLabel}
                       onChange={(e) => setRoundLabel(e.target.value)}
                       placeholder="e.g. Technical round"
+                      maxLength={48}
+                      required
                       disabled={!canEdit}
                       className="w-full"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs font-medium">Date &amp; time</Label>
+                    <Label className="text-xs font-medium">
+                      Date &amp; time <span className="text-danger">*</span>
+                    </Label>
                     <DatePicker
                       value={scheduledAt}
                       onChange={setScheduledAt}
@@ -386,7 +535,17 @@ export function InterviewScheduleModal({
                       >
                         <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
                           <DateField.Input className="outline-none">
-                            {(segment) => <DateField.Segment segment={segment} />}
+                            {(segment) =>
+                              // `en-ZA`'s date+time pattern joins the two halves with
+                              // ", " -- drop the comma so it reads as a plain space.
+                              segment.type === "literal" ? (
+                                <span aria-hidden="true">
+                                  {segment.text.replace(",", "")}
+                                </span>
+                              ) : (
+                                <DateField.Segment segment={segment} />
+                              )
+                            }
                           </DateField.Input>
                         </DateField.InputContainer>
                         <DateField.Suffix>
@@ -474,9 +633,10 @@ export function InterviewScheduleModal({
                       </Label>
                       <Input
                         type="number"
-                        min={1}
+                        max={8}
                         value={durationMinutes}
                         onChange={(e) => setDurationMinutes(e.target.value)}
+                        placeholder="60"
                         disabled={!canEdit}
                         className="w-full"
                       />
@@ -487,22 +647,45 @@ export function InterviewScheduleModal({
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
                         placeholder="e.g. Meet link, room"
+                        maxLength={48}
                         disabled={!canEdit}
                         className="w-full"
                       />
                     </div>
                   </div>
-                  {error ? <p className="text-sm text-danger">{error}</p> : null}
-                  {canEdit ? (
-                    <Button
-                      variant="primary"
-                      className="w-full"
-                      isDisabled={saving}
-                      onPress={() => void handleSave()}
-                    >
-                      {saving ? "Saving…" : editingId ? "Save changes" : "Add schedule"}
-                    </Button>
+                  {!editingId ? (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Interview participants</Label>
+                      <JdViewerEmailsField
+                        emails={participantEmails}
+                        onChange={setParticipantEmails}
+                        getHeaders={async () => ({ "Content-Type": "application/json" })}
+                        searchUrl={
+                          row
+                            ? `/api/admin/candidates/${row.id}/interview-participant-suggestions`
+                            : undefined
+                        }
+                      />
+                    </div>
+                  ) : row ? (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Interviewers</Label>
+                      {(() => {
+                        const editingSchedule = schedules.find((s) => s.id === editingId);
+                        if (!editingSchedule) return null;
+                        return (
+                          <ScheduleInterviewers
+                            campaignAppliedId={row.id}
+                            schedule={editingSchedule}
+                            canEdit={canEdit}
+                            onChanged={() => void loadSchedules(row.id, { silent: true })}
+                            bordered={false}
+                          />
+                        );
+                      })()}
+                    </div>
                   ) : null}
+                  {error ? <p className="text-sm text-danger">{error}</p> : null}
                 </div>
               ) : (
                 <>
@@ -536,7 +719,7 @@ export function InterviewScheduleModal({
                             className={`!block !gap-0 !rounded-xl !p-3 !shadow-none border ${
                               isNextUpcoming
                                 ? "border-accent bg-accent/10 ring-1 ring-accent/40"
-                                : "border-divider bg-surface-secondary/20"
+                                : "border-divider bg-surface-secondary/10 ring-1 ring-accent/20"
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
@@ -623,6 +806,17 @@ export function InterviewScheduleModal({
                                 </div>
                               ) : null}
                             </div>
+                            {isActive && row ? (
+                              <div className="mt-2">
+                                {/* Read-only here -- adding/removing interviewers only happens in the edit form (see startEdit / the `editingId` branch below). */}
+                                <ScheduleInterviewers
+                                  campaignAppliedId={row.id}
+                                  schedule={s}
+                                  canEdit={false}
+                                  onChanged={() => void loadSchedules(row.id, { silent: true })}
+                                />
+                              </div>
+                            ) : null}
                           </Card>
                         );
                       })}
@@ -636,9 +830,29 @@ export function InterviewScheduleModal({
               )}
             </Modal.Body>
             <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
-              <Button variant="secondary" onPress={() => onOpenChange(false)}>
-                Close
-              </Button>
+              {view === "list" ? (
+                <Button variant="secondary" onPress={() => onOpenChange(false)}>
+                  Close
+                </Button>
+              ) : null}
+              {view === "form" ? (
+                <Button
+                  variant="secondary"
+                  isDisabled={saving}
+                  onPress={resetForm}
+                >
+                  Cancel
+                </Button>
+              ) : null}
+              {view === "form" && canEdit ? (
+                <Button
+                  variant="primary"
+                  isDisabled={saving}
+                  onPress={() => void handleSave()}
+                >
+                  {saving ? "Saving…" : editingId ? "Save changes" : "Add schedule"}
+                </Button>
+              ) : null}
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>
@@ -657,7 +871,6 @@ export function InterviewScheduleModal({
         initialSubject={
           row && emailModalSchedule ? scheduleEmailSubject(row, emailModalSchedule) : undefined
         }
-        initialBody={emailModalSchedule ? scheduleEmailBody(emailModalSchedule) : undefined}
         job={row ? { position: row.job_position, department: row.job_department } : null}
         onSent={() => {}}
       />
