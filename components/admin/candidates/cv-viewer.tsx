@@ -66,14 +66,6 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
         });
       } else {
         setMode("pdf");
-        const iframe = iframeRef.current;
-        if (iframe) {
-          try {
-            iframe.contentWindow?.location.replace(url);
-          } catch {
-            iframe.src = url;
-          }
-        }
       }
     } catch (err) {
       setMode("error");
@@ -86,6 +78,19 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
     prevCvUrl.current = cvUrl;
     loadCv(cvUrl);
   }, [cvUrl, loadCv]);
+
+  useEffect(() => {
+    if (mode !== "pdf") return;
+
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    try {
+      iframe.contentWindow?.location.replace(cvUrl);
+    } catch {
+      iframe.src = cvUrl;
+    }
+  }, [cvUrl, mode]);
 
   if (mode === "loading") {
     return (
