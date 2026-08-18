@@ -229,7 +229,6 @@ export function JdAppliedCandidatesPipeline({
   const bulkActionConfirmModal = useOverlayState();
   const [pendingBulkAction, setPendingBulkAction] =
     useState<BulkActionType | null>(null);
-  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const bulkEmailModal = useOverlayState();
 
   const openSchedule = useCallback(
@@ -997,76 +996,64 @@ export function JdAppliedCandidatesPipeline({
   const hasSelection = selected.size > 0;
   const bulkActionsElement = (
     <div className="flex flex-col gap-3 rounded-xl border border-accent/25 bg-accent/5 p-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <span className="text-xs font-semibold text-accent">
+        {hasSelection
+          ? `${selected.size} selected candidates`
+          : "Select candidates to use bulk actions"}
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          variant="primary"
-          className="bg-accent text-accent-foreground"
-          onPress={() => setBulkActionsOpen((prev) => !prev)}
+          variant="secondary"
+          className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkInterviewEligible
+          }
+          onPress={() => confirmBulkAction("interview")}
         >
-          Select candidates to use bulk actions
+          Move to interview
         </Button>
-        {hasSelection ? (
-          <span className="text-xs font-semibold text-accent">
-            {selected.size} selected candidates
-          </span>
-        ) : null}
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkOfferEligible
+          }
+          onPress={() => confirmBulkAction("offer")}
+        >
+          Move to offer
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
+          isDisabled={
+            !hasSelection ||
+            !canEditPipeline ||
+            pipelineBusy ||
+            !bulkFailEligible
+          }
+          onPress={() => confirmBulkAction("fail")}
+        >
+          Mark failed
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="border border-accent/30 bg-white text-accent hover:bg-accent/5"
+          isDisabled={!hasSelection || pipelineBusy}
+          onPress={() => bulkEmailModal.open()}
+        >
+          Send email
+        </Button>
       </div>
-      {bulkActionsOpen ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={
-              !hasSelection ||
-              !canEditPipeline ||
-              pipelineBusy ||
-              !bulkInterviewEligible
-            }
-            onPress={() => confirmBulkAction("interview")}
-          >
-            Move to interview
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={
-              !hasSelection ||
-              !canEditPipeline ||
-              pipelineBusy ||
-              !bulkOfferEligible
-            }
-            onPress={() => confirmBulkAction("offer")}
-          >
-            Move to offer
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={
-              !hasSelection ||
-              !canEditPipeline ||
-              pipelineBusy ||
-              !bulkFailEligible
-            }
-            onPress={() => confirmBulkAction("fail")}
-          >
-            Mark failed
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            className="bg-accent text-accent-foreground"
-            isDisabled={!hasSelection || pipelineBusy}
-            onPress={() => bulkEmailModal.open()}
-          >
-            Send email
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 
