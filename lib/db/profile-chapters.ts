@@ -72,6 +72,22 @@ export async function listMembershipsForUsers(
   return byUser;
 }
 
+/** Bulk "chapter head" email lookup across several chapters at once -- one query (role='head' + chapter_id = ANY($1), joined to users), not one per chapter. A chapter can have zero, one, or several heads (no uniqueness constraint on the role), so this returns however many match. */
+export async function listHeadEmailsForChapters(
+  db: QueryExecutor,
+  chapterIds: string[],
+): Promise<string[]> {
+  if (chapterIds.length === 0) return [];
+  const { rows } = await db.query<{ email: string }>(
+    `SELECT DISTINCT u.email
+     FROM profile_chapters pc
+     JOIN users u ON u.id = pc.profile_id AND u.deleted_at IS NULL
+     WHERE pc.chapter_id = ANY($1::uuid[]) AND pc.role = 'head'`,
+    [chapterIds],
+  );
+  return rows.map((r) => r.email);
+}
+
 export async function listMembersOfChapter(
   db: QueryExecutor,
   chapterId: string,

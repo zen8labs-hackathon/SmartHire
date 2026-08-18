@@ -23,6 +23,7 @@ import {
   linkSsoIdentity,
   type UserRow,
 } from "@/lib/db/users";
+import { sendSelfNotificationForTrigger } from "@/lib/email/auto-send-for-trigger";
 import { logError, logApiError } from "@/lib/logger";
 
 const SSO_PROVIDER = "azure_ad";
@@ -106,6 +107,7 @@ export async function GET(request: NextRequest) {
         email: profile.email,
         provider: SSO_PROVIDER,
         subjectId: profile.subjectId,
+        displayName: profile.displayName,
       });
     }
     if (!user) {
@@ -120,7 +122,18 @@ export async function GET(request: NextRequest) {
           role: "hr",
           provider: SSO_PROVIDER,
           subjectId: profile.subjectId,
+          displayName: profile.displayName,
         });
+        // Brand-new row (not a pre-invited one linking for the first time, which is
+        // notified separately at invite time by adminAddUser) -- no acting user, this
+        // is self-provisioned. Never block login on a notification-email failure.
+        try {
+          await sendSelfNotificationForTrigger(db, user, "user_account_created", null);
+        } catch (notifyErr) {
+          logApiError("Failed to send account-created notification", notifyErr, {
+            newUserId: user.id,
+          });
+        }
       } catch (err) {
         // Email already belongs to a row tied to a different SSO identity -- don't take it over.
         if (!isUniqueViolation(err)) throw err;
