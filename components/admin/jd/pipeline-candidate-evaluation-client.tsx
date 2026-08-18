@@ -14,6 +14,7 @@ import {
 
 import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
+import { CvViewer } from "@/components/admin/candidates/cv-viewer";
 import { useToast } from "@/components/admin/toast-provider";
 import {
   getStageColorClasses,
@@ -429,8 +430,8 @@ export function PipelineCandidateEvaluationClient({
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
           </p>
-          <iframe
-            src={cvUrl}
+          <CvViewer
+            cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
             className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
             style={{ height: "calc(100vh - 120px)" }}
