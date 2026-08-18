@@ -16,6 +16,7 @@ import { SectionCard } from "@/components/admin/shell/cards";
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import { ReassignCvVersionModal } from "@/components/admin/candidates/reassign-cv-version-modal";
+import { CvViewer } from "@/components/admin/candidates/cv-viewer";
 import { useToast } from "@/components/admin/toast-provider";
 import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 import {
@@ -269,29 +270,6 @@ export function CandidateDetailClient({ candidate }: Props) {
       : `/api/admin/candidates/${selectedVersion.applicationId}/cv-download`
     : `/api/admin/candidates/${candidate.id}/cv-download`;
 
-  // Switching CV versions re-navigates the same iframe. Setting `src` as a
-  // normal React prop does a push-style navigation each time, which joins
-  // the tab's session history -- the navbar's "Go back" button then steps
-  // through past CV versions before ever leaving this page. Driving the
-  // navigation imperatively via `location.replace()` instead replaces the
-  // iframe's history entry in place, so browsing CV versions here never
-  // shows up in the page's own back/forward history. `replace()` is one of
-  // the few Location members still callable across origins, so this keeps
-  // working once the iframe has followed the storage redirect off-origin.
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    try {
-      if (iframe.contentWindow) {
-        iframe.contentWindow.location.replace(cvUrl);
-        return;
-      }
-    } catch {
-      // Fall through to a plain `src` assignment below.
-    }
-    iframe.src = cvUrl;
-  }, [cvUrl]);
 
   return (
     <div className="flex flex-col gap-4 font-sans">
@@ -309,8 +287,8 @@ export function CandidateDetailClient({ candidate }: Props) {
               ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle ?? "No Job Assigned"} · ${versionEventLabel(selectedVersionItem)}`
               : ` · ${candidate.jobTitle ?? "No Job Assigned"}`}
           </p>
-          <iframe
-            ref={iframeRef}
+          <CvViewer
+            cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
             className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
             style={{ height: "calc(100vh - 120px)" }}
