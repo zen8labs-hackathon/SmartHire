@@ -120,13 +120,14 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
           .docx-preview-wrapper {
             padding: 0 !important;
             background: transparent !important;
-            max-width: 100%;
+            width: max-content;
+            min-width: 100%;
           }
 
           .docx-preview {
             margin: 0 auto 20px !important;
-            width: min(100%, 820px) !important;
-            max-width: 100% !important;
+            width: auto !important;
+            max-width: none !important;
             box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1) !important;
             border: 1px solid rgba(148, 163, 184, 0.18) !important;
             border-radius: 14px !important;
@@ -139,7 +140,7 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
           }
 
           .docx-preview section {
-            max-width: 100% !important;
+            box-sizing: border-box;
           }
         `}</style>
       </div>
