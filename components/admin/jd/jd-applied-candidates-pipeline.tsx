@@ -34,7 +34,7 @@ import type { RangeValue } from "react-aria-components";
 
 import { useToast } from "@/components/admin/toast-provider";
 import { BulkEmailModal } from "@/components/admin/jd/bulk-email-modal";
-import { ConfirmRunJdMatchModal } from "@/components/admin/jd/confirm-run-jd-match-modal";
+import { ConfirmBulkPipelineActionModal } from "@/components/admin/jd/confirm-run-jd-match-modal";
 import { DeleteCandidateModal } from "@/components/admin/jd/delete-candidate-modal";
 import { EditCandidateModal } from "@/components/admin/jd/edit-candidate-modal";
 import { InterviewScheduleModal } from "@/components/admin/jd/interview-schedule-modal";
@@ -103,6 +103,8 @@ type Props = {
   canAddCandidates?: boolean;
   onAddCandidates?: () => void;
 };
+
+type BulkActionType = "interview" | "offer" | "fail" | "jd-match";
 
 export function JdAppliedCandidatesPipeline({
   jobId,
@@ -224,7 +226,10 @@ export function JdAppliedCandidatesPipeline({
     },
   });
 
-  const jdMatchConfirmModal = useOverlayState();
+  const bulkActionConfirmModal = useOverlayState();
+  const [pendingBulkAction, setPendingBulkAction] =
+    useState<BulkActionType | null>(null);
+  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const bulkEmailModal = useOverlayState();
 
   const openSchedule = useCallback(
@@ -664,7 +669,6 @@ export function JdAppliedCandidatesPipeline({
     if (selectedRows.length === 0) return;
     setPipelineBusy(true);
     try {
-      jdMatchConfirmModal.close();
       const res = await fetch("/api/admin/candidates/jd-match/bulk", {
         method: "POST",
         credentials: "include",
@@ -700,6 +704,63 @@ export function JdAppliedCandidatesPipeline({
       setPipelineBusy(false);
     }
   }, [selectedRows, onRefetch, fetchPage, toast]);
+
+  const confirmBulkAction = useCallback((action: BulkActionType) => {
+    setPendingBulkAction(action);
+    bulkActionConfirmModal.open();
+  }, [bulkActionConfirmModal]);
+
+  const executeConfirmedBulkAction = useCallback(async () => {
+    if (!pendingBulkAction) return;
+    if (pendingBulkAction === "interview") {
+      await moveSelectedToInterview();
+    } else if (pendingBulkAction === "offer") {
+      await moveSelectedToOffer();
+    } else if (pendingBulkAction === "fail") {
+      await markSelectedFailed();
+    } else {
+      await runJdMatchForSelected();
+    }
+    bulkActionConfirmModal.close();
+    setPendingBulkAction(null);
+  }, [
+    pendingBulkAction,
+    moveSelectedToInterview,
+    moveSelectedToOffer,
+    markSelectedFailed,
+    runJdMatchForSelected,
+    bulkActionConfirmModal,
+  ]);
+
+  const bulkActionDialogCopy = useMemo(() => {
+    if (pendingBulkAction === "interview") {
+      return {
+        title: "Move to interview",
+        description: "Move the current selection to the Interview stage",
+        confirmLabel: "Move to interview",
+      };
+    }
+    if (pendingBulkAction === "offer") {
+      return {
+        title: "Move to offer",
+        description: "Move the current selection to the Offer stage",
+        confirmLabel: "Move to offer",
+      };
+    }
+    if (pendingBulkAction === "fail") {
+      return {
+        title: "Mark failed",
+        description: "Mark the current selection as failed",
+        confirmLabel: "Mark failed",
+      };
+    }
+    return {
+      title: "Run AI JD Match",
+      description:
+        "Run AI JD matching for the current selection. This may take a while and will overwrite any existing match scores",
+      confirmLabel: "Run match",
+    };
+  }, [pendingBulkAction]);
 
   const onStatusChange = useCallback(
     async (
@@ -935,74 +996,77 @@ export function JdAppliedCandidatesPipeline({
 
   const hasSelection = selected.size > 0;
   const bulkActionsElement = (
-    <div className="flex flex-wrap items-center gap-3 border border-accent/25 bg-accent/5 p-3 rounded-xl">
-      <span className="text-xs font-semibold text-accent">
-        {hasSelection
-          ? `${selected.size} selected candidates`
-          : "Select candidates to use bulk actions"}
-      </span>
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-3 rounded-xl border border-accent/25 bg-accent/5 p-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           size="sm"
           variant="primary"
           className="bg-accent text-accent-foreground"
-          isDisabled={
-            !hasSelection ||
-            !canEditPipeline ||
-            pipelineBusy ||
-            !bulkInterviewEligible
-          }
-          onPress={() => void moveSelectedToInterview()}
+          onPress={() => setBulkActionsOpen((prev) => !prev)}
         >
-          Move to interview
+          Select candidates to use bulk actions
         </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          className="bg-accent text-accent-foreground"
-          isDisabled={
-            !hasSelection ||
-            !canEditPipeline ||
-            pipelineBusy ||
-            !bulkOfferEligible
-          }
-          onPress={() => void moveSelectedToOffer()}
-        >
-          Move to offer
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="border border-divider bg-surface-primary"
-          isDisabled={
-            !hasSelection ||
-            !canEditPipeline ||
-            pipelineBusy ||
-            !bulkFailEligible
-          }
-          onPress={() => void markSelectedFailed()}
-        >
-          Mark failed
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="border border-divider bg-surface-primary"
-          isDisabled={!hasSelection || !canEditPipeline || pipelineBusy}
-          onPress={() => jdMatchConfirmModal.open()}
-        >
-          Run AI JD Match
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="border border-divider bg-surface-primary"
-          isDisabled={!hasSelection || pipelineBusy}
-          onPress={() => bulkEmailModal.open()}
-        >
-          Send email
-        </Button>
+        {hasSelection ? (
+          <span className="text-xs font-semibold text-accent">
+            {selected.size} selected candidates
+          </span>
+        ) : null}
       </div>
+      {bulkActionsOpen ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-accent-foreground"
+            isDisabled={
+              !hasSelection ||
+              !canEditPipeline ||
+              pipelineBusy ||
+              !bulkInterviewEligible
+            }
+            onPress={() => confirmBulkAction("interview")}
+          >
+            Move to interview
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-accent-foreground"
+            isDisabled={
+              !hasSelection ||
+              !canEditPipeline ||
+              pipelineBusy ||
+              !bulkOfferEligible
+            }
+            onPress={() => confirmBulkAction("offer")}
+          >
+            Move to offer
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-accent-foreground"
+            isDisabled={
+              !hasSelection ||
+              !canEditPipeline ||
+              pipelineBusy ||
+              !bulkFailEligible
+            }
+            onPress={() => confirmBulkAction("fail")}
+          >
+            Mark failed
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-accent text-accent-foreground"
+            isDisabled={!hasSelection || pipelineBusy}
+            onPress={() => bulkEmailModal.open()}
+          >
+            Send email
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -1025,7 +1089,6 @@ export function JdAppliedCandidatesPipeline({
       };
     }),
   ];
-
   return (
     <div className="mt-3 flex flex-col gap-4">
       <DataTableStats stats={pipelineStats} />
@@ -1273,13 +1336,22 @@ export function JdAppliedCandidatesPipeline({
         }}
       />
 
-      <ConfirmRunJdMatchModal
-        isOpen={jdMatchConfirmModal.isOpen}
-        onOpenChange={jdMatchConfirmModal.setOpen}
+      <ConfirmBulkPipelineActionModal
+        isOpen={bulkActionConfirmModal.isOpen}
+        onOpenChange={(open: boolean) => {
+          bulkActionConfirmModal.setOpen(open);
+          if (!open) setPendingBulkAction(null);
+        }}
+        title={bulkActionDialogCopy.title}
+        description={bulkActionDialogCopy.description}
+        confirmLabel={bulkActionDialogCopy.confirmLabel}
         candidateCount={selectedRows.length}
         busy={pipelineBusy}
-        onCancel={jdMatchConfirmModal.close}
-        onConfirm={() => void runJdMatchForSelected()}
+        onCancel={() => {
+          bulkActionConfirmModal.close();
+          setPendingBulkAction(null);
+        }}
+        onConfirm={() => void executeConfirmedBulkAction()}
       />
 
       <BulkEmailModal
