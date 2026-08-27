@@ -816,6 +816,56 @@ export function CandidateProfileEditSection({
           className="mt-1 text-sm"
         />
       </TextField>
+      {!hideSourceField ? (
+        <div className="min-w-0">
+          <Label className={FIELD_LABEL}>Sourced from</Label>
+          <Select
+            value={draft.source}
+            onChange={(k) => {
+              const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+              setDraft((d) => ({
+                ...d,
+                source: next,
+                sourceOther: next !== "Other" ? "" : d.sourceOther,
+              }));
+            }}
+            className="mt-2"
+          >
+            <Select.Trigger className="w-full min-w-0">
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                {CANDIDATE_SOURCE_VALUES.map((s) => (
+                  <ListBox.Item key={s} id={s} textValue={s}>
+                    {s}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
+          {draft.source === "Other" ? (
+            <TextField className="mt-3">
+              <Label className={`${FIELD_LABEL} normal-case`}>
+                Describe the source
+              </Label>
+              <Input
+                value={draft.sourceOther}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    sourceOther: e.target.value,
+                  }))
+                }
+                placeholder="e.g. referral, career fair…"
+                className="mt-1 text-sm"
+              />
+            </TextField>
+          ) : null}
+        </div>
+      ) : null}
       <div className="min-w-0 md:col-span-2">
         <Label className={FIELD_LABEL}>Skills</Label>
         <p className="mt-0.5 text-[11px] text-muted/80">
@@ -941,56 +991,6 @@ export function CandidateProfileEditSection({
             Visible only to HR and the chapter head for this job.
           </p>
         </TextField>
-      ) : null}
-      {!hideSourceField ? (
-        <div className="min-w-0">
-          <Label className={FIELD_LABEL}>Sourced from</Label>
-          <Select
-            value={draft.source}
-            onChange={(k) => {
-              const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-              setDraft((d) => ({
-                ...d,
-                source: next,
-                sourceOther: next !== "Other" ? "" : d.sourceOther,
-              }));
-            }}
-            className="mt-2"
-          >
-            <Select.Trigger className="w-full min-w-0">
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {CANDIDATE_SOURCE_VALUES.map((s) => (
-                  <ListBox.Item key={s} id={s} textValue={s}>
-                    {s}
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-          {draft.source === "Other" ? (
-            <TextField className="mt-3">
-              <Label className={`${FIELD_LABEL} normal-case`}>
-                Describe the source
-              </Label>
-              <Input
-                value={draft.sourceOther}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    sourceOther: e.target.value,
-                  }))
-                }
-                placeholder="e.g. referral, career fair…"
-                className="mt-1 text-sm"
-              />
-            </TextField>
-          ) : null}
-        </div>
       ) : null}
       {!hidePipelineField && stageBaseline && stageOptions.length > 0 ? (
         <div className="min-w-0">
