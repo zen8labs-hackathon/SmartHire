@@ -785,7 +785,7 @@ export function CandidateProfileEditSection({
   }
 
   const formFields = (
-    <div className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
+    <div className="grid min-w-0 grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
       <TextField className="min-w-0">
         <Label className={FIELD_LABEL}>Name</Label>
         <Input
@@ -829,7 +829,7 @@ export function CandidateProfileEditSection({
                 sourceOther: next !== "Other" ? "" : d.sourceOther,
               }));
             }}
-            className="mt-2"
+            className="mt-1"
           >
             <Select.Trigger className="w-full min-w-0">
               <Select.Value />
