@@ -25,6 +25,10 @@ import {
 } from "@/lib/candidates/db-row";
 import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
+import {
+  candidateSourceChipClass,
+  formatCandidateSourceLabel,
+} from "@/lib/candidates/source-constants";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 
 type Props = {
@@ -57,6 +61,12 @@ function versionEventLabel(item: CvManagementVersionListItem): string {
   if (item.eventType === "profile_edit") return "Manual edit";
   if (item.eventType === "full_restore") return "Restored";
   return "Uploaded";
+}
+
+function versionSourceLabel(item: CvManagementVersionListItem): string | null {
+  const source = item.snapshot?.source?.trim();
+  if (!source) return null;
+  return formatCandidateSourceLabel(source, item.snapshot?.source_other);
 }
 
 export function CandidateDetailClient({ candidate }: Props) {
@@ -470,6 +480,7 @@ export function CandidateDetailClient({ candidate }: Props) {
                               >
                                 {appVersions.map((v, i) => {
                                   const indexLabel = appVersions.length - i;
+                                  const sourceLabel = versionSourceLabel(v);
                                   const isSelected =
                                     selectedVersion?.applicationId === app.id &&
                                     (selectedVersion.versionId == null
@@ -516,6 +527,16 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             >
                                               Active
                                             </Chip>
+                                          ) : null}
+                                          {sourceLabel ? (
+                                            <span
+                                              className={cn(
+                                                "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold",
+                                                candidateSourceChipClass(sourceLabel),
+                                              )}
+                                            >
+                                              {sourceLabel}
+                                            </span>
                                           ) : null}
                                         </div>
                                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mt-0.5">

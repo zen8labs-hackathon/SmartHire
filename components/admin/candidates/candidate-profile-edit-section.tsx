@@ -82,9 +82,20 @@ export type CandidateProfileEditSectionProps = {
   /** When true, the form opens directly in edit mode instead of the read-only "Edit details" button. */
   startInEditMode?: boolean;
   /**
-   * When true, hides the "Sourced from" and "Pipeline stage" fields. Used on
-   * /admin/candidates and /admin/candidate-detail, where those are managed
-   * elsewhere (the JD pipeline table/kanban still edits them here).
+   * When true, hides the "Sourced from" field. Combine with
+   * {@link hidePipeline}, or use {@link hidePipelineAndSource} to hide both.
+   */
+  hideSource?: boolean;
+  /**
+   * When true, hides the "Pipeline stage" field and skips fetching pipeline
+   * config. Pipeline position is already a badge on the evaluation page and
+   * is edited from the JD pipeline table.
+   */
+  hidePipeline?: boolean;
+  /**
+   * Shorthand for hideSource + hidePipeline. Used on /admin/candidates and
+   * /admin/candidate-detail, where those are managed elsewhere (the JD
+   * pipeline table/kanban still edits them here).
    */
   hidePipelineAndSource?: boolean;
   onCancel?: () => void;
@@ -208,6 +219,8 @@ export function CandidateProfileEditSection({
   onCandidateIdChanged,
   allowProfileConflictMerge = true,
   startInEditMode = false,
+  hideSource = false,
+  hidePipeline = false,
   hidePipelineAndSource = false,
   onCancel,
   embedded = false,
@@ -258,9 +271,11 @@ export function CandidateProfileEditSection({
   } | null>(null);
 
   const jobId = dbRow?.job_opening_id ?? null;
+  const hideSourceField = hideSource || hidePipelineAndSource;
+  const hidePipelineField = hidePipeline || hidePipelineAndSource;
 
   useEffect(() => {
-    if (hidePipelineAndSource) return;
+    if (hidePipelineField) return;
     if (!jobId) return;
     if (pipelineConfig?.jobId === jobId) return;
     const ac = new AbortController();
@@ -290,7 +305,7 @@ export function CandidateProfileEditSection({
       }
     })();
     return () => ac.abort();
-  }, [jobId, pipelineConfig?.jobId, hidePipelineAndSource]);
+  }, [jobId, pipelineConfig?.jobId, hidePipelineField]);
 
   const snapFromDb = useMemo(
     () => (dbRow ? snapshotFromDb(dbRow) : null),
@@ -381,7 +396,7 @@ export function CandidateProfileEditSection({
   // fetch resolves). Re-syncs whenever `dbRow`/`pipelineConfig` change while
   // editing and no draft exists yet, but never overwrites in-progress edits.
   useEffect(() => {
-    if (hidePipelineAndSource) return;
+    if (hidePipelineField) return;
     if (!editing || stageBaseline || !dbRow || !pipelineConfig) return;
     const resolved = resolveCandidatePipelineIds(
       dbRow,
@@ -395,7 +410,7 @@ export function CandidateProfileEditSection({
     };
     setStageBaseline(b);
     setStageDraft(b);
-  }, [editing, dbRow, pipelineConfig, stageBaseline, hidePipelineAndSource]);
+  }, [editing, dbRow, pipelineConfig, stageBaseline, hidePipelineField]);
 
   const cancelEdit = useCallback(() => {
     if (onCancel) {
@@ -801,6 +816,56 @@ export function CandidateProfileEditSection({
           className="mt-1 text-sm"
         />
       </TextField>
+      {!hideSourceField ? (
+        <div className="min-w-0">
+          <Label className={FIELD_LABEL}>Sourced from</Label>
+          <Select
+            value={draft.source}
+            onChange={(k) => {
+              const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
+              setDraft((d) => ({
+                ...d,
+                source: next,
+                sourceOther: next !== "Other" ? "" : d.sourceOther,
+              }));
+            }}
+            className="mt-2"
+          >
+            <Select.Trigger className="w-full min-w-0">
+              <Select.Value />
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox>
+                {CANDIDATE_SOURCE_VALUES.map((s) => (
+                  <ListBox.Item key={s} id={s} textValue={s}>
+                    {s}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                ))}
+              </ListBox>
+            </Select.Popover>
+          </Select>
+          {draft.source === "Other" ? (
+            <TextField className="mt-3">
+              <Label className={`${FIELD_LABEL} normal-case`}>
+                Describe the source
+              </Label>
+              <Input
+                value={draft.sourceOther}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    sourceOther: e.target.value,
+                  }))
+                }
+                placeholder="e.g. referral, career fair…"
+                className="mt-1 text-sm"
+              />
+            </TextField>
+          ) : null}
+        </div>
+      ) : null}
       <div className="min-w-0 md:col-span-2">
         <Label className={FIELD_LABEL}>Skills</Label>
         <p className="mt-0.5 text-[11px] text-muted/80">
@@ -927,57 +992,7 @@ export function CandidateProfileEditSection({
           </p>
         </TextField>
       ) : null}
-      {!hidePipelineAndSource ? (
-        <div className="min-w-0">
-          <Label className={FIELD_LABEL}>Sourced from</Label>
-          <Select
-            value={draft.source}
-            onChange={(k) => {
-              const next = String(k ?? CANDIDATE_SOURCE_VALUES[0]);
-              setDraft((d) => ({
-                ...d,
-                source: next,
-                sourceOther: next !== "Other" ? "" : d.sourceOther,
-              }));
-            }}
-            className="mt-2"
-          >
-            <Select.Trigger className="w-full min-w-0">
-              <Select.Value />
-              <Select.Indicator />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {CANDIDATE_SOURCE_VALUES.map((s) => (
-                  <ListBox.Item key={s} id={s} textValue={s}>
-                    {s}
-                    <ListBox.ItemIndicator />
-                  </ListBox.Item>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
-          {draft.source === "Other" ? (
-            <TextField className="mt-3">
-              <Label className={`${FIELD_LABEL} normal-case`}>
-                Describe the source
-              </Label>
-              <Input
-                value={draft.sourceOther}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    sourceOther: e.target.value,
-                  }))
-                }
-                placeholder="e.g. referral, career fair…"
-                className="mt-1 text-sm"
-              />
-            </TextField>
-          ) : null}
-        </div>
-      ) : null}
-      {!hidePipelineAndSource && stageBaseline && stageOptions.length > 0 ? (
+      {!hidePipelineField && stageBaseline && stageOptions.length > 0 ? (
         <div className="min-w-0">
           <Label className={FIELD_LABEL}>Pipeline stage</Label>
           <Select
