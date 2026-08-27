@@ -446,6 +446,11 @@ export function PipelineCandidateEvaluationClient({
                 {candidate.name}
               </h1>
               <PipelineStageBadge candidate={candidate} />
+              {candidate.sourceLabel ? (
+                <span className="inline-flex max-w-full items-center rounded-md border border-divider bg-surface-secondary/40 px-1.5 py-0.5 text-[10px] font-semibold text-muted">
+                  {candidate.sourceLabel}
+                </span>
+              ) : null}
             </div>
             <p className="mt-1 text-sm text-muted font-medium">
               Interview evaluation — {jobTitle}
@@ -484,7 +489,7 @@ export function PipelineCandidateEvaluationClient({
                   dbLoadState={dbLoadState}
                   startInEditMode
                   embedded
-                  hidePipelineAndSource
+                  hidePipeline
                   onDirtyChange={setProfileDirty}
                   onBusyChange={setProfileBusy}
                   saveActionRef={profileSaveRef}
