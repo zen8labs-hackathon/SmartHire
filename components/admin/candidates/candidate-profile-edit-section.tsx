@@ -785,7 +785,7 @@ export function CandidateProfileEditSection({
   }
 
   const formFields = (
-    <div className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
+    <div className="grid min-w-0 grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-2 md:gap-x-6">
       <TextField className="min-w-0">
         <Label className={FIELD_LABEL}>Name</Label>
         <Input
@@ -818,7 +818,6 @@ export function CandidateProfileEditSection({
       </TextField>
       {!hideSourceField ? (
         <div className="min-w-0">
-          <Label className={FIELD_LABEL}>Sourced from</Label>
           <Select
             value={draft.source}
             onChange={(k) => {
@@ -829,9 +828,10 @@ export function CandidateProfileEditSection({
                 sourceOther: next !== "Other" ? "" : d.sourceOther,
               }));
             }}
-            className="mt-2"
+            className="min-w-0"
           >
-            <Select.Trigger className="w-full min-w-0">
+            <Label className={FIELD_LABEL}>Sourced from</Label>
+            <Select.Trigger className="mt-1 w-full min-w-0 text-sm">
               <Select.Value />
               <Select.Indicator />
             </Select.Trigger>
