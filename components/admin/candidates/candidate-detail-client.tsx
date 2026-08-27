@@ -25,7 +25,10 @@ import {
 } from "@/lib/candidates/db-row";
 import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
-import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
+import {
+  candidateSourceChipClass,
+  formatCandidateSourceLabel,
+} from "@/lib/candidates/source-constants";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
 
 type Props = {
@@ -526,13 +529,14 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             </Chip>
                                           ) : null}
                                           {sourceLabel ? (
-                                            <Chip
-                                              size="sm"
-                                              variant="soft"
-                                              className="text-[10px] font-bold"
+                                            <span
+                                              className={cn(
+                                                "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold",
+                                                candidateSourceChipClass(sourceLabel),
+                                              )}
                                             >
                                               {sourceLabel}
-                                            </Chip>
+                                            </span>
                                           ) : null}
                                         </div>
                                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mt-0.5">
