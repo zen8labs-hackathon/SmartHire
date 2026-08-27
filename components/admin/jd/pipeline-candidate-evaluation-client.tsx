@@ -26,6 +26,7 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
+import { candidateSourceChipClass } from "@/lib/candidates/source-constants";
 import {
   campaignAppliedToCandidateDbRow,
   type CandidateDbRow,
@@ -447,7 +448,12 @@ export function PipelineCandidateEvaluationClient({
               </h1>
               <PipelineStageBadge candidate={candidate} />
               {candidate.sourceLabel ? (
-                <span className="inline-flex max-w-full items-center rounded-md border border-divider bg-surface-secondary/40 px-1.5 py-0.5 text-[10px] font-semibold text-muted">
+                <span
+                  className={cn(
+                    "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold",
+                    candidateSourceChipClass(candidate.sourceLabel),
+                  )}
+                >
                   {candidate.sourceLabel}
                 </span>
               ) : null}
