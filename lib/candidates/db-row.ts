@@ -19,7 +19,10 @@ export type JobOpeningEmbed = {
   id: string;
   title: string;
   created_at?: string | null;
-  job_descriptions: { id?: number; position: string } | { id?: number; position: string }[] | null;
+  job_descriptions:
+    | { id?: number; position: string }
+    | { id?: number; position: string }[]
+    | null;
 };
 
 export type CandidateDbRow = {
@@ -167,21 +170,19 @@ export function candidateDbRowToTableRow(r: CandidateDbRow): CandidateRow {
       : Number(r.experience_years);
 
   const parsing = r.parsing_status;
+  const displayName = canonicalizeCandidateName(r.name) || r.name?.trim();
   const name =
-    parsing === "completed" && r.name?.trim()
-      ? (canonicalizeCandidateName(r.name) ?? r.name.trim())
-      : parsing === "failed"
-        ? `Failed: ${r.original_filename}`
-        : parsing === "processing" || parsing === "pending"
+    parsing === "failed"
+      ? `Failed: ${r.original_filename}`
+      : displayName ||
+        (parsing === "processing" || parsing === "pending"
           ? `Processing: ${r.original_filename}`
-          : canonicalizeCandidateName(r.name) || r.original_filename;
+          : r.original_filename);
 
   const role =
-    parsing === "completed" && r.role?.trim()
-      ? r.role.trim()
-      : parsing === "failed"
-        ? (r.parsing_error ?? "Parse error").slice(0, 80)
-        : "CV ingest";
+    parsing === "failed"
+      ? (r.parsing_error ?? "Parse error").slice(0, 80)
+      : r.role?.trim() || "—";
 
   const sourceLabel = formatCandidateSourceLabel(
     r.source ?? "Other",
@@ -248,7 +249,9 @@ function toIsoString(d: Date | string | null | undefined): string | null {
   return d;
 }
 
-export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): CandidateDbRow {
+export function campaignAppliedToCandidateDbRow(
+  r: CampaignAppliedAdminRow,
+): CandidateDbRow {
   return {
     id: r.id,
     job_opening_id: r.job_id,
@@ -283,7 +286,9 @@ export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): Can
     degree: r.candidate_degree,
     school: r.candidate_education,
     status: r.stage_label
-      ? (r.sub_stage_label ? `${r.stage_label} · ${r.sub_stage_label}` : r.stage_label)
+      ? r.sub_stage_label
+        ? `${r.stage_label} · ${r.sub_stage_label}`
+        : r.stage_label
       : "New",
     source: r.source ?? "Other",
     source_other: r.source_other,
@@ -299,4 +304,3 @@ export function campaignAppliedToCandidateDbRow(r: CampaignAppliedAdminRow): Can
     expected_salary: r.expected_salary,
   };
 }
-

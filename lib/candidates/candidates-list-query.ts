@@ -4,9 +4,8 @@ import {
 } from "@/lib/db/campaign-applied-list";
 import type { QueryExecutor } from "@/lib/db/config/client";
 
-export const CANDIDATES_LIST_DEFAULT_LIMIT = 50;
+export const CANDIDATES_LIST_DEFAULT_LIMIT = 10;
 export const CANDIDATES_LIST_MAX_LIMIT = 200;
-/** Cap when `all=true` or no limit (job pipeline table / full list). */
 export const CANDIDATES_LIST_MAX_ALL = 2000;
 
 /** Whitelisted sortable columns for the admin candidates list. */
@@ -113,9 +112,9 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
     subStateIdRaw && UUID_RE.test(subStateIdRaw) ? subStateIdRaw : undefined;
 
   const sortByRaw = searchParams.get("sortBy");
-  const sortBy = (
-    CANDIDATES_LIST_SORT_COLUMNS as readonly string[]
-  ).includes(sortByRaw ?? "")
+  const sortBy = (CANDIDATES_LIST_SORT_COLUMNS as readonly string[]).includes(
+    sortByRaw ?? "",
+  )
     ? (sortByRaw as CandidatesListSortColumn)
     : undefined;
   const sortDirRaw = searchParams.get("sortDir");
@@ -172,32 +171,25 @@ export function buildCandidatesListSearchParams(
   return params;
 }
 
-/**
- * Loads applications for the admin list / pipeline with optional pagination
- * and filters. Replaces the old Supabase-embed + hand-built `.or()` filter
- * version with a single SQL join (see `lib/db/campaign-applied-list.ts`) —
- * no legacy-status branch, DB7X2K is a green-field migration.
- */
 export async function queryCandidatesList(
   db: QueryExecutor,
   input: CandidatesListQuery,
 ): Promise<CandidatesListResult> {
-  const paginate = !input.all;
-  const limit = paginate
-    ? Math.min(
-        Math.max(1, input.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT),
-        CANDIDATES_LIST_MAX_LIMIT,
-      )
-    : CANDIDATES_LIST_MAX_ALL;
-  const offset = paginate ? (input.offset ?? 0) : 0;
+  const limit = Math.min(
+    Math.max(1, input.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT),
+    CANDIDATES_LIST_MAX_LIMIT,
+  );
+  const offset = input.offset ?? 0;
 
   try {
+    // `listCampaignAppliedForAdmin` itself picks the lean, single-job query
+    // shape whenever `jobId` is set (the JD pipeline table's only shape) --
+    // see its docstring for why that's safe.
     const { rows, total } = await listCampaignAppliedForAdmin(db, {
       jobId: input.jobId,
       stageMappingId: input.stageMappingId,
       subStateId: input.subStateId,
       q: input.q,
-      parsingStatus: input.parsingStatus,
       uploadFrom: input.uploadFrom,
       uploadTo: input.uploadTo,
       sortBy: input.sortBy,
@@ -206,13 +198,17 @@ export async function queryCandidatesList(
       offset,
     });
 
-    const pagination: CandidatesListPagination | null = paginate
-      ? { limit, offset, total, hasMore: offset + rows.length < total }
-      : null;
+    const pagination: CandidatesListPagination = {
+      limit,
+      offset,
+      total,
+      hasMore: offset + rows.length < total,
+    };
 
     return { candidates: rows, pagination, error: null };
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to load candidates.";
+    const message =
+      e instanceof Error ? e.message : "Failed to load candidates.";
     return { candidates: [], pagination: null, error: message };
   }
 }

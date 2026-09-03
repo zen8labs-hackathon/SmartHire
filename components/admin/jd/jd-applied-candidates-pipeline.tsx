@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Users as UsersIcon,
-  Layers as LayersIcon,
-  Calendar as CalendarIcon,
-  Download,
-} from "lucide-react";
+import { Users as UsersIcon, Layers as LayersIcon, Download } from "lucide-react";
 import {
   DataTableStats,
   DataTableToolbar,
@@ -14,22 +9,9 @@ import {
 } from "@/components/admin/shell/table-system";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
-import {
-  Button,
-  DateField,
-  DateRangePicker,
-  ListBox,
-  RangeCalendar,
-  Select,
-  Table,
-  useOverlayState,
-} from "@heroui/react";
-import {
-  today,
-  getLocalTimeZone,
-  type CalendarDate,
-} from "@internationalized/date";
-import { Dialog } from "react-aria-components";
+import { DateRangeCalendarField } from "@/components/admin/shell/date-range-calendar-field";
+import { Button, ListBox, Select, Table, useOverlayState } from "@heroui/react";
+import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 
 import { useToast } from "@/components/admin/toast-provider";
@@ -63,25 +45,7 @@ import {
   buildCandidatesListSearchParams,
   type CandidatesListSortColumn,
 } from "@/lib/candidates/candidates-list-query";
-
-const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
-  { value: 1, label: "Jan" },
-  { value: 2, label: "Feb" },
-  { value: 3, label: "Mar" },
-  { value: 4, label: "Apr" },
-  { value: 5, label: "May" },
-  { value: 6, label: "Jun" },
-  { value: 7, label: "Jul" },
-  { value: 8, label: "Aug" },
-  { value: 9, label: "Sep" },
-  { value: 10, label: "Oct" },
-  { value: 11, label: "Nov" },
-  { value: 12, label: "Dec" },
-];
-const YEAR_OPTIONS = Array.from(
-  { length: 2030 - 1990 + 1 },
-  (_, i) => 1990 + i,
-);
+import { candidateService } from "@/lib/service/candidate.service";
 
 /** Shape of `/api/admin/job-descriptions/[id]/candidate-status-counts`'s `counts` entries. */
 type StageCount = {
@@ -270,9 +234,6 @@ export function JdAppliedCandidatesPipeline({
     column: CandidatesListSortColumn;
     direction: "ascending" | "descending";
   } | null>(null);
-  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(
-    () => today(getLocalTimeZone()),
-  );
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
 
@@ -285,10 +246,6 @@ export function JdAppliedCandidatesPipeline({
     },
     [setPage],
   );
-
-  useEffect(() => {
-    setSelected(new Set());
-  }, [dbRows]);
 
   useEffect(() => {
     if (skipInitialPageResetRef.current) {
@@ -308,19 +265,6 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [statusFilter, filterOptions]);
 
-  useEffect(() => {
-    if (uploadDateRange?.start) {
-      setCalendarFocusedDate(uploadDateRange.start);
-    }
-  }, [uploadDateRange]);
-
-  // Stage-count summary row: the `dbRows` full-list fetch caps out at 200
-  // rows server-side (see `CANDIDATES_LIST_MAX_ALL`/`MAX_LIST_LIMIT`), so
-  // deriving stat-card totals from it silently under-counts any job with
-  // more applicants than that. These come from a dedicated `COUNT(*)`
-  // endpoint instead, scoped to the whole job (not the search/date filters,
-  // which only affect the table itself) so the numbers always match the
-  // database regardless of how many rows happen to be loaded client-side.
   const [statusCounts, setStatusCounts] = useState<StageCount[]>([]);
   const [totalCandidates, setTotalCandidates] = useState(0);
 
@@ -342,9 +286,6 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [jobId]);
 
-  // Re-synced whenever the parent's full-list fetch resolves with a new
-  // `dbRows` reference (i.e. after any mutation via `onRefetch`), so the
-  // cards don't go stale after a status change/delete/add.
   useEffect(() => {
     void fetchStats();
   }, [fetchStats, dbRows]);
@@ -360,26 +301,16 @@ export function JdAppliedCandidatesPipeline({
     return totals;
   }, [statusCounts, stageMappings]);
 
-  // The rendered table is its own backend-paginated query (scoped by jobId +
-  // the same filters, including the stage/sub-stage filter), independent of
-  // the `dbRows` full fetch used for stats above.
   const [pageRows, setPageRows] = useState<JdPipelineApplicationRow[]>([]);
   const [pageTotal, setPageTotal] = useState(0);
   const [pageLoadState, setPageLoadState] = useState<
     "loading" | "error" | "ok"
   >("loading");
 
-  /**
-   * Every mutation handler below already calls `fetchPage()` directly after
-   * its own `onRefetch(...)` -- so a `dbRows` dependency here (to re-fire via
-   * the effect below once the parent's full-list refetch resolves) was pure
-   * redundancy: two unsequenced requests per mutation, no `AbortController`,
-   * so whichever response happened to land last won, sometimes clobbering a
-   * fresher page with a stale one (the likely source of transient/duplicate
-   * rows in the table). `fetchPageSeqRef` guards what's left of that race --
-   * concurrent calls from fast repeated clicks -- by dropping any response
-   * that isn't from the most recently *issued* request.
-   */
+  useEffect(() => {
+    setSelected(new Set());
+  }, [pageRows]);
+
   const fetchPageSeqRef = useRef(0);
 
   const fetchPage = useCallback(async () => {
@@ -402,23 +333,20 @@ export function JdAppliedCandidatesPipeline({
             : "desc"
           : undefined,
       });
-      const res = await fetch(`/api/admin/candidates?${params}`, {
-        credentials: "include",
-        cache: "no-store",
-      });
+      const { candidates, pagination } =
+        await candidateService.getFilteredCandidateList(
+          jobId,
+          Object.fromEntries(params),
+        );
       if (seq !== fetchPageSeqRef.current) return;
-      if (!res.ok) {
-        setPageLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as {
-        candidates?: JdPipelineApplicationRow[];
-        pagination?: { total: number };
-      };
-      if (seq !== fetchPageSeqRef.current) return;
-      setPageRows(json.candidates ?? []);
-      setPageTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
+      const total = pagination?.total ?? candidates.length;
+      setPageRows(candidates);
+      setPageTotal(total);
       setPageLoadState("ok");
+      const maxPage = Math.max(1, Math.ceil(total / pageSize));
+      if (page > maxPage) {
+        setPage(maxPage);
+      }
     } catch {
       if (seq === fetchPageSeqRef.current) setPageLoadState("error");
     }
@@ -430,6 +358,7 @@ export function JdAppliedCandidatesPipeline({
     selectedFilterOption,
     sortDescriptor,
     pageSize,
+    setPage,
   ]);
 
   useEffect(() => {
@@ -450,7 +379,7 @@ export function JdAppliedCandidatesPipeline({
         throw new Error(json.error ?? "Failed to delete candidate.");
       }
       deleteModal.close();
-      onRefetch(true);
+      void fetchStats();
       void fetchPage();
       toast.success("Candidate deleted successfully.");
     } catch (e) {
@@ -461,7 +390,7 @@ export function JdAppliedCandidatesPipeline({
     } finally {
       setDeleteBusy(false);
     }
-  }, [rowPendingDelete, deleteModal, onRefetch, toast, fetchPage]);
+  }, [rowPendingDelete, deleteModal, fetchStats, toast, fetchPage]);
 
   const paginatedRows = pageRows;
   const totalPages = Math.max(1, Math.ceil(pageTotal / pageSize));
@@ -503,9 +432,9 @@ export function JdAppliedCandidatesPipeline({
 
   const selectedRows = useMemo(() => {
     return [...selected]
-      .map((id) => dbRows.find((r) => r.id === id))
+      .map((id) => pageRows.find((r) => r.id === id))
       .filter(Boolean) as JdPipelineApplicationRow[];
-  }, [selected, dbRows]);
+  }, [selected, pageRows]);
 
   const bulkInterviewEligible = useMemo(
     () =>
@@ -560,7 +489,7 @@ export function JdAppliedCandidatesPipeline({
           current_sub_state_id: offerDefaultSubStage.id,
         })),
       );
-      onRefetch(true);
+      void fetchStats();
       void fetchPage();
       toast.success("Selected candidates moved to Offer.");
     } catch (e) {
@@ -571,7 +500,7 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [
     bulkOfferEligible,
-    onRefetch,
+    fetchStats,
     postPipeline,
     selectedRows,
     offerStageMapping,
@@ -595,7 +524,7 @@ export function JdAppliedCandidatesPipeline({
           current_sub_state_id: interviewDefaultSubStage.id,
         })),
       );
-      onRefetch(true);
+      void fetchStats();
       void fetchPage();
       toast.success("Selected candidates moved to Interview.");
     } catch (e) {
@@ -606,7 +535,7 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [
     bulkInterviewEligible,
-    onRefetch,
+    fetchStats,
     postPipeline,
     selectedRows,
     interviewStageMapping,
@@ -638,7 +567,7 @@ export function JdAppliedCandidatesPipeline({
         };
       });
       await postPipeline(updates);
-      onRefetch(true);
+      void fetchStats();
       void fetchPage();
       toast.success("Selected candidates marked as failed.");
     } catch (e) {
@@ -649,7 +578,7 @@ export function JdAppliedCandidatesPipeline({
     }
   }, [
     bulkFailEligible,
-    onRefetch,
+    fetchStats,
     postPipeline,
     selectedRows,
     resolveRow,
@@ -660,66 +589,73 @@ export function JdAppliedCandidatesPipeline({
   ]);
 
   /**
-   * `runJdMatchForCandidate` (called per id server-side) already self-guards
-   * via its own CAS lock. Completed scores are preserved, while genuinely
-   * ineligible rows (e.g. parsing not done) also come back as skipped.
+   * Enqueues a `rerun-ai-matching` queue job per candidate (re-download CV ->
+   * re-parse -> re-score); the worker always re-runs, overwriting any existing
+   * score. `errorIds` are rows with no processed CV to re-run. Shared by the
+   * bulk "Run AI JD Match" action and the per-row retry button.
    */
+  const rerunAiMatch = useCallback(
+    async (candidateIds: string[]) => {
+      const ids = [...new Set(candidateIds)].filter(Boolean);
+      if (ids.length === 0) return;
+      try {
+        const { candidates, errorIds } =
+          await candidateService.rerunAIMatching(jobId, ids);
+        void fetchStats();
+        await fetchPage();
+        if (candidates.length === 0) {
+          toast.error("No candidate had a processed CV to re-run.");
+        } else if (errorIds.length > 0) {
+          toast.success(
+            `${candidates.length} queued, ${errorIds.length} skipped (no processed CV).`,
+          );
+        } else {
+          toast.success(`${candidates.length} queued for AI processing.`);
+        }
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : "AI JD-match run failed.",
+        );
+      }
+    },
+    [jobId, fetchStats, fetchPage, toast],
+  );
+
   const runJdMatchForSelected = useCallback(async () => {
     if (selectedRows.length === 0) return;
     setPipelineBusy(true);
     try {
-      const res = await fetch("/api/admin/candidates/jd-match/bulk", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: selectedRows.map((r) => r.id),
-        }),
-      });
-      const json = (await res.json()) as {
-        error?: string;
-        results?: {
-          id: string;
-          ok: boolean;
-          skipped?: boolean;
-          score?: number;
-        }[];
-      };
-      if (!res.ok) {
-        throw new Error(json.error ?? "AI JD-match run failed.");
-      }
-      const results = json.results ?? [];
-      const scored = results.filter((r) => r.ok && !r.skipped).length;
-      const skipped = results.filter((r) => r.ok && r.skipped).length;
-      const failed = results.filter((r) => !r.ok).length;
-      onRefetch(true);
-      void fetchPage();
-      toast.success(`${scored} scored, ${skipped} skipped, ${failed} failed.`);
-    } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "AI JD-match run failed.";
-      toast.error(message);
+      await rerunAiMatch(selectedRows.map((r) => r.candidate_id));
     } finally {
       setPipelineBusy(false);
     }
-  }, [selectedRows, onRefetch, fetchPage, toast]);
+  }, [selectedRows, rerunAiMatch]);
 
-  const confirmBulkAction = useCallback((action: BulkActionType) => {
-    setPendingBulkAction(action);
-    bulkActionConfirmModal.open();
-  }, [bulkActionConfirmModal]);
+  const confirmBulkAction = useCallback(
+    (action: BulkActionType) => {
+      setPendingBulkAction(action);
+      bulkActionConfirmModal.open();
+    },
+    [bulkActionConfirmModal],
+  );
 
   const executeConfirmedBulkAction = useCallback(async () => {
     if (!pendingBulkAction) return;
-    if (pendingBulkAction === "interview") {
+    const action = pendingBulkAction;
+
+    if (action === "interview") {
       await moveSelectedToInterview();
-    } else if (pendingBulkAction === "offer") {
+    } else if (action === "offer") {
       await moveSelectedToOffer();
-    } else if (pendingBulkAction === "fail") {
+    } else if (action === "fail") {
       await markSelectedFailed();
     } else {
       await runJdMatchForSelected();
     }
+
+    // Clear the selection and dismiss the toast's source modal only once the
+    // action (and its success/error toast) has actually run.
+    setSelected(new Set());
     bulkActionConfirmModal.close();
     setPendingBulkAction(null);
   }, [
@@ -775,7 +711,7 @@ export function JdAppliedCandidatesPipeline({
             current_sub_state_id: next.toSubStateId,
           },
         ]);
-        onRefetch(true);
+        void fetchStats();
         void fetchPage();
         toast.success("Candidate status updated.");
       } catch (e) {
@@ -785,38 +721,19 @@ export function JdAppliedCandidatesPipeline({
         setRowUpdating(null);
       }
     },
-    [onRefetch, postPipeline, fetchPage, toast],
+    [fetchStats, postPipeline, fetchPage, toast],
   );
 
   const retryParsing = useCallback(
     async (row: JdPipelineApplicationRow) => {
       setRowUpdating(row.id);
       try {
-        const response = await fetch(
-          `/api/admin/candidates/${row.id}/process`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ runJdMatch: true }),
-          },
-        );
-        const json = (await response.json()) as { error?: string };
-        if (!response.ok) {
-          throw new Error(json.error ?? "CV processing retry failed.");
-        }
-        onRefetch(true);
-        await fetchPage();
-        toast.success("CV processed successfully.");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "CV processing retry failed.",
-        );
+        await rerunAiMatch([row.candidate_id]);
       } finally {
         setRowUpdating(null);
       }
     },
-    [fetchPage, onRefetch, toast],
+    [rerunAiMatch],
   );
 
   const filtersElement = (
@@ -874,123 +791,12 @@ export function JdAppliedCandidatesPipeline({
   );
 
   const dateRangeElement = (
-    <div className="flex items-center gap-2">
-      <DateRangePicker
-        value={uploadDateRange as any}
-        onChange={(next) => setUploadDateRange(next as any)}
-        className="w-72"
-      >
-        <DateField.Group
-          fullWidth
-          variant="primary"
-          className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-9 rounded-xl py-1 px-1 text-xs"
-        >
-          <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-            <DateField.Input slot="start" className="outline-none">
-              {(segment) => <DateField.Segment segment={segment} />}
-            </DateField.Input>
-            <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted" />
-            <DateField.Input slot="end" className="outline-none">
-              {(segment) => <DateField.Segment segment={segment} />}
-            </DateField.Input>
-          </DateField.InputContainer>
-          <DateField.Suffix>
-            <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
-              <CalendarIcon className="h-3.5 w-3.5" />
-            </DateRangePicker.Trigger>
-          </DateField.Suffix>
-        </DateField.Group>
-        <DateRangePicker.Popover>
-          <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
-            <RangeCalendar
-              focusedValue={calendarFocusedDate as any}
-              onFocusChange={(next) => setCalendarFocusedDate(next as any)}
-            >
-              <RangeCalendar.Header className="flex items-center justify-between mb-2 gap-2">
-                <RangeCalendar.NavButton slot="previous" />
-                <div className="flex flex-1 items-center gap-1 justify-center">
-                  <select
-                    id="jd-cal-month"
-                    value={calendarFocusedDate.month}
-                    onChange={(e) =>
-                      setCalendarFocusedDate((p) =>
-                        p.set({
-                          month: Number(e.target.value),
-                          day: 1,
-                        }),
-                      )
-                    }
-                    className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
-                  >
-                    {MONTH_OPTIONS.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    id="jd-cal-year"
-                    value={calendarFocusedDate.year}
-                    onChange={(e) =>
-                      setCalendarFocusedDate((p) =>
-                        p.set({ year: Number(e.target.value), day: 1 }),
-                      )
-                    }
-                    className="h-7 rounded-lg border border-divider bg-surface-secondary px-1 text-[11px] font-semibold outline-none"
-                  >
-                    {YEAR_OPTIONS.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <RangeCalendar.NavButton slot="next" />
-              </RangeCalendar.Header>
-              <RangeCalendar.Grid
-                weekdayStyle="short"
-                className="border-collapse"
-              >
-                <RangeCalendar.GridHeader>
-                  {(day) => (
-                    <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">
-                      {day}
-                    </RangeCalendar.HeaderCell>
-                  )}
-                </RangeCalendar.GridHeader>
-                <RangeCalendar.GridBody>
-                  {(date) => (
-                    <RangeCalendar.Cell
-                      date={date}
-                      className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0"
-                    >
-                      {({ formattedDate }) => (
-                        <>
-                          <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
-                          <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">
-                            {formattedDate}
-                          </span>
-                        </>
-                      )}
-                    </RangeCalendar.Cell>
-                  )}
-                </RangeCalendar.GridBody>
-              </RangeCalendar.Grid>
-            </RangeCalendar>
-          </Dialog>
-        </DateRangePicker.Popover>
-      </DateRangePicker>
-      {uploadDateRange && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-9 px-2.5 border border-divider rounded-xl text-xs font-semibold text-muted"
-          onPress={() => setUploadDateRange(null)}
-        >
-          Clear
-        </Button>
-      )}
-    </div>
+    <DateRangeCalendarField
+      value={uploadDateRange}
+      onChange={setUploadDateRange}
+      monthYearNav
+      idSuffix="-jd-pipeline"
+    />
   );
 
   const hasSelection = selected.size > 0;
@@ -1088,7 +894,7 @@ export function JdAppliedCandidatesPipeline({
         filters={filtersElement}
         dateRange={dateRangeElement}
         onRefresh={() => {
-          onRefetch(false);
+          void fetchStats();
           void fetchPage();
         }}
         isRefreshing={loadState === "loading" || pageLoadState === "loading"}
@@ -1246,7 +1052,7 @@ export function JdAppliedCandidatesPipeline({
                     </div>
                   </Table.Cell>
                 </Table.Row>
-              ) : tableLoadState === "empty" && dbRows.length === 0 ? (
+              ) : tableLoadState === "empty" && totalCandidates === 0 ? (
                 <Table.Row id="pipeline-row-empty">
                   <Table.Cell
                     className="py-8 text-center text-muted"
@@ -1318,7 +1124,7 @@ export function JdAppliedCandidatesPipeline({
         row={rowPendingSchedule}
         canEdit={canEditPipeline}
         onSaved={() => {
-          onRefetch(true);
+          void fetchStats();
           void fetchPage();
           toast.success("Interview schedule saved.");
         }}
@@ -1370,7 +1176,7 @@ export function JdAppliedCandidatesPipeline({
         canEdit={!!canEditPipeline}
         onSaved={() => {
           editModal.close();
-          onRefetch(true);
+          void fetchStats();
           void fetchPage();
           toast.success("Candidate profile updated.");
         }}

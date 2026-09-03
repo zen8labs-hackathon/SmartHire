@@ -92,21 +92,20 @@ export function campaignAppliedAdminRowToTableRow(
 
   const parsing = r.cv_parsing_status;
   const fallbackFilename = r.cv_original_filename ?? "CV";
+  const displayName =
+    canonicalizeCandidateName(r.candidate_name) || r.candidate_name?.trim();
   const name =
-    parsing === "completed" && r.candidate_name?.trim()
-      ? (canonicalizeCandidateName(r.candidate_name) ?? r.candidate_name.trim())
-      : parsing === "failed"
-        ? `Failed: ${fallbackFilename}`
-        : parsing === "processing" || parsing === "pending"
+    parsing === "failed"
+      ? `Failed: ${fallbackFilename}`
+      : displayName ||
+        (parsing === "processing" || parsing === "pending"
           ? `Processing: ${fallbackFilename}`
-          : canonicalizeCandidateName(r.candidate_name) || fallbackFilename;
+          : fallbackFilename);
 
   const role =
-    parsing === "completed" && r.candidate_role?.trim()
-      ? r.candidate_role.trim()
-      : parsing === "failed"
-        ? (r.cv_parsing_error ?? "Parse error").slice(0, 80)
-        : "CV ingest";
+    parsing === "failed"
+      ? (r.cv_parsing_error ?? "Parse error").slice(0, 80)
+      : r.candidate_role?.trim() || "—";
 
   const { score: jdMatchScore, label: jdMatchLabel } = jdMatchLabelFromRow(r);
 
@@ -124,7 +123,10 @@ export function campaignAppliedAdminRowToTableRow(
     school: r.candidate_education?.trim() || "—",
     gpa: r.cv_gpa?.trim() || "—",
     englishLevel: r.cv_english_level?.trim() || "—",
-    sourceLabel: formatCandidateSourceLabel(r.source ?? "Other", r.source_other),
+    sourceLabel: formatCandidateSourceLabel(
+      r.source ?? "Other",
+      r.source_other,
+    ),
     jdMatchScore,
     jdMatchLabel,
     cvUploadedAtIso: r.cv_created_at ?? r.created_at,

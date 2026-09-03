@@ -7,17 +7,16 @@ export type FetchCandidatesForJdResult = {
   error: string | null;
 };
 
-/**
- * Loads every application tied to this job. Mirrors
- * `GET /api/admin/candidates?jobId=…&all=true`.
- */
+const INITIAL_PAGE_SIZE = 10;
+
 export async function fetchCandidatesForJobDescription(
   db: QueryExecutor,
   jobId: string,
 ): Promise<FetchCandidatesForJdResult> {
   const { candidates, error } = await queryCandidatesList(db, {
     jobId,
-    all: true,
+    limit: INITIAL_PAGE_SIZE,
+    offset: 0,
   });
 
   return { rows: candidates, error };
