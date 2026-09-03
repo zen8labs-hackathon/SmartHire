@@ -13,6 +13,7 @@ function access(
   return {
     userId: "user-1",
     email: "u@test.com",
+    username: "u",
     isAdmin,
     isHr,
     isStaff: role !== "none",

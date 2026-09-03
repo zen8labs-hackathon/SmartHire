@@ -14,6 +14,7 @@ import type {
   StageMapping,
   SubStage,
 } from "@/lib/pipelines/transition-validator";
+import { candidateService } from "@/lib/service/candidate.service";
 
 import { Card } from "@heroui/react";
 
@@ -65,18 +66,11 @@ export const JobPipelineDataPanel = forwardRef<
         setPipelineLoadState("loading");
       }
       try {
-        const res = await fetch(
-          `/api/admin/candidates?jobId=${jobId}&all=true`,
-          { credentials: "include", cache: "no-store" },
+        const { candidates } = await candidateService.getFilteredCandidateList(
+          jobId,
+          {},
         );
-        if (!res.ok) {
-          if (!silent) setPipelineLoadState("error");
-          return;
-        }
-        const json = (await res.json()) as {
-          candidates?: JdPipelineApplicationRow[];
-        };
-        setPipelineRows(json.candidates ?? []);
+        setPipelineRows(candidates);
         setPipelineLoadState("ok");
       } catch {
         if (!silent) setPipelineLoadState("error");

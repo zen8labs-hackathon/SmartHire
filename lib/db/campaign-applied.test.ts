@@ -6,12 +6,14 @@ import {
   createApplicationWithInitialCv,
   createCampaignApplied,
   getCampaignAppliedById,
+  getOrCreateCampaignApplied,
   listCampaignAppliedByCandidate,
   listCampaignAppliedByIds,
   listCampaignAppliedByJob,
   lockCampaignAppliedForJdMatch,
   setActiveCvVersion,
   softDeleteAllCampaignAppliedForCandidate,
+  softDeleteAllCampaignAppliedForCandidates,
   softDeleteAllCampaignAppliedForJob,
   softDeleteCampaignApplied,
   updateCampaignApplied,
@@ -94,10 +96,22 @@ describe("listCampaignAppliedByIds", () => {
 });
 
 describe("listCampaignAppliedByCandidate", () => {
-  it("paginates and strips the window total from rows", async () => {
+  it("paginates, strips the window total from rows, and joins job + stage/sub-stage info", async () => {
+    const jobCreatedAt = new Date("2026-01-01T00:00:00Z");
     const db = fakeDb([
       [
-        { id: "app-1", total_count: "1" },
+        {
+          id: "app-1",
+          job_title: "Backend Engineer",
+          job_created_at: jobCreatedAt,
+          stage_code: "cv_scan",
+          stage_label: "CV Scan",
+          stage_color: "blue",
+          sub_stage_code: "new",
+          sub_stage_label: "New",
+          sub_stage_is_passed: false,
+          total_count: "1",
+        },
       ],
     ]);
 
@@ -107,14 +121,34 @@ describe("listCampaignAppliedByCandidate", () => {
     });
 
     expect(result).toEqual({
-      rows: [{ id: "app-1" }],
+      rows: [
+        {
+          id: "app-1",
+          job_title: "Backend Engineer",
+          job_created_at: jobCreatedAt,
+          stage_code: "cv_scan",
+          stage_label: "CV Scan",
+          stage_color: "blue",
+          sub_stage_code: "new",
+          sub_stage_label: "New",
+          sub_stage_is_passed: false,
+        },
+      ],
       total: 1,
       limit: 10,
       offset: 0,
     });
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE candidate_id = $1 AND deleted_at IS NULL"),
+      expect.stringContaining("WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL"),
       ["cand-1", 10, 0],
+    );
+    const [sql] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sql).toContain(
+      "LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id",
+    );
+    expect(sql).toContain("LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id");
+    expect(sql).toContain(
+      "LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id",
     );
   });
 });
@@ -185,6 +219,38 @@ describe("createCampaignApplied", () => {
       null,
       null,
     ]);
+  });
+});
+
+describe("getOrCreateCampaignApplied", () => {
+  it("upserts via ON CONFLICT and returns the row plus a created flag in a single query", async () => {
+    const row = { id: "app-1", created: true };
+    const db = fakeDb([[row]]);
+
+    const result = await getOrCreateCampaignApplied(db, {
+      candidateId: "cand-1",
+      jobId: "job-1",
+    });
+
+    expect(result).toEqual({ application: { id: "app-1" }, created: true });
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("ON CONFLICT (candidate_id, job_id)");
+    expect(sql).toContain("DO UPDATE SET updated_at = now()");
+    expect(sql).toContain("RETURNING *, (xmax = 0) AS created");
+    expect(values).toEqual(["cand-1", "job-1", null, null, null]);
+  });
+
+  it("reports created: false when the row already existed (ON CONFLICT hit)", async () => {
+    const row = { id: "app-1", created: false };
+    const db = fakeDb([[row]]);
+
+    const result = await getOrCreateCampaignApplied(db, {
+      candidateId: "cand-1",
+      jobId: "job-1",
+    });
+
+    expect(result).toEqual({ application: { id: "app-1" }, created: false });
   });
 });
 
@@ -337,6 +403,33 @@ describe("softDeleteAllCampaignAppliedForCandidate", () => {
       expect.stringContaining("WHERE candidate_id = $1 AND deleted_at IS NULL"),
       ["cand-1"],
     );
+  });
+});
+
+describe("softDeleteAllCampaignAppliedForCandidates", () => {
+  it("soft-deletes every live application for the given people in one query", async () => {
+    const rows = [{ id: "app-1" }, { id: "app-2" }];
+    const db = fakeDb([rows]);
+
+    const result = await softDeleteAllCampaignAppliedForCandidates(db, [
+      "cand-1",
+      "cand-2",
+    ]);
+
+    expect(result).toEqual(rows);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "WHERE candidate_id = ANY($1::uuid[]) AND deleted_at IS NULL",
+      ),
+      [["cand-1", "cand-2"]],
+    );
+  });
+
+  it("returns [] without querying for an empty id list", async () => {
+    const db = fakeDb([]);
+    const result = await softDeleteAllCampaignAppliedForCandidates(db, []);
+    expect(result).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
   });
 });
 
