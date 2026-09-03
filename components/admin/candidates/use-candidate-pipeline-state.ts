@@ -1,6 +1,6 @@
 "use client";
 
-import { getLocalTimeZone, today, type CalendarDate } from "@internationalized/date";
+import type { CalendarDate } from "@internationalized/date";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RangeValue } from "react-aria-components";
@@ -14,11 +14,14 @@ import {
 } from "@/lib/candidates/db-row";
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
-  buildCandidatesListSearchParams,
   type CandidatesListParsingStatus,
   type CandidatesListQuery,
 } from "@/lib/candidates/candidates-list-query";
 import { CANDIDATE_ROWS } from "@/lib/candidates/mock-data";
+import {
+  candidateService,
+  type GroupedCandidateRow,
+} from "@/lib/service/candidate.service";
 import type { CandidateRow } from "@/lib/candidates/types";
 import { allowedStageTargets } from "@/lib/pipelines/jd-pipeline-row-helpers";
 import {
@@ -75,13 +78,47 @@ function parsingStatusFromKey(
     : undefined;
 }
 
+/**
+ * The cross-job pool list (`GET /api/admin/candidates`) returns bare
+ * `candidates` rows -- no application, CV, or JD-match data. Widen each to the
+ * `CandidateDbRow` shape the table/drawer expect, leaving the per-application
+ * fields empty.
+ */
+function groupedCandidateRowToCandidateDbRow(
+  r: GroupedCandidateRow,
+): CandidateDbRow {
+  return {
+    id: r.id,
+    job_opening_id: null,
+    job_openings: null,
+    cv_storage_path: "",
+    original_filename: "",
+    mime_type: null,
+    parsing_status: "completed",
+    parsing_error: null,
+    parsed_payload: { email: r.email, phone: r.phone },
+    parsed_contact_email: r.email,
+    parsed_contact_phone: r.phone,
+    name: r.name,
+    role: r.role,
+    avatar_url: null,
+    experience_years: r.experience_years,
+    skills: r.skills,
+    degree: r.degree,
+    school: r.education,
+    status: "New",
+    source: "Other",
+    source_other: null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  };
+}
+
 type UseCandidatePipelineStateOptions = {
   /** `page` = server pagination + filters; `all` = full list (e.g. JD pipeline table). */
   listMode?: CandidatePipelineListMode;
   initialListTotal?: number;
   initialExperiencedTotal?: number;
-  /** When true, fetch from the deduped endpoint that merges CVs from the same person. */
-  deduped?: boolean;
 };
 
 export function useCandidatePipelineState(
@@ -91,7 +128,6 @@ export function useCandidatePipelineState(
   const listMode = options.listMode ?? "page";
   const initialListTotal = options.initialListTotal;
   const initialExperiencedTotal = options.initialExperiencedTotal;
-  const deduped = options.deduped ?? false;
   const [urlPage, setUrlPage] = usePageQueryParam();
   const [localPage, setLocalPage] = useState(1);
   const page = listMode === "page" ? urlPage : localPage;
@@ -101,9 +137,6 @@ export function useCandidatePipelineState(
   const [parsingStatusKey, setParsingStatusKey] = useState<Key | null>("all");
   const [uploadDateRangeFilter, setUploadDateRangeFilter] =
     useState<RangeValue<CalendarDate> | null>(null);
-  const [calendarFocusedDate, setCalendarFocusedDate] = useState<CalendarDate>(() =>
-    today(getLocalTimeZone()),
-  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<CandidateRow | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -115,8 +148,12 @@ export function useCandidatePipelineState(
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [stageUpdateBusy, setStageUpdateBusy] = useState(false);
   const [stageUpdateError, setStageUpdateError] = useState<string | null>(null);
-  const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>([]);
-  const [cvVersions, setCvVersions] = useState<CvManagementVersionListItem[]>([]);
+  const [cvHistoryRows, setCvHistoryRows] = useState<CandidateCvHistoryRow[]>(
+    [],
+  );
+  const [cvVersions, setCvVersions] = useState<CvManagementVersionListItem[]>(
+    [],
+  );
   const [cvHistoryLoading, setCvHistoryLoading] = useState(false);
   const [cvHistoryError, setCvHistoryError] = useState<string | null>(null);
   const [dbRows, setDbRows] = useState<CandidateDbRow[]>(initialRows ?? []);
@@ -134,10 +171,13 @@ export function useCandidatePipelineState(
   );
   const [listPageSize, setListPageSize] = useState(10);
 
-  const changeListPageSize = useCallback((size: number) => {
-    setListPageSize(size);
-    setPage(1);
-  }, [setPage]);
+  const changeListPageSize = useCallback(
+    (size: number) => {
+      setListPageSize(size);
+      setPage(1);
+    },
+    [setPage],
+  );
 
   const skipInitialFetchRef = useRef(Boolean(initialRows?.length));
   const skipInitialPageResetRef = useRef(true);
@@ -178,49 +218,26 @@ export function useCandidatePipelineState(
   const fetchCandidates = useCallback(async () => {
     setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
-      let url: string;
-      if (deduped) {
-        const listQuery = buildListQuery();
-        const params = new URLSearchParams();
-        params.set("limit", String(listQuery.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT));
-        params.set("offset", String(listQuery.offset ?? 0));
-        if (listQuery.q) params.set("q", listQuery.q);
-        if (listQuery.parsingStatus) {
-          params.set("parsingStatus", listQuery.parsingStatus);
-        }
-        if (listQuery.uploadFrom) params.set("uploadFrom", listQuery.uploadFrom);
-        if (listQuery.uploadTo) params.set("uploadTo", listQuery.uploadTo);
-        url = `/api/admin/candidates/deduped?${params}`;
-      } else {
-        const params = buildCandidatesListSearchParams(buildListQuery());
-        url = `/api/admin/candidates?${params}`;
-      }
-      const res = await fetch(url, { credentials: "include", cache: "no-store" });
-      if (!res.ok) {
-        setDbLoadState("error");
-        return;
-      }
-      const json = (await res.json()) as {
-        candidates?: any[];
-        pagination?: { total: number; experiencedTotal?: number };
+      const listQuery = buildListQuery();
+      const queryParams: Record<string, string> = {
+        limit: String(listQuery.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT),
+        offset: String(listQuery.offset ?? 0),
       };
-      const rawCandidates = json.candidates ?? [];
-      const mapped = rawCandidates.map((c) => {
-        if (c && "candidate_id" in c) {
-          return campaignAppliedToCandidateDbRow(c);
-        }
-        return c;
-      });
-      setDbRows(mapped);
-      setListTotal(json.pagination?.total ?? json.candidates?.length ?? 0);
-      if (typeof json.pagination?.experiencedTotal === "number") {
-        setListExperiencedTotal(json.pagination.experiencedTotal);
+      if (listQuery.q) queryParams.q = listQuery.q;
+
+      const { candidates, pagination } =
+        await candidateService.getGroupedCandidatesList(queryParams);
+
+      setDbRows(candidates.map(groupedCandidateRowToCandidateDbRow));
+      setListTotal(pagination?.total ?? candidates.length);
+      if (typeof pagination?.experiencedTotal === "number") {
+        setListExperiencedTotal(pagination.experiencedTotal);
       }
       setDbLoadState("ok");
     } catch {
       setDbLoadState("error");
     }
-  }, [buildListQuery, deduped]);
+  }, [buildListQuery]);
 
   // Each row can belong to a different job with a different custom pipeline
   // (unlike the JD-scoped pipeline table, which only ever needs one job's
@@ -228,7 +245,11 @@ export function useCandidatePipelineState(
   // currently-loaded rows actually reference, in one batched request, and
   // skip ids already cached from a prior fetch.
   const jobIdsOnPage = useMemo(
-    () => [...new Set(dbRows.map((r) => r.job_opening_id).filter((id): id is string => !!id))],
+    () => [
+      ...new Set(
+        dbRows.map((r) => r.job_opening_id).filter((id): id is string => !!id),
+      ),
+    ],
     [dbRows],
   );
 
@@ -243,7 +264,9 @@ export function useCandidatePipelineState(
           { credentials: "include", signal: ac.signal },
         );
         if (!res.ok) return;
-        const json = (await res.json()) as { configs?: Record<string, PipelineConfigForJob> };
+        const json = (await res.json()) as {
+          configs?: Record<string, PipelineConfigForJob>;
+        };
         if (!json.configs) return;
         setPipelineConfigByJob((prev) => ({ ...prev, ...json.configs }));
       } catch {
@@ -288,12 +311,6 @@ export function useCandidatePipelineState(
     void fetchCandidates();
   }, [fetchCandidates, listFilterKey, page]);
 
-  useEffect(() => {
-    if (uploadDateRangeFilter?.start) {
-      setCalendarFocusedDate(uploadDateRangeFilter.start);
-    }
-  }, [uploadDateRangeFilter]);
-
   const fetchCvHistoryForCandidate = useCallback(
     async (
       candidateId: string,
@@ -305,10 +322,13 @@ export function useCandidatePipelineState(
         setCvHistoryError(null);
       }
       try {
-        const res = await fetch(`/api/admin/candidates/${candidateId}/cv-history`, {
-          credentials: "include",
-          signal: opts?.signal,
-        });
+        const res = await fetch(
+          `/api/admin/candidates/${candidateId}/cv-history`,
+          {
+            credentials: "include",
+            signal: opts?.signal,
+          },
+        );
         const json = (await res.json()) as {
           error?: string;
           history?: CandidateCvHistoryRow[];
@@ -372,9 +392,10 @@ export function useCandidatePipelineState(
         const json = (await res.json()) as { candidate?: any };
         const rawCandidate = json.candidate;
         if (!rawCandidate || ac.signal.aborted) return;
-        const c = "candidate_id" in rawCandidate
-          ? campaignAppliedToCandidateDbRow(rawCandidate)
-          : (rawCandidate as CandidateDbRow);
+        const c =
+          "candidate_id" in rawCandidate
+            ? campaignAppliedToCandidateDbRow(rawCandidate)
+            : (rawCandidate as CandidateDbRow);
         setDbRows((prev) =>
           prev.map((r) => {
             if (r.id !== c.id) return r;
@@ -472,9 +493,14 @@ export function useCandidatePipelineState(
     return {
       stageMappingId,
       subStateId,
-      stageMapping: stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
+      stageMapping:
+        stageMappings.find((sm) => sm.id === stageMappingId) ?? null,
       subStage: subStages.find((ss) => ss.id === subStateId) ?? null,
-      orphaned: wasCandidateStageOrphaned(activeDbRow, stageMappings, subStages),
+      orphaned: wasCandidateStageOrphaned(
+        activeDbRow,
+        stageMappings,
+        subStages,
+      ),
     };
   }, [activeDbRow, activeJobPipelineConfig]);
 
@@ -587,8 +613,6 @@ export function useCandidatePipelineState(
     setParsingStatusKey,
     uploadDateRangeFilter,
     setUploadDateRangeFilter,
-    calendarFocusedDate,
-    setCalendarFocusedDate,
     drawerOpen,
     setDrawerOpen,
     activeRow,

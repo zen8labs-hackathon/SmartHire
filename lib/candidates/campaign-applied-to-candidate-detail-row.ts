@@ -1,13 +1,6 @@
-import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
-import { formatCandidateSourceLabel } from "@/lib/candidates/source-constants";
+import type { CandidateWithExtraInfoRow } from "@/lib/db/candidates";
 import { formatDisplayDate } from "@/lib/format-date";
 
-/**
- * Candidate-detail view model for `/admin/candidate-detail/[id]`. Unlike
- * `JobPipelineCandidateRow`, this deliberately drops every pipeline
- * stage/sub-stage field -- this page shows the person's profile and CV
- * versions, not their position in a job's pipeline.
- */
 export type CandidateDetailRow = {
   id: string;
   name: string;
@@ -25,27 +18,24 @@ export type CandidateDetailRow = {
   jobTitle: string | null;
 };
 
-export function campaignAppliedAdminRowToCandidateDetailRow(
-  r: CampaignAppliedAdminRow,
+export function candidateToCandidateDetailRow(
+  r: CandidateWithExtraInfoRow,
 ): CandidateDetailRow {
-  const major =
-    [r.candidate_degree, r.candidate_education].filter(Boolean).join(" · ") ||
-    "—";
+  const major = [r.degree, r.education].filter(Boolean).join(" · ") || "—";
 
   return {
     id: r.id,
-    name: r.candidate_name ?? "—",
-    dateOfBirth: formatDisplayDate(r.cv_date_of_birth),
-    mobile: r.candidate_phone ?? "—",
-    email: r.candidate_email ?? "—",
-    studentYears: r.cv_student_years ?? "—",
+    name: r.name ?? "—",
+    dateOfBirth: formatDisplayDate(r.date_of_birth),
+    mobile: r.phone ?? "—",
+    email: r.email ?? "—",
+    studentYears: r.student_years ?? "—",
     majorSchool: major,
-    gpa: r.cv_gpa ?? "—",
-    english: r.cv_english_level ?? "—",
-    relatedSkills:
-      r.candidate_skills.length > 0 ? r.candidate_skills.join(", ") : "—",
-    expectedSalary: r.expected_salary?.trim() || null,
-    sourceLabel: formatCandidateSourceLabel(r.source, r.source_other),
-    jobTitle: r.job_position ?? null,
+    gpa: r.gpa ?? "—",
+    english: r.english_level ?? "—",
+    relatedSkills: r.skills.length > 0 ? r.skills.join(", ") : "—",
+    expectedSalary: null,
+    sourceLabel: "—",
+    jobTitle: null,
   };
 }

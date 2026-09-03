@@ -1,25 +1,13 @@
 import React, { useMemo, type DragEvent, type ChangeEvent } from "react";
-import {
-  Modal,
-  Card,
-  Button,
-  TextField,
-  Label,
-  Input,
-  DateField,
-  DateRangePicker,
-  RangeCalendar,
-} from "@heroui/react";
-import { Dialog, type RangeValue } from "react-aria-components";
+import { Modal, Card, Button, TextField, Label, Input } from "@heroui/react";
+import type { RangeValue } from "react-aria-components";
 import { parseDate, type CalendarDate } from "@internationalized/date";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
-import {
-  CheckCircle as CheckCircleIcon,
-  Calendar as CalendarIcon,
-} from "lucide-react";
+import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
 import { JdPipelineStageSelect } from "./jd-stage-select";
+import { DateRangeCalendarField } from "@/components/admin/shell/date-range-calendar-field";
 
 export function JdCreateModal() {
   const {
@@ -213,7 +201,7 @@ export function JdCreateModal() {
                     Hiring Date{" "}
                     <span className="font-normal text-danger">*</span>
                   </Label>
-                  <DateRangePicker
+                  <DateRangeCalendarField
                     value={dateRangeValue}
                     onChange={(val) => {
                       if (val?.start && val?.end) {
@@ -231,70 +219,9 @@ export function JdCreateModal() {
                       )
                     }
                     className="w-full"
-                  >
-                    <DateField.Group
-                      fullWidth
-                      variant="primary"
-                      className="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-10 rounded-xl py-1 px-3 text-sm"
-                    >
-                      <DateField.InputContainer className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-                        <DateField.Input slot="start" className="outline-none">
-                          {(segment) => <DateField.Segment segment={segment} />}
-                        </DateField.Input>
-                        <DateRangePicker.RangeSeparator className="shrink-0 px-0.5 text-muted">
-                          –
-                        </DateRangePicker.RangeSeparator>
-                        <DateField.Input slot="end" className="outline-none">
-                          {(segment) => <DateField.Segment segment={segment} />}
-                        </DateField.Input>
-                      </DateField.InputContainer>
-                      <DateField.Suffix>
-                        <DateRangePicker.Trigger className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
-                          <CalendarIcon className="h-3.5 w-3.5" />
-                        </DateRangePicker.Trigger>
-                      </DateField.Suffix>
-                    </DateField.Group>
-                    <DateRangePicker.Popover>
-                      <Dialog className="outline-none border border-divider rounded-2xl bg-surface-primary p-4 shadow-2xl z-50">
-                        <RangeCalendar>
-                          <RangeCalendar.Header className="flex items-center justify-between mb-2">
-                            <RangeCalendar.NavButton slot="previous" />
-                            <RangeCalendar.Heading className="text-xs font-bold" />
-                            <RangeCalendar.NavButton slot="next" />
-                          </RangeCalendar.Header>
-                          <RangeCalendar.Grid
-                            weekdayStyle="short"
-                            className="border-collapse"
-                          >
-                            <RangeCalendar.GridHeader>
-                              {(day) => (
-                                <RangeCalendar.HeaderCell className="text-[10px] text-muted font-bold py-1">
-                                  {day}
-                                </RangeCalendar.HeaderCell>
-                              )}
-                            </RangeCalendar.GridHeader>
-                            <RangeCalendar.GridBody>
-                              {(date) => (
-                                <RangeCalendar.Cell
-                                  date={date}
-                                  className="w-8 h-8 text-center text-xs font-medium cursor-pointer relative p-0"
-                                >
-                                  {({ formattedDate }) => (
-                                    <>
-                                      <RangeCalendar.CellIndicator className="absolute inset-0 bg-accent/10 rounded-lg" />
-                                      <span className="relative z-[1] flex items-center justify-center h-full w-full rounded-lg hover:bg-accent/15">
-                                        {formattedDate}
-                                      </span>
-                                    </>
-                                  )}
-                                </RangeCalendar.Cell>
-                              )}
-                            </RangeCalendar.GridBody>
-                          </RangeCalendar.Grid>
-                        </RangeCalendar>
-                      </Dialog>
-                    </DateRangePicker.Popover>
-                  </DateRangePicker>
+                    dateFieldClassName="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-10 rounded-xl py-1 px-3 text-sm"
+                    allowClear={false}
+                  />
                   {(createFieldErrors.start_date ||
                     createFieldErrors.hiring_deadline) && (
                     <p className="text-xs text-danger">

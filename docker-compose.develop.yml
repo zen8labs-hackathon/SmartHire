@@ -31,6 +31,20 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: smarthire_dev_redis
+    restart: unless-stopped
+    volumes:
+      - smarthire_dev_redis:/data
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   minio:
     image: minio/minio:latest
     container_name: smarthire_dev_minio
@@ -102,6 +116,7 @@ services:
       NODE_ENV: production
       PORT: "3200"
       DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}
+      REDIS_URL: redis://redis:6379
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire-dev.zen8labs.io}
@@ -112,10 +127,50 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       minio:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+
+  # ─── BullMQ worker: xử lý job upload CV / manual candidate / rerun AI match ──
+  # Chạy từ source qua tsx (`npm run worker`), giống service `migrate`.
+  # Repo phải được checkout trên server (đã có: /opt/smarthire/app-develop).
+  worker:
+    image: node:20-alpine
+    container_name: smarthire_dev_worker
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire_dev}
+      REDIS_URL: redis://redis:6379
+      # Worker chỉ GET file server-side -> gọi thẳng MinIO trong network compose,
+      # không cần đi qua nginx/DNS/TLS công khai. forcePathStyle tự bật khi có
+      # AWS_ENDPOINT_URL (lib/storage/s3.ts).
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_ENDPOINT_URL: http://minio:9000
+      # Worker "hích" notification realtime tới app qua HTTP nội bộ. Trong
+      # network compose gọi qua tên service + cổng nội bộ 3200. INTERNAL_API_SECRET
+      # lấy từ .env (phải khớp với app).
+      INTERNAL_APP_URL: http://app:3200
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: sh -c "npm install && npm run worker"
 
   # ─── Logging stack (shared with prod — same Loki/Grafana instance) ──────────
   # Dev app logs go to the same Loki + Grafana as production.
@@ -125,3 +180,4 @@ services:
 volumes:
   smarthire_dev_pgdata:
   smarthire_dev_minio:
+  smarthire_dev_redis:

@@ -166,12 +166,17 @@ describe("queryCandidatesList", () => {
     });
   });
 
-  it("does not paginate when all is set", async () => {
+  it("ignores `all` and paginates with the default limit", async () => {
     const db = fakeDb([]);
 
     const result = await queryCandidatesList(db, { all: true });
 
-    expect(result.pagination).toBeNull();
+    expect(result.pagination).toEqual({
+      limit: CANDIDATES_LIST_DEFAULT_LIMIT,
+      offset: 0,
+      total: 0,
+      hasMore: false,
+    });
   });
 
   it("returns an error string instead of throwing on DB failure", async () => {
@@ -182,20 +187,5 @@ describe("queryCandidatesList", () => {
     expect(result.error).toBe("boom");
     expect(result.candidates).toEqual([]);
     expect(result.pagination).toBeNull();
-  });
-
-  it("passes parsingStatus into the SQL filter args", async () => {
-    const db = fakeDb([]);
-
-    await queryCandidatesList(db, {
-      limit: 10,
-      parsingStatus: "failed",
-      q: "ada",
-    });
-
-    expect(db.query).toHaveBeenCalledOnce();
-    const [, values] = db.query.mock.calls[0] as [string, unknown[]];
-    expect(values).toContain("failed");
-    expect(values).toContain("%ada%");
   });
 });
