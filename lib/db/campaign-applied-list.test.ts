@@ -104,6 +104,16 @@ describe("listCampaignAppliedForAdmin", () => {
     expect(values[0]).toBe("%engineer%");
   });
 
+  it("searches the active CV's education instead of the candidate snapshot when jobId is set", async () => {
+    const db = fakeDb([]);
+
+    await listCampaignAppliedForAdmin(db, { jobId: "job-1", q: "engineer" });
+
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("c.name ILIKE $2");
+    expect(sql).toContain("cv.education ILIKE $2");
+  });
+
   it("applies upload date range against COALESCE(cv.created_at, ca.created_at)", async () => {
     const db = fakeDb([]);
 

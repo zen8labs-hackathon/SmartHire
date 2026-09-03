@@ -12,18 +12,19 @@ import {
   Separator,
   Spinner,
 } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import { useToast } from "@/components/admin/toast-provider";
-import type { CandidateCvHistoryRow } from "@/lib/candidates/cv-history-types";
-import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
-import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
 import { groupSkillsForDisplay } from "@/lib/candidates/group-skills-for-display";
-import type { CandidateRow } from "@/lib/candidates/types";
 import { formatDisplayDate } from "@/lib/format-date";
+import {
+  CandidateApplicationRow,
+  candidateService,
+  GroupedCandidateRow,
+} from "@/lib/service/candidate.service";
 
 type OtherApplicationItem = {
   id: string;
@@ -53,29 +54,29 @@ function formatDayMonthYear(iso: string | null | undefined): string {
   return formatDisplayDate(iso);
 }
 
-type CvCardModel = {
-  name: string;
-  role: string;
-  skills: string[];
-  parsed: ReturnType<typeof normalizeParsedResume>;
-  cvUploadedAtLabel: string;
-};
-
-function CvPreviewCard({ model }: { model: CvCardModel }) {
-  const { parsed } = model;
+function CvPreviewCard({ model }: { model: GroupedCandidateRow }) {
   const skillSections = useMemo(
-    () => groupSkillsForDisplay(model.skills),
+    () => groupSkillsForDisplay(model.skills ?? []),
     [model.skills],
   );
+
+  const name = model.name?.trim() || "—";
+  const role = model.role?.trim() || "—";
+
   const credParts: string[] = [];
-  if (parsed.degree?.trim()) credParts.push(parsed.degree.trim());
-  if (parsed.school?.trim()) credParts.push(parsed.school.trim());
-  if (parsed.englishLevel?.trim()) credParts.push(parsed.englishLevel.trim());
-  if (parsed.gpa?.trim()) credParts.push(`GPA: ${parsed.gpa.trim()}`);
+  if (model.degree?.trim()) credParts.push(model.degree.trim());
+  if (model.education?.trim()) credParts.push(model.education.trim());
   const hasCredentials = credParts.length > 0;
-  const contactBits: string[] = [];
-  if (parsed.email?.trim()) contactBits.push(parsed.email.trim());
-  if (parsed.phone?.trim()) contactBits.push(parsed.phone.trim());
+
+  const email = model.email?.trim() || null;
+  const phone = model.phone?.trim() || null;
+  const hasContact = Boolean(email || phone);
+
+  const experienceYears = model.experience_years
+    ? Number.parseFloat(model.experience_years)
+    : null;
+  const hasExperienceYears =
+    experienceYears != null && Number.isFinite(experienceYears);
 
   const sectionLabel =
     "text-[10px] font-bold uppercase tracking-[0.2em] text-muted";
@@ -85,16 +86,45 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
       <Card.Header className="flex flex-col gap-1 border-0 px-5 pb-3 pt-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-6 sm:pb-3 sm:pt-5">
         <div className="min-w-0">
           <Card.Title className="truncate text-xl font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
-            {model.name}
+            {name}
           </Card.Title>
           <p className="mt-0.5 truncate text-sm font-semibold italic text-accent">
-            {model.role}
+            {role}
           </p>
         </div>
-        {contactBits.length > 0 ? (
-          <p className="min-w-0 shrink-0 break-words text-right text-xs leading-relaxed text-muted sm:max-w-[240px]">
-            {contactBits.join(" · ")}
-          </p>
+        {hasContact ? (
+          <dl className="min-w-0 shrink-0 space-y-1 text-xs leading-relaxed sm:max-w-[260px] sm:text-right">
+            {email ? (
+              <div className="flex items-baseline gap-2 sm:justify-end">
+                <dt className="shrink-0 font-semibold uppercase tracking-wide text-[10px] text-muted">
+                  Email
+                </dt>
+                <dd className="min-w-0">
+                  <a
+                    href={`mailto:${email}`}
+                    className="break-all font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {email}
+                  </a>
+                </dd>
+              </div>
+            ) : null}
+            {phone ? (
+              <div className="flex items-baseline gap-2 sm:justify-start">
+                <dt className="shrink-0 font-semibold uppercase tracking-wide text-[10px] text-muted">
+                  Phone
+                </dt>
+                <dd className="min-w-0">
+                  <a
+                    href={`tel:${phone}`}
+                    className="break-all font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {phone}
+                  </a>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
         ) : null}
       </Card.Header>
       <Separator className="mx-5 sm:mx-6" />
@@ -129,7 +159,7 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
 
             {hasCredentials ? (
               <div>
-                <p className={sectionLabel}>Certifications</p>
+                <p className={sectionLabel}>Education</p>
                 <ul className="mt-2 max-w-none list-none space-y-1.5 text-sm leading-relaxed text-foreground">
                   {credParts.map((line, idx) => (
                     <li key={`${idx}-${line}`} className="break-words">
@@ -143,47 +173,26 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
 
           <div className="flex min-w-0 flex-col gap-5 lg:col-span-6">
             <div>
-              <p className={sectionLabel}>Professional summary</p>
-              {parsed.experienceSummary?.trim() ? (
-                <p className="mt-2 text-sm leading-relaxed text-foreground">
-                  {parsed.experienceSummary.trim()}
-                </p>
-              ) : (
-                <p className="mt-2 text-sm text-muted">
-                  No structured work history extracted for this upload.
-                </p>
-              )}
-            </div>
-
-            <Separator />
-
-            <div>
               <p className={sectionLabel}>Experience</p>
               <div className="mt-2 space-y-2 text-sm">
                 <p className="font-semibold text-foreground">
                   Recent focus —{" "}
                   <span className="font-semibold italic text-accent">
-                    {model.role}
+                    {role}
                   </span>
                 </p>
-                {parsed.experienceYears != null &&
-                Number.isFinite(parsed.experienceYears) ? (
+                {hasExperienceYears ? (
                   <p className="text-muted">
-                    Total experience (parsed):{" "}
+                    Total experience:{" "}
                     <span className="font-medium tabular-nums text-foreground">
-                      {parsed.experienceYears} years
+                      {experienceYears} years
                     </span>
                   </p>
                 ) : (
                   <p className="text-muted">
-                    Years of experience were not parsed for this file.
+                    Years of experience are not set for this candidate.
                   </p>
                 )}
-                <p className="text-xs leading-relaxed text-muted">
-                  Structured employers and bullet achievements appear here when
-                  the CV parser provides them; until then, use the professional
-                  summary.
-                </p>
               </div>
             </div>
           </div>
@@ -196,39 +205,21 @@ function CvPreviewCard({ model }: { model: CvCardModel }) {
 export type CvVersionComparisonDrawerProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  tableRow: CandidateRow;
-  dbRow: CandidateDbRow | null;
-  /** Kept for API compatibility; no longer rendered. */
-  cvHistoryRows?: CandidateCvHistoryRow[];
-  /** Kept for API compatibility; no longer rendered. */
-  cvVersions?: CvManagementVersionListItem[];
-  /** Kept for API compatibility; no longer rendered. */
-  cvHistoryLoading?: boolean;
-  /** Kept for API compatibility; no longer rendered. */
-  cvHistoryError?: string | null;
+  tableRow: GroupedCandidateRow;
   onProfileSaved?: (candidate: CandidateDbRow) => void;
-  /** Not currently called by this component -- see the "assign to another
-   * job" handler's comment for why a full list refetch while this drawer
-   * is open is unsafe under the deduped candidates list. Kept for API
-   * compatibility with callers that still pass it. */
-  onAfterCvDetailMutation?: () => void | Promise<void>;
 };
 
 export function CvVersionComparisonDrawer({
   isOpen,
   onOpenChange,
   tableRow,
-  dbRow,
-  onProfileSaved = () => {},
-  onAfterCvDetailMutation = () => {},
 }: CvVersionComparisonDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [otherApplications, setOtherApplications] = useState<
-    OtherApplicationItem[]
+    CandidateApplicationRow[]
   >([]);
   const [otherAppsLoading, setOtherAppsLoading] = useState(false);
-  const [otherAppsError, setOtherAppsError] = useState<string | null>(null);
 
   const [otherAppsExpanded, setOtherAppsExpanded] = useState(false);
   const otherAppsLoadedRef = useRef(false);
@@ -237,44 +228,37 @@ export function CvVersionComparisonDrawer({
    * one, so the auto-expanded panel is never left off-screen unnoticed. */
   const otherAppsSectionRef = useRef<HTMLDivElement>(null);
 
-  // CJ4X9M: "Assign to job" -- for an unassigned/pool application, attaches
-  // a job in place; for one that already has a job, adds a second, separate
-  // application for the newly chosen job instead (see assign-job/route.ts).
   const [assignableJobs, setAssignableJobs] = useState<JobOpening[]>([]);
   const [assignableJobsLoaded, setAssignableJobsLoaded] = useState(false);
   const [assignJobKey, setAssignJobKey] = useState<string | null>(null);
   const [assigningJob, setAssigningJob] = useState(false);
   const [assignJobError, setAssignJobError] = useState<string | null>(null);
   const [cvPreviewApp, setCvPreviewApp] =
-    useState<OtherApplicationItem | null>(null);
+    useState<CandidateApplicationRow | null>(null);
 
-  const fetchOtherApps = useCallback(() => {
+  const fetchOtherApps = useCallback(async () => {
     if (otherAppsLoadedRef.current) return;
     otherAppsLoadedRef.current = true;
     setOtherAppsLoading(true);
-    setOtherAppsError(null);
-    fetch(`/api/admin/candidates/${tableRow.id}/other-applications`, {
-      credentials: "include",
-    })
-      .then((res) => res.json())
-      .then(
-        (json: { applications?: OtherApplicationItem[]; error?: string }) => {
-          if (json.error) {
-            setOtherAppsError(json.error);
-          } else {
-            setOtherApplications(json.applications ?? []);
-          }
-        },
-      )
-      .catch(() => setOtherAppsError("Could not load applications."))
-      .finally(() => setOtherAppsLoading(false));
-  }, [tableRow.id]);
+    try {
+      const { applications, pagination } =
+        await candidateService.getCandidateApplications(tableRow.id);
+      setOtherApplications(applications ?? []);
+    } catch (e) {
+      // Let a later expand retry the fetch instead of staying empty.
+      otherAppsLoadedRef.current = false;
+      toast.error(
+        e instanceof Error ? e.message : "Could not load applications.",
+      );
+    } finally {
+      setOtherAppsLoading(false);
+    }
+  }, [tableRow.id, toast]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
         setOtherApplications([]);
-        setOtherAppsError(null);
         otherAppsLoadedRef.current = false;
         setOtherAppsExpanded(false);
         setOtherAppsShowAll(false);
@@ -315,7 +299,7 @@ export function CvVersionComparisonDrawer({
     setAssignJobError(null);
     try {
       const res = await fetch(
-        `/api/admin/candidates/${tableRow.id}/assign-job`,
+        `/api/admin/candidates/profile/${tableRow.id}/assign-job`,
         {
           method: "POST",
           credentials: "include",
@@ -323,9 +307,8 @@ export function CvVersionComparisonDrawer({
           body: JSON.stringify({ jobId: assignJobKey }),
         },
       );
-      const json = (await res.json()) as {
+      const json = (await res.json().catch(() => ({}))) as {
         error?: string;
-        candidate?: unknown;
         created?: boolean;
       };
       if (!res.ok) {
@@ -333,104 +316,43 @@ export function CvVersionComparisonDrawer({
           json.error ?? "Could not assign this candidate to a job.",
         );
       }
-      if (json.created) {
-        // A brand-new application was created for the additional job (this
-        // candidate already had one) -- it has its own id, so there's no
-        // "current row" in this drawer to patch in place. Refresh this
-        // drawer's own "Other applications" panel only, so the new
-        // application shows up there.
-        //
-        // Deliberately NOT calling onAfterCvDetailMutation() here: the
-        // /candidates page list is fetched in "deduped" mode (one row per
-        // candidate, picked via `DISTINCT ON (candidate_id) ORDER BY
-        // candidate_id, id DESC` -- see listDedupedCandidatesForAdmin).
-        // Refetching that list right after creating a second application
-        // for this same candidate can make the dedup query pick the
-        // brand-new application as this candidate's representative row
-        // instead of the one open in this drawer (tableRow.id) -- since
-        // dbRows gets replaced wholesale, the currently-open row can vanish
-        // from it entirely, and every dbRow-derived section here (CV
-        // preview details, "Edit candidate") blanks out mid-session even
-        // though nothing about this application actually changed. The list
-        // will simply pick up the new application on its own next natural
-        // refresh (filter/page change, or reopening the page).
-        otherAppsLoadedRef.current = false;
-        fetchOtherApps();
-        setOtherAppsShowAll(false);
-        // Scrolled into view explicitly -- the panel can auto-expand off
-        // screen (below the CV preview / job-assignment cards), which reads
-        // as "nothing happened" even though it did.
-        requestAnimationFrame(() => {
-          otherAppsSectionRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
+
+      otherAppsLoadedRef.current = false;
+      setOtherAppsShowAll(false);
+      setOtherAppsExpanded(true);
+      fetchOtherApps();
+      requestAnimationFrame(() => {
+        otherAppsSectionRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
         });
-        toast.success(
-          targetJob
-            ? `Added a new application for ${targetJob.displayTitle}.`
-            : "Added a new application for the selected job.",
-        );
-      } else if (json.candidate) {
-        // The route responds with a `CampaignAppliedAdminRow`, not a
-        // `CandidateDbRow` -- same shape ambiguity the dashboard's own
-        // `onProfileSaved` already normalizes (see its `"candidate_id" in
-        // rawC` branch), so this cast mirrors that existing contract.
-        onProfileSaved(json.candidate as CandidateDbRow);
-        toast.success(
-          targetJob ? `Assigned to ${targetJob.displayTitle}.` : "Job assigned.",
-        );
-      }
+      });
+      toast.success(
+        targetJob
+          ? `Added a new application for ${targetJob.displayTitle}.`
+          : "Added a new application for the selected job.",
+      );
       setAssignJobKey(null);
     } catch (e) {
       const msg =
-        e instanceof Error ? e.message : "Could not assign this candidate to a job.";
+        e instanceof Error
+          ? e.message
+          : "Could not assign this candidate to a job.";
       setAssignJobError(msg);
       toast.error(msg);
     } finally {
       setAssigningJob(false);
     }
-  }, [assignJobKey, assignableJobs, tableRow.id, onProfileSaved, fetchOtherApps, toast]);
+  }, [assignJobKey, assignableJobs, tableRow.id, fetchOtherApps, toast]);
 
-  const activeParsed = useMemo(
-    () => normalizeParsedResume(dbRow?.parsed_payload),
-    [dbRow?.parsed_payload],
-  );
-
-  const activeCardModel = useMemo((): CvCardModel => {
-    const skills =
-      dbRow?.skills && dbRow.skills.length > 0
-        ? [...dbRow.skills]
-        : activeParsed.skills;
-    const name =
-      activeParsed.name?.trim() || dbRow?.name?.trim() || tableRow.name || "—";
-    const role =
-      activeParsed.role?.trim() || dbRow?.role?.trim() || tableRow.role || "—";
-    const uploaded = dbRow?.cv_uploaded_at?.trim() || dbRow?.created_at || null;
-    return {
-      name,
-      role,
-      skills,
-      parsed: activeParsed,
-      cvUploadedAtLabel: formatDayMonthYear(uploaded),
-    };
-  }, [activeParsed, dbRow, tableRow.name, tableRow.role]);
-
-  const currentJobDescriptionId = tableRow.jobDescriptionId;
-  const isUnassigned = currentJobDescriptionId == null;
-  // Excludes every job this candidate already has a live application for --
-  // the current one plus every "Other applications" entry -- so the picker
-  // never offers a job that would just bounce off the backend's duplicate-
-  // application guard. Requires `otherApplications` to be loaded eagerly
-  // (below) rather than only once that panel is expanded.
   const appliedJobIds = useMemo(() => {
     const ids = new Set<string>();
-    if (currentJobDescriptionId) ids.add(currentJobDescriptionId);
     for (const app of otherApplications) {
-      if (app.jobDescriptionId) ids.add(app.jobDescriptionId);
+      if (app.job_id) ids.add(app.job_id);
     }
     return ids;
-  }, [currentJobDescriptionId, otherApplications]);
+  }, [otherApplications]);
+
   const jobPickerOptions = assignableJobs.filter(
     (j) => !appliedJobIds.has(j.id),
   );
@@ -449,289 +371,284 @@ export function CvVersionComparisonDrawer({
 
   return (
     <>
-    <Drawer.Backdrop isOpen={isOpen} onOpenChange={handleOpenChange}>
-      <Drawer.Content placement="right">
-        <Drawer.Dialog className="flex h-dvh max-h-dvh w-full max-w-[min(100vw-0.5rem,960px)] flex-col">
-          <Drawer.CloseTrigger />
-          <Drawer.Header className="shrink-0 border-b border-divider bg-background px-5 py-3.5 sm:px-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <Drawer.Heading className="truncate text-lg font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
-                  {tableRow.name}
-                </Drawer.Heading>
-                <p className="mt-0.5 truncate text-sm text-muted">
-                  {tableRow.role}
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onPress={() =>
-                    router.push(`/admin/candidate-detail/${tableRow.id}`)
-                  }
-                >
-                  View detail
-                </Button>
-              </div>
-            </div>
-          </Drawer.Header>
-
-          <Drawer.Body className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto bg-slate-50/90 px-5 py-4 sm:px-6 dark:bg-muted/20">
-            <div className="mx-auto w-full max-w-[960px]">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <Chip
-                      size="sm"
-                      variant="soft"
-                      color="success"
-                      className="h-7 w-fit border border-emerald-300/90 px-2.5 font-bold uppercase tracking-wide shadow-sm dark:border-emerald-700/50"
-                    >
-                      Active version
-                    </Chip>
-                    <p className="text-xs text-muted">
-                      Last modified: {activeCardModel.cvUploadedAtLabel}
-                    </p>
-                  </div>
+      <Drawer.Backdrop isOpen={isOpen} onOpenChange={handleOpenChange}>
+        <Drawer.Content placement="right">
+          <Drawer.Dialog className="flex h-dvh max-h-dvh w-full max-w-[min(100vw-0.5rem,960px)] flex-col">
+            <Drawer.CloseTrigger />
+            <Drawer.Header className="shrink-0 border-b border-divider bg-background px-5 py-3.5 sm:px-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <Drawer.Heading className="truncate text-lg font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
+                    {tableRow.name}
+                  </Drawer.Heading>
+                  <p className="mt-0.5 truncate text-sm text-muted">
+                    {tableRow.role}
+                  </p>
                 </div>
-                <CvPreviewCard model={activeCardModel} />
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onPress={() =>
+                      router.push(`/admin/candidate-detail/${tableRow.id}`)
+                    }
+                  >
+                    View detail
+                  </Button>
+                </div>
               </div>
-            </div>
+            </Drawer.Header>
 
-            <div className="mx-auto w-full max-w-[960px]">
-              <Card className="overflow-hidden border border-divider p-0">
-                <div className="px-4 py-4 sm:px-6 sm:py-5">
-                  <p className="text-lg font-semibold tracking-tight text-foreground">
-                    Job assignment
-                  </p>
-                  <p className="mt-0.5 text-sm font-normal text-muted">
-                    {isUnassigned
-                      ? "No Job Assigned yet — this CV is sitting in the candidate pool. Assign a job to move it into that job's pipeline."
-                      : "Already applying to a job. Assigning another one adds a separate application for it, copying over the current CV as its starting version."}
-                  </p>
-
-                  {jobPickerOptions.length === 0 ? (
-                    <p className="mt-4 rounded-xl border border-dashed border-divider bg-surface-secondary/20 px-3 py-3 text-xs text-muted">
-                      No open jobs left to assign — this candidate already has
-                      an application for every available position.
-                    </p>
-                  ) : (
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <Select
-                        aria-label="Assign to job"
-                        placeholder="Select a job…"
-                        isDisabled={assigningJob}
-                        value={assignJobKey}
-                        onChange={(key) => {
-                          if (typeof key === "string") setAssignJobKey(key);
-                        }}
-                        className="min-w-0 w-full flex-1"
-                      >
-                        <Select.Trigger className="h-9 min-h-9 w-full min-w-0 justify-start gap-1 overflow-hidden rounded-xl border border-divider bg-surface-secondary/40 px-3 text-xs">
-                          <Select.Value className="min-w-0 truncate pr-2">
-                            {({ selectedText }) => selectedText}
-                          </Select.Value>
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            {jobPickerOptions.map((j) => {
-                              const createdLabel = formatDayMonthYear(
-                                j.createdAt,
-                              );
-                              const textValue =
-                                createdLabel === "—"
-                                  ? j.displayTitle
-                                  : `${j.displayTitle} (${createdLabel})`;
-                              return (
-                                <ListBox.Item
-                                  key={j.id}
-                                  id={j.id}
-                                  textValue={textValue}
-                                >
-                                  <span className="flex min-w-0 flex-col">
-                                    <span className="truncate pr-2">
-                                      {j.displayTitle}
-                                    </span>
-                                    <span className="text-xs text-muted">
-                                      Created at {createdLabel}
-                                    </span>
-                                  </span>
-                                  <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                              );
-                            })}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
-                      <Button
+            <Drawer.Body className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto bg-slate-50/90 px-5 py-4 sm:px-6 dark:bg-muted/20">
+              <div className="mx-auto w-full max-w-[960px]">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    {/* <div className="space-y-0.5">
+                      <Chip
                         size="sm"
-                        variant="primary"
-                        className="h-9 shrink-0 rounded-xl px-4 text-xs font-bold sm:self-auto"
-                        isDisabled={!assignJobKey || assigningJob}
-                        isPending={assigningJob}
-                        onPress={() => void handleAssignJob()}
+                        variant="soft"
+                        color="success"
+                        className="h-7 w-fit border border-emerald-300/90 px-2.5 font-bold uppercase tracking-wide shadow-sm dark:border-emerald-700/50"
                       >
-                        {assigningJob
-                          ? "Assigning…"
-                          : isUnassigned
-                            ? "Assign"
-                            : "Add application"}
-                      </Button>
-                    </div>
-                  )}
-
-                  {assignJobError ? (
-                    <p
-                      className="mt-2 text-xs font-semibold text-rose-500"
-                      role="alert"
-                    >
-                      {assignJobError}
-                    </p>
-                  ) : null}
+                        Active version
+                      </Chip>
+                      <p className="text-xs text-muted">
+                        Last modified: {activeCardModel.cvUploadedAtLabel}
+                      </p>
+                    </div> */}
+                  </div>
+                  <CvPreviewCard model={tableRow} />
                 </div>
-              </Card>
-            </div>
+              </div>
 
-            <div ref={otherAppsSectionRef} className="mx-auto w-full max-w-[960px]">
-              <Card className="overflow-hidden p-0">
-                <Disclosure
-                  isExpanded={otherAppsExpanded}
-                  onExpandedChange={(expanded) => {
-                    setOtherAppsExpanded(expanded);
-                    if (expanded) fetchOtherApps();
-                  }}
-                >
-                  <Disclosure.Heading className="px-4 pb-4 m:px-6 sm:pt-4">
-                    <Disclosure.Trigger className="flex w-full max-w-full items-center pl-6 justify-between gap-3 rounded-md py-1 text-left outline-none pressed:bg-muted/50">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-lg font-semibold tracking-tight text-foreground">
-                          All applications
-                        </p>
-                        <p className="text-sm font-normal text-muted">
-                          Every CV this candidate has submitted, across all
-                          positions.
-                        </p>
+              <div className="mx-auto w-full max-w-[960px]">
+                <Card className="overflow-hidden border border-divider p-0">
+                  <div className="px-4 py-4 sm:px-6 sm:py-5">
+                    <p className="text-lg font-semibold tracking-tight text-foreground">
+                      Job assignment
+                    </p>
+                    <p className="mt-0.5 text-sm font-normal text-muted">
+                      Assign this candidate to a job to add an application for
+                      it
+                    </p>
+
+                    {jobPickerOptions.length === 0 ? (
+                      <p className="mt-4 rounded-xl border border-dashed border-divider bg-surface-secondary/20 px-3 py-3 text-xs text-muted">
+                        No open jobs left to assign
+                      </p>
+                    ) : (
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Select
+                          aria-label="Assign to job"
+                          placeholder="Select a job…"
+                          isDisabled={assigningJob}
+                          value={assignJobKey}
+                          onChange={(key) => {
+                            if (typeof key === "string") setAssignJobKey(key);
+                          }}
+                          className="min-w-0 w-full flex-1"
+                        >
+                          <Select.Trigger className="h-9 min-h-9 w-full min-w-0 justify-start gap-1 overflow-hidden rounded-xl border border-divider bg-surface-secondary/40 px-3 text-xs">
+                            <Select.Value className="min-w-0 truncate pr-2">
+                              {({ selectedText }) => selectedText}
+                            </Select.Value>
+                            <Select.Indicator />
+                          </Select.Trigger>
+                          <Select.Popover>
+                            <ListBox>
+                              {jobPickerOptions.map((j) => {
+                                const createdLabel = formatDayMonthYear(
+                                  j.createdAt,
+                                );
+                                const textValue =
+                                  createdLabel === "—"
+                                    ? j.displayTitle
+                                    : `${j.displayTitle} (${createdLabel})`;
+                                return (
+                                  <ListBox.Item
+                                    key={j.id}
+                                    id={j.id}
+                                    textValue={textValue}
+                                  >
+                                    <span className="flex min-w-0 flex-col">
+                                      <span className="truncate pr-2">
+                                        {j.displayTitle}
+                                      </span>
+                                      <span className="text-xs text-muted">
+                                        Created at {createdLabel}
+                                      </span>
+                                    </span>
+                                    <ListBox.ItemIndicator />
+                                  </ListBox.Item>
+                                );
+                              })}
+                            </ListBox>
+                          </Select.Popover>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          className="h-9 shrink-0 rounded-xl px-4 text-xs font-bold sm:self-auto"
+                          isDisabled={!assignJobKey || assigningJob}
+                          isPending={assigningJob}
+                          onPress={() => void handleAssignJob()}
+                        >
+                          {assigningJob ? "Assigning…" : "Add application"}
+                        </Button>
                       </div>
-                      <Disclosure.Indicator className="size-5 shrink-0 text-muted" />
-                    </Disclosure.Trigger>
-                  </Disclosure.Heading>
-                  <Disclosure.Content>
-                    <Disclosure.Body className="border-t border-divider px-4 pb-6 pt-4 sm:px-6">
-                      {otherAppsLoading ? (
-                        <div className="flex items-center gap-2 text-sm text-muted">
-                          <Spinner size="sm" />
-                          Loading…
+                    )}
+
+                    {assignJobError ? (
+                      <p
+                        className="mt-2 text-xs font-semibold text-rose-500"
+                        role="alert"
+                      >
+                        {assignJobError}
+                      </p>
+                    ) : null}
+                  </div>
+                </Card>
+              </div>
+
+              <div
+                ref={otherAppsSectionRef}
+                className="mx-auto w-full max-w-[960px]"
+              >
+                <Card className="overflow-hidden p-0">
+                  <Disclosure
+                    isExpanded={otherAppsExpanded}
+                    onExpandedChange={(expanded) => {
+                      setOtherAppsExpanded(expanded);
+                      if (expanded) fetchOtherApps();
+                    }}
+                  >
+                    <Disclosure.Heading className="px-4 pb-4 m:px-6 sm:pt-4">
+                      <Disclosure.Trigger className="flex w-full max-w-full items-center pl-6 justify-between gap-3 rounded-md py-1 text-left outline-none pressed:bg-muted/50">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-lg font-semibold tracking-tight text-foreground">
+                            All applications
+                          </p>
+                          <p className="text-sm font-normal text-muted">
+                            Every CV this candidate has submitted, across all
+                            positions.
+                          </p>
                         </div>
-                      ) : otherAppsError ? (
-                        <p className="text-sm text-danger" role="alert">
-                          {otherAppsError}
-                        </p>
-                      ) : otherApplications.length === 0 ? (
-                        <p className="text-sm text-muted">
-                          No applications found for this candidate.
-                        </p>
-                      ) : (
-                        <div className="flex flex-col gap-3">
-                          {visibleOtherApplications.map((app) => (
-                            <div
-                              key={app.id}
-                              className="flex flex-col gap-1 rounded-xl border border-divider bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                            >
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-foreground">
-                                  {app.jobTitle}
-                                </p>
-                                {app.cvUploadedAt ? (
-                                  <p className="text-xs text-muted">
-                                    Uploaded:{" "}
-                                    {formatDisplayDate(app.cvUploadedAt)}
+                        <Disclosure.Indicator className="size-5 shrink-0 text-muted" />
+                      </Disclosure.Trigger>
+                    </Disclosure.Heading>
+                    <Disclosure.Content>
+                      <Disclosure.Body className="border-t border-divider px-4 pb-6 pt-4 sm:px-6">
+                        {otherAppsLoading ? (
+                          <div className="flex items-center gap-2 text-sm text-muted">
+                            <Spinner size="sm" />
+                            Loading…
+                          </div>
+                        ) : otherApplications.length === 0 ? (
+                          <p className="text-sm text-muted">
+                            No applications found for this candidate.
+                          </p>
+                        ) : (
+                          <div className="flex flex-col gap-3">
+                            {visibleOtherApplications.map((app) => (
+                              <div
+                                key={app.id}
+                                className="flex flex-col gap-1 rounded-xl border border-divider bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-foreground">
+                                    {app.job_id
+                                      ? app.job_title || "—"
+                                      : "Candidates Pool"}
                                   </p>
-                                ) : null}
-                                <div className="mt-1">
-                                  <PipelineStatusBadge
-                                    app={app}
-                                    hasJob={app.jobDescriptionId != null}
-                                  />
+                                  {app.created_at ? (
+                                    <p className="text-xs text-muted">
+                                      Uploaded:{" "}
+                                      {formatDisplayDate(app.created_at)}
+                                    </p>
+                                  ) : null}
+                                  <div className="mt-1">
+                                    <PipelineStatusBadge
+                                      app={app}
+                                      hasJob={app.job_id != null}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-8 shrink-0 cursor-pointer rounded-xl border border-divider px-3 text-xs font-semibold"
+                                    onPress={() => setCvPreviewApp(app)}
+                                  >
+                                    Open CV
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    isDisabled={app.job_id == null}
+                                    onPress={() => {
+                                      if (app.job_id != null) {
+                                        router.push(
+                                          `/admin/jd/${app.job_id}/pipeline/${app.candidate_id}/evaluation`,
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    Go to Evaluation
+                                  </Button>
                                 </div>
                               </div>
-                              <div className="flex shrink-0 items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="h-8 shrink-0 cursor-pointer rounded-xl border border-divider px-3 text-xs font-semibold"
-                                  onPress={() => setCvPreviewApp(app)}
-                                >
-                                  Open CV
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="primary"
-                                  isDisabled={app.jobDescriptionId == null}
-                                  onPress={() => {
-                                    if (app.jobDescriptionId != null) {
-                                      router.push(
-                                        `/admin/jd/${app.jobDescriptionId}/pipeline/${app.id}/evaluation`,
-                                      );
-                                    }
-                                  }}
-                                >
-                                  Go to Evaluation
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                          {hiddenOtherApplicationsCount > 0 ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              className="self-start mx-auto"
-                              onPress={() => setOtherAppsShowAll(true)}
-                            >
-                              View more ({hiddenOtherApplicationsCount})
-                            </Button>
-                          ) : null}
-                        </div>
-                      )}
-                    </Disclosure.Body>
-                  </Disclosure.Content>
-                </Disclosure>
-              </Card>
-            </div>
-          </Drawer.Body>
-        </Drawer.Dialog>
-      </Drawer.Content>
-    </Drawer.Backdrop>
+                            ))}
+                            {hiddenOtherApplicationsCount > 0 ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="self-start mx-auto"
+                                onPress={() => setOtherAppsShowAll(true)}
+                              >
+                                View more ({hiddenOtherApplicationsCount})
+                              </Button>
+                            ) : null}
+                          </div>
+                        )}
+                      </Disclosure.Body>
+                    </Disclosure.Content>
+                  </Disclosure>
+                </Card>
+              </div>
+            </Drawer.Body>
+          </Drawer.Dialog>
+        </Drawer.Content>
+      </Drawer.Backdrop>
 
-    <Modal.Backdrop
-      isOpen={cvPreviewApp != null}
-      onOpenChange={(open) => {
-        if (!open) setCvPreviewApp(null);
-      }}
-    >
-      <Modal.Container>
-        <Modal.Dialog className="w-full max-w-4xl overflow-hidden p-0">
-          <Modal.CloseTrigger />
-          <Modal.Header className="border-b border-divider bg-muted/10 px-5 py-4">
-            <Modal.Heading className="truncate text-lg font-bold text-foreground">
-              CV — {cvPreviewApp?.name?.trim() || tableRow.name}
-              {cvPreviewApp?.jobTitle ? ` · ${cvPreviewApp.jobTitle}` : ""}
-            </Modal.Heading>
-          </Modal.Header>
-          <Modal.Body className="p-0">
-            {cvPreviewApp ? (
-              <iframe
-                src={cvPreviewApp.cvDownloadUrl}
-                title={`CV - ${cvPreviewApp.name?.trim() || tableRow.name}`}
-                className="w-full border-0 bg-surface-secondary/40"
-                style={{ height: "min(80vh, 880px)" }}
-              />
-            ) : null}
-          </Modal.Body>
-        </Modal.Dialog>
-      </Modal.Container>
-    </Modal.Backdrop>
+      <Modal.Backdrop
+        isOpen={cvPreviewApp != null}
+        onOpenChange={(open) => {
+          if (!open) setCvPreviewApp(null);
+        }}
+      >
+        <Modal.Container>
+          <Modal.Dialog className="w-full max-w-4xl overflow-hidden p-0">
+            <Modal.CloseTrigger />
+            <Modal.Header className="border-b border-divider bg-muted/10 px-5 py-4">
+              <Modal.Heading className="truncate text-lg font-bold text-foreground">
+                CV — {tableRow.name?.trim() || "—"}
+                {cvPreviewApp?.job_title ? ` · ${cvPreviewApp.job_title}` : "—"}
+              </Modal.Heading>
+            </Modal.Header>
+            <Modal.Body className="p-0">
+              {cvPreviewApp ? (
+                <iframe
+                  src={`/api/admin/candidates/${cvPreviewApp.id}/cv-download`}
+                  title={`CV - ${tableRow.name?.trim() || "—"}`}
+                  className="w-full border-0 bg-surface-secondary/40"
+                  style={{ height: "min(80vh, 880px)" }}
+                />
+              ) : null}
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
     </>
   );
 }

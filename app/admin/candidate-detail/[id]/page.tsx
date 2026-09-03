@@ -8,9 +8,8 @@ export const metadata: Metadata = {
 
 import { CandidateDetailClient } from "@/components/admin/candidates/candidate-detail-client";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { getCandidateById } from "@/lib/db/candidates";
 import { getPool } from "@/lib/db/config/client";
-import { campaignAppliedAdminRowToCandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,8 +19,8 @@ type PageProps = {
 };
 
 export default async function CandidateDetailPage({ params }: PageProps) {
-  const { id } = await params;
-  if (!UUID_RE.test(id)) notFound();
+  const { id: candidateId } = await params;
+  if (!UUID_RE.test(candidateId)) notFound();
 
   const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/candidates");
@@ -31,15 +30,8 @@ export default async function CandidateDetailPage({ params }: PageProps) {
   if (!access?.isHr) redirect("/admin/jd");
 
   const db = getPool();
-  const row = await getCampaignAppliedAdminRowById(db, id);
+  const row = await getCandidateById(db, candidateId);
   if (!row) notFound();
 
-  const candidate = campaignAppliedAdminRowToCandidateDetailRow(row);
-
-  // `key` forces a full remount whenever the candidate changes, so every
-  // piece of local state (fetched-application refs, expanded rows, selected
-  // version) starts fresh instead of a stale fetch-guard silently keeping
-  // the previous candidate's data on screen if this component instance is
-  // ever reused across navigations.
-  return <CandidateDetailClient key={candidate.id} candidate={candidate} />;
+  return <CandidateDetailClient key={row.id} candidate={row} />;
 }
