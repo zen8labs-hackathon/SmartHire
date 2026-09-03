@@ -20,8 +20,11 @@ echo "==> Ensure db + MinIO are up"
 echo "==> Run migrations"
 "${COMPOSE[@]}" --profile migrate run --rm migrate
 
-echo "==> Start / recreate app"
-"${COMPOSE[@]}" up -d app --force-recreate
+echo "==> Ensure Redis is up (BullMQ)"
+"${COMPOSE[@]}" up -d redis
+
+echo "==> Start / recreate app + worker"
+"${COMPOSE[@]}" up -d app worker --force-recreate
 
 echo "==> Status"
 "${COMPOSE[@]}" ps
