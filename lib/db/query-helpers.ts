@@ -78,6 +78,19 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * True for any Postgres integrity-constraint violation (SQLSTATE class 23 --
+ * not-null, foreign-key, unique, check). These are deterministic for the
+ * given input: retrying the same write will fail the same way.
+ */
+export function isConstraintViolation(err: unknown): boolean {
+  const code =
+    typeof err === "object" && err !== null
+      ? (err as { code?: string }).code
+      : undefined;
+  return typeof code === "string" && code.startsWith("23");
+}
+
+/**
  * Formats a `Date` read from a Postgres `date` column (no timezone) back to
  * `YYYY-MM-DD`. `pg`'s default parser (`postgres-date`) turns a `date`
  * column's text value into a `Date` anchored at *local* midnight (e.g.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Breadcrumbs,
@@ -12,40 +12,25 @@ import {
   ListBox,
 } from "@heroui/react";
 
-import { SectionCard } from "@/components/admin/shell/cards";
-import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
+import { CandidateProfileForm } from "@/components/admin/candidates/candidate-profile-form";
+import { CvViewer } from "@/components/admin/candidates/cv-viewer";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import { ReassignCvVersionModal } from "@/components/admin/candidates/reassign-cv-version-modal";
-import { CvViewer } from "@/components/admin/candidates/cv-viewer";
-import { useToast } from "@/components/admin/toast-provider";
-import type { CandidateDetailRow } from "@/lib/candidates/campaign-applied-to-candidate-detail-row";
-import {
-  campaignAppliedToCandidateDbRow,
-  type CandidateDbRow,
-} from "@/lib/candidates/db-row";
-import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
-import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
+import { SectionCard } from "@/components/admin/shell/cards";
 import {
   candidateSourceChipClass,
   formatCandidateSourceLabel,
 } from "@/lib/candidates/source-constants";
+import type { CvManagementVersionListItem } from "@/lib/candidates/cv-management-version-list";
+import type { CandidateWithExtraInfoRow } from "@/lib/db/candidates";
 import { formatDisplayDate, formatDisplayDateTime } from "@/lib/format-date";
+import {
+  CandidateApplicationRow,
+  candidateService,
+} from "@/lib/service/candidate.service";
 
 type Props = {
-  candidate: CandidateDetailRow;
-};
-
-type ApplicationListItem = {
-  id: string;
-  jobTitle: string;
-  jobId: string | null;
-  appliedAt: string;
-  cvUploadedAt: string;
-  stageLabel: string | null;
-  stageColor: string | null;
-  subStageCode: string | null;
-  subStageLabel: string | null;
-  subStageIsPassed: boolean | null;
+  candidate: CandidateWithExtraInfoRow;
 };
 
 type SelectedVersion = {
@@ -71,19 +56,25 @@ function versionSourceLabel(item: CvManagementVersionListItem): string | null {
 
 export function CandidateDetailClient({ candidate }: Props) {
   const router = useRouter();
-  const toast = useToast();
-  const [activeTab, setActiveTab] = useState<"overview" | "email">("overview");
 
-  const [dbRow, setDbRow] = useState<CandidateDbRow | null>(null);
-  const [dbLoadState, setDbLoadState] = useState<"loading" | "error" | "ok">(
-    "loading",
+  // --- Candidate profile (the editable form) ------------------------------
+  // Seeded from the server-rendered `candidate` and patched in place by the
+  // form's `onSaved` after an edit. Salary lives on `campaign_applied` (one
+  // value per application), so it's saved through its own per-application
+  // endpoint, not this candidate-scoped form.
+  const [dbRow, setDbRow] = useState<CandidateWithExtraInfoRow | null>(
+    candidate,
   );
-  const [canEditSalary, setCanEditSalary] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
   const profileSaveRef = useRef<(() => void) | null>(null);
 
-  const [applications, setApplications] = useState<ApplicationListItem[]>([]);
+  // --- Applications list ("CV Versions" section) -------------------------
+  // Every application this person has; `applicationsFetchedRef` de-dupes the
+  // fetch, `visibleAppCount` paginates the accordion client-side.
+  const [applications, setApplications] = useState<CandidateApplicationRow[]>(
+    [],
+  );
   const [applicationsLoading, setApplicationsLoading] = useState(true);
   const [applicationsError, setApplicationsError] = useState<string | null>(
     null,
@@ -93,6 +84,9 @@ export function CandidateDetailClient({ candidate }: Props) {
     APPLICATIONS_PAGE_SIZE,
   );
 
+  // --- CV versions per application (lazy, cached by application id) --------
+  // Loaded only when a row is expanded; `fetchedAppVersionIdsRef` marks which
+  // ids have been fetched so re-expanding doesn't refetch.
   const [expandedAppIds, setExpandedAppIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -107,9 +101,20 @@ export function CandidateDetailClient({ candidate }: Props) {
   >({});
   const fetchedAppVersionIdsRef = useRef<Set<string>>(new Set());
 
+  // --- CV viewer ---------------------------------------------------------
+  // Which application + version the left-hand CV iframe is showing.
   const [selectedVersion, setSelectedVersion] =
     useState<SelectedVersion | null>(null);
 
+  // --- Expected salary (per application) --------------------------------.
+  const [expectedSalary, setExpectedSalary] = useState<{
+    applicationId: string;
+    value: string | null;
+    canView: boolean;
+  } | null>(null);
+
+  // --- "Wrong CV on this application?" recovery modal (acts on the
+  //     currently-viewed application) -------------------------------------
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
 
   const loadApplications = useCallback(async () => {
@@ -118,21 +123,16 @@ export function CandidateDetailClient({ candidate }: Props) {
     setApplicationsLoading(true);
     setApplicationsError(null);
     try {
-      const res = await fetch(
-        `/api/admin/candidates/${candidate.id}/applications`,
-        { credentials: "include" },
+      const { applications } = await candidateService.getCandidateApplications(
+        candidate.id,
       );
-      const json = (await res.json()) as {
-        applications?: ApplicationListItem[];
-        error?: string;
-      };
-      if (!res.ok) {
-        setApplicationsError(json.error ?? "Could not load applications.");
-        return;
-      }
-      setApplications(json.applications ?? []);
-    } catch {
-      setApplicationsError("Could not load applications.");
+      setApplications(applications);
+    } catch (e) {
+      // Let a later retry re-run the fetch instead of staying stuck.
+      applicationsFetchedRef.current = false;
+      setApplicationsError(
+        e instanceof Error ? e.message : "Could not load applications.",
+      );
     } finally {
       setApplicationsLoading(false);
     }
@@ -141,50 +141,6 @@ export function CandidateDetailClient({ candidate }: Props) {
   useEffect(() => {
     void loadApplications();
   }, [loadApplications]);
-
-  useEffect(() => {
-    const ac = new AbortController();
-    setDbRow(null);
-    setDbLoadState("loading");
-    setCanEditSalary(false);
-    setProfileDirty(false);
-    setProfileBusy(false);
-    void (async () => {
-      try {
-        const res = await fetch(`/api/admin/candidates/${candidate.id}`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        if (!res.ok) {
-          if (!ac.signal.aborted) setDbLoadState("error");
-          return;
-        }
-        const json = (await res.json()) as {
-          candidate?: unknown;
-          canViewSalary?: boolean;
-        };
-        if (ac.signal.aborted || !json.candidate) {
-          if (!ac.signal.aborted) setDbLoadState("error");
-          return;
-        }
-        const c =
-          json.candidate &&
-          typeof json.candidate === "object" &&
-          "candidate_id" in json.candidate
-            ? campaignAppliedToCandidateDbRow(
-                json.candidate as CampaignAppliedAdminRow,
-              )
-            : (json.candidate as CandidateDbRow);
-        setDbRow(c);
-        setCanEditSalary(json.canViewSalary === true);
-        setDbLoadState("ok");
-      } catch {
-        if (!ac.signal.aborted) setDbLoadState("error");
-      }
-    })();
-    return () => ac.abort();
-  }, [candidate.id]);
 
   const loadAppVersions = useCallback(async (appId: string) => {
     if (fetchedAppVersionIdsRef.current.has(appId)) return;
@@ -217,10 +173,6 @@ export function CandidateDetailClient({ candidate }: Props) {
     }
   }, []);
 
-  // Editing the candidate's profile creates a new (same-file) cv_detail_versions
-  // row on the backend, so the cached version list for that application is
-  // stale after a save -- drop the cache and refetch instead of leaving the
-  // panel showing pre-edit data until a full page reload.
   const refreshAppVersions = useCallback(
     (appId: string) => {
       fetchedAppVersionIdsRef.current.delete(appId);
@@ -229,20 +181,13 @@ export function CandidateDetailClient({ candidate }: Props) {
     [loadAppVersions],
   );
 
-  // The CV iframe defaults to showing this page's own application (its
-  // active version) before the user picks anything -- load and select that
-  // version up front so "Version details" reflects the CV actually on
-  // screen from the first render/reload instead of staying empty until the
-  // user happens to expand and click it themselves.
   useEffect(() => {
-    setExpandedAppIds((prev) =>
-      prev.has(candidate.id) ? prev : new Set(prev).add(candidate.id),
-    );
-    setSelectedVersion((prev) =>
-      prev ? prev : { applicationId: candidate.id, versionId: null },
-    );
-    void loadAppVersions(candidate.id);
-  }, [candidate.id, loadAppVersions]);
+    if (selectedVersion || applications.length === 0) return;
+    const first = applications[0];
+    setSelectedVersion({ applicationId: first.id, versionId: null });
+    setExpandedAppIds((prev) => new Set(prev).add(first.id));
+    void loadAppVersions(first.id);
+  }, [applications, selectedVersion, loadAppVersions]);
 
   const setApplicationExpanded = useCallback(
     (appId: string, expanded: boolean) => {
@@ -274,12 +219,72 @@ export function CandidateDetailClient({ candidate }: Props) {
     [applications, selectedVersion],
   );
 
-  const cvUrl = selectedVersion
-    ? selectedVersion.versionId
-      ? `/api/admin/candidates/${selectedVersion.applicationId}/cv-download?versionId=${encodeURIComponent(selectedVersion.versionId)}`
-      : `/api/admin/candidates/${selectedVersion.applicationId}/cv-download`
-    : `/api/admin/candidates/${candidate.id}/cv-download`;
+  // Re-fetch the expected salary whenever the selected application changes.
+  const selectedApplicationId = selectedApp?.id ?? null;
+  useEffect(() => {
+    if (!selectedApplicationId) {
+      setExpectedSalary(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { expectedSalary: value, canView } =
+          await candidateService.getExpectedSalary(
+            candidate.id,
+            selectedApplicationId,
+          );
+        if (cancelled) return;
+        setExpectedSalary({
+          applicationId: selectedApplicationId,
+          value,
+          canView,
+        });
+      } catch {
+        if (!cancelled) {
+          setExpectedSalary({
+            applicationId: selectedApplicationId,
+            value: null,
+            canView: false,
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidate.id, selectedApplicationId]);
 
+  // Save just the salary field through its own per-application endpoint.
+  const handleSaveExpectedSalary = useCallback(
+    async (value: string | null) => {
+      if (!selectedApplicationId) return;
+      const { expectedSalary: saved, canView } =
+        await candidateService.updateExpectedSalary(
+          candidate.id,
+          selectedApplicationId,
+          value,
+        );
+      setExpectedSalary({
+        applicationId: selectedApplicationId,
+        value: saved,
+        canView,
+      });
+    },
+    [candidate.id, selectedApplicationId],
+  );
+
+  const canEditSalary =
+    expectedSalary?.applicationId === selectedApplicationId &&
+    expectedSalary.canView;
+
+  const cvViewerApplicationId =
+    selectedVersion?.applicationId ?? applications[0]?.id ?? null;
+  const cvUrl = !cvViewerApplicationId
+    ? ""
+    : selectedVersion?.versionId
+      ? `/api/admin/candidates/${cvViewerApplicationId}/cv-download?versionId=${encodeURIComponent(selectedVersion.versionId)}`
+      : `/api/admin/candidates/${cvViewerApplicationId}/cv-download`;
 
   return (
     <div className="flex flex-col gap-4 font-sans">
@@ -293,9 +298,10 @@ export function CandidateDetailClient({ candidate }: Props) {
         <div className="w-5/12 shrink-0 sticky top-6">
           <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
+            {` · ${selectedApp?.job_title ?? "No Job Assigned"}`}
             {selectedVersionItem
-              ? ` · ${selectedApp?.jobTitle ?? candidate.jobTitle ?? "No Job Assigned"} · ${versionEventLabel(selectedVersionItem)}`
-              : ` · ${candidate.jobTitle ?? "No Job Assigned"}`}
+              ? ` · ${versionEventLabel(selectedVersionItem)}`
+              : ""}
           </p>
           <CvViewer
             cvUrl={cvUrl}
@@ -312,9 +318,11 @@ export function CandidateDetailClient({ candidate }: Props) {
               {candidate.name}
             </h1>
             <p className="mt-1 text-sm text-muted font-medium">
-              {candidate.jobTitle
-                ? `Applied for ${candidate.jobTitle}`
-                : "No Job Assigned"}
+              {applications.length === 0
+                ? "No applications"
+                : applications.length === 1
+                  ? "1 application"
+                  : `${applications.length} applications`}
             </p>
           </div>
 
@@ -334,31 +342,48 @@ export function CandidateDetailClient({ candidate }: Props) {
               </Button>
             }
           >
-            <CandidateProfileEditSection
+            <CandidateProfileForm
               candidateId={candidate.id}
-              dbRow={dbRow}
-              canEdit
+              candidate={dbRow ?? candidate}
+              expectedSalary={
+                expectedSalary?.applicationId === selectedApplicationId
+                  ? expectedSalary.value
+                  : null
+              }
               canEditSalary={canEditSalary}
-              isPreview={false}
-              dbLoadState={dbLoadState}
-              startInEditMode
-              embedded
-              hidePipelineAndSource
-              // A profile-edit conflict here must be fixed by changing the
-              // contact info, not by merging into another candidate --
-              // that's a deliberate, cross-candidate action reserved for the
-              // "Wrong CV on this candidate?" recovery tool below, so
-              // `onCandidateIdChanged` is unreachable and omitted.
-              allowProfileConflictMerge={false}
+              onSaveExpectedSalary={handleSaveExpectedSalary}
               onDirtyChange={setProfileDirty}
               onBusyChange={setProfileBusy}
               saveActionRef={profileSaveRef}
               onSaved={(saved) => {
-                setDbRow(saved);
+                // `saved` is the JSON row (string timestamps); merge only the
+                // editable columns onto the local record.
+                setDbRow((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        name: saved.name,
+                        email: saved.email,
+                        phone: saved.phone,
+                        degree: saved.degree,
+                        education: saved.education,
+                        role: saved.role,
+                        experience_years: saved.experience_years,
+                        skills: saved.skills,
+                      }
+                    : prev,
+                );
                 setProfileDirty(false);
-                refreshAppVersions(candidate.id);
+                for (const appId of [...fetchedAppVersionIdsRef.current]) {
+                  refreshAppVersions(appId);
+                }
                 router.refresh();
-                toast.success("Candidate profile updated.");
+              }}
+              onMerged={(survivingCandidateId) => {
+                // This candidate's CV was folded into `survivingCandidateId`
+                // and this record may now be gone -- go to the survivor.
+                setProfileDirty(false);
+                router.push(`/admin/candidate-detail/${survivingCandidateId}`);
               }}
             />
           </SectionCard>
@@ -411,28 +436,28 @@ export function CandidateDetailClient({ candidate }: Props) {
                           <Disclosure.Trigger className="flex flex-1 min-w-0 items-center justify-between gap-3 pl-3.5 pr-2 py-3 text-left outline-none hover:bg-surface-secondary/40 pressed:bg-surface-secondary/40">
                             <div className="min-w-0">
                               <p className="font-bold text-foreground text-sm truncate">
-                                {app.jobTitle}
+                                {app.job_title ?? "No Job Assigned"}
                               </p>
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mt-0.5">
-                                Applied {formatDisplayDate(app.appliedAt)}
+                                Applied {formatDisplayDate(app.created_at)}
                               </p>
                               <div className="mt-1">
                                 <PipelineStatusBadge
                                   app={app}
-                                  hasJob={app.jobId != null}
+                                  hasJob={app.job_id != null}
                                 />
                               </div>
                             </div>
 
                             <div className="flex shrink-0 items-center gap-2">
-                              {app.id === candidate.id ? (
+                              {app.id === selectedVersion?.applicationId ? (
                                 <Chip
                                   size="sm"
                                   variant="soft"
                                   color="accent"
                                   className="text-[10px] font-bold"
                                 >
-                                  Current
+                                  Viewing
                                 </Chip>
                               ) : null}
                               <Disclosure.Indicator className="size-4 text-muted shrink-0" />
@@ -532,7 +557,9 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             <span
                                               className={cn(
                                                 "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold",
-                                                candidateSourceChipClass(sourceLabel),
+                                                candidateSourceChipClass(
+                                                  sourceLabel,
+                                                ),
                                               )}
                                             >
                                               {sourceLabel}
@@ -551,7 +578,7 @@ export function CandidateDetailClient({ candidate }: Props) {
                                           </p>
                                         ) : null}
                                       </div>
-                                      {v.isLatest && app.jobId != null ? (
+                                      {v.isLatest && app.job_id != null ? (
                                         <div className="flex items-center justify-center gap-3">
                                           <Button
                                             variant="secondary"
@@ -559,7 +586,7 @@ export function CandidateDetailClient({ candidate }: Props) {
                                             className="h-7 px-3 rounded-lg border border-divider text-[10px] font-bold shrink-0"
                                             onPress={() => {
                                               router.push(
-                                                `/admin/jd/${app.jobId}/pipeline/${app.id}/evaluation`,
+                                                `/admin/jd/${app.job_id}/pipeline/${app.id}/evaluation`,
                                               );
                                             }}
                                           >
@@ -605,39 +632,29 @@ export function CandidateDetailClient({ candidate }: Props) {
             <Button
               variant="tertiary"
               className="h-8 px-3 rounded-lg text-xs font-bold text-muted"
+              isDisabled={!selectedApp}
               onPress={() => setReassignModalOpen(true)}
             >
-              Wrong CV on this candidate?
+              Wrong CV on this application?
             </Button>
           </div>
         </div>
       </div>
 
-      <ReassignCvVersionModal
-        open={reassignModalOpen}
-        onOpenChange={setReassignModalOpen}
-        sourceCampaignAppliedId={candidate.id}
-        onReassigned={(sourceApplicationDeleted) => {
-          if (sourceApplicationDeleted) {
-            // This application had no CV of its own to roll back to, so it
-            // (and its candidate, if orphaned) was deleted outright --
-            // `candidate.id` no longer refers to anything. Reloading in
-            // place would just 404.
-            router.push("/admin/candidates");
-            return;
-          }
-          // A plain `router.refresh()` + `refreshAppVersions` isn't enough
-          // here: the CV preview iframe re-navigates only when the `cvUrl`
-          // it computes changes, and reassigning doesn't change that string
-          // (same application id, no versionId param either way) even
-          // though the *active* CV behind it just changed on the backend --
-          // it would keep showing the stale (misattributed) file. This is a
-          // rare, deliberate admin action, not a hot path, so a full reload
-          // is the simplest way to guarantee every panel (iframe, profile,
-          // version list) reflects the new state.
-          window.location.reload();
-        }}
-      />
+      {selectedApp ? (
+        <ReassignCvVersionModal
+          open={reassignModalOpen}
+          onOpenChange={setReassignModalOpen}
+          sourceCampaignAppliedId={selectedApp.id}
+          onReassigned={(sourceApplicationDeleted) => {
+            if (sourceApplicationDeleted) {
+              router.push("/admin/candidates");
+              return;
+            }
+            window.location.reload();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

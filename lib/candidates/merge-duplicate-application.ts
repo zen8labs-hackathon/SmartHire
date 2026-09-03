@@ -230,7 +230,7 @@ export async function mergeDuplicateApplicationIntoExisting(
   // existing candidate as the duplicate side, one that can still have other
   // live applications -- syncing that same email/phone onto
   // `existingCampaign`'s candidate here would collide with it via
-  // `candidates_email_unique_idx`/`candidates_phone_unique_idx`. A savepoint
+  // `candidates_identity_unique_idx` (the (email, phone) pair). A savepoint
   // lets that be treated as "nothing to sync yet" rather than failing the
   // whole merge -- the caller's own follow-up write (e.g.
   // `resolveProfileConflict` applying the patch with the *correct* identity

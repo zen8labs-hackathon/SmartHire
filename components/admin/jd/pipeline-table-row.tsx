@@ -1,14 +1,7 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { Info, Pencil, RotateCw, Trash2 } from "lucide-react";
-import {
-  Avatar,
-  Button,
-  Chip,
-  ListBox,
-  Select,
-  Table,
-} from "@heroui/react";
+import { Avatar, Button, Chip, ListBox, Select, Table } from "@heroui/react";
 
 import {
   candidateDisplayInitials,
@@ -71,7 +64,9 @@ export type PipelineTableRowProps = {
    * `useOverlayState()` object, which is a fresh literal on every render and
    * would defeat memoization below. */
   openEditModal: () => void;
-  setRowPendingDelete: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
+  setRowPendingDelete: Dispatch<
+    SetStateAction<JdPipelineApplicationRow | null>
+  >;
   /** `deleteModal.open` — see {@link openEditModal}. */
   openDeleteModal: () => void;
 };
@@ -192,7 +187,9 @@ export const PipelineTableRow = memo(function PipelineTableRow({
                 {row.name}
               </Link>
             </div>
-            <p className="text-xs font-medium text-muted">{row.role}</p>
+            <p className="text-xs font-medium text-muted truncate max-w-[10rem] md:max-w-[6rem]">
+              {row.role}
+            </p>
           </div>
         </div>
       </Table.Cell>
@@ -220,7 +217,8 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           >
             {row.jdMatchLabel}
           </Chip>
-          {r.jd_match_status === "completed" || r.jd_match_status === "failed" ? (
+          {r.jd_match_status === "completed" ||
+          r.jd_match_status === "failed" ? (
             <Button
               size="sm"
               variant="secondary"
