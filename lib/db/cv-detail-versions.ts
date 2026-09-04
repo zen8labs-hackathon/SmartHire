@@ -77,6 +77,16 @@ export type CreateCvDetailVersionInput = {
   matchedOn?: CvMatchedOn | null;
   changeSummary?: string | null;
   createdBy?: string | null;
+  jdMatchScore?: number | null;
+  jdMatchStatus?: string | null;
+  jdMatchRationale?: string | null;
+  jdMatchError?: string | null;
+  jdMatchAiScore?: number | null;
+  jdMatchFormulaScore?: number | null;
+  jdMatchAiWeight?: number | null;
+  jdMatchFormulaBreakdown?: unknown;
+  jdMatchModel?: string | null;
+  jdMatchProvider?: string | null;
 };
 
 export async function getCvDetailVersionById(
@@ -86,6 +96,23 @@ export async function getCvDetailVersionById(
   const { rows } = await db.query<CvDetailVersionRow>(
     `SELECT * FROM cv_detail_versions WHERE id = $1`,
     [id],
+  );
+  return rows[0] ?? null;
+}
+
+/** Most recent CV version across every application (any job, including the pool) for one candidate -- used to seed a new application's CV when assigning the candidate to another job. */
+export async function getLatestCvDetailVersionForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<CvDetailVersionRow | null> {
+  const { rows } = await db.query<CvDetailVersionRow>(
+    `SELECT cv.*
+     FROM cv_detail_versions cv
+     JOIN campaign_applied ca ON ca.id = cv.campaign_applied_id
+     WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
+     ORDER BY cv.created_at DESC
+     LIMIT 1`,
+    [candidateId],
   );
   return rows[0] ?? null;
 }
@@ -294,11 +321,15 @@ export async function createCvDetailVersion(
        original_filename, mime_type, cv_file_sha256, cv_content_sha256,
        parsing_status, parsing_error, parsed_payload, skills, role, degree,
        education, experience_years, gpa, english_level, date_of_birth,
-       student_years, matched_on, change_summary, created_by
+       student_years, matched_on, change_summary, created_by,
+       jd_match_score, jd_match_status, jd_match_rationale, jd_match_error,
+       jd_match_ai_score, jd_match_formula_score, jd_match_ai_weight,
+       jd_match_formula_breakdown, jd_match_model, jd_match_provider
      )
      VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::text[], '{}'),
-       $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+       $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+       $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
      )
      RETURNING *`,
     [
@@ -325,6 +356,18 @@ export async function createCvDetailVersion(
       input.matchedOn ?? null,
       input.changeSummary ?? null,
       input.createdBy ?? null,
+      input.jdMatchScore ?? null,
+      input.jdMatchStatus ?? null,
+      input.jdMatchRationale ?? null,
+      input.jdMatchError ?? null,
+      input.jdMatchAiScore ?? null,
+      input.jdMatchFormulaScore ?? null,
+      input.jdMatchAiWeight ?? null,
+      input.jdMatchFormulaBreakdown != null
+        ? JSON.stringify(input.jdMatchFormulaBreakdown)
+        : null,
+      input.jdMatchModel ?? null,
+      input.jdMatchProvider ?? null,
     ],
   );
   return rows[0];

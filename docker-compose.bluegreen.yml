@@ -13,6 +13,9 @@ x-app-common: &app-common
     NODE_ENV: production
     PORT: "3100"
     DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+    # BullMQ queue — without this both slots fall back to redis://localhost:6379
+    # (lib/redis/connection.ts) and every CV-upload enqueue fails.
+    REDIS_URL: redis://redis:6379
     AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
     AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-https://smart-hire.zen8labs.io}
@@ -20,6 +23,8 @@ x-app-common: &app-common
     - "smart-hire.zen8labs.io:host-gateway"
   depends_on:
     db:
+      condition: service_healthy
+    redis:
       condition: service_healthy
     minio:
       condition: service_healthy

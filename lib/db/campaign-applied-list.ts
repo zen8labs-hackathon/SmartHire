@@ -26,7 +26,7 @@ export type CampaignAppliedAdminRow = {
   source_other: string | null;
   expected_salary: string | null;
   jd_match_score: number | null;
-  jd_match_status: string;
+  jd_match_status: string | null;
   jd_match_error: string | null;
   jd_match_rationale: string | null;
   hired_at: Date | null;
@@ -53,10 +53,8 @@ export type CampaignAppliedAdminRow = {
   job_position: string | null;
   stage_code: string | null;
   stage_label: string | null;
-  stage_color: string | null;
   sub_stage_code: string | null;
   sub_stage_label: string | null;
-  sub_stage_is_passed: boolean | null;
 };
 
 export type ListCampaignAppliedForAdminFilters = PaginationParams & {
@@ -101,8 +99,8 @@ const SORT_COLUMN_SQL: Record<
     desc: "c.experience_years DESC NULLS LAST, ca.id ASC",
   },
   jdMatchScore: {
-    asc: "ca.jd_match_score ASC NULLS LAST, ca.id ASC",
-    desc: "ca.jd_match_score DESC NULLS LAST, ca.id ASC",
+    asc: "cv.jd_match_score ASC NULLS LAST, ca.id ASC",
+    desc: "cv.jd_match_score DESC NULLS LAST, ca.id ASC",
   },
   uploadDate: {
     asc: "COALESCE(cv.created_at, ca.created_at) ASC, ca.id ASC",
@@ -114,7 +112,8 @@ const ADMIN_ROW_SELECT = `
   ca.id, ca.candidate_id, ca.job_id, ca.active_cv_version_id,
   ca.current_job_stage_mapping_id, ca.current_sub_state_id,
   ca.source, ca.source_other, ca.expected_salary,
-  ca.jd_match_score, ca.jd_match_status, ca.jd_match_error, ca.jd_match_rationale,
+  cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
+  cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
   ca.hired_at, ca.created_at, ca.updated_at,
   c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
   c.degree AS candidate_degree, c.education AS candidate_education, c.role AS candidate_role,
@@ -125,8 +124,8 @@ const ADMIN_ROW_SELECT = `
   cv.date_of_birth AS cv_date_of_birth, cv.student_years AS cv_student_years,
   cv.created_at AS cv_created_at,
   j.position AS job_position,
-  ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
-  pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
+  ps.code AS stage_code, ps.label AS stage_label,
+  pss.code AS sub_stage_code, pss.label AS sub_stage_label
 `;
 
 // jobs is a LEFT JOIN (not INNER) so an unassigned/pool application
@@ -142,83 +141,44 @@ const ADMIN_ROW_JOIN = `
   LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
 `;
 
-/** Single-row equivalent of {@link listCampaignAppliedForAdmin}, same join/shape, for detail/PATCH-response hydration. Returns `null` when not found or soft-deleted. */
-export async function getCampaignAppliedAdminRowById(
-  db: QueryExecutor,
-  id: string,
-): Promise<CampaignAppliedAdminRow | null> {
-  const { rows } = await db.query<CampaignAppliedAdminRow>(
-    `SELECT ${ADMIN_ROW_SELECT} ${ADMIN_ROW_JOIN} WHERE ca.id = $1 AND ca.deleted_at IS NULL`,
-    [id],
-  );
-  return rows[0] ?? null;
-}
+// Lean sibling of `ADMIN_ROW_SELECT`/`ADMIN_ROW_JOIN`, used by
+// `listCampaignAppliedForAdmin` when `filters.jobId` is set (the JD pipeline
+// table's query shape): every row already belongs to the same, caller-known
+// job, so `job_position` would just repeat one value across the whole page
+// -- and the pipeline table resolves stage/sub-stage display client-side
+// from `current_job_stage_mapping_id`/`current_sub_state_id` against the
+// job's already-fetched `stageMappings`/`subStages` (richer than these raw
+// label columns anyway: color, is_passed, transition rules). Selecting
+// `NULL` for those 5 columns instead of dropping them keeps the row shape
+// identical to `CampaignAppliedAdminRow` -- only the `jobs`/
+// `job_stage_mappings`/`pipeline_stages`/`pipeline_sub_stages` joins are
+// actually skipped.
+const JOB_PIPELINE_ROW_SELECT = `
+  ca.id, ca.candidate_id, ca.job_id, ca.active_cv_version_id,
+  ca.current_job_stage_mapping_id, ca.current_sub_state_id,
+  ca.source, ca.source_other, ca.expected_salary,
+  cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
+  cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
+  ca.hired_at, ca.created_at, ca.updated_at,
+  c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
+  cv.degree AS candidate_degree, cv.education AS candidate_education, cv.role AS candidate_role,
+  cv.experience_years AS candidate_experience_years, cv.skills AS candidate_skills,
+  cv.original_filename AS cv_original_filename, cv.mime_type AS cv_mime_type,
+  cv.cv_storage_path AS cv_storage_path, cv.parsing_status AS cv_parsing_status,
+  cv.parsing_error AS cv_parsing_error, cv.gpa AS cv_gpa, cv.english_level AS cv_english_level,
+  cv.date_of_birth AS cv_date_of_birth, cv.student_years AS cv_student_years,
+  cv.created_at AS cv_created_at,
+  NULL::text AS job_position,
+  NULL::text AS stage_code, NULL::text AS stage_label,
+  NULL::text AS sub_stage_code, NULL::text AS sub_stage_label
+`;
 
-export type OtherApplicationForCandidateRow = {
-  id: string;
-  created_at: Date;
-  job_id: string | null;
-  job_position: string | null;
-  candidate_name: string | null;
-  cv_original_filename: string | null;
-  cv_created_at: Date | null;
-  /** Raw (possibly-NULL) pipeline position -- a fresh application hasn't been
-   * explicitly moved yet, so callers that want a stage to show (e.g. "CV Scan
-   * · New" instead of blank) must resolve these via
-   * `resolveCandidatePipelineIds` against the job's pipeline config, the same
-   * way the job-pipeline table and evaluation page already do. */
-  current_job_stage_mapping_id: string | null;
-  current_sub_state_id: string | null;
-  stage_code: string | null;
-  stage_label: string | null;
-  stage_color: string | null;
-  sub_stage_code: string | null;
-  sub_stage_label: string | null;
-  sub_stage_is_passed: boolean | null;
-};
+const JOB_PIPELINE_ROW_JOIN = `
+  FROM campaign_applied ca
+  JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
+  LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
+`;
 
-/**
- * Every (non-deleted) application belonging to a person, for a job that
- * itself hasn't been soft-deleted -- used by the "all applications" panel
- * on a candidate's detail drawer and the candidate-detail page's
- * CV-versions-by-application list (`/admin/candidate-detail/[id]`). Person
- * identity is a real FK now, so this is a direct lookup (no more deriving
- * contact info from `parsed_payload` and full-table-scanning for matches).
- */
-export async function listApplicationsForCandidate(
-  db: QueryExecutor,
-  candidateId: string,
-): Promise<OtherApplicationForCandidateRow[]> {
-  const { rows } = await db.query<OtherApplicationForCandidateRow>(
-    `SELECT
-       ca.id, ca.created_at, ca.job_id, j.position AS job_position,
-       c.name AS candidate_name,
-       cv.original_filename AS cv_original_filename, cv.created_at AS cv_created_at,
-       ca.current_job_stage_mapping_id, ca.current_sub_state_id,
-       ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
-       pss.code AS sub_stage_code, pss.label AS sub_stage_label, pss.is_passed AS sub_stage_is_passed
-     FROM campaign_applied ca
-     JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
-     LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
-     LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
-     LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
-     LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
-     WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
-     ORDER BY ca.id DESC`,
-    [candidateId],
-  );
-  return rows;
-}
-
-/**
- * Paginated, filterable admin candidates list. Mirrors the old
- * `queryCandidatesList`'s filter contract (job/stage/date-range/search) but
- * queries the normalized schema directly via a single SQL join instead of
- * PostgREST embeds + an `.or()` filter string -- no legacy-status branch
- * needed since DB7X2K is a green-field migration (old Supabase data isn't
- * carried forward).
- */
 export async function listCampaignAppliedForAdmin(
   db: QueryExecutor,
   filters: ListCampaignAppliedForAdminFilters = {},
@@ -254,11 +214,8 @@ export async function listCampaignAppliedForAdmin(
   if (filters.q) {
     values.push(`%${filters.q}%`);
     const i = values.length;
-    conditions.push(`(c.name ILIKE $${i} OR c.education ILIKE $${i})`);
-  }
-  if (filters.parsingStatus) {
-    values.push(filters.parsingStatus);
-    conditions.push(`cv.parsing_status = $${values.length}`);
+    const educationCol = filters.jobId ? "cv.education" : "c.education";
+    conditions.push(`(c.name ILIKE $${i} OR ${educationCol} ILIKE $${i})`);
   }
 
   values.push(limit);
@@ -269,11 +226,14 @@ export async function listCampaignAppliedForAdmin(
   const orderBy =
     SORT_COLUMN_SQL[filters.sortBy ?? "uploadDate"][filters.sortDir ?? "desc"];
 
+  const select = filters.jobId ? JOB_PIPELINE_ROW_SELECT : ADMIN_ROW_SELECT;
+  const join = filters.jobId ? JOB_PIPELINE_ROW_JOIN : ADMIN_ROW_JOIN;
+
   const { rows } = await db.query<
     CampaignAppliedAdminRow & { total_count: string }
   >(
-    `SELECT ${ADMIN_ROW_SELECT}, count(*) OVER() AS total_count
-     ${ADMIN_ROW_JOIN}
+    `SELECT ${select}, count(*) OVER() AS total_count
+     ${join}
      WHERE ${conditions.join(" AND ")}
      ORDER BY ${orderBy}
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
@@ -286,6 +246,73 @@ export async function listCampaignAppliedForAdmin(
     limit,
     offset,
   };
+}
+
+/** Single-row equivalent of {@link listCampaignAppliedForAdmin}, same join/shape, for detail/PATCH-response hydration. Returns `null` when not found or soft-deleted. */
+export async function getCampaignAppliedAdminRowById(
+  db: QueryExecutor,
+  id: string,
+): Promise<CampaignAppliedAdminRow | null> {
+  const { rows } = await db.query<CampaignAppliedAdminRow>(
+    `SELECT ${ADMIN_ROW_SELECT} ${ADMIN_ROW_JOIN} WHERE ca.id = $1 AND ca.deleted_at IS NULL`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+export type OtherApplicationForCandidateRow = {
+  id: string;
+  created_at: Date;
+  job_id: string | null;
+  job_position: string | null;
+  candidate_name: string | null;
+  cv_original_filename: string | null;
+  cv_created_at: Date | null;
+  /** Raw (possibly-NULL) pipeline position -- a fresh application hasn't been
+   * explicitly moved yet, so callers that want a stage to show (e.g. "CV Scan
+   * · New" instead of blank) must resolve these via
+   * `resolveCandidatePipelineIds` against the job's pipeline config, the same
+   * way the job-pipeline table and evaluation page already do. */
+  current_job_stage_mapping_id: string | null;
+  current_sub_state_id: string | null;
+  stage_code: string | null;
+  stage_label: string | null;
+  sub_stage_code: string | null;
+  sub_stage_label: string | null;
+};
+
+/**
+ * Every (non-deleted) application belonging to a person, for a job that
+ * itself hasn't been soft-deleted -- used by the "all applications" panel
+ * on a candidate's detail drawer and the candidate-detail page's
+ * CV-versions-by-application list (`/admin/candidate-detail/[id]`). Person
+ * identity is a real FK now, so this is a direct lookup (no more deriving
+ * contact info from `parsed_payload` and full-table-scanning for matches).
+ */
+export async function listApplicationsForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<OtherApplicationForCandidateRow[]> {
+  const { rows } = await db.query<OtherApplicationForCandidateRow>(
+    `SELECT
+       ca.id, ca.created_at, ca.job_id, j.position AS job_position,
+       c.name AS candidate_name,
+       cv.original_filename AS cv_original_filename, cv.created_at AS cv_created_at,
+       ca.current_job_stage_mapping_id, ca.current_sub_state_id,
+       ps.code AS stage_code, ps.label AS stage_label,
+       pss.code AS sub_stage_code, pss.label AS sub_stage_label
+     FROM campaign_applied ca
+     JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
+     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+     LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
+     LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
+     LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
+     LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
+     WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
+     ORDER BY ca.id DESC`,
+    [candidateId],
+  );
+  return rows;
 }
 
 export type CampaignAppliedStageCountRow = {

@@ -24,11 +24,11 @@ git fetch origin
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
-echo "==> Build app image"
-"${COMPOSE[@]}" build app_blue
+echo "==> Build app + worker images"
+"${COMPOSE[@]}" build app_blue worker
 
-echo "==> Ensure db + MinIO are up"
-"${COMPOSE[@]}" up -d db minio
+echo "==> Ensure db + Redis + MinIO are up"
+"${COMPOSE[@]}" up -d db redis minio
 "${COMPOSE[@]}" up minio-init
 
 echo "==> Run migrations"
@@ -81,6 +81,9 @@ echo "$TARGET" > "$STATE_FILE"
 
 echo "==> Stop previous slot (${OLD_SERVICE})"
 "${COMPOSE[@]}" stop "${OLD_SERVICE}" || true
+
+echo "==> Recreate BullMQ worker with the new image (slot-independent)"
+"${COMPOSE[@]}" up -d --no-deps --force-recreate worker
 
 echo "==> Status"
 "${COMPOSE[@]}" ps
