@@ -10,8 +10,8 @@ git fetch origin
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
-echo "==> Build app image"
-"${COMPOSE[@]}" build app
+echo "==> Build app + worker images"
+"${COMPOSE[@]}" build app worker
 
 echo "==> Ensure db + MinIO are up"
 "${COMPOSE[@]}" up -d db minio

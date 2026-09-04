@@ -13,7 +13,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "parse:resume": "tsx --env-file=.env scripts/parse-local-resume-pdf.ts",
-    "worker": "tsx --env-file=.env workers/file-upload/file-upload.worker.ts"
+    "worker:build": "node scripts/build-worker.mjs",
+    "worker": "node --env-file=.env dist/worker/file-upload.worker.js",
+    "worker:dev": "tsx --env-file=.env workers/file-upload/file-upload.worker.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.64",
@@ -60,11 +62,12 @@
     "@types/pino": "^7.0.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "node-pg-migrate": "^8.0.4",
     "tailwindcss": "^4",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.13",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }
