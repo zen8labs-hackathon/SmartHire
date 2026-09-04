@@ -1,17 +1,79 @@
 version: "3.8"
 
 services:
-  app:
-    build: .
-    image: smart_hire:latest
-    container_name: smarthire_app
+  # app:
+  #   build: .
+  #   image: smart_hire:latest
+  #   container_name: smarthire_app
+  #   ports:
+  #     - "3100:3100"
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     floci:
+  #       condition: service_started
+  #   restart: unless-stopped
+
+  db:
+    image: postgres:16
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: smart_hire
     ports:
-      - "3100:3100"
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d smart_hire"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_local
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # --- WORKER: xử lý job upload CV (BullMQ) từ hàng đợi Redis ---
+  worker:
+    image: node:20-alpine
+    container_name: file_upload_worker
+    working_dir: /app
+    volumes:
+      - ./:/app
     env_file:
       - .env
+    environment:
+      # Ghi đè REDIS_URL / AWS_ENDPOINT_URL của .env (thường trỏ localhost cho
+      # `npm run dev` chạy ngoài Docker) -- bên trong network của compose phải
+      # gọi qua tên service, không phải localhost.
+      REDIS_URL: redis://redis:6379
+      AWS_ENDPOINT_URL: http://floci:4566
+      # `npm run dev` (app) chạy ngoài Docker trên host, không phải 1 service
+      # trong compose này -- không có DNS name để gọi, phải qua gateway của
+      # host. INTERNAL_APP_URL tương ứng phải là http://host.docker.internal:3000
+      # (xem .env.example), không phải localhost:3000 (đó là chính container này).
+      INTERNAL_APP_URL: http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
+      redis:
+        condition: service_healthy
       floci:
         condition: service_started
+    command: sh -c "npm install && npm run worker:build && npm run worker"
     restart: unless-stopped
 
   # --- HỆ THỐNG GIẢ LẬP AWS S3 (FLOCI) ---
@@ -33,3 +95,9 @@ services:
       - "./.floci-init:/etc/floci/init/ready.d"
       # 3. Ánh xạ thư mục /floci-data từ container ra máy thật
       - "./floci-data:/floci-data"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    external: true
+  redisdata:

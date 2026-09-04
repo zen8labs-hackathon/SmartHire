@@ -24,6 +24,19 @@ export type CandidateRow = {
   deleted_at: Date | null;
 };
 
+/**
+ * A candidate row plus a few fields that only live on `cv_detail_versions`,
+ * pulled from that candidate's most recent CV version (across all their
+ * applications). Each extra field is null when the candidate has no CV
+ * version yet, or that version left the field unset.
+ */
+export type CandidateWithExtraInfoRow = CandidateRow & {
+  gpa: string | null;
+  english_level: string | null;
+  date_of_birth: string | null;
+  student_years: string | null;
+};
+
 export type CreateCandidateInput = {
   name?: string | null;
   email?: string | null;
@@ -49,12 +62,36 @@ export type ListCandidatesFilters = PaginationParams & {
 export async function getCandidateById(
   db: QueryExecutor,
   id: string,
-): Promise<CandidateRow | null> {
-  const { rows } = await db.query<CandidateRow>(
-    `SELECT * FROM candidates WHERE id = $1 AND deleted_at IS NULL`,
+): Promise<CandidateWithExtraInfoRow | null> {
+  const { rows } = await db.query<CandidateWithExtraInfoRow>(
+    `SELECT c.*, cv.gpa, cv.english_level, cv.date_of_birth, cv.student_years
+       FROM candidates c
+       LEFT JOIN LATERAL (
+         SELECT v.gpa, v.english_level, v.date_of_birth, v.student_years
+           FROM cv_detail_versions v
+           JOIN campaign_applied ca ON ca.id = v.campaign_applied_id
+          WHERE ca.candidate_id = c.id
+            AND ca.deleted_at IS NULL
+          ORDER BY v.created_at DESC, v.version_number DESC, v.id DESC
+          LIMIT 1
+       ) cv ON true
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [id],
   );
   return rows[0] ?? null;
+}
+
+/** Batched existence check -- one query for a set of ids instead of N. */
+export async function listCandidatesByIds(
+  db: QueryExecutor,
+  ids: string[],
+): Promise<CandidateRow[]> {
+  if (ids.length === 0) return [];
+  const { rows } = await db.query<CandidateRow>(
+    `SELECT * FROM candidates WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    [ids],
+  );
+  return rows;
 }
 
 export async function listCandidates(
@@ -107,6 +144,101 @@ export async function listCandidates(
     limit,
     offset,
   };
+}
+
+export type ListCandidatePoolFilters = PaginationParams & {
+  /** Case-insensitive substring match against name / email / phone / role / degree / skills. */
+  q?: string;
+};
+
+export async function listCandidatePool(
+  db: QueryExecutor,
+  filters: ListCandidatePoolFilters = {},
+): Promise<PaginatedResult<CandidateRow>> {
+  const limit = clampLimit(filters.limit);
+  const offset = clampOffset(filters.offset);
+
+  const conditions: string[] = ["deleted_at IS NULL"];
+  const values: unknown[] = [];
+
+  if (filters.q) {
+    values.push(`%${filters.q}%`);
+    const i = values.length;
+    conditions.push(
+      `(name ILIKE $${i} OR email ILIKE $${i} OR phone ILIKE $${i} OR role ILIKE $${i} OR degree ILIKE $${i} OR array_to_string(skills, ' ') ILIKE $${i})`,
+    );
+  }
+
+  values.push(limit);
+  const limitIdx = values.length;
+  values.push(offset);
+  const offsetIdx = values.length;
+
+  const { rows } = await db.query<CandidateRow & { total_count: string }>(
+    `SELECT *, count(*) OVER() AS total_count
+     FROM candidates
+     WHERE ${conditions.join(" AND ")}
+     ORDER BY created_at DESC, id DESC
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    values,
+  );
+
+  return {
+    rows: rows.map(({ total_count: _total_count, ...row }) => row),
+    total: extractWindowTotal(rows),
+    limit,
+    offset,
+  };
+}
+
+export type FindCandidatesByContactFilters = {
+  /** Exact match, case-insensitive -- `name` is canonicalized before storage (`canonicalizeCandidateName`), so no ILIKE wildcard needed. */
+  name?: string | null;
+  /** Exact match, case-insensitive. */
+  email?: string | null;
+  /** Exact match against any of the caller's normalized phone variants (see `normalizePhoneFromPayload`). */
+  phoneVariants?: string[];
+};
+
+/**
+ * Candidates matching ANY of the given name/email/phone filters (OR, not
+ * AND) -- each filter is optional, so callers can pass just the signals they
+ * have. Returns `[]` without querying when none are given.
+ */
+export async function findCandidatesByContact(
+  db: QueryExecutor,
+  filters: FindCandidatesByContactFilters,
+): Promise<CandidateRow[]> {
+  const name = filters.name?.trim() || null;
+  const email = filters.email?.trim() || null;
+  const phoneVariants =
+    filters.phoneVariants && filters.phoneVariants.length > 0
+      ? filters.phoneVariants
+      : null;
+
+  if (!name && !email && !phoneVariants) {
+    return [];
+  }
+
+  const values: unknown[] = [
+    name ? name.toLowerCase() : null,
+    email ? email.toLowerCase() : null,
+    phoneVariants,
+  ];
+  const matchClauses = [
+    `($1::text IS NOT NULL AND lower(name) = $1)`,
+    `($2::text IS NOT NULL AND lower(email) = $2)`,
+    `($3::text[] IS NOT NULL AND regexp_replace(phone, '\\D', '', 'g') = ANY($3))`,
+  ];
+
+  const { rows } = await db.query<CandidateRow>(
+    `SELECT * FROM candidates
+     WHERE deleted_at IS NULL
+       AND (${matchClauses.join(" OR ")})
+     ORDER BY id DESC`,
+    values,
+  );
+  return rows;
 }
 
 export async function createCandidate(
@@ -174,6 +306,27 @@ export async function softDeleteCandidate(
     [id],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Bulk person-scope soft delete: unconditionally soft-deletes every given
+ * candidate. Callers that also need the person's applications gone (the
+ * `/candidates` bulk delete) must soft-delete `campaign_applied` in the same
+ * transaction -- see `softDeleteAllCampaignAppliedForCandidates`.
+ */
+export async function softDeleteCandidates(
+  db: QueryExecutor,
+  ids: string[],
+): Promise<CandidateRow[]> {
+  if (ids.length === 0) return [];
+  const { rows } = await db.query<CandidateRow>(
+    `UPDATE candidates
+     SET deleted_at = now(), updated_at = now()
+     WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+     RETURNING *`,
+    [ids],
+  );
+  return rows;
 }
 
 /**
@@ -285,4 +438,85 @@ export async function syncCandidateAggregateFields(
       latestParsed.phone,
     ],
   );
+}
+
+/**
+ * Simplified variant of {@link syncCandidateAggregateFields}: instead of
+ * aggregating (union skills / max experience_years) across every live
+ * application's active CV, this only reads the single most recent one and
+ * writes its values straight onto `candidates` -- for callers that just
+ * uploaded/updated one CV and want that CV's data reflected, without paying
+ * for (or reasoning about) the multi-application aggregation.
+ *
+ * Does NOT touch name/email/phone -- those only exist inside
+ * `parsed_payload` (see `syncCandidateAggregateFields`), which this variant
+ * deliberately doesn't read from.
+ */
+export type LatestCvFields = {
+  skills: string[];
+  experience_years: string | null;
+  role: string | null;
+  degree: string | null;
+  education: string | null;
+};
+
+/**
+ * `cvData`: pass the CV's fields directly (e.g. the row a caller just wrote
+ * via `createCvDetailVersion`) to skip the SELECT below entirely -- avoids a
+ * redundant round-trip when the caller already has the data fresh.
+ */
+export async function syncCandidateFieldsFromLatestCv(
+  db: QueryExecutor,
+  candidateId: string,
+  cvData?: LatestCvFields,
+): Promise<void> {
+  const latest =
+    cvData ??
+    (
+      await db.query<LatestCvFields>(
+        `SELECT cv.skills, cv.experience_years, cv.role, cv.degree, cv.education
+         FROM cv_detail_versions cv
+         JOIN campaign_applied ca ON ca.active_cv_version_id = cv.id
+         WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
+         ORDER BY cv.id DESC
+         LIMIT 1`,
+        [candidateId],
+      )
+    ).rows[0];
+
+  if (!latest) return;
+
+  const skills = (latest.skills ?? [])
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  await db.query(
+    `UPDATE candidates
+     SET skills = $2,
+         experience_years = GREATEST(experience_years, $3::numeric),
+         role = COALESCE($4, role),
+         degree = COALESCE($5, degree),
+         education = COALESCE($6, education),
+         updated_at = now()
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [
+      candidateId,
+      skills,
+      latest.experience_years,
+      latest.role ?? null,
+      latest.degree ?? null,
+      latest.education ?? null,
+    ],
+  );
+}
+
+export async function checkRemainApplicationForCandidate(
+  db: QueryExecutor,
+  candidateId: string,
+): Promise<boolean> {
+  const { rows } = await db.query<{ count: string }>(
+    `SELECT count(*)::int AS count FROM campaign_applied WHERE candidate_id = $1 AND deleted_at IS NULL`,
+    [candidateId],
+  );
+  return Number(rows[0]?.count ?? 0) > 0;
 }

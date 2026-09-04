@@ -6,24 +6,49 @@ import {
   getSubStageTextColorClass,
   getSubStageTextColorStyle,
 } from "@/lib/candidates/pipeline-status-styles";
+import { CandidateApplicationRow } from "@/lib/service/candidate.service";
+import { CandidateApplicationSummary } from "@/app/api/admin/upload-files/[id]/candidate-applications/route";
 
-export type PipelineStatusBadgeApplication = {
-  stageLabel: string | null;
-  stageColor: string | null;
-  subStageCode: string | null;
-  subStageLabel: string | null;
-  subStageIsPassed: boolean | null;
-};
+/** snake_case resolved-stage fields (as they arrive on `CandidateApplicationRow`). */
+type SnakeStageFields = Pick<
+  CandidateApplicationRow,
+  | "stage_label"
+  | "stage_color"
+  | "sub_stage_code"
+  | "sub_stage_label"
+  | "sub_stage_is_passed"
+>;
 
-/** Compact stage · sub-stage badge for an application row -- shared by the
- * candidate-detail page's application list and the `/candidates` dashboard
- * drawer's "Other applications" panel. */
+/** camelCase resolved-stage fields (as they arrive on `CandidateApplicationSummary`). */
+export type PipelineStatusBadgeApplication = Pick<
+  CandidateApplicationSummary,
+  | "stageLabel"
+  | "stageColor"
+  | "subStageCode"
+  | "subStageLabel"
+  | "subStageIsPassed"
+>;
+
+/** The badge reads an already stage-resolved row in either casing. */
+export type PipelineStatusBadgeApp = SnakeStageFields | PipelineStatusBadgeApplication;
+
+function normalizeStage(app: PipelineStatusBadgeApp): SnakeStageFields {
+  if ("stage_label" in app) return app;
+  return {
+    stage_label: app.stageLabel,
+    stage_color: app.stageColor,
+    sub_stage_code: app.subStageCode,
+    sub_stage_label: app.subStageLabel,
+    sub_stage_is_passed: app.subStageIsPassed,
+  };
+}
+
 export function PipelineStatusBadge({
   app,
   hasJob = true,
   className,
 }: {
-  app: PipelineStatusBadgeApplication;
+  app: PipelineStatusBadgeApp;
   /** Set to `false` for a CV uploaded without a job -- there's no pipeline
    * to show a stage for, so this is distinct from "not started yet". */
   hasJob?: boolean;
@@ -36,7 +61,8 @@ export function PipelineStatusBadge({
       </span>
     );
   }
-  if (!app.stageLabel || !app.subStageLabel) {
+  const s = normalizeStage(app);
+  if (!s.stage_label || !s.sub_stage_label) {
     // Reachable once the job's pipeline config genuinely can't be resolved
     // (e.g. deleted/misconfigured job) -- callers are expected to resolve
     // stage/sub-stage via `resolveApplicationStages` first (which falls back
@@ -48,19 +74,19 @@ export function PipelineStatusBadge({
       </span>
     );
   }
-  const surfaceClass = getStageColorClasses(app.stageColor, "badge");
-  const surfaceStyle = getStageColorStyles(app.stageColor, "badge");
+  const surfaceClass = getStageColorClasses(s.stage_color, "badge");
+  const surfaceStyle = getStageColorStyles(s.stage_color, "badge");
   const detailClass = getSubStageTextColorClass(
-    app.subStageCode,
-    app.subStageIsPassed ?? undefined,
+    s.sub_stage_code,
+    s.sub_stage_is_passed ?? undefined,
     undefined,
-    app.stageColor,
+    s.stage_color,
   );
   const detailStyle = getSubStageTextColorStyle(
-    app.subStageCode,
-    app.subStageIsPassed ?? undefined,
+    s.sub_stage_code,
+    s.sub_stage_is_passed ?? undefined,
     undefined,
-    app.stageColor,
+    s.stage_color,
   );
   return (
     <span
@@ -71,10 +97,10 @@ export function PipelineStatusBadge({
       )}
       style={surfaceStyle}
     >
-      <span className="text-foreground">{app.stageLabel}</span>
+      <span className="text-foreground">{s.stage_label || "—"}</span>
       <span className="text-muted">·</span>
       <span className={detailClass} style={detailStyle}>
-        {app.subStageLabel}
+        {s.sub_stage_label || "—"}
       </span>
     </span>
   );
