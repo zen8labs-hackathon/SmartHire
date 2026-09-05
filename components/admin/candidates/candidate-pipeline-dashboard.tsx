@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AlertDialog, Button, Spinner, Tabs } from "@heroui/react";
@@ -13,6 +13,7 @@ import { CvVersionComparisonDrawer } from "@/components/admin/candidates/cv-vers
 import { UploadCvModal } from "@/components/admin/jd/upload-cv-modal";
 import { UploadHistoryPanel } from "@/components/admin/jd/upload-history-panel";
 import { DataTableStats } from "@/components/admin/shell/table-system";
+import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 import { useToast } from "@/components/admin/toast-provider";
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
@@ -36,11 +37,16 @@ type Props = {
   candidatesPromise: Promise<{
     rows: GroupedCandidateRow[];
     total: number;
+    experiencedTotal: number;
   }>;
 };
 
 export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
-  const { rows: initialRows, total: initialListTotal } = use(candidatesPromise);
+  const {
+    rows: initialRows,
+    total: initialListTotal,
+    experiencedTotal: initialExperiencedTotal,
+  } = use(candidatesPromise);
   const toast = useToast();
   const router = useRouter();
   const pathname = usePathname();
@@ -74,13 +80,16 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
   const [dbRows, setDbRows] = useState<GroupedCandidateRow[]>(initialRows);
   const [uploadDateRangeFilter, setUploadDateRangeFilter] =
     useState<RangeValue<CalendarDate> | null>(null);
-  const [debouncedQuery, setDebouncedQuery] = useState<string>("");
   const [query, setQuery] = useState<string>("");
+  const debouncedQuery = useDebouncedValue(query, 350);
   const [page, setPage] = useState<number>(1);
   const [listPageSize, setListPageSize] = useState<number>(
     CANDIDATES_LIST_DEFAULT_LIMIT,
   );
   const [listTotal, setListTotal] = useState<number>(initialListTotal);
+  const [listExperiencedTotal, setListExperiencedTotal] = useState<number>(
+    initialExperiencedTotal,
+  );
   const [listPagination, setListPagination] = useState<{
     limit: number;
     offset: number;
@@ -115,6 +124,19 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
     };
   }, [debouncedQuery, page, uploadDateRangeFilter, listPageSize]);
 
+  // A search commit (post-debounce) is a filter change too -- jump back to
+  // page 1 so a search typed while on page N+ doesn't land on a now-empty
+  // page. Skips the very first run so mounting doesn't reset an incoming
+  // `page` (there isn't one here, but matches the pattern used elsewhere).
+  const skipInitialSearchResetRef = useRef(true);
+  useEffect(() => {
+    if (skipInitialSearchResetRef.current) {
+      skipInitialSearchResetRef.current = false;
+      return;
+    }
+    setPage(1);
+  }, [debouncedQuery]);
+
   const fetchCandidates = useCallback(async () => {
     setDbLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
@@ -124,12 +146,15 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
         offset: String(listQuery.offset ?? 0),
       };
       if (listQuery.q) queryParams.q = listQuery.q;
+      if (listQuery.uploadFrom) queryParams.uploadFrom = listQuery.uploadFrom;
+      if (listQuery.uploadTo) queryParams.uploadTo = listQuery.uploadTo;
 
       const { candidates, pagination } =
         await candidateService.getGroupedCandidatesList(queryParams);
 
       setDbRows(candidates);
       setListTotal(pagination?.total ?? candidates.length);
+      setListExperiencedTotal(pagination?.experiencedTotal ?? 0);
       if (pagination) {
         setListPagination({
           limit: pagination.limit,
@@ -183,11 +208,16 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
     }
   }, [rowPendingDelete, activeRow?.id, toast, fetchCandidates]);
 
+  // Refetches whenever the tab is (re)selected *or* any filter/page
+  // dependency `fetchCandidates` closes over changes -- `fetchCandidates`'s
+  // identity already encodes debouncedQuery/page/uploadDateRangeFilter/
+  // listPageSize via `buildListQuery`, so listing it here is what makes
+  // search and the upload-date filter actually trigger a refetch.
   useEffect(() => {
     if (activeTab === "candidates") {
       void fetchCandidates();
     }
-  }, [activeTab]);
+  }, [activeTab, fetchCandidates]);
 
   const handleFiltersAdjusted = useCallback(() => setPage(1), [setPage]);
 
@@ -223,7 +253,7 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
     },
     {
       label: "Experienced staff",
-      value: 9999,
+      value: listExperiencedTotal,
       icon: <LayersIcon className="h-4.5 w-4.5" />,
       description: "5+ years of experience",
     },

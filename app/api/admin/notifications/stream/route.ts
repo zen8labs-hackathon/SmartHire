@@ -11,7 +11,7 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SNAPSHOT_LIMIT = 20;
+const SNAPSHOT_LIMIT = 10;
 const HEARTBEAT_MS = 15_000;
 
 /**
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         ]);
         send("snapshot", { items: items.map(toNotificationEvent), unreadCount });
       } catch (err) {
-        console.error("[notifications/stream] snapshot lỗi:", err);
+        console.error("[notifications/stream] snapshot failed:", err);
         send("snapshot", { items: [], unreadCount: 0 });
       }
 

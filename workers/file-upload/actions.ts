@@ -25,6 +25,8 @@ import {
 } from "@/lib/db/notifications";
 import { markBatchDone } from "@/lib/db/batch-done";
 import { pushNotification } from "@/lib/notifications/http-push";
+import { getJobById } from "@/lib/db/jobs";
+import { getCandidateById } from "@/lib/db/candidates";
 
 export async function updateProcessingStatus(
   fileUploadId: string,
@@ -299,11 +301,22 @@ export async function notifyBatchComplete(
       ? `/admin/jd/${upload.job_id}/pipeline?tab=uploads`
       : "/admin/candidates?tab=uploads";
 
+    const job = upload.job_id
+      ? await getJobById(getPool(), upload.job_id)
+      : null;
+    const target = job ? ` for "${job.position}"` : "";
+
     const row = await createNotification(getPool(), {
       userId: upload.uploaded_by,
       type: NOTIFICATION_TYPE.BatchComplete,
-      title: `Batch finished: ${batch.completed}/${batch.total} succeeded`,
-      body: batch.failed > 0 ? `${batch.failed} file(s) failed` : null,
+      title:
+        batch.failed > 0
+          ? "CV upload finished with errors"
+          : "CV upload complete",
+      body:
+        batch.failed > 0
+          ? `${batch.completed} of ${batch.total} CV(s)${target} processed successfully; ${batch.failed} failed. Open the Uploaded files tab for details.`
+          : `All ${batch.total} CV(s)${target} were uploaded and processed successfully. Open the Uploaded files tab to review them.`,
       data: { batchId: upload.batch_id, ...batch, href },
     });
 
@@ -313,10 +326,6 @@ export async function notifyBatchComplete(
   }
 }
 
-/**
- * Lưu + bắn notification cho kết quả 1 job rerun AI JD-match. Mỗi job độc
- * lập (không thuộc 1 "batch" như file-upload) nên không cần optimistic lock.
- */
 export async function notifyRerunAiMatchResult(
   userId: string,
   cvDetailVersionId: string,
@@ -329,15 +338,24 @@ export async function notifyRerunAiMatchResult(
         ? `/admin/jd/${location.jobId}/pipeline/${location.candidateId}`
         : null;
 
+    const [job, candidate] = await Promise.all([
+      location?.jobId ? getJobById(getPool(), location.jobId) : null,
+      location?.candidateId
+        ? getCandidateById(getPool(), location.candidateId)
+        : null,
+    ]);
+    const who = candidate?.name ?? "Candidate";
+    const target = job ? ` for "${job.position}"` : "";
+
     const row = await createNotification(getPool(), {
       userId,
       type: outcome.ok
         ? NOTIFICATION_TYPE.RerunAiMatchComplete
         : NOTIFICATION_TYPE.RerunAiMatchFailed,
-      title: outcome.ok
-        ? "Rerun AI JD-match completed"
-        : "Rerun AI JD-match failed",
-      body: outcome.ok ? null : outcome.message,
+      title: outcome.ok ? "AI JD-match complete" : "AI JD-match failed",
+      body: outcome.ok
+        ? `Updated the JD-match score for ${who}${target}. Open the candidate's profile to view it.`
+        : `Could not recalculate the JD-match score for ${who}${target}: ${outcome.message}`,
       data: { cvDetailVersionId, ...(href ? { href } : {}) },
     });
 

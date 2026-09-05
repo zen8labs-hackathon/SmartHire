@@ -4,6 +4,7 @@ import {
   buildSetClause,
   clampLimit,
   clampOffset,
+  extractWindowCount,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
 import { normalizeParsedResume } from "@/lib/candidates/normalize-parsed-resume";
@@ -149,12 +150,23 @@ export async function listCandidates(
 export type ListCandidatePoolFilters = PaginationParams & {
   /** Case-insensitive substring match against name / email / phone / role / degree / skills. */
   q?: string;
+  /** Inclusive `YYYY-MM-DD` range, filtered against `candidates.created_at` (this pool has no separate "upload" event). */
+  uploadFrom?: string;
+  uploadTo?: string;
+};
+
+/** "Experienced staff" stat threshold on the Active Candidates page: `experience_years >= 5`. */
+export const EXPERIENCED_YEARS_THRESHOLD = 5;
+
+export type CandidatePoolResult = PaginatedResult<CandidateRow> & {
+  /** Candidates in the (filtered) pool with `experience_years >= EXPERIENCED_YEARS_THRESHOLD`. */
+  experiencedTotal: number;
 };
 
 export async function listCandidatePool(
   db: QueryExecutor,
   filters: ListCandidatePoolFilters = {},
-): Promise<PaginatedResult<CandidateRow>> {
+): Promise<CandidatePoolResult> {
   const limit = clampLimit(filters.limit);
   const offset = clampOffset(filters.offset);
 
@@ -168,14 +180,28 @@ export async function listCandidatePool(
       `(name ILIKE $${i} OR email ILIKE $${i} OR phone ILIKE $${i} OR role ILIKE $${i} OR degree ILIKE $${i} OR array_to_string(skills, ' ') ILIKE $${i})`,
     );
   }
+  if (filters.uploadFrom) {
+    values.push(filters.uploadFrom);
+    conditions.push(`created_at >= $${values.length}`);
+  }
+  if (filters.uploadTo) {
+    values.push(filters.uploadTo);
+    conditions.push(`created_at < ($${values.length}::date + 1)`);
+  }
 
+  values.push(EXPERIENCED_YEARS_THRESHOLD);
+  const expIdx = values.length;
   values.push(limit);
   const limitIdx = values.length;
   values.push(offset);
   const offsetIdx = values.length;
 
-  const { rows } = await db.query<CandidateRow & { total_count: string }>(
-    `SELECT *, count(*) OVER() AS total_count
+  const { rows } = await db.query<
+    CandidateRow & { total_count: string; experienced_count: string }
+  >(
+    `SELECT *,
+       count(*) OVER() AS total_count,
+       count(*) FILTER (WHERE experience_years >= $${expIdx}) OVER() AS experienced_count
      FROM candidates
      WHERE ${conditions.join(" AND ")}
      ORDER BY created_at DESC, id DESC
@@ -184,8 +210,11 @@ export async function listCandidatePool(
   );
 
   return {
-    rows: rows.map(({ total_count: _total_count, ...row }) => row),
+    rows: rows.map(
+      ({ total_count: _t, experienced_count: _e, ...row }) => row,
+    ),
     total: extractWindowTotal(rows),
+    experiencedTotal: extractWindowCount(rows, "experienced_count"),
     limit,
     offset,
   };

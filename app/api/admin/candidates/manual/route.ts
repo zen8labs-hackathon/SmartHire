@@ -13,6 +13,7 @@ import type { CampaignAppliedSource } from "@/lib/db/campaign-applied";
 import { getPool } from "@/lib/db/config/client";
 import {
   FILE_UPLOAD_STATUS,
+  getFileUploadById,
   insertManyFileUploads,
   updateFileUploadById,
 } from "@/lib/db/upload-history";
@@ -21,21 +22,20 @@ import { NextRequest } from "next/server";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** `file_uploads.id` is a `bigint` identity column, not a UUID -- see its migration. */
+const BIGINT_ID_RE = /^[0-9]+$/;
 
 type Body = {
   jobId?: string | null;
   storageKey?: string;
   fileName?: string;
   mimeType?: string | null;
+  fileUploadId?: string | null;
   source?: CampaignAppliedSource;
   sourceOther?: string | null;
-  /** Display label for the upload-history row; falls back to the caller's
-   * username server-side when blank. */
+
   recruiter?: string | null;
-  /** How to resolve an email/phone match the caller already surfaced via
-   * `POST .../manual/check-duplicate` (merge-duplicate modal). Omitted when
-   * that check found nothing to resolve -- auto-detection then applies as
-   * before. */
+
   duplicateAction?: "merge" | "create_new";
   /** Required when `duplicateAction === "merge"` -- the existing candidate
    * picked in the modal; this CV is attached to it instead of a new row. */
@@ -138,8 +138,41 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const storageKey = body.storageKey?.trim();
-  const fileName = body.fileName?.trim();
+  let reuseUpload: Awaited<ReturnType<typeof getFileUploadById>> = null;
+  if (body.fileUploadId != null) {
+    if (
+      typeof body.fileUploadId !== "string" ||
+      !BIGINT_ID_RE.test(body.fileUploadId)
+    ) {
+      return Response.json(
+        { error: "Invalid file upload id." },
+        { status: 400 },
+      );
+    }
+    reuseUpload = await getFileUploadById(getPool(), body.fileUploadId);
+    if (!reuseUpload) {
+      return Response.json(
+        { error: "Uploaded file not found." },
+        { status: 404 },
+      );
+    }
+    if (reuseUpload.status === FILE_UPLOAD_STATUS.Completed) {
+      return Response.json(
+        { error: "This file has already been processed." },
+        { status: 409 },
+      );
+    }
+  }
+
+  const storageKey = (
+    reuseUpload ? reuseUpload.storage_key : body.storageKey
+  )?.trim();
+  const fileName = (
+    reuseUpload ? reuseUpload.file_name : body.fileName
+  )?.trim();
+  const mimeType = reuseUpload
+    ? reuseUpload.mime_type
+    : (body.mimeType ?? null);
   if (
     !storageKey ||
     !storageKey.startsWith(CV_FOLDER_PREFIX) ||
@@ -183,8 +216,11 @@ export async function POST(request: NextRequest) {
   }
   const forceCreateNew = body.duplicateAction === "create_new";
 
-  const jobId =
-    typeof body.jobId === "string" && body.jobId ? body.jobId : null;
+  const jobId = reuseUpload
+    ? reuseUpload.job_id
+    : typeof body.jobId === "string" && body.jobId
+      ? body.jobId
+      : null;
 
   // `uploaded_by` is always the caller's user id (never trusted from the
   // client); `recruiter` is a free-text display label -- the manual override
@@ -224,7 +260,7 @@ export async function POST(request: NextRequest) {
       cv: {
         storageKey,
         fileName,
-        mimeType: body.mimeType ?? null,
+        mimeType,
         fileSha256: null,
       },
       // Manual entries never run AI JD-match, even against a job -- "skipped"
@@ -236,13 +272,17 @@ export async function POST(request: NextRequest) {
       createdBy: auth.userId,
       attachToCandidateId: mergeCandidateId ?? undefined,
       forceCreateNew,
-      // Manual entries skip the BullMQ queue, but still get one `file_uploads`
-      // tracking row (written `completed` in the same transaction) so they
-      // show up in the "Uploaded files" history alongside auto uploads, with
-      // their job / recruiter / source. No `batch_done` row: that table only
-      // exists to dedupe the worker's batch-finished notification, which never
-      // fires for a synchronous manual insert.
       onCommitted: async (tx, committed) => {
+        if (reuseUpload) {
+          await updateFileUploadById(tx, reuseUpload.id, {
+            status: FILE_UPLOAD_STATUS.Completed,
+            candidateId: committed.candidateId,
+            isExisted: committed.matchedExisting,
+            fileSource,
+            recruiter,
+          });
+          return;
+        }
         const batchId = `${dayjs().format("YYYYMMDDHHmmss")}${crypto
           .randomUUID()
           .replace(/-/g, "")
@@ -251,7 +291,7 @@ export async function POST(request: NextRequest) {
           {
             fileName,
             storageKey,
-            mimeType: body.mimeType ?? null,
+            mimeType,
             fileSource,
             recruiter,
             uploadedBy: auth.userId,
