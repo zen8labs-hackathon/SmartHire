@@ -8,8 +8,23 @@ RUN npm install
 
 COPY . .
 RUN npm run build
+RUN npm run worker:build
 
-# production stage
+# BullMQ worker: compiled JS + production node_modules (packages left external)
+FROM node:20-alpine AS worker
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package*.json ./
+RUN npm install --omit=dev
+
+COPY --from=builder /app/dist/worker ./dist/worker
+COPY --from=builder /app/assets ./assets
+
+CMD ["node", "dist/worker/file-upload.worker.js"]
+
+# production stage (Next.js app) — keep last so `docker build .` defaults to app
 FROM node:20-alpine AS runner
 
 WORKDIR /app
