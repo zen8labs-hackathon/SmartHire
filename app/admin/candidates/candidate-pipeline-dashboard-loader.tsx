@@ -7,6 +7,7 @@ import { CandidatePipelineDashboard } from "@/components/admin/candidates/candid
 import { DataTableSkeleton } from "@/components/admin/shell/table-system";
 import type { CandidateDbRow } from "@/lib/candidates/db-row";
 import { PageHeader } from "@/components/admin/shell/page-header";
+import { GroupedCandidateRow } from "@/lib/service/candidate.service";
 
 function CandidatesErrorFallback() {
   return (
@@ -26,7 +27,7 @@ export function CandidatePipelineDashboardLoader({
   candidatesPromise,
 }: {
   candidatesPromise: Promise<{
-    rows: CandidateDbRow[];
+    rows: GroupedCandidateRow[];
     total: number;
     experiencedTotal: number;
   }>;

@@ -10,18 +10,18 @@ git fetch origin
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
-echo "==> Build app image"
-"${COMPOSE[@]}" build app
+echo "==> Build app + worker images"
+"${COMPOSE[@]}" build app worker
 
-echo "==> Ensure db + MinIO are up"
-"${COMPOSE[@]}" up -d db minio
+echo "==> Ensure db + Redis + MinIO are up"
+"${COMPOSE[@]}" up -d db redis minio
 "${COMPOSE[@]}" up minio-init
 
 echo "==> Run migrations"
 "${COMPOSE[@]}" --profile migrate run --rm migrate
 
-echo "==> Start / recreate app"
-"${COMPOSE[@]}" up -d app --force-recreate
+echo "==> Start / recreate app + worker"
+"${COMPOSE[@]}" up -d app worker --force-recreate
 
 echo "==> Status"
 "${COMPOSE[@]}" ps

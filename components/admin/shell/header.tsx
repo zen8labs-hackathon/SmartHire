@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { UserDropdown } from "./user-dropdown";
-import { Bell, ArrowLeft, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { NotificationBell } from "./notification-bell";
+import { ArrowLeft, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 export type HeaderProps = {
   userEmail: string;
@@ -45,12 +46,7 @@ export function Header({
 
       {/* Right section: Notifications + UserDropdown */}
       <div className="flex items-center gap-4">
-        <button
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-primary hover:bg-surface-secondary text-muted hover:text-foreground border border-divider/60 transition-all cursor-pointer"
-          aria-label="Notifications"
-        >
-          <Bell className="h-4 w-4" />
-        </button>
+        <NotificationBell />
         <UserDropdown userEmail={userEmail} isHr={isHr} />
       </div>
     </header>

@@ -8,34 +8,41 @@ export const metadata: Metadata = {
 
 import { CandidatePipelineDashboardLoader } from "./candidate-pipeline-dashboard-loader";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { queryDedupedCandidatesList } from "@/lib/candidates/candidates-dedup";
-import type { CandidateDbRow } from "@/lib/candidates/db-row";
+import { CANDIDATES_LIST_DEFAULT_LIMIT } from "@/lib/candidates/candidates-list-query";
+import { listCandidatePool } from "@/lib/db/candidates";
 import { getPool } from "@/lib/db/config/client";
 import type { QueryExecutor } from "@/lib/db/config/client";
+import { GroupedCandidateRow } from "@/lib/service/candidate.service";
 
 export type InitialCandidatesData = {
-  rows: CandidateDbRow[];
+  rows: GroupedCandidateRow[];
   total: number;
   experiencedTotal: number;
 };
 
-// queryDedupedCandidatesList never rejects (it resolves with `error`
-// populated), so this helper throws explicitly. That gives `use()` a real
-// rejection to propagate to the SuspenseErrorBoundary inside
-// CandidatePipelineDashboardLoader instead of the table silently rendering
-// with an empty list.
+/**
+ * Server-side twin of `candidateService.getGroupedCandidatesList`: reads the
+ * same `candidates` pool via `listCandidatePool` (exactly what `GET
+ * /api/admin/candidates` serves the client) and shapes each row into
+ * `GroupedCandidateRow` (timestamps as ISO strings, matching the JSON the
+ * client would otherwise receive).
+ */
 async function getInitialCandidates(
   db: QueryExecutor,
 ): Promise<InitialCandidatesData> {
-  const result = await queryDedupedCandidatesList(db, {
-    limit: 10,
+  const result = await listCandidatePool(db, {
+    limit: CANDIDATES_LIST_DEFAULT_LIMIT,
     offset: 0,
   });
-  if (result.error) throw new Error(result.error);
   return {
-    rows: result.people,
-    total: result.pagination.total,
-    experiencedTotal: result.pagination.experiencedTotal ?? 0,
+    rows: result.rows.map((row) => ({
+      ...row,
+      created_at: row.created_at.toISOString(),
+      updated_at: row.updated_at.toISOString(),
+      deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null,
+    })),
+    total: result.total,
+    experiencedTotal: result.experiencedTotal,
   };
 }
 
@@ -44,10 +51,6 @@ export default async function AdminCandidatesPage() {
   if (!user) redirect("/login?next=/admin/candidates");
   if (!access?.isHr) redirect("/admin/jd");
 
-  // Kick off the candidates query but don't await it here, so the static
-  // header + Add Candidate button render immediately. The Suspense boundary
-  // inside CandidatePipelineDashboardLoader only gates the filters+table
-  // region, which is the part that actually needs the data.
   const candidatesPromise = getInitialCandidates(getPool());
 
   return (

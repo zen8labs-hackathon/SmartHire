@@ -9,6 +9,7 @@ import { getPublicUserById, type ProfileRole } from "@/lib/db/users";
 export type StaffProfileAccess = {
   userId: string;
   email: string;
+  username: string;
   role: ProfileRole;
   /** Superuser for RBAC: `role === 'admin'`. */
   isAdmin: boolean;
@@ -44,6 +45,7 @@ export async function getStaffProfileAccess(
   return {
     userId,
     email: user.email,
+    username: user.username,
     role: user.role,
     isAdmin,
     isHr,

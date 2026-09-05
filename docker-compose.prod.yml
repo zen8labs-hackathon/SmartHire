@@ -83,6 +83,20 @@ services:
         echo "MinIO bucket $$S3_BUCKET ready"
     restart: "no"
 
+  # Redis — BullMQ queue backend for the CV-upload worker. Internal only
+  # (no published port); reachable on the compose network as `redis:6379`.
+  redis:
+    image: redis:7-alpine
+    container_name: smarthire_redis
+    restart: unless-stopped
+    volumes:
+      - smarthire_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   migrate:
     image: node:20-alpine
     working_dir: /app
@@ -113,6 +127,8 @@ services:
       PORT: "3100"
       # App talks to Postgres on the compose network.
       DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+      # BullMQ queue — the app enqueues CV-upload jobs the worker drains.
+      REDIS_URL: redis://redis:6379
       # MinIO credentials (same as root user). Override real-AWS IAM if both set.
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
@@ -125,6 +141,49 @@ services:
       - "smart-hire.zen8labs.io:host-gateway"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  # ─── BullMQ worker: compiled JS from image (Dockerfile `worker` target) ──────
+  # One slot-independent instance — it drains the Redis queue regardless of
+  # which blue/green app slot is live. Pushes realtime notifications back to the
+  # app through the public URL (nginx routes to the active slot); the internal
+  # endpoint is guarded by INTERNAL_API_SECRET.
+  worker:
+    build:
+      context: .
+      target: worker
+    image: smart_hire_worker:prod
+    container_name: smarthire_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smarthire}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-smart_hire}
+      REDIS_URL: redis://redis:6379
+      # Worker only GETs objects server-side — hit MinIO directly on the compose
+      # network, no nginx/TLS. forcePathStyle auto-enables when AWS_ENDPOINT_URL
+      # is set (lib/storage/s3.ts).
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_ENDPOINT_URL: http://minio:9000
+      # Realtime-notification push target. Blue-green has no fixed app container,
+      # so go through the public host (nginx → active slot). INTERNAL_API_SECRET
+      # from .env must match the app.
+      INTERNAL_APP_URL: ${INTERNAL_APP_URL:-https://smart-hire.zen8labs.io}
+    extra_hosts:
+      - "smart-hire.zen8labs.io:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -183,6 +242,7 @@ services:
 volumes:
   smarthire_pgdata:
   smarthire_minio:
+  smarthire_redis_data:
   smarthire_loki_data:
   smarthire_promtail_positions:
   smarthire_grafana_data:

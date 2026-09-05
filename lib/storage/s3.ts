@@ -54,6 +54,8 @@ function getClient(): S3Client {
     // rejects the upload. WHEN_REQUIRED keeps checksums off for browser PUTs.
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
+    // Disable the SDK's own connection/throttling retries to avoid double-retries with BullMQ's job retry logic. The SDK will still throw on network errors, which the worker can catch and retry.
+    maxAttempts: 1,
     credentials:
       accessKeyId && secretAccessKey
         ? { accessKeyId, secretAccessKey }

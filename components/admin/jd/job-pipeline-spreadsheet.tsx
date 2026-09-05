@@ -1,9 +1,11 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { AddCandidateModal } from "@/components/admin/candidates/add-candidate-modal";
+import { UploadCvModal } from "@/components/admin/jd/upload-cv-modal";
+import { UploadHistoryPanel } from "@/components/admin/jd/upload-history-panel";
 import {
   JobPipelineDataPanel,
   type JobPipelineDataPanelHandle,
@@ -12,10 +14,13 @@ import { PipelineTableSkeleton } from "@/components/admin/jd/pipeline-table-skel
 import { SuspenseErrorBoundary } from "@/components/admin/suspense-error-boundary";
 import { JdFilePreviewModal } from "@/components/admin/jd/jd-file-preview-modal";
 import type { JdPipelineApplicationRow } from "@/lib/candidates/campaign-applied-table-row";
-import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
+import type {
+  StageMapping,
+  SubStage,
+} from "@/lib/pipelines/transition-validator";
 
 import { FileText } from "lucide-react";
-import { Alert, Breadcrumbs, useOverlayState } from "@heroui/react";
+import { Alert, Breadcrumbs, Tabs, useOverlayState } from "@heroui/react";
 
 function PipelineErrorFallback() {
   return (
@@ -45,7 +50,15 @@ type Props = {
   }>;
 };
 
-export function JobPipelineSpreadsheet({
+export function JobPipelineSpreadsheet(props: Props) {
+  return (
+    <Suspense fallback={<PipelineTableSkeleton />}>
+      <JobPipelineSpreadsheetContent {...props} />
+    </Suspense>
+  );
+}
+
+function JobPipelineSpreadsheetContent({
   jobId,
   jobTitle,
   hasJdSourceFile,
@@ -54,6 +67,29 @@ export function JobPipelineSpreadsheet({
   pipelineDataPromise,
 }: Props) {
   const [addCandidatesOpen, setAddCandidatesOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"candidates" | "uploads">(
+    searchParams.get("tab") === "uploads" ? "uploads" : "candidates",
+  );
+  useEffect(() => {
+    if (searchParams.get("tab") === "uploads") setActiveTab("uploads");
+  }, [searchParams]);
+
+  // Keep `?tab=` in sync so the tab survives a refresh/shared link -- the
+  // "candidates" tab is the default, so it's left out of the URL entirely.
+  const selectTab = useCallback(
+    (next: "candidates" | "uploads") => {
+      setActiveTab(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "uploads") params.set("tab", "uploads");
+      else params.delete("tab");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
   const pipelinePanelRef = useRef<JobPipelineDataPanelHandle>(null);
   const jdFileModal = useOverlayState();
 
@@ -92,36 +128,66 @@ export function JobPipelineSpreadsheet({
         </p>
       </header>
 
-      <SuspenseErrorBoundary fallback={<PipelineErrorFallback />}>
-        <Suspense fallback={<PipelineTableSkeleton />}>
-          <JobPipelineDataPanel
-            ref={pipelinePanelRef}
-            jobId={jobId}
-            pipelineDataPromise={pipelineDataPromise}
-            canEditPipeline={canEditPipeline}
-            canAddCandidates={canAddCandidates}
-            onAddCandidates={() => setAddCandidatesOpen(true)}
-          />
-        </Suspense>
-      </SuspenseErrorBoundary>
+      <Tabs
+        selectedKey={activeTab}
+        onSelectionChange={(key) => selectTab(key as "candidates" | "uploads")}
+      >
+        <Tabs.ListContainer>
+          <Tabs.List aria-label="Job pipeline sections">
+            <Tabs.Tab id="candidates">
+              <Tabs.Indicator />
+              Candidates
+            </Tabs.Tab>
+            <Tabs.Tab id="uploads">
+              <Tabs.Indicator />
+              Uploaded files
+            </Tabs.Tab>
+          </Tabs.List>
+        </Tabs.ListContainer>
+
+        {/* Candidates panel stays mounted (shouldForceMount) so switching
+            tabs doesn't discard its live refetch state or unmount the ref
+            the Add Candidates modal refetches through. Uploads panel is
+            left at the default lazy mount/unmount -- each visit should
+            fetch fresh rows and (re)start polling, same as the modal this
+            replaced did on open/close. */}
+        <Tabs.Panel
+          id="candidates"
+          shouldForceMount
+          className={activeTab === "candidates" ? "" : "hidden"}
+        >
+          <SuspenseErrorBoundary fallback={<PipelineErrorFallback />}>
+            <Suspense fallback={<PipelineTableSkeleton />}>
+              <JobPipelineDataPanel
+                ref={pipelinePanelRef}
+                jobId={jobId}
+                pipelineDataPromise={pipelineDataPromise}
+                canEditPipeline={canEditPipeline}
+                canAddCandidates={canAddCandidates}
+                onAddCandidates={() => setAddCandidatesOpen(true)}
+              />
+            </Suspense>
+          </SuspenseErrorBoundary>
+        </Tabs.Panel>
+
+        <Tabs.Panel id="uploads">
+          <UploadHistoryPanel jobId={jobId} jobTitle={jobTitle} />
+        </Tabs.Panel>
+      </Tabs>
 
       {canAddCandidates ? (
-        <AddCandidateModal
+        <UploadCvModal
           open={addCandidatesOpen}
           onOpenChange={(open) => {
             setAddCandidatesOpen(open);
-            // Uploads still "processing" when the modal is closed stop being
-            // polled (AddCandidateModal's status poll only runs while open),
-            // so without this the pipeline table can go stale until a manual
-            // page refresh -- always resync on close, not just on the
-            // in-modal completion callbacks below.
+            // Uploaded files are processed asynchronously by the file-upload
+            // worker, not polled by this modal -- always resync on close so
+            // the pipeline table doesn't go stale until a manual refresh.
             if (!open) pipelinePanelRef.current?.refetch(true);
           }}
-          jdPipelineCampaign={jdPipelineCampaign}
-          onCandidatesChanged={() => pipelinePanelRef.current?.refetch(true)}
-          onDuplicateMergedToExisting={() =>
-            pipelinePanelRef.current?.refetch(true)
-          }
+          jobId={jdPipelineCampaign.jobOpeningId}
+          jobTitle={jdPipelineCampaign.title}
+          onUploaded={() => pipelinePanelRef.current?.refetch(true)}
         />
       ) : null}
 
@@ -130,9 +196,18 @@ export function JobPipelineSpreadsheet({
           href="/admin/jd"
           className="inline-flex items-center gap-2 rounded-xl border border-divider bg-surface-secondary px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-tertiary"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden>
-            <path d="M19 12H5"/>
-            <path d="M12 19l-7-7 7-7"/>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-4"
+            aria-hidden
+          >
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
           </svg>
           Back to Jobs list
         </Link>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTransition } from "react";
 import { UserModal } from "./user-modal";
+import { PushToggle } from "./push-toggle";
 import { signOut } from "@/app/auth/actions";
 import { LogOut, Settings, User } from "lucide-react";
 import { cn } from "@heroui/react";
@@ -44,13 +45,17 @@ export function UserDropdown({ userEmail, isHr }: UserDropdownProps) {
           />
           <div className="absolute right-0 mt-2 w-56 origin-top-right rounded-2xl border border-divider bg-surface-primary p-1.5 shadow-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150">
             <div className="px-3 py-2 border-b border-divider/60">
-              <p className="text-xs font-bold text-foreground truncate">{displayName}</p>
-              <p className="text-[10px] font-semibold text-muted truncate mt-0.5">{userEmail}</p>
+              <p className="text-xs font-bold text-foreground truncate">
+                {displayName}
+              </p>
+              <p className="text-[10px] font-semibold text-muted truncate mt-0.5">
+                {userEmail}
+              </p>
               <span className="inline-flex mt-1.5 items-center rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-bold text-accent uppercase tracking-wider">
                 {roleText}
               </span>
             </div>
-            
+
             <div className="py-1">
               <button
                 onClick={() => {
@@ -62,7 +67,8 @@ export function UserDropdown({ userEmail, isHr }: UserDropdownProps) {
                 <User className="h-4 w-4 text-muted shrink-0" />
                 <span>Profile Settings</span>
               </button>
-              
+              <PushToggle />
+
               <button
                 onClick={handleSignOut}
                 disabled={isPendingSignOut}

@@ -6,7 +6,10 @@ import {
   type SubStage,
 } from "@/lib/pipelines/transition-validator";
 
-type JobPipelineConfig = { stageMappings: StageMapping[]; subStages: SubStage[] };
+type JobPipelineConfig = {
+  stageMappings: StageMapping[];
+  subStages: SubStage[];
+};
 
 // Pipeline stage/sub-stage config only changes when an admin edits a job's
 // pipeline (rare); caching it briefly avoids re-running fetchJobPipelineConfig's
@@ -20,7 +23,7 @@ const jobPipelineConfigCache = new Map<
   { expiresAt: number; config: Promise<JobPipelineConfig> }
 >();
 
-function getCachedJobPipelineConfig(
+export function getCachedJobPipelineConfig(
   db: QueryExecutor,
   jobId: string,
 ): Promise<JobPipelineConfig> {

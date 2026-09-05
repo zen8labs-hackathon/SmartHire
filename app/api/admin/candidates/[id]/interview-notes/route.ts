@@ -18,8 +18,12 @@ const UUID_RE =
 type RouteContext = { params: Promise<{ id: string }> };
 
 const postBodySchema = z.object({ body: z.string().trim().min(2) }).strict();
+// `candidate_notes.id` is a `bigint` identity column, not a UUID -- see its migration.
 const patchBodySchema = z
-  .object({ noteId: z.string().uuid(), body: z.string().trim().min(2) })
+  .object({
+    noteId: z.string().regex(/^[0-9]+$/),
+    body: z.string().trim().min(2),
+  })
   .strict();
 
 async function serializeNotes(notes: CandidateNoteRow[]) {

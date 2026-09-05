@@ -107,19 +107,68 @@ export async function listCampaignAppliedByIds(
   return rows;
 }
 
+/** Batched form of {@link getCampaignAppliedByCandidateAndJob} -- one query for a set of candidate ids instead of N. */
+export async function listCampaignAppliedByCandidateIdsAndJob(
+  db: QueryExecutor,
+  candidateIds: string[],
+  jobId: string,
+): Promise<CampaignAppliedRow[]> {
+  if (candidateIds.length === 0) return [];
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `SELECT * FROM campaign_applied
+     WHERE candidate_id = ANY($1::uuid[]) AND job_id = $2 AND deleted_at IS NULL`,
+    [candidateIds, jobId],
+  );
+  return rows;
+}
+
+/**
+ * A `campaign_applied` row plus its job's title/created-at and its raw
+ * current stage/sub-stage label info, for display (e.g. the candidate
+ * drawer's "All applications" panel) without a separate per-row lookup.
+ * `job_title`/`job_created_at` are `null` for a pool/unassigned application
+ * (`job_id IS NULL`) or a soft-deleted job. `stage_*`/`sub_stage_*` are
+ * `null` both when the application has no job and when it's never been
+ * explicitly moved yet (`current_job_stage_mapping_id`/`current_sub_state_id`
+ * start `NULL` on every new application by design -- see
+ * `assignJobToCampaignApplied`'s doc comment -- so this raw join does *not*
+ * fall back to the job's first stage the way `resolveApplicationStages`
+ * does; callers that need that fallback should use that instead).
+ */
+export type CampaignAppliedWithJobRow = CampaignAppliedRow & {
+  job_title: string | null;
+  job_created_at: Date | null;
+  stage_code: string | null;
+  stage_label: string | null;
+  stage_color: string | null;
+  sub_stage_code: string | null;
+  sub_stage_label: string | null;
+  sub_stage_is_passed: boolean | null;
+};
+
 export async function listCampaignAppliedByCandidate(
   db: QueryExecutor,
   candidateId: string,
   pagination: PaginationParams = {},
-): Promise<PaginatedResult<CampaignAppliedRow>> {
+): Promise<PaginatedResult<CampaignAppliedWithJobRow>> {
   const limit = clampLimit(pagination.limit);
   const offset = clampOffset(pagination.offset);
 
-  const { rows } = await db.query<CampaignAppliedRow & { total_count: string }>(
-    `SELECT *, count(*) OVER() AS total_count
-     FROM campaign_applied
-     WHERE candidate_id = $1 AND deleted_at IS NULL
-     ORDER BY id DESC
+  const { rows } = await db.query<
+    CampaignAppliedWithJobRow & { total_count: string }
+  >(
+    `SELECT ca.*, j.position AS job_title, j.created_at AS job_created_at,
+            ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
+            pss.code AS sub_stage_code, pss.label AS sub_stage_label,
+            pss.is_passed AS sub_stage_is_passed,
+            count(*) OVER() AS total_count
+     FROM campaign_applied ca
+     LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
+     LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
+     LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
+     LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
+     WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
+     ORDER BY ca.id DESC
      LIMIT $2 OFFSET $3`,
     [candidateId, limit, offset],
   );
@@ -191,6 +240,40 @@ export async function createCampaignApplied(
     ],
   );
   return rows[0];
+}
+
+/**
+ * Folds "check for an existing application, else create one" into a single
+ * round trip via `ON CONFLICT` against `campaign_applied_candidate_job_unique_idx`
+ * -- for callers (e.g. the CV-upload worker) that would otherwise pay for a
+ * separate `getCampaignAppliedByCandidateAndJob` SELECT before this INSERT.
+ * The `DO UPDATE` is a no-op write (bumps `updated_at`) purely so `ON
+ * CONFLICT` still returns the existing row via `RETURNING`.
+ *
+ * Only actually de-duplicates when `jobId` is non-null -- that index is
+ * partial (excludes `job_id IS NULL`) by design, so a pool/unassigned
+ * application always inserts a fresh row here, same as `createCampaignApplied`.
+ */
+export async function getOrCreateCampaignApplied(
+  db: QueryExecutor,
+  input: CreateCampaignAppliedInput,
+): Promise<{ application: CampaignAppliedRow; created: boolean }> {
+  const { rows } = await db.query<CampaignAppliedRow & { created: boolean }>(
+    `INSERT INTO campaign_applied (candidate_id, job_id, source, source_other, expected_salary)
+     VALUES ($1, $2, COALESCE($3, 'Other'), $4, $5)
+     ON CONFLICT (candidate_id, job_id) WHERE deleted_at IS NULL AND job_id IS NOT NULL
+     DO UPDATE SET updated_at = now()
+     RETURNING *, (xmax = 0) AS created`,
+    [
+      input.candidateId,
+      input.jobId,
+      input.source ?? null,
+      input.sourceOther ?? null,
+      input.expectedSalary ?? null,
+    ],
+  );
+  const { created, ...application } = rows[0];
+  return { application, created };
 }
 
 export async function updateCampaignApplied(
@@ -325,6 +408,26 @@ export async function softDeleteAllCampaignAppliedForCandidate(
      WHERE candidate_id = $1 AND deleted_at IS NULL
      RETURNING *`,
     [candidateId],
+  );
+  return rows;
+}
+
+/**
+ * Bulk version of {@link softDeleteAllCampaignAppliedForCandidate}: soft-deletes
+ * every live application belonging to any of the given people, in one query.
+ * Backs the `/candidates` bulk person delete.
+ */
+export async function softDeleteAllCampaignAppliedForCandidates(
+  db: QueryExecutor,
+  candidateIds: string[],
+): Promise<CampaignAppliedRow[]> {
+  if (candidateIds.length === 0) return [];
+  const { rows } = await db.query<CampaignAppliedRow>(
+    `UPDATE campaign_applied
+     SET deleted_at = now(), updated_at = now()
+     WHERE candidate_id = ANY($1::uuid[]) AND deleted_at IS NULL
+     RETURNING *`,
+    [candidateIds],
   );
   return rows;
 }
