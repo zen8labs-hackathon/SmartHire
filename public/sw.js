@@ -34,6 +34,22 @@ self.addEventListener("push", (event) => {
   );
 });
 
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      const options = event.oldSubscription && event.oldSubscription.options;
+      if (!options) return;
+
+      const sub = await self.registration.pushManager.subscribe(options);
+      await fetch("/api/admin/push-subscriptions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+    })(),
+  );
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 

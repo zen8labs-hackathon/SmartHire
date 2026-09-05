@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOverlayTriggerState } from "react-stately";
-import { Eye, Loader2, RotateCcw } from "lucide-react";
+import { Eye, Loader2, Pencil, RotateCcw } from "lucide-react";
 import dayjs from "dayjs";
 
 import { Button, Card, Chip, Disclosure, Modal, Spinner } from "@heroui/react";
 
 import type { CandidateApplicationSummary } from "@/app/api/admin/upload-files/[id]/candidate-applications/route";
 import { DataTablePagination } from "@/components/admin/shell/table-system";
+import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import { PipelineStatusBadge } from "@/components/admin/candidates/pipeline-status-badge";
 import { uploadCvService } from "@/lib/service/upload-files.service";
 import {
@@ -21,7 +22,9 @@ import { useToast } from "@/components/admin/toast-provider";
 
 /** Mirrors `uploadCvService.retryFiles`'s own eligibility filter -- a row
  * that filter would silently skip shouldn't show a Retry button in the
- * first place (clicking it would look like it did nothing). */
+ * first place (clicking it would look like it did nothing). Also gates the
+ * "Manual entry" action below: both are only sensible for a row that isn't
+ * already done and isn't actively being worked by the queue right now. */
 const STALE_MS = 1000 * 60 * 2;
 function isRetryEligible(row: FileUploadRow): boolean {
   if (row.status === FILE_UPLOAD_STATUS.Completed) return false;
@@ -123,11 +126,11 @@ function groupByBatch(rows: FileUploadRow[]): BatchGroup[] {
 }
 
 type Props = {
-  /** `null` -> job-less pool uploads (the /candidates page). */
   jobId: string | null;
+  jobTitle?: string;
 };
 
-export function UploadHistoryPanel({ jobId }: Props) {
+export function UploadHistoryPanel({ jobId, jobTitle }: Props) {
   const { success: triggerSuccess, error: triggerError } = useToast();
 
   const [rows, setRows] = useState<FileUploadRow[]>([]);
@@ -136,6 +139,9 @@ export function UploadHistoryPanel({ jobId }: Props) {
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dupInfoRow, setDupInfoRow] = useState<FileUploadRow | null>(null);
+  const [manualEntryRow, setManualEntryRow] = useState<FileUploadRow | null>(
+    null,
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const rowsRef = useRef<FileUploadRow[]>([]);
@@ -313,6 +319,7 @@ export function UploadHistoryPanel({ jobId }: Props) {
                     retryingIds={retryingIds}
                     onRetry={retryRow}
                     onViewDuplicate={setDupInfoRow}
+                    onManualEntry={setManualEntryRow}
                   />
                 ))}
               </div>
@@ -342,6 +349,13 @@ export function UploadHistoryPanel({ jobId }: Props) {
         row={dupInfoRow}
         onClose={() => setDupInfoRow(null)}
       />
+
+      <ManualEntryFromUploadModal
+        row={manualEntryRow}
+        jobTitle={jobTitle}
+        onClose={() => setManualEntryRow(null)}
+        onSaved={() => void load(true)}
+      />
     </Card>
   );
 }
@@ -353,6 +367,7 @@ type BatchDisclosureProps = {
   retryingIds: Set<string>;
   onRetry: (row: FileUploadRow) => void;
   onViewDuplicate: (row: FileUploadRow) => void;
+  onManualEntry: (row: FileUploadRow) => void;
 };
 
 function BatchDisclosure({
@@ -362,6 +377,7 @@ function BatchDisclosure({
   retryingIds,
   onRetry,
   onViewDuplicate,
+  onManualEntry,
 }: BatchDisclosureProps) {
   const { completed, failed, inProgress, total } = batch;
   const completedPct = total > 0 ? (completed / total) * 100 : 0;
@@ -471,24 +487,38 @@ function BatchDisclosure({
                 >
                   {statusLabel(row.status)}
                 </Chip>
-                <div className="flex w-8 shrink-0 items-center justify-center">
+                <div className="flex shrink-0 items-center gap-1">
                   {isRetryEligible(row) ? (
-                    <Button
-                      size="sm"
-                      variant="tertiary"
-                      isIconOnly
-                      className="cursor-pointer"
-                      aria-label={`Retry ${row.file_name}`}
-                      isDisabled={isRetrying}
-                      onPress={() => onRetry(row)}
-                    >
-                      {isRetrying ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <RotateCcw className="size-4" />
-                      )}
-                    </Button>
-                  ) : row.is_existed ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        isIconOnly
+                        className="cursor-pointer"
+                        aria-label={`Retry ${row.file_name}`}
+                        isDisabled={isRetrying}
+                        onPress={() => onRetry(row)}
+                      >
+                        {isRetrying ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="size-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        isIconOnly
+                        className="cursor-pointer"
+                        aria-label={`Fill in ${row.file_name} manually`}
+                        isDisabled={isRetrying}
+                        onPress={() => onManualEntry(row)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                    </>
+                  ) : null}
+                  {row.is_existed ? (
                     <Button
                       size="sm"
                       variant="tertiary"
@@ -499,9 +529,12 @@ function BatchDisclosure({
                     >
                       <Eye className="size-4" />
                     </Button>
-                  ) : (
-                    <span className="text-sm text-muted">—</span>
-                  )}
+                  ) : null}
+                  {!isRetryEligible(row) && !row.is_existed ? (
+                    <span className="flex w-8 items-center justify-center text-sm text-muted">
+                      —
+                    </span>
+                  ) : null}
                 </div>
               </div>
             );

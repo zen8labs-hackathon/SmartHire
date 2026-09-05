@@ -320,7 +320,11 @@ export function UploadCvModal({
                     : r,
                 ),
               );
-              setProcessedBytes((prev) => prev + file.size);
+              // Deliberately NOT counted into processedBytes: a file that
+              // failed the actual upload-to-server step never landed in
+              // storage, so its share of the progress bar stays unfilled
+              // instead of reading as "processed". A batch with any such
+              // failure will visibly stop short of 100%.
               continue;
             }
 

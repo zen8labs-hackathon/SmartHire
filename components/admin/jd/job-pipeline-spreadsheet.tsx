@@ -171,7 +171,7 @@ function JobPipelineSpreadsheetContent({
         </Tabs.Panel>
 
         <Tabs.Panel id="uploads">
-          <UploadHistoryPanel jobId={jobId} />
+          <UploadHistoryPanel jobId={jobId} jobTitle={jobTitle} />
         </Tabs.Panel>
       </Tabs>
 

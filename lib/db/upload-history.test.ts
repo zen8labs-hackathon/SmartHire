@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { insertManyFileUploads, listFileUploads } from "@/lib/db/upload-history";
+import {
+  insertManyFileUploads,
+  listFileUploads,
+  updateFileUploadById,
+} from "@/lib/db/upload-history";
 
 function fakeDb(rows: unknown[]) {
   const query = vi.fn().mockResolvedValueOnce({ rows });
@@ -44,7 +48,11 @@ describe("insertManyFileUploads", () => {
     const db = fakeDb([{ id: "1" }]);
 
     await insertManyFileUploads(db, null, "20260101000000", [
-      { fileName: "a.pdf", storageKey: "cv/a.pdf", mimeType: "application/pdf" },
+      {
+        fileName: "a.pdf",
+        storageKey: "cv/a.pdf",
+        mimeType: "application/pdf",
+      },
     ]);
 
     const [, params] = db.query.mock.calls[0];
@@ -58,5 +66,28 @@ describe("insertManyFileUploads", () => {
 
     expect(rows).toEqual([]);
     expect(db.query).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateFileUploadById", () => {
+  it("can flip a row to completed with its candidate/dedupe/source/recruiter fields, for reusing an existing upload", async () => {
+    const db = fakeDb([{ id: "1" }]);
+
+    await updateFileUploadById(db, "1", {
+      status: "completed",
+      candidateId: "cand-1",
+      isExisted: false,
+      fileSource: "LinkedIn",
+      recruiter: "jane",
+    });
+
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("file_source = $");
+    expect(sql).toContain("recruiter = $");
+    expect(sql).toContain("status = $");
+    expect(params).toContain("completed");
+    expect(params).toContain("cand-1");
+    expect(params).toContain("LinkedIn");
+    expect(params).toContain("jane");
   });
 });
