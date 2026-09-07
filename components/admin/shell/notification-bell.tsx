@@ -49,19 +49,29 @@ function NotificationItem({
 }) {
   const unread = !item.readAt;
 
+  // The whole card navigates on click; only the expand chevron is carved out
+  // (it `stopPropagation`s). The card is a `div` (not a `button`) so the
+  // chevron button can nest inside it without invalid markup -- keyboard
+  // support is added back with role/tabIndex/onKeyDown.
   return (
     <div
-      className={`rounded-xl border shadow-sm transition-colors ${
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`rounded-xl border shadow-sm transition-colors cursor-pointer hover:bg-surface-secondary ${
         unread
           ? "border-accent/30 bg-accent/5"
           : "border-divider/60 bg-surface-secondary/40"
       }`}
     >
       <div className="flex w-full items-stretch gap-1 py-1 pr-1 pl-1">
-        <button
-          onClick={onOpen}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left cursor-pointer transition-colors hover:bg-surface-secondary"
-        >
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5">
           <NotificationIcon type={item.type} />
           <p
             className={`min-w-0 flex-1 text-xs line-clamp-2 ${
@@ -73,7 +83,7 @@ function NotificationItem({
           {unread && (
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
           )}
-        </button>
+        </div>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -127,28 +137,18 @@ export function NotificationBell() {
     loadMore,
   } = useNotifications();
 
-  // Keep the newest notification expanded so its body shows without a click --
-  // and move that auto-expansion onto each new one as it arrives, collapsing
-  // the previous auto-expanded row. Rows the user expanded by hand are left
-  // alone. Seeded directly (not via `toggleItemExpanded`) so it doesn't also
-  // mark the row read.
-  const autoExpandedIdRef = useRef<string | null>(null);
+  const autoExpandedIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const topId = items[0]?.id;
-    if (!topId || topId === autoExpandedIdRef.current) return;
-    const previousAutoId = autoExpandedIdRef.current;
-    autoExpandedIdRef.current = topId;
+    const unseen = items.filter((i) => !autoExpandedIdsRef.current.has(i.id));
+    if (unseen.length === 0) return;
+    for (const item of unseen) autoExpandedIdsRef.current.add(item.id);
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (previousAutoId) next.delete(previousAutoId);
-      next.add(topId);
+      for (const item of unseen) next.add(item.id);
       return next;
     });
   }, [items]);
 
-  // Shared by a bell-dropdown item's card click and a live toast click --
-  // both act on the same notification the same way: mark it read and, if it
-  // points somewhere, navigate there.
   const openNotification = (item: NotificationEvent) => {
     if (!item.readAt) void markRead(item.id);
     const href = item.data?.href;

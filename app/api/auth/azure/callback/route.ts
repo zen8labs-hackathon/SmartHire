@@ -109,15 +109,16 @@ export async function GET(request: NextRequest) {
       });
     }
     if (!user) {
-      // No pre-created account for this email -- first-time SSO signup, self-provision as HR.
-      // Tenant is already restricted to the company's own Azure AD (see lib/auth/azure.ts), so
-      // reaching this point means the account belongs to someone inside the org.
+      // No pre-created account for this email -- first-time SSO signup. The tenant is already
+      // restricted to the company's own Azure AD (see lib/auth/azure.ts), so the account
+      // belongs to someone inside the org, but it starts with no access ('none'): an admin/HR
+      // grants a staff role afterwards. Until then the session works but /admin stays gated.
       try {
         const username = await generateUniqueUsername(db, profile.email);
         user = await createSsoUser(db, {
           email: profile.email,
           username,
-          role: "hr",
+          role: "none",
           provider: SSO_PROVIDER,
           subjectId: profile.subjectId,
         });
