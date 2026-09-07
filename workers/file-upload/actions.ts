@@ -304,19 +304,21 @@ export async function notifyBatchComplete(
     const job = upload.job_id
       ? await getJobById(getPool(), upload.job_id)
       : null;
-    const target = job ? ` for "${job.position}"` : "";
+    // Always name the destination so the notification is self-explanatory:
+    // a specific job, or the job-less candidate pool (/candidates uploads).
+    const target = job ? ` for "${job.position}"` : " to the candidate pool";
 
     const row = await createNotification(getPool(), {
       userId: upload.uploaded_by,
       type: NOTIFICATION_TYPE.BatchComplete,
       title:
         batch.failed > 0
-          ? "CV upload finished with errors"
-          : "CV upload complete",
+          ? `CV upload finished with errors${target}`
+          : `CV upload complete${target}`,
       body:
         batch.failed > 0
-          ? `${batch.completed} of ${batch.total} CV(s)${target} processed successfully; ${batch.failed} failed. Open the Uploaded files tab for details.`
-          : `All ${batch.total} CV(s)${target} were uploaded and processed successfully. Open the Uploaded files tab to review them.`,
+          ? `${batch.completed} of ${batch.total} CV(s) processed successfully; ${batch.failed} failed. Open the Uploaded files tab for details.`
+          : `All ${batch.total} CV(s) were uploaded and processed successfully. Open the Uploaded files tab to review them.`,
       data: { batchId: upload.batch_id, ...batch, href },
     });
 
@@ -352,10 +354,12 @@ export async function notifyRerunAiMatchResult(
       type: outcome.ok
         ? NOTIFICATION_TYPE.RerunAiMatchComplete
         : NOTIFICATION_TYPE.RerunAiMatchFailed,
-      title: outcome.ok ? "AI JD-match complete" : "AI JD-match failed",
+      title: outcome.ok
+        ? `AI JD-match complete${target}`
+        : `AI JD-match failed${target}`,
       body: outcome.ok
-        ? `Updated the JD-match score for ${who}${target}. Open the candidate's profile to view it.`
-        : `Could not recalculate the JD-match score for ${who}${target}: ${outcome.message}`,
+        ? `Updated the JD-match score for ${who}. Open the candidate's profile to view it.`
+        : `Could not recalculate the JD-match score for ${who}: ${outcome.message}`,
       data: { cvDetailVersionId, ...(href ? { href } : {}) },
     });
 
