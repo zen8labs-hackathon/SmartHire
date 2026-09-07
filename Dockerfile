@@ -7,6 +7,12 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+# NEXT_PUBLIC_* is inlined into the client bundle at `next build`. Runtime
+# `env_file` alone is not enough — pass this as a build arg from compose.
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
+
 RUN npm run build
 RUN npm run worker:build
 

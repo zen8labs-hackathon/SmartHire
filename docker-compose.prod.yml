@@ -115,7 +115,11 @@ services:
       - migrate
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        # Baked into the client bundle at image build (PushToggle / web push).
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
     image: smart_hire:prod
     container_name: smarthire_app
     restart: unless-stopped
