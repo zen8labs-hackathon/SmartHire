@@ -105,7 +105,9 @@ services:
       - migrate
 
   app:
-    build: .
+    build:
+      context: .
+      target: runner
     image: smart_hire:develop
     container_name: smarthire_dev_app
     restart: unless-stopped
@@ -134,16 +136,14 @@ services:
       minio-init:
         condition: service_completed_successfully
 
-  # ─── BullMQ worker: xử lý job upload CV / manual candidate / rerun AI match ──
-  # Chạy từ source qua tsx (`npm run worker`), giống service `migrate`.
-  # Repo phải được checkout trên server (đã có: /opt/smarthire/app-develop).
+  # ─── BullMQ worker: compiled JS từ image (không mount source / không tsx) ──
   worker:
-    image: node:20-alpine
+    build:
+      context: .
+      target: worker
+    image: smart_hire_worker:develop
     container_name: smarthire_dev_worker
-    working_dir: /app
     restart: unless-stopped
-    volumes:
-      - ./:/app
     env_file:
       - .env
     environment:
@@ -170,7 +170,6 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-    command: sh -c "npm install && npm run worker"
 
   # ─── Logging stack (shared with prod — same Loki/Grafana instance) ──────────
   # Dev app logs go to the same Loki + Grafana as production.

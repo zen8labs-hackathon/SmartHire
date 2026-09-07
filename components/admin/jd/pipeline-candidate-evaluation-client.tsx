@@ -26,6 +26,7 @@ import { formatDisplayDateTime } from "@/lib/format-date";
 
 import type { JobPipelineCandidateRow } from "@/lib/jd/pipeline-types";
 import { formatExpectedSalaryDisplay } from "@/lib/candidates/format-expected-salary";
+import { candidateSourceChipClass } from "@/lib/candidates/source-constants";
 import {
   campaignAppliedToCandidateDbRow,
   type CandidateDbRow,
@@ -446,6 +447,16 @@ export function PipelineCandidateEvaluationClient({
                 {candidate.name}
               </h1>
               <PipelineStageBadge candidate={candidate} />
+              {candidate.sourceLabel ? (
+                <span
+                  className={cn(
+                    "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold",
+                    candidateSourceChipClass(candidate.sourceLabel),
+                  )}
+                >
+                  {candidate.sourceLabel}
+                </span>
+              ) : null}
             </div>
             <p className="mt-1 text-sm text-muted font-medium">
               Interview evaluation — {jobTitle}
@@ -484,7 +495,7 @@ export function PipelineCandidateEvaluationClient({
                   dbLoadState={dbLoadState}
                   startInEditMode
                   embedded
-                  hidePipelineAndSource
+                  hidePipeline
                   onDirtyChange={setProfileDirty}
                   onBusyChange={setProfileBusy}
                   saveActionRef={profileSaveRef}

@@ -73,7 +73,7 @@ services:
         condition: service_healthy
       floci:
         condition: service_started
-    command: sh -c "npm install && npm run worker"
+    command: sh -c "npm install && npm run worker:build && npm run worker"
     restart: unless-stopped
 
   # --- HỆ THỐNG GIẢ LẬP AWS S3 (FLOCI) ---
