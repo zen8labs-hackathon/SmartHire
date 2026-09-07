@@ -108,6 +108,9 @@ services:
     build:
       context: .
       target: runner
+      args:
+        # Baked into the client bundle at image build (PushToggle / web push).
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
     image: smart_hire:develop
     container_name: smarthire_dev_app
     restart: unless-stopped
