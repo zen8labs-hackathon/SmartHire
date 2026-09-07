@@ -45,7 +45,7 @@ export function publish(userId: string, event: NotificationEvent): void {
       handler(event);
     } catch (err) {
       console.error(
-        `[notification-registry] handler lỗi cho user ${userId}:`,
+        `[notification-registry] handler failed for user ${userId}:`,
         err,
       );
     }

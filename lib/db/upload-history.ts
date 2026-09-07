@@ -140,6 +140,8 @@ export type FileUploadUpdate = {
   fileName?: string | null;
   fileHash?: string | null;
   isExisted?: boolean | null;
+  fileSource?: string | null;
+  recruiter?: string | null;
 };
 
 /** Partial update of one row's status/error fields -- e.g. a worker marking a single job `processing` then `completed`/`failed`. */
@@ -160,6 +162,8 @@ export async function updateFileUploadById(
       storage_key: fields.storageKey,
       file_hash: fields.fileHash,
       is_existed: fields.isExisted,
+      file_source: fields.fileSource,
+      recruiter: fields.recruiter,
     },
     2,
   );

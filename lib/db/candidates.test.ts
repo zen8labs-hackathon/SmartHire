@@ -126,8 +126,15 @@ describe("listCandidatePool", () => {
     expect(sql).not.toContain("JOIN");
     expect(sql).toContain("WHERE deleted_at IS NULL");
     expect(sql).toContain("ORDER BY created_at DESC, id DESC");
-    expect(values).toEqual([50, 0]);
-    expect(result).toEqual({ rows: [], total: 0, limit: 50, offset: 0 });
+    expect(sql).toContain("FILTER (WHERE experience_years >= $1)");
+    expect(values).toEqual([5, 50, 0]);
+    expect(result).toEqual({
+      rows: [],
+      total: 0,
+      experiencedTotal: 0,
+      limit: 50,
+      offset: 0,
+    });
   });
 
   it("adds a single free-text filter spanning name/email/phone/role/degree/skills", async () => {
@@ -139,18 +146,34 @@ describe("listCandidatePool", () => {
     expect(sql).toContain(
       "(name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1 OR role ILIKE $1 OR degree ILIKE $1 OR array_to_string(skills, ' ') ILIKE $1)",
     );
-    expect(values).toEqual(["%engineer%", 10, 5]);
+    expect(sql).toContain("FILTER (WHERE experience_years >= $2)");
+    expect(values).toEqual(["%engineer%", 5, 10, 5]);
   });
 
-  it("extracts total from the window count and strips it from returned rows", async () => {
+  it("adds an inclusive upload-date range filter against created_at", async () => {
+    const db = fakeDb([]);
+
+    await listCandidatePool(db, {
+      uploadFrom: "2026-01-01",
+      uploadTo: "2026-01-31",
+    });
+
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("created_at >= $1");
+    expect(sql).toContain("created_at < ($2::date + 1)");
+    expect(values).toEqual(["2026-01-01", "2026-01-31", 5, 50, 0]);
+  });
+
+  it("extracts total + experienced count from the window counts and strips them from returned rows", async () => {
     const db = fakeDb([
-      { id: "c1", name: "Ada", total_count: "2" },
-      { id: "c2", name: "Bob", total_count: "2" },
+      { id: "c1", name: "Ada", total_count: "2", experienced_count: "1" },
+      { id: "c2", name: "Bob", total_count: "2", experienced_count: "1" },
     ]);
 
     const result = await listCandidatePool(db);
 
     expect(result.total).toBe(2);
+    expect(result.experiencedTotal).toBe(1);
     expect(result.rows).toEqual([
       { id: "c1", name: "Ada" },
       { id: "c2", name: "Bob" },

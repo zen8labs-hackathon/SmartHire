@@ -14,6 +14,26 @@ const nextConfig: NextConfig = {
    * only run once, so this only affects the development experience.
    */
   reactStrictMode: false,
+  /**
+   * The Web Push service worker must never be served stale -- a cached `sw.js`
+   * keeps an old push/notificationclick handler alive across deploys.
+   * `Service-Worker-Allowed: /` lets it control the whole origin even though
+   * it's served from `/sw.js`.
+   */
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -29,6 +29,7 @@ export function CandidatePipelineDashboardLoader({
   candidatesPromise: Promise<{
     rows: GroupedCandidateRow[];
     total: number;
+    experiencedTotal: number;
   }>;
 }) {
   return (
