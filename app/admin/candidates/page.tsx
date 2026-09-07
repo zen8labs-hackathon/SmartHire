@@ -17,6 +17,7 @@ import { GroupedCandidateRow } from "@/lib/service/candidate.service";
 export type InitialCandidatesData = {
   rows: GroupedCandidateRow[];
   total: number;
+  experiencedTotal: number;
 };
 
 /**
@@ -41,6 +42,7 @@ async function getInitialCandidates(
       deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null,
     })),
     total: result.total,
+    experiencedTotal: result.experiencedTotal,
   };
 }
 

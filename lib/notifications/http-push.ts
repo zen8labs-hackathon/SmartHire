@@ -13,7 +13,7 @@ export async function pushNotification(
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
     console.error(
-      "[pushNotification] thiếu INTERNAL_API_SECRET, bỏ qua push realtime",
+      "[pushNotification] missing INTERNAL_API_SECRET, skipping realtime push",
     );
     return;
   }
@@ -33,9 +33,9 @@ export async function pushNotification(
       },
     );
     if (!res.ok) {
-      console.error(`[pushNotification] server trả về ${res.status}`);
+      console.error(`[pushNotification] server returned ${res.status}`);
     }
   } catch (err) {
-    console.error("[pushNotification] gọi internal API lỗi:", err);
+    console.error("[pushNotification] internal API call failed:", err);
   }
 }

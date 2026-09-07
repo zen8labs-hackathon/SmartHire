@@ -1,4 +1,5 @@
 import { publish } from "@/lib/notifications/registry";
+import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import type { NotificationEvent } from "@/lib/redis/channels";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -28,6 +29,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Open tabs -> SSE registry (this process only).
   publish(body.userId, body.event);
+
+  // Closed tabs -> Web Push. Best-effort and self-contained (never throws);
+  // awaited so it runs before the serverless function is frozen.
+  await sendWebPushToUser(body.userId, body.event);
+
   return NextResponse.json({ ok: true });
 }

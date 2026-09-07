@@ -23,7 +23,10 @@ import { getMyProfileDetails } from "@/app/account/actions";
 import { MergeDuplicateModal } from "@/components/admin/candidates/merge-duplicate-modal";
 import { DatePickerField } from "@/components/admin/shell/date-picker-field";
 import { useToast } from "@/components/admin/toast-provider";
-import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
+import {
+  CANDIDATE_SOURCE_VALUES,
+  isCandidateSource,
+} from "@/lib/candidates/source-constants";
 import {
   CV_FOLDER_PREFIX,
   MAX_CV_BYTES,
@@ -131,6 +134,14 @@ function validateDraft(d: Draft): string | null {
   return null;
 }
 
+/** An already-uploaded `file_uploads` row to reuse instead of picking + PUTting a new file. */
+export type ExistingUploadFile = {
+  fileUploadId: string;
+  storageKey: string;
+  fileName: string;
+  mimeType: string | null;
+};
+
 type Props = {
   jobId: string | null;
   /** Shown in the locked "Target campaign" card; ignored when `jobId` is null. */
@@ -139,6 +150,9 @@ type Props = {
   onSaved: () => void;
   /** Mirrors the auto-upload tab's close-block while a request is in flight. */
   onBusyChange?: (busy: boolean) => void;
+  existingFile?: ExistingUploadFile;
+  initialSource?: string | null;
+  initialRecruiter?: string | null;
 };
 
 /** Imperative handle so the parent modal's footer -- outside this form's own
@@ -149,7 +163,15 @@ export type ManualCandidateFormHandle = {
 
 export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
   function ManualCandidateForm(
-    { jobId, jobTitle, onSaved, onBusyChange },
+    {
+      jobId,
+      jobTitle,
+      onSaved,
+      onBusyChange,
+      existingFile,
+      initialSource,
+      initialRecruiter,
+    },
     ref,
   ) {
     const toast = useToast();
@@ -157,15 +179,18 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
 
     const [file, setFile] = useState<File | null>(null);
     const [dragOver, setDragOver] = useState(false);
-    const [sourceKey, setSourceKey] = useState<string>(
-      CANDIDATE_SOURCE_VALUES[0],
+    const [sourceKey, setSourceKey] = useState<string>(() =>
+      initialSource && isCandidateSource(initialSource)
+        ? initialSource
+        : initialSource
+          ? "Other"
+          : CANDIDATE_SOURCE_VALUES[0],
     );
-    const [sourceOther, setSourceOther] = useState("");
-    // Recruiter label for this entry -- defaults to the signed-in user's
-    // username, editable before save. `recruiterTouched` stops the async
-    // default from clobbering a value the user already typed.
-    const [recruiter, setRecruiter] = useState("");
-    const recruiterTouchedRef = useRef(false);
+    const [sourceOther, setSourceOther] = useState(() =>
+      initialSource && !isCandidateSource(initialSource) ? initialSource : "",
+    );
+    const [recruiter, setRecruiter] = useState(() => initialRecruiter ?? "");
+    const recruiterTouchedRef = useRef(Boolean(initialRecruiter));
     const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
     const [skillInput, setSkillInput] = useState("");
     const [busy, setBusy] = useState(false);
@@ -241,23 +266,30 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
       setFile(picked);
     };
 
-    // Uploads the file to S3 and posts the manual-entry payload. `resolution`
-    // carries the user's pick from the duplicate modal -- omitted when the
-    // duplicate check found nothing, in which case the server's own
-    // exact-match auto-detection applies as before.
     const performSave = useCallback(
       async (resolution?: {
         duplicateAction: "merge" | "create_new";
         mergeCandidateId?: string;
       }): Promise<boolean> => {
-        const ext = extensionFromFilename(file!.name)!;
-        const storageKey = `${CV_FOLDER_PREFIX}${crypto.randomUUID()}${ext}`;
-        const signedUrl = await uploadCvService.signSingleUploadUrl(
-          file!.name,
-          storageKey,
-          file!.type || null,
-        );
-        await uploadCvService.uploadRawFileToS3(file!, signedUrl);
+        let storageKey: string;
+        let fileName: string;
+        let mimeType: string | null;
+        if (existingFile) {
+          storageKey = existingFile.storageKey;
+          fileName = existingFile.fileName;
+          mimeType = existingFile.mimeType;
+        } else {
+          const ext = extensionFromFilename(file!.name)!;
+          storageKey = `${CV_FOLDER_PREFIX}${crypto.randomUUID()}${ext}`;
+          const signedUrl = await uploadCvService.signSingleUploadUrl(
+            file!.name,
+            storageKey,
+            file!.type || null,
+          );
+          await uploadCvService.uploadRawFileToS3(file!, signedUrl);
+          fileName = file!.name;
+          mimeType = file!.type || null;
+        }
 
         const experienceYears = draft.experienceYears.trim()
           ? Number.parseFloat(draft.experienceYears)
@@ -270,8 +302,9 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
           body: JSON.stringify({
             jobId,
             storageKey,
-            fileName: file!.name,
-            mimeType: file!.type || null,
+            fileName,
+            mimeType,
+            fileUploadId: existingFile?.fileUploadId ?? null,
             source: sourceKey === "Other" ? "Other" : sourceKey,
             sourceOther: sourceKey === "Other" ? sourceOther.trim() : null,
             recruiter: recruiter.trim() || null,
@@ -305,7 +338,7 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
         }
         return json.matchedExisting ?? false;
       },
-      [file, draft, sourceKey, sourceOther, recruiter, jobId],
+      [file, existingFile, draft, sourceKey, sourceOther, recruiter, jobId],
     );
 
     const resetForm = useCallback(() => {
@@ -319,7 +352,7 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
     const submit = useCallback(async () => {
       if (busy || dupSubmitting) return;
 
-      if (!file) {
+      if (!existingFile && !file) {
         toast.error("Select a CV file first.");
         return;
       }
@@ -369,6 +402,7 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
       busy,
       dupSubmitting,
       file,
+      existingFile,
       draft,
       sourceKey,
       sourceOther,
@@ -559,7 +593,27 @@ export const ManualCandidateForm = forwardRef<ManualCandidateFormHandle, Props>(
               CV file
               <span className="ml-1 text-danger">*</span>
             </Label>
-            {file ? (
+            {existingFile ? (
+              <>
+                <div className="mt-1.5 flex items-center justify-between gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-2.5">
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {existingFile.fileName}
+                  </span>
+                  <Chip
+                    size="sm"
+                    variant="soft"
+                    color="accent"
+                    className="shrink-0 text-[10px] font-bold uppercase"
+                  >
+                    Already uploaded
+                  </Chip>
+                </div>
+                <p className="mt-1.5 text-xs text-muted">
+                  Reusing the file already uploaded for this row — no need to
+                  upload it again.
+                </p>
+              </>
+            ) : file ? (
               <div className="mt-1.5 flex items-center justify-between gap-3 rounded-xl border border-divider bg-content2/40 px-3 py-2.5">
                 <span className="truncate text-sm font-medium text-foreground">
                   {file.name}

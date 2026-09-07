@@ -25,6 +25,13 @@ function parsePositiveInt(raw: string | null): number | undefined {
   return n;
 }
 
+function parseDateParam(raw: string | null): string | undefined {
+  if (raw == null || raw === "") return undefined;
+  const s = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
+  return s;
+}
+
 export async function GET(request: Request) {
   const auth = await requireHrForRequest(request);
   if (!auth.ok) return auth.response;
@@ -38,15 +45,24 @@ export async function GET(request: Request) {
       : Math.min(Math.max(1, limitRaw), MAX_LIMIT);
   const offset = parsePositiveInt(url.searchParams.get("offset")) ?? 0;
   const q = url.searchParams.get("q")?.trim() || undefined;
+  const uploadFrom = parseDateParam(url.searchParams.get("uploadFrom"));
+  const uploadTo = parseDateParam(url.searchParams.get("uploadTo"));
 
   try {
-    const result = await listCandidatePool(getPool(), { q, limit, offset });
+    const result = await listCandidatePool(getPool(), {
+      q,
+      limit,
+      offset,
+      uploadFrom,
+      uploadTo,
+    });
     return Response.json({
       candidates: result.rows,
       pagination: {
         limit: result.limit,
         offset: result.offset,
         total: result.total,
+        experiencedTotal: result.experiencedTotal,
         hasMore: result.offset + result.rows.length < result.total,
       },
     });
