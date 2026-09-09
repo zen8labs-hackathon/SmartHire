@@ -6,15 +6,22 @@ import {
   replaceJobDescriptionViewers,
   resolveViewerEmailsToUserIds,
 } from "@/lib/admin/jd-viewer-sync";
+import { MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN } from "@/lib/admin/candidate-evaluation-template-constants";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { createJob, hardDeleteJob, updateJob, type CreateJobInput } from "@/lib/db/jobs";
 import {
+  getEvaluateTemplateById,
+  getEvaluateTemplateByIdForRead,
+  upsertJobEvaluateTemplate,
+} from "@/lib/db/job-permissions";
+import { syncJobRequirementsQuietly } from "@/lib/jd/sync-job-requirements";
+import {
   listPipelineStages,
   reconcileJobStageMappings,
 } from "@/lib/db/pipeline-stages";
-import { extensionFromFilename } from "@/lib/jd/upload-constants";
+import { buildFinalJdStoragePath } from "@/lib/jd/upload-constants";
 import {
   optionalDateToDb,
   optionalToDb,
@@ -28,10 +35,6 @@ import {
   type JobDescriptionFormData,
 } from "@/lib/jd/types";
 import { deleteObject, moveObject } from "@/lib/storage/s3";
-import { buildTimestampedStorageFilename } from "@/lib/storage/storage-key";
-
-/** Final storage prefix once a job's id is known: `job_descriptions/{jobId}/{filename}`. */
-const JD_FINAL_KEY_PREFIX = "job_descriptions/";
 
 type CreateBody = Partial<JobDescriptionFormData> & {
   /** S3 key from a prior POST /api/admin/job-openings/sign-upload + direct PUT to the returned signedUrl. */
@@ -43,6 +46,23 @@ type CreateBody = Partial<JobDescriptionFormData> & {
   /** Chapter ids: chapter *heads* of these chapters may open this JD (members need a profile grant). */
   viewerChapterIds?: string[] | null;
   pipelineStages?: string[] | null;
+  /**
+   * Id of a library evaluation template (`job_evaluate_templates`, `job_id`
+   * NULL -- see `listEvaluateTemplatesCreatedBy`) to attach to this job. Must
+   * belong to the caller. The new job's row points at the same file/text as
+   * the library entry, not a copy -- editing or removing the library entry
+   * later affects every job it was attached to this way. Mutually exclusive
+   * with `evaluationTemplateText`.
+   */
+  reuseEvaluationTemplateId?: string | null;
+  /**
+   * Plain-text evaluation criteria to save as this job's own template.
+   * File upload isn't offered at create time (there's no job id yet to key
+   * the storage path on) -- build a file-based template in your library on
+   * /admin/evaluation-template first, then reuse it here. Mutually exclusive
+   * with `reuseEvaluationTemplateId`.
+   */
+  evaluationTemplateText?: string | null;
 };
 
 function sanitizeCreate(body: Partial<JobDescriptionFormData>): CreateJobInput {
@@ -137,6 +157,8 @@ export async function POST(request: Request) {
     viewerEmails: viewerEmailsRaw,
     viewerChapterIds: viewerChapterIdsRaw,
     pipelineStages: pipelineStagesRaw,
+    reuseEvaluationTemplateId,
+    evaluationTemplateText: evaluationTemplateTextRaw,
     ...formFields
   } = body;
 
@@ -186,6 +208,53 @@ export async function POST(request: Request) {
         {
           error: `Unknown chapter id(s): ${chapterCheck.unknownIds.join(", ")}.`,
         },
+        { status: 400 },
+      );
+    }
+  }
+
+  const newEvaluationTemplateText =
+    typeof evaluationTemplateTextRaw === "string"
+      ? evaluationTemplateTextRaw.trim()
+      : "";
+  if (
+    reuseEvaluationTemplateId &&
+    typeof reuseEvaluationTemplateId === "string" &&
+    newEvaluationTemplateText
+  ) {
+    return Response.json(
+      {
+        error:
+          "Choose either an existing evaluation template or write new criteria, not both.",
+      },
+      { status: 400 },
+    );
+  }
+  if (newEvaluationTemplateText.length > MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN) {
+    return Response.json(
+      {
+        error: `Evaluation criteria must be at most ${MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN} characters.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Validated up front (before the job even exists) rather than inside the
+  // transaction below, so a bad id fails fast instead of after a job row is
+  // already written. The picker shows an HR/admin caller every library entry
+  // (see /api/admin/job-descriptions/evaluation-templates), so an HR/admin
+  // reuse is looked up without an ownership check too; a chapter head's stays
+  // scoped to their own entries via `getEvaluateTemplateById`. Either way
+  // `job_id IS NULL` keeps this from reaching a job-scoped row, and a
+  // mismatched id just reads as "not found" here.
+  let reusedTemplate: Awaited<ReturnType<typeof getEvaluateTemplateById>> = null;
+  if (typeof reuseEvaluationTemplateId === "string" && reuseEvaluationTemplateId) {
+    reusedTemplate = auth.access.isHr
+      ? await getEvaluateTemplateByIdForRead(db, reuseEvaluationTemplateId)
+      : await getEvaluateTemplateById(db, reuseEvaluationTemplateId, auth.userId);
+    if (!reusedTemplate || (!reusedTemplate.storage_path && !reusedTemplate.content_text)) {
+      return Response.json(
+        { error: "Evaluation template not found." },
         { status: 400 },
       );
     }
@@ -249,19 +318,42 @@ export async function POST(request: Request) {
         });
       }
 
+      // Reuse points the new job's row at the same storage_path/content_text
+      // as the source -- not a copy. Editing or removing the source template
+      // later will affect this job too (see job-descriptions/route.ts POST docs).
+      if (reusedTemplate) {
+        await upsertJobEvaluateTemplate(client, {
+          jobId: created.id,
+          storagePath: reusedTemplate.storage_path,
+          originalFilename: reusedTemplate.original_filename,
+          mimeType: reusedTemplate.mime_type,
+          contentText: reusedTemplate.content_text,
+          createdBy: auth.userId,
+          updatedBy: auth.userId,
+        });
+      } else if (newEvaluationTemplateText) {
+        // Freshly written criteria, not reused from another job. File upload
+        // isn't offered here -- evaluation-template/sign-upload needs a job
+        // id, which doesn't exist yet at this point in the request.
+        await upsertJobEvaluateTemplate(client, {
+          jobId: created.id,
+          contentText: newEvaluationTemplateText,
+          createdBy: auth.userId,
+          updatedBy: auth.userId,
+        });
+      }
+
       return created;
     });
 
     // The job id only exists after insert, so the JD file is uploaded to a
     // temp `jd/` key up front (see job-openings/sign-upload) and moved to its
     // final `job_descriptions/{jobId}/` key here, now that the id is known.
-    const originalFilename = input.jdOriginalFilename ?? "";
-    const ext =
-      extensionFromFilename(originalFilename) ?? extensionFromFilename(jdStoragePath) ?? ".pdf";
-    const baseName = originalFilename
-      ? originalFilename.slice(0, originalFilename.length - ext.length)
-      : "jd";
-    const finalJdStoragePath = `${JD_FINAL_KEY_PREFIX}${job.id}/${buildTimestampedStorageFilename(baseName, ext)}`;
+    const finalJdStoragePath = buildFinalJdStoragePath(
+      job.id,
+      jdStoragePath,
+      input.jdOriginalFilename,
+    );
 
     try {
       await moveObject(jdStoragePath, finalJdStoragePath);
@@ -285,6 +377,12 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     }
+
+    // Only once the JD file is at its final key, so the extractor (which reads
+    // the file back through `resolveJobDescriptionText`) sees the moved object.
+    // Non-fatal: the job row is already committed, so a failed extraction
+    // leaves the checklist empty rather than failing the create.
+    await syncJobRequirementsQuietly(job.id);
 
     return Response.json({ jobDescription: job }, { status: 201 });
   } catch (e) {

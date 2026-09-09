@@ -25,6 +25,18 @@ const DEFAULT_FORM: JobDescriptionFormData = {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
+/** One of the current user's own evaluation template library entries. */
+export type EvaluationTemplateOption = {
+  id: string;
+  title: string;
+  originalFilename: string | null;
+  hasText: boolean;
+  updatedAt: string;
+  /** Set when the picker shows the whole library (HR/admin), not just the
+   * caller's own entries -- lets the option label say whose it is. */
+  createdByLabel: string | null;
+};
+
 export function useJdCreateState(
   loadDescriptions: () => Promise<void>,
   allPipelineStages: readonly { id: string; label: string; code: string; color: string }[],
@@ -64,6 +76,29 @@ export function useJdCreateState(
   const [jdSelectedFileName, setJdSelectedFileName] = useState<string | null>(null);
   const [jdDragOver, setJdDragOver] = useState(false);
 
+  const [evaluationTemplateOptions, setEvaluationTemplateOptions] = useState<
+    EvaluationTemplateOption[]
+  >([]);
+  const [evaluationTemplateOptionsLoading, setEvaluationTemplateOptionsLoading] =
+    useState(false);
+  const [selectedEvaluationTemplateId, setSelectedEvaluationTemplateId] =
+    useState<string | null>(null);
+  const [evaluationTemplateTextDraft, setEvaluationTemplateTextDraft] =
+    useState("");
+
+  /** Reusing a library template and writing fresh text are mutually
+   * exclusive (the create API rejects sending both) -- rather than a
+   * separate mode toggle, picking one here just clears the other so an
+   * untouched field always reads as "not set" (null on submit). */
+  const selectEvaluationTemplate = useCallback((id: string | null) => {
+    setSelectedEvaluationTemplateId(id);
+    if (id) setEvaluationTemplateTextDraft("");
+  }, []);
+  const writeEvaluationTemplateText = useCallback((text: string) => {
+    setEvaluationTemplateTextDraft(text);
+    if (text.trim()) setSelectedEvaluationTemplateId(null);
+  }, []);
+
   const defaultStageIds = useMemo(() => {
     const ids: string[] = [];
     const cvScan = allPipelineStages.find((s) => s.code === "cv_scan");
@@ -80,6 +115,24 @@ export function useJdCreateState(
       `/api/admin/job-openings/sign-upload?path=${encodeURIComponent(storagePath)}`,
       { method: "DELETE", credentials: "include" },
     );
+  }, []);
+
+  /** Fetched fresh on each modal open -- a library entry created a moment
+   * ago on /admin/evaluation-template should show up without a page reload. */
+  const loadEvaluationTemplateOptions = useCallback(async () => {
+    setEvaluationTemplateOptionsLoading(true);
+    try {
+      const res = await fetch("/api/admin/job-descriptions/evaluation-templates", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as { templates?: EvaluationTemplateOption[] };
+      setEvaluationTemplateOptions(res.ok ? (json.templates ?? []) : []);
+    } catch {
+      setEvaluationTemplateOptions([]);
+    } finally {
+      setEvaluationTemplateOptionsLoading(false);
+    }
   }, []);
 
   const resetUploadState = useCallback(() => {
@@ -110,8 +163,11 @@ export function useJdCreateState(
         setUnmatchedDepartmentHint(null);
         setSelectedStageIds([]);
         setCreateFieldErrors({});
+        setSelectedEvaluationTemplateId(null);
+        setEvaluationTemplateTextDraft("");
       } else {
         setSelectedStageIds(defaultStageIds);
+        void loadEvaluationTemplateOptions();
       }
     },
   });
@@ -285,6 +341,11 @@ export function useJdCreateState(
         viewerEmails: createViewerEmails,
         viewerChapterIds: createViewerChapterIds,
         pipelineStages: selectedStageIds,
+        // Mutually exclusive by construction (see selectEvaluationTemplate /
+        // writeEvaluationTemplateText above) -- an untouched field is null,
+        // never both set at once.
+        reuseEvaluationTemplateId: selectedEvaluationTemplateId,
+        evaluationTemplateText: evaluationTemplateTextDraft.trim() || null,
       };
       try {
         const res = await fetch("/api/admin/job-descriptions", {
@@ -316,6 +377,8 @@ export function useJdCreateState(
       jdModal,
       jdSelectedFileName,
       loadDescriptions,
+      evaluationTemplateTextDraft,
+      selectedEvaluationTemplateId,
       selectedStageIds,
     ],
   );
@@ -343,5 +406,11 @@ export function useJdCreateState(
     ingestJdFile,
     discardJdDraft,
     handleSave,
+    evaluationTemplateOptions,
+    evaluationTemplateOptionsLoading,
+    selectedEvaluationTemplateId,
+    selectEvaluationTemplate,
+    evaluationTemplateTextDraft,
+    writeEvaluationTemplateText,
   };
 }

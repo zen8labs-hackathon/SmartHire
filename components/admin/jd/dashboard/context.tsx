@@ -14,7 +14,10 @@ import type {
 import { useJdListState, type JdListInitialData } from "./hooks/use-jd-list-state";
 import { useJdFiltersState } from "./hooks/use-jd-filters-state";
 import { JD_LIST_PAGE_SIZE } from "@/lib/jd/list-with-enrichment";
-import { useJdCreateState } from "./hooks/use-jd-create-state";
+import {
+  useJdCreateState,
+  type EvaluationTemplateOption,
+} from "./hooks/use-jd-create-state";
 import { useJdEditState } from "./hooks/use-jd-edit-state";
 import {
   useJdDrawerState,
@@ -112,6 +115,18 @@ export interface JdDashboardContextValue {
   handleSave: () => Promise<void>;
   selectedStageIds: string[];
   setSelectedStageIds: (ids: string[]) => void;
+  /** The current user's own evaluation template library entries
+   * (/admin/evaluation-template), for "reuse an existing evaluation
+   * template" -- fetched fresh on each modal open. */
+  evaluationTemplateOptions: EvaluationTemplateOption[];
+  evaluationTemplateOptionsLoading: boolean;
+  /** Library entry id, or null for "no template selected". Picking one
+   * clears `evaluationTemplateTextDraft` -- the two are mutually exclusive. */
+  selectedEvaluationTemplateId: string | null;
+  selectEvaluationTemplate: (id: string | null) => void;
+  /** Typing non-empty text clears `selectedEvaluationTemplateId`. */
+  evaluationTemplateTextDraft: string;
+  writeEvaluationTemplateText: (text: string) => void;
 
   // Edit Modal / Form
   editIntakeRow: JobDescription | null;
@@ -320,6 +335,12 @@ export function JdDashboardProvider({
         handleSave: createState.handleSave,
         selectedStageIds: createState.selectedStageIds,
         setSelectedStageIds: createState.setSelectedStageIds,
+        evaluationTemplateOptions: createState.evaluationTemplateOptions,
+        evaluationTemplateOptionsLoading: createState.evaluationTemplateOptionsLoading,
+        selectedEvaluationTemplateId: createState.selectedEvaluationTemplateId,
+        selectEvaluationTemplate: createState.selectEvaluationTemplate,
+        evaluationTemplateTextDraft: createState.evaluationTemplateTextDraft,
+        writeEvaluationTemplateText: createState.writeEvaluationTemplateText,
 
         // Editing state
         editIntakeRow: editState.editIntakeRow,

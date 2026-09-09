@@ -42,6 +42,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const [editUploadPhase, setEditUploadPhase] = useState<"idle" | "uploading" | "extracting" | "done" | "error">("idle");
   const [editUploadError, setEditUploadError] = useState<string | null>(null);
   const [editDraftStoragePath, setEditDraftStoragePath] = useState<string | null>(null);
+  const [editDraftMimeType, setEditDraftMimeType] = useState<string | null>(null);
   const [editSelectedFileName, setEditSelectedFileName] = useState<string | null>(null);
   const [editDragOver, setEditDragOver] = useState(false);
   const [editSelectedStageIds, setEditSelectedStageIds] = useState<string[]>([]);
@@ -59,16 +60,26 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     setEditUploadError(null);
     setEditDraftStoragePath(null);
     editDraftStoragePathRef.current = null;
+    setEditDraftMimeType(null);
     setEditSelectedFileName(null);
     setEditDragOver(false);
     if (editJdFileInputRef.current) editJdFileInputRef.current.value = "";
   }, []);
 
+  /** Set right before closing on a successful save: the draft's temp key has
+   * already been moved into place server-side, so the close handler below
+   * must not also try to delete it. */
+  const skipDraftCleanupRef = useRef(false);
+
   const editIntakeModal = useOverlayState({
     onOpenChange: (open) => {
       if (!open) {
-        const draftPath = editDraftStoragePathRef.current;
-        if (draftPath) void deleteJdDraftOnServer(draftPath);
+        if (skipDraftCleanupRef.current) {
+          skipDraftCleanupRef.current = false;
+        } else {
+          const draftPath = editDraftStoragePathRef.current;
+          if (draftPath) void deleteJdDraftOnServer(draftPath);
+        }
         resetEditUploadState();
         setEditIntakeRow(null);
         setEditForm(DEFAULT_EDIT_FORM);
@@ -182,6 +193,7 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
 
         setEditDraftStoragePath(signJson.path);
         editDraftStoragePathRef.current = signJson.path;
+        setEditDraftMimeType(file.type || null);
         setEditSelectedFileName(file.name);
         setEditUploadPhase("extracting");
         setEditUploadError(null);
@@ -247,10 +259,23 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
           ...editForm,
           _editMode: true,
           pipelineStages: editSelectedStageIds,
+          // Only when a replacement file was actually uploaded this session --
+          // the server moves it from its temp key into place under this job's
+          // id and repoints jd_storage_path at it. The old file is left alone.
+          ...(editDraftStoragePath
+            ? {
+                jdStoragePath: editDraftStoragePath,
+                jdOriginalFilename: editSelectedFileName,
+                jdMimeType: editDraftMimeType,
+              }
+            : {}),
         }),
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Save failed.");
+      // The draft's temp key (if any) no longer exists -- it was moved
+      // server-side -- so the close handler must not try to delete it.
+      skipDraftCleanupRef.current = true;
       editIntakeModal.close();
       await loadDescriptions();
       toast.success("Job description updated successfully.");
@@ -261,7 +286,17 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     } finally {
       setEditSubmitting(false);
     }
-  }, [editForm, editIntakeModal, editIntakeRow, loadDescriptions, editSelectedStageIds, toast]);
+  }, [
+    editDraftMimeType,
+    editDraftStoragePath,
+    editForm,
+    editIntakeModal,
+    editIntakeRow,
+    editSelectedFileName,
+    loadDescriptions,
+    editSelectedStageIds,
+    toast,
+  ]);
 
   return {
     editIntakeRow,
