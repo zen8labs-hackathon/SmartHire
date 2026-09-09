@@ -7,6 +7,7 @@ import { requireAdminForRequest } from "@/lib/admin/require-admin-request";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import { getJobEvaluateTemplate, upsertJobEvaluateTemplate } from "@/lib/db/job-permissions";
+import { syncJobRequirementsQuietly } from "@/lib/jd/sync-job-requirements";
 import { deleteObject, downloadObject } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -87,6 +88,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     createdBy: auth.userId,
     updatedBy: auth.userId,
   });
+
+  // Criteria is one of the two sources the requirement checklist is built from.
+  await syncJobRequirementsQuietly(jobId);
 
   return Response.json({ ok: true });
 }

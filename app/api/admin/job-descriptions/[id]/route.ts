@@ -18,6 +18,7 @@ import { softDeleteOrphanedCandidates } from "@/lib/db/candidates";
 import { softDeleteAllCampaignAppliedForJob } from "@/lib/db/campaign-applied";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
+import { syncJobRequirementsQuietly } from "@/lib/jd/sync-job-requirements";
 import {
   listJobStageMappings,
   reconcileJobStageMappings,
@@ -35,6 +36,8 @@ import {
   type JdEditFormData,
   type JdStatus,
 } from "@/lib/jd/types";
+import { buildFinalJdStoragePath, isJdTempKey } from "@/lib/jd/upload-constants";
+import { moveObject } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -43,6 +46,29 @@ const UUID_RE =
 
 function parseId(raw: string): string | null {
   return UUID_RE.test(raw) ? raw : null;
+}
+
+/**
+ * `UpdateJobInput` keys whose text feeds the requirement checklist
+ * (`resolveJobDescriptionText` -> `job_requirements`). Editing anything else --
+ * status, headcount, salary, viewers -- leaves the checklist valid, so it does
+ * not deserve an LLM round-trip.
+ */
+const REQUIREMENT_SOURCE_FIELDS = new Set<keyof UpdateJobInput>([
+  "roleOverview",
+  "dutiesAndResponsibilities",
+  "experienceRequirementsMustHave",
+  "experienceRequirementsNiceToHave",
+  "languageRequirements",
+  "otherRequirements",
+]);
+
+function touchesRequirementSources(patch: UpdateJobInput): boolean {
+  return Object.entries(patch).some(
+    ([key, value]) =>
+      value !== undefined &&
+      REQUIREMENT_SOURCE_FIELDS.has(key as keyof UpdateJobInput),
+  );
 }
 
 /** Standard (non-intake) edit: the JD workflow fields, e.g. status transitions from the list view. */
@@ -219,7 +245,26 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const pipelineStagesRaw = raw.pipelineStages;
   delete raw.pipelineStages;
 
-  const hasJdUpdate = Object.keys(raw).length > 0;
+  // Present only when the recruiter replaced the attached JD file: a fresh S3
+  // key from POST /api/admin/job-openings/sign-upload + a direct PUT, still
+  // sitting at its temp `jd/` key (mirrors the create flow's jdStoragePath).
+  const jdStoragePathRaw = raw.jdStoragePath;
+  delete raw.jdStoragePath;
+  const jdOriginalFilenameRaw = raw.jdOriginalFilename;
+  delete raw.jdOriginalFilename;
+  const jdMimeTypeRaw = raw.jdMimeType;
+  delete raw.jdMimeType;
+  const newJdStoragePath =
+    typeof jdStoragePathRaw === "string" && jdStoragePathRaw ? jdStoragePathRaw : null;
+  const newJdOriginalFilename =
+    typeof jdOriginalFilenameRaw === "string" ? jdOriginalFilenameRaw : null;
+  const newJdMimeType = typeof jdMimeTypeRaw === "string" ? jdMimeTypeRaw : null;
+
+  if (newJdStoragePath && !isJdTempKey(newJdStoragePath)) {
+    return Response.json({ error: "Invalid JD file path." }, { status: 400 });
+  }
+
+  const hasJdUpdate = Object.keys(raw).length > 0 || newJdStoragePath !== null;
   if (
     !hasJdUpdate &&
     !hasViewerKey &&
@@ -274,8 +319,46 @@ export async function PUT(request: Request, { params }: RouteContext) {
       }
     }
 
+    // The replacement file is still at its temp `jd/` key (see
+    // job-openings/sign-upload); move it into place under this job's id
+    // before it's persisted as `jd_storage_path`. The previous JD file is
+    // left as-is -- nothing here deletes it.
+    if (newJdStoragePath) {
+      const finalJdStoragePath = buildFinalJdStoragePath(
+        jobId,
+        newJdStoragePath,
+        newJdOriginalFilename,
+      );
+      try {
+        await moveObject(newJdStoragePath, finalJdStoragePath);
+      } catch (e) {
+        logError(
+          "Failed to move replacement JD file to its final storage path",
+          e instanceof Error ? e : undefined,
+          { jobId },
+        );
+        return Response.json(
+          {
+            error: "The new JD file failed to finalize. Please retry.",
+          },
+          { status: 500 },
+        );
+      }
+      patch.jdStoragePath = finalJdStoragePath;
+      patch.jdOriginalFilename = newJdOriginalFilename;
+      patch.jdMimeType = newJdMimeType;
+    }
+
     patch.updatedBy = auth.userId;
     await updateJob(db, jobId, patch);
+
+    // Non-fatal: the JD update is already committed, so a failed extraction
+    // leaves the previous checklist in place rather than failing the save.
+    // A replaced file counts too -- resolveJobDescriptionText reads it back
+    // alongside the structured fields.
+    if (touchesRequirementSources(patch) || newJdStoragePath) {
+      await syncJobRequirementsQuietly(jobId);
+    }
   }
 
   if (hasPipelineStages) {

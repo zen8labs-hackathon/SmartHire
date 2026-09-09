@@ -6,7 +6,7 @@ export default function Loading() {
     <div className="flex flex-col gap-4 font-sans">
       <PageHeader
         title="Evaluation Template"
-        description="Upload and manage the PDF document used as each job's candidate interview evaluation form."
+        description="Build a library of reusable interview evaluation templates -- attach one to a job when you create it."
       />
 
       <TemplateSkeleton />

@@ -1,9 +1,20 @@
 import React, { useMemo, type DragEvent, type ChangeEvent } from "react";
-import { Modal, Card, Button, TextField, Label, Input } from "@heroui/react";
+import {
+  Modal,
+  Card,
+  Button,
+  TextField,
+  Label,
+  Input,
+  Select,
+  ListBox,
+  TextArea,
+} from "@heroui/react";
 import type { RangeValue } from "react-aria-components";
 import { parseDate, type CalendarDate } from "@internationalized/date";
 import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
 import { SectionLabel, ChapterPicker } from "./shared-components";
+import { MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN } from "@/lib/admin/candidate-evaluation-template-constants";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
 import { JdPipelineStageSelect } from "./jd-stage-select";
@@ -35,7 +46,15 @@ export function JdCreateModal() {
     allPipelineStages,
     selectedStageIds,
     setSelectedStageIds,
+    evaluationTemplateOptions,
+    evaluationTemplateOptionsLoading,
+    selectedEvaluationTemplateId,
+    selectEvaluationTemplate,
+    evaluationTemplateTextDraft,
+    writeEvaluationTemplateText,
   } = useJdDashboard();
+
+  const NO_TEMPLATE = "__none";
 
   const dateRangeValue = useMemo<RangeValue<CalendarDate> | null>(() => {
     if (
@@ -276,6 +295,69 @@ export function JdCreateModal() {
                 selectedStageIds={selectedStageIds}
                 onChange={setSelectedStageIds}
               />
+            </div>
+
+            <div className="space-y-3">
+              <SectionLabel>Evaluation template</SectionLabel>
+              <p className="text-xs text-muted">
+                Optional. Pick a template from your library, or type new
+                criteria below — leave both empty for no evaluation template.
+                Picking one clears the other. To attach a PDF, add it to your
+                library on the evaluation template page first.
+              </p>
+
+              <Select
+                aria-label="Evaluation template to reuse"
+                value={selectedEvaluationTemplateId ?? NO_TEMPLATE}
+                onChange={(key) => {
+                  if (typeof key !== "string") return;
+                  selectEvaluationTemplate(key === NO_TEMPLATE ? null : key);
+                }}
+                isDisabled={evaluationTemplateOptionsLoading}
+              >
+                <Select.Trigger className="h-10 w-full text-sm">
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    <ListBox.Item id={NO_TEMPLATE} textValue="No template">
+                      {evaluationTemplateOptionsLoading
+                        ? "Loading templates…"
+                        : "No template"}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                    {evaluationTemplateOptions.map((opt) => (
+                      <ListBox.Item
+                        key={opt.id}
+                        id={opt.id}
+                        textValue={opt.title}
+                      >
+                        {opt.title}
+                        {opt.originalFilename
+                          ? ` — ${opt.originalFilename}`
+                          : opt.hasText
+                            ? " — Text criteria"
+                            : ""}
+                        {opt.createdByLabel ? ` (${opt.createdByLabel})` : ""}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+
+              <TextField
+                value={evaluationTemplateTextDraft}
+                onChange={writeEvaluationTemplateText}
+                maxLength={MAX_CANDIDATE_EVAL_TEMPLATE_TEXT_LEN}
+              >
+                <Label className="text-xs">Or write new evaluation criteria</Label>
+                <TextArea
+                  className="min-h-[6rem]"
+                  placeholder="e.g. Rate coding ability 1-5, communication, culture fit…"
+                />
+              </TextField>
             </div>
               </>
             )}

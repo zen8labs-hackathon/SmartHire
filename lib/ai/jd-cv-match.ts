@@ -73,6 +73,70 @@ const matchOutputSchema = z.object({
     .describe("Overall fit of the candidate to the job, 0 = no fit, 100 = excellent fit."),
 });
 
+/**
+ * Variant used when the job already has a stored checklist
+ * (`job_requirements`): the model no longer decides *what* the requirements
+ * are, only how the candidate measures up, so each verdict just points back at
+ * a numbered checklist row.
+ */
+const fixedRequirementVerdictSchema = z.object({
+  index: z
+    .number()
+    .int()
+    .describe("The 1-based number of the checklist item this verdict is for."),
+  verdict: z
+    .enum(["met", "partial", "missing", "unclear"])
+    .describe(
+      "met = the candidate summary clearly satisfies it; partial = partially satisfied; missing = the summary shows it is not satisfied; unclear = the summary says nothing either way.",
+    ),
+  evidence: z
+    .string()
+    .max(240)
+    .describe(
+      "The supporting detail from the candidate summary, or a short note on what is absent. Never invent details that are not in the summary.",
+    ),
+});
+
+const fixedMatchOutputSchema = z.object({
+  verdicts: z
+    .array(fixedRequirementVerdictSchema)
+    .describe(
+      "One entry for every checklist item, in the order they were given.",
+    ),
+  rationale: z
+    .string()
+    .max(600)
+    .describe(
+      "One short paragraph (2–4 sentences) explaining the score for an HR reader.",
+    ),
+  score: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .describe("Overall fit of the candidate to the job, 0 = no fit, 100 = excellent fit."),
+});
+
+/** A stored `job_requirements` row, narrowed to what scoring needs. */
+export type FixedJdRequirement = {
+  requirement: string;
+  importance: "must_have" | "nice_to_have" | "bonus";
+  origin: "jd" | "criteria" | "ai_inferred" | "manual";
+};
+
+/**
+ * Projects a stored requirement onto the display enum the rationale envelope
+ * and pipeline modal already speak. `JdRequirementSource` predates the
+ * importance/origin split and mixes both axes, so provenance wins where it is
+ * the more useful label (a hiring-manager criterion), importance otherwise.
+ */
+function fixedRequirementToSource(
+  req: FixedJdRequirement,
+): JdRequirementCheck["source"] {
+  if (req.origin === "criteria") return "criteria";
+  return req.importance === "must_have" ? "must_have" : "nice_to_have";
+}
+
 type LlmJdMatchResult = {
   score: number;
   rationale: string;
@@ -80,11 +144,120 @@ type LlmJdMatchResult = {
   llmMeta: LlmCallMeta;
 };
 
+const IMPORTANCE_LABEL: Record<FixedJdRequirement["importance"], string> = {
+  must_have: "MUST-HAVE",
+  nice_to_have: "nice-to-have",
+  bonus: "bonus",
+};
+
+/**
+ * Scores against the job's stored checklist instead of one the model invents
+ * per call. Two things improve: every candidate on a job is judged against the
+ * same list (previously it drifted from CV to CV), and a recruiter can correct
+ * the list once instead of re-prompting.
+ *
+ * The model returns verdicts keyed by checklist number rather than re-stating
+ * the requirements, so it cannot quietly drop, merge, or reword an item.
+ */
+async function runLlmJdMatchWithFixedChecklist(
+  cv: string,
+  jd: string,
+  requirements: FixedJdRequirement[],
+  options?: { heuristicSuffix?: string; criteriaText?: string },
+): Promise<LlmJdMatchResult> {
+  const model = getConfiguredLanguageModel();
+  const suffix = options?.heuristicSuffix?.trim() ?? "";
+  const criteriaText = options?.criteriaText?.trim();
+
+  const system = `You are an experienced technical recruiter. Compare the candidate summary to the job's requirement checklist.
+The checklist is fixed and authoritative: give a verdict for EVERY numbered item, and do not add, drop, merge, or reword items.
+Ground every verdict in the candidate summary: when it says nothing about a requirement, use "unclear" rather than inventing experience the candidate may not have.
+Then score 0–100 for overall fit.
+Weigh the items by their marked importance: MUST-HAVE items dominate the score, nice-to-have items adjust it, bonus items can only help.
+The score must be consistent with the verdicts -- mostly "met" must-haves cannot end up with a low score, and several "missing" must-haves cannot end up with a high one.${
+    suffix
+      ? `\nUse the heuristic notes only as a sanity check; your judgment may differ.`
+      : ""
+  }
+Respond only with structured output.`;
+
+  const checklist = requirements
+    .map(
+      (r, i) => `${i + 1}. [${IMPORTANCE_LABEL[r.importance]}] ${r.requirement}`,
+    )
+    .join("\n");
+
+  /* The JD and criteria stay in the prompt as background: the checklist says
+     what to check, but the model still needs the surrounding text to judge
+     adjacent experience fairly (e.g. what the team's stack actually is). */
+  const criteriaSection = criteriaText
+    ? `\n\n## Evaluation criteria (background)\n\n${criteriaText}`
+    : "";
+
+  const { output, llmMeta } = await generateTextWithFallback({
+    model,
+    output: Output.object({
+      name: "cv_jd_checklist_match",
+      description:
+        "Per-requirement verdicts, fit score and rationale for a CV against a fixed job requirement checklist",
+      schema: fixedMatchOutputSchema,
+    }),
+    system,
+    prompt: `## Requirement checklist (give a verdict for each)\n\n${checklist}\n\n## Job description (background)\n\n${jd}${criteriaSection}\n\n## Candidate (from CV)\n\n${cv}${suffix}`,
+    temperature: 0.2,
+    maxOutputTokens: 1600,
+  });
+
+  const byIndex = new Map<number, { verdict: string; evidence: string }>();
+  const rawVerdicts: unknown[] = Array.isArray(output?.verdicts)
+    ? output.verdicts
+    : [];
+  rawVerdicts.forEach((raw, position) => {
+    const v = raw as { index?: unknown; verdict?: unknown; evidence?: unknown };
+    /* Prefer the model's own numbering, but fall back to array position so a
+       model that omits `index` still lines up instead of losing every verdict. */
+    const n = Number.isInteger(v?.index) ? Number(v.index) : position + 1;
+    if (n < 1 || n > requirements.length || byIndex.has(n)) return;
+    byIndex.set(n, {
+      verdict: typeof v?.verdict === "string" ? v.verdict : "unclear",
+      evidence: typeof v?.evidence === "string" ? v.evidence : "",
+    });
+  });
+
+  /* Built from the stored checklist, not the model's echo: an item the model
+     skipped still appears, as "unclear". */
+  const checks = requirements.map((req, i) => {
+    const got = byIndex.get(i + 1);
+    return {
+      requirement: req.requirement,
+      source: fixedRequirementToSource(req),
+      verdict: got?.verdict ?? "unclear",
+      evidence: got?.evidence ?? "",
+    };
+  });
+
+  return {
+    score: output.score,
+    rationale: output.rationale.trim().slice(0, 880),
+    requirements: normalizeJdRequirements(checks),
+    llmMeta,
+  };
+}
+
 async function runLlmJdMatch(
   cv: string,
   jd: string,
-  options?: { heuristicSuffix?: string; criteriaText?: string },
+  options?: {
+    heuristicSuffix?: string;
+    criteriaText?: string;
+    fixedRequirements?: FixedJdRequirement[];
+  },
 ): Promise<LlmJdMatchResult> {
+  const fixedRequirements = options?.fixedRequirements ?? [];
+  if (fixedRequirements.length > 0) {
+    return runLlmJdMatchWithFixedChecklist(cv, jd, fixedRequirements, options);
+  }
+
   const model = getConfiguredLanguageModel();
   const suffix = options?.heuristicSuffix?.trim() ?? "";
   const criteriaText = options?.criteriaText?.trim();
@@ -180,7 +353,16 @@ export async function scoreCvAgainstJobDescriptionHybrid(
   cvSummary: string,
   jobDescriptionText: string,
   formula: JdMatchFormulaResult,
-  options?: { blend?: boolean; criteriaText?: string },
+  options?: {
+    blend?: boolean;
+    criteriaText?: string;
+    /**
+     * The job's stored `job_requirements` checklist. When present the model
+     * checks these instead of deriving its own list per candidate; when empty
+     * or omitted, scoring falls back to the original self-extracting prompt.
+     */
+    fixedRequirements?: FixedJdRequirement[];
+  },
 ): Promise<HybridJdMatchResult> {
   const blend = options?.blend !== false;
 
@@ -227,6 +409,7 @@ export async function scoreCvAgainstJobDescriptionHybrid(
     const out = await runLlmJdMatch(cv, jd, {
       heuristicSuffix: formulaContext,
       criteriaText,
+      fixedRequirements: options?.fixedRequirements,
     });
     aiScore = out.score;
     baseRationale = out.rationale;

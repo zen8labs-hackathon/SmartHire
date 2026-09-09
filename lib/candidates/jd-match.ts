@@ -14,6 +14,7 @@ import {
   type UpdateCvJdMatchResultInput,
 } from "@/lib/db/cv-detail-versions";
 import { getCandidateById } from "@/lib/db/candidates";
+import { listJobRequirements } from "@/lib/db/job-requirements";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getGlobalLlmModelId, parseLlmProviderId } from "@/lib/llm/config";
 
@@ -197,12 +198,22 @@ export async function runJdMatchForCandidate(
       experienceYears: cvVersion.experience_years,
     });
 
+    // Empty for a job whose checklist has not been extracted yet; scoring then
+    // falls back to the model deriving requirements itself, exactly as before
+    // this table existed.
+    const jobRequirements = await listJobRequirements(db, campaignApplied.job_id);
+
     const { score, rationale, aiScore, formulaScore, llmMeta } =
       await scoreCvAgainstJobDescriptionHybrid(
         cvSummary,
         jdText ?? "",
         formula,
-        { criteriaText: criteriaText ?? undefined },
+        {
+          criteriaText: criteriaText ?? undefined,
+          fixedRequirements: jobRequirements.length
+            ? jobRequirements
+            : undefined,
+        },
       );
 
     await saveJdMatchResult(
