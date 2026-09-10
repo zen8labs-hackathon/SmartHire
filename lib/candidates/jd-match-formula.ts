@@ -57,7 +57,8 @@ export type JdMatchFormulaResult = {
   };
 };
 
-function normalizePhrase(s: string): string {
+/** Also used by `lib/ai/extract-jd-requirements.ts` to verify quoted source spans. */
+export function normalizePhrase(s: string): string {
   return s
     .toLowerCase()
     .replace(/\s+/g, " ")

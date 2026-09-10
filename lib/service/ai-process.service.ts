@@ -6,6 +6,8 @@ import { parseResumeWithAI, type ParsedResume } from "@/lib/ai/parse-resume";
 import { computeJdMatchFormulaAnchor } from "@/lib/candidates/jd-match-formula";
 import { resolveJobDescriptionText } from "@/lib/candidates/resolve-job-description-text";
 import { resolveJobEvaluationCriteriaText } from "@/lib/candidates/resolve-job-evaluation-criteria-text";
+import { getPool } from "@/lib/db/config/client";
+import { listJobRequirements } from "@/lib/db/job-requirements";
 import { toError } from "../logger";
 
 /** Same field order/labels as `buildCvSummary` in lib/candidates/jd-match.ts -- keep both in sync if either changes. */
@@ -94,11 +96,18 @@ export const AIProcessService = {
       experienceYears: parsed.experienceYears,
     });
 
+    // Empty for a job whose checklist has not been extracted yet; scoring then
+    // falls back to the model deriving requirements itself.
+    const jobRequirements = await listJobRequirements(getPool(), jobId);
+
     const result = await scoreCvAgainstJobDescriptionHybrid(
       cvSummary,
       jdText,
       formula,
-      { criteriaText: criteriaText ?? undefined },
+      {
+        criteriaText: criteriaText ?? undefined,
+        fixedRequirements: jobRequirements.length ? jobRequirements : undefined,
+      },
     );
 
     if (!result.llmMeta) {

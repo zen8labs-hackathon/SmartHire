@@ -350,6 +350,32 @@ export async function lockCampaignAppliedForJdMatch(
   return rows[0] ?? null;
 }
 
+/**
+ * Flags every scored application on a job as needing a re-match, after the
+ * job's requirement checklist (`job_requirements`) changed underneath them --
+ * their stored score was computed against a checklist that no longer exists.
+ *
+ * Only flips `completed` rows: `processing` is someone else's in-flight run
+ * (the guard in `saveJdMatchResult` settles that one), and `pending`/`failed`/
+ * `skipped` already need attention. Nothing is re-scored here -- that stays a
+ * deliberate action, so a JD edit can't silently fan out hundreds of LLM calls.
+ *
+ * Returns the ids that were flagged so callers can report the count.
+ */
+export async function markJobApplicationsStaleForRematch(
+  db: QueryExecutor,
+  jobId: string,
+): Promise<string[]> {
+  const { rows } = await db.query<{ id: string }>(
+    `UPDATE campaign_applied
+     SET jd_match_status = 'pending', updated_at = now()
+     WHERE job_id = $1 AND jd_match_status = 'completed' AND deleted_at IS NULL
+     RETURNING id`,
+    [jobId],
+  );
+  return rows.map((r) => r.id);
+}
+
 export async function softDeleteCampaignApplied(
   db: QueryExecutor,
   id: string,

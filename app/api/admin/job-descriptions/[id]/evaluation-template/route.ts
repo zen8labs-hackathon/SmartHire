@@ -7,6 +7,7 @@ import {
   getJobEvaluateTemplate,
   upsertJobEvaluateTemplate,
 } from "@/lib/db/job-permissions";
+import { syncJobRequirementsQuietly } from "@/lib/jd/sync-job-requirements";
 import { deleteObject } from "@/lib/storage/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -99,6 +100,9 @@ export async function PUT(request: Request, { params }: RouteContext) {
     updatedBy: auth.userId,
   });
 
+  // Criteria is one of the two sources the requirement checklist is built from.
+  await syncJobRequirementsQuietly(jobId);
+
   return Response.json({ ok: true });
 }
 
@@ -128,6 +132,9 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   }
 
   await deleteJobEvaluateTemplate(db, jobId);
+
+  // Drops every `origin = 'criteria'` requirement on the next extract run.
+  await syncJobRequirementsQuietly(jobId);
 
   return new Response(null, { status: 204 });
 }

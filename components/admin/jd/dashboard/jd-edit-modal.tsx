@@ -3,6 +3,7 @@ import { Modal, Card, Button, TextField, Label, Input, TextArea, Select, ListBox
 import { SectionLabel } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
+import { JdRequirementsSection } from "./jd-requirements-section";
 
 import { JdPipelineStageSelect } from "./jd-stage-select";
 
@@ -10,6 +11,8 @@ const HIRE_TYPE_OPTIONS = ["New hire", "Replacement"] as const;
 
 export function JdEditModal() {
   const {
+    editIntakeRow,
+    canManageJds,
     editIntakeModal,
     editJdFileInputRef,
     ingestJdFileForEdit,
@@ -293,6 +296,16 @@ export function JdEditModal() {
                   placeholder="Any other notes (only where appropriate and lawful)."
                 />
               </TextField>
+
+              {/* Read-only view of the scoring checklist derived from the
+                  prose fields above. Not part of this form: it is rebuilt by
+                  the extractor after Save, or on demand from the panel. */}
+              {editIntakeRow && (
+                <JdRequirementsSection
+                  jobId={editIntakeRow.id}
+                  canManage={canManageJds}
+                />
+              )}
             </div>
 
             {/* 4 – Growth & compensation */}

@@ -53,6 +53,13 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
+      # node_modules riêng cho container, không dùng chung với node_modules
+      # trên host (host cài bằng pnpm -- symlink store trong .pnpm/; container
+      # lại chạy `npm install` bên dưới với quyền root). Nếu để chung, npm
+      # cố rename đè lên cấu trúc symlink của pnpm, mỗi lần container
+      # restart lại chạy npm install lại trên cùng thư mục vật lý và để lại
+      # rác (thư mục do root tạo dở dang) -> ENOTEMPTY, crash-loop vô hạn.
+      - worker_node_modules:/app/node_modules
     env_file:
       - .env
     environment:
@@ -101,3 +108,4 @@ volumes:
   pgdata:
     external: true
   redisdata:
+  worker_node_modules:
