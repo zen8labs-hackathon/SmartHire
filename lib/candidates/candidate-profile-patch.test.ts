@@ -62,10 +62,18 @@ describe("candidateProfilePatchSchema", () => {
     expect(r.success).toBe(true);
   });
 
-  it("rejects more than MAX_SKILLS skill tokens", () => {
-    const many = Array.from({ length: MAX_SKILLS + 1 }, (_, i) => `Skill${i}`);
+  it("caps more than MAX_SKILLS skill tokens instead of rejecting the save", () => {
+    // A CV parsed with more than MAX_SKILLS distinct skills (no cap upstream)
+    // must still be editable here -- rejecting it would block saving any
+    // unrelated field forever. Extras beyond MAX_SKILLS are silently dropped
+    // instead.
+    const many = Array.from({ length: MAX_SKILLS + 5 }, (_, i) => `Skill${i}`);
     const r = candidateProfilePatchSchema.safeParse({ skills: many });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.skills).toHaveLength(MAX_SKILLS);
+      expect(r.data.skills).toEqual(many.slice(0, MAX_SKILLS));
+    }
   });
 
   it("dedupes skills case-insensitively", () => {

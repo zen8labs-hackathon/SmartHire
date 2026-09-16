@@ -28,7 +28,12 @@ function optionalTrimmedNullable(maxLen: number) {
 
 const optionalSkills = z
   .array(z.string().max(MAX_SKILL_LEN))
-  .max(MAX_SKILLS)
+  // No `.max(MAX_SKILLS)` here on purpose -- the transform below already
+  // dedupes and caps to MAX_SKILLS. Validating the raw (pre-dedup) length
+  // instead rejected perfectly fine input: a CV parsed with 41+ skills (no
+  // artificial cap upstream) could never be saved again through this route,
+  // even editing an unrelated field, since the untransformed array always
+  // exceeded 40.
   .optional()
   .transform((arr) => {
     if (arr === undefined) return undefined;

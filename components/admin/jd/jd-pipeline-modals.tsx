@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Chip, Input, Label, Modal } from "@heroui/react";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
@@ -567,6 +567,20 @@ export function EditCandidateModal({
     "loading",
   );
   const [canEditSalary, setCanEditSalary] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const saveActionRef = useRef<(() => void) | null>(null);
+
+  // The caller clears `row` the instant the modal starts closing (e.g. right
+  // after a successful save), but the dialog itself keeps rendering for a
+  // bit longer while its close transition plays out. Rendering off `row`
+  // directly would blank the header/body/footer for that stretch -- keep
+  // showing the last real row instead so the dialog never flashes empty
+  // before it actually unmounts.
+  const [displayRow, setDisplayRow] = useState(row);
+  useEffect(() => {
+    if (row) setDisplayRow(row);
+  }, [row]);
 
   useEffect(() => {
     if (!isOpen || !row) {
@@ -576,6 +590,8 @@ export function EditCandidateModal({
     setDbRow(null);
     setDbLoadState("loading");
     setCanEditSalary(false);
+    setDirty(false);
+    setBusy(false);
     void (async () => {
       try {
         const res = await fetch(`/api/admin/candidates/${row.id}`, {
@@ -616,24 +632,28 @@ export function EditCandidateModal({
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4 bg-muted/10">
             <Modal.Heading className="text-lg font-bold text-foreground">
-              {row?.name ?? "Edit candidate"}
+              {displayRow?.name ?? "Edit candidate"}
             </Modal.Heading>
           </Modal.Header>
-          <Modal.Body className="max-h-[75vh] overflow-y-auto p-0">
-            {row ? (
+          <Modal.Body className="max-h-[65vh] overflow-y-auto px-5 py-4">
+            {displayRow ? (
               dbLoadState === "error" ? (
-                <p className="px-5 py-4 text-sm text-danger">
+                <p className="text-sm text-danger">
                   Could not load this candidate's details. Close and try again.
                 </p>
               ) : (
                 <CandidateProfileEditSection
-                  candidateId={row.id}
+                  candidateId={displayRow.id}
                   dbRow={dbRow}
                   canEdit={canEdit}
                   canEditSalary={canEditSalary}
                   isPreview={false}
                   dbLoadState={dbLoadState}
                   startInEditMode
+                  embedded
+                  onDirtyChange={setDirty}
+                  onBusyChange={setBusy}
+                  saveActionRef={saveActionRef}
                   onSaved={onSaved}
                   onCandidateIdChanged={onCandidateIdChanged ?? (() => onSaved())}
                   hidePipelineAndSource={hidePipelineAndSource}
@@ -642,6 +662,25 @@ export function EditCandidateModal({
               )
             ) : null}
           </Modal.Body>
+          {displayRow && canEdit && dbLoadState !== "error" ? (
+            <Modal.Footer className="justify-end gap-2 border-t border-divider px-6 py-4">
+              <Button
+                variant="tertiary"
+                onPress={() => onOpenChange(false)}
+                isDisabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onPress={() => saveActionRef.current?.()}
+                isDisabled={busy || !dirty}
+                isPending={busy}
+              >
+                Save changes
+              </Button>
+            </Modal.Footer>
+          ) : null}
         </Modal.Dialog>
       </Modal.Container>
     </Modal.Backdrop>

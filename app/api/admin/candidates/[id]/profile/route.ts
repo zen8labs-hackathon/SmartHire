@@ -12,6 +12,7 @@ import { getPool, withTransaction } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 import { applyManualProfileEdit } from "@/lib/candidates/apply-manual-profile-edit";
 import { resolveApplicationStages } from "@/lib/candidates/resolve-application-stage";
+import { fileUploadQueue } from "@/lib/queue/file-upload.queue";
 import {
   candidateProfilePatchSchema,
   validateSourceOther,
@@ -225,18 +226,45 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   try {
-    await withTransaction(async (tx) => {
-      await applyManualProfileEdit(tx, {
-        campaignAppliedId,
-        candidateId: campaignApplied.candidate_id,
-        baseCvVersion: cvVersion,
-        nextSource,
-        nextSourceOther,
-        patch,
-        createdBy: auth.userId,
-      });
-      await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
-    });
+    const { matchAffectingFieldsChanged } = await withTransaction(
+      async (tx) => {
+        const result = await applyManualProfileEdit(tx, {
+          campaignAppliedId,
+          candidateId: campaignApplied.candidate_id,
+          baseCvVersion: cvVersion,
+          nextSource,
+          nextSourceOther,
+          patch,
+          createdBy: auth.userId,
+        });
+        await syncCandidateAggregateFields(tx, campaignApplied.candidate_id);
+        return result;
+      },
+    );
+
+    // Skills/role/degree/school/experience feed the JD-match prompt/formula,
+    // so editing any of them makes the previous score stale --
+    // applyManualProfileEdit already left the new version's jd_match_*
+    // unset for this case. Re-run AI JD-match for it automatically (only
+    // meaningful when the application actually targets a job) instead of
+    // leaving it stuck on "Not started" until HR notices and re-triggers it
+    // by hand. Uses "rerun-ai-matching-edited" (scores the edited
+    // cv_detail_versions fields as-is), NOT "rerun-ai-matching" (which
+    // re-downloads and re-parses the original file from scratch, silently
+    // discarding whatever HR just corrected). priority: 2 (same as the
+    // other rerun-ai-matching* triggers) -- HR is watching this specific
+    // row right after editing it and expects to see a fresh result soon,
+    // not queued behind a backlog of routine uploads.
+    if (matchAffectingFieldsChanged && campaignApplied.job_id) {
+      await fileUploadQueue.add(
+        "rerun-ai-matching-edited",
+        { campaignAppliedId },
+        {
+          deduplication: { id: `rerun-ai-matching-edited-${campaignAppliedId}` },
+          priority: 2,
+        },
+      );
+    }
 
     const enriched = await getCampaignAppliedAdminRowById(db, campaignAppliedId);
     if (!enriched) {
