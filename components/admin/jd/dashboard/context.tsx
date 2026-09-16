@@ -197,6 +197,7 @@ export function JdDashboardProvider({
       jdListStatusKey: filtersState.jdListStatusKey,
       jdStartDateRange: filtersState.jdStartDateRange,
       pageSize: filtersState.pageSize,
+      hasUrlFiltersOnMount: filtersState.hasUrlFiltersOnMount,
     },
     initialRowsPromise,
   );

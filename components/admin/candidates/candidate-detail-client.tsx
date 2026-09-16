@@ -625,7 +625,11 @@ export function CandidateDetailClient({ candidate }: Props) {
             <Button
               variant="secondary"
               className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-              onPress={() => router.push("/admin/candidates")}
+              // `router.back()` (not a hardcoded push) so this matches the
+              // browser Back button and returns to the candidates list with
+              // whatever filter/sort/page it had -- those now live in the
+              // list's URL query params (see use-query-param-state).
+              onPress={() => router.back()}
             >
               Back to candidates
             </Button>

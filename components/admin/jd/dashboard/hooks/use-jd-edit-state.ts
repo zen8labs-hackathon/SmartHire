@@ -26,6 +26,8 @@ const DEFAULT_EDIT_FORM: JdEditFormData = {
   project_allowances: "",
   interview_process: "",
   hiring_deadline: "",
+  start_date: "",
+  end_date: "",
 };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -117,6 +119,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       project_allowances: normalizeFormText(row.project_allowances),
       interview_process: normalizeFormText(row.interview_process),
       hiring_deadline: row.hiring_deadline ? row.hiring_deadline.slice(0, 10) : "",
+      start_date: row.start_date ? row.start_date.slice(0, 10) : "",
+      end_date: row.end_date ? row.end_date.slice(0, 10) : "",
     });
     setEditSelectedStageIds([]);
     setEditStagesLoading(true);
@@ -244,6 +248,16 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     if (!editIntakeRow) return;
     if (!editForm.position.trim()) {
       const msg = "Job title is required.";
+      setEditError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (
+      editForm.start_date &&
+      editForm.end_date &&
+      editForm.end_date < editForm.start_date
+    ) {
+      const msg = "End date must be on or after the start date.";
       setEditError(msg);
       toast.error(msg);
       return;

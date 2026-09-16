@@ -783,7 +783,11 @@ export function PipelineCandidateEvaluationClient({
           <Button
             variant="secondary"
             className="h-8 px-3 rounded-lg border border-divider text-xs font-bold"
-            onPress={() => router.push(`/admin/jd/${jobId}/pipeline`)}
+            // `router.back()` (not a hardcoded push) so this matches the
+            // browser Back button and returns to the pipeline table with
+            // whatever filter/sort/page it had -- those now live in the
+            // table's URL query params (see use-query-param-state).
+            onPress={() => router.back()}
           >
             Back to pipeline
           </Button>

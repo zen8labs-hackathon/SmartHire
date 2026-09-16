@@ -23,8 +23,11 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
   const prevCvUrl = useRef("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const docxContainerRef = useRef<HTMLDivElement>(null);
+  const docxResizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const loadCv = useCallback(async (url: string) => {
+    docxResizeObserverRef.current?.disconnect();
+    docxResizeObserverRef.current = null;
     setMode("loading");
     setErrorMsg("");
 
@@ -54,15 +57,85 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
           const container = docxContainerRef.current;
           if (!container) return;
           container.innerHTML = "";
-          const { renderAsync } = await import("docx-preview");
-          await renderAsync(blob, container, undefined, {
-            className: "docx-preview",
-            ignoreWidth: false,
-            ignoreHeight: true,
-            ignoreFonts: false,
-            breakPages: true,
-            useBase64URL: true,
-          });
+          try {
+            const { renderAsync } = await import("docx-preview");
+            await renderAsync(blob, container, undefined, {
+              className: "docx-preview",
+              // Keep the docx's own page width (e.g. 816px for Letter) --
+              // `ignoreWidth: true` makes docx-preview reflow-measure the
+              // whole document at the container's width, which hangs on
+              // multi-MB files with many embedded fonts (observed on a real
+              // 6MB/23-font resume). Scale the already-rendered page down
+              // with CSS via ResizeObserver below instead.
+              ignoreWidth: false,
+              ignoreHeight: true,
+              ignoreFonts: false,
+              breakPages: true,
+              useBase64URL: true,
+            });
+
+            // The rendered page (fixed physical width, e.g. 816px for
+            // Letter) is wider than some preview columns (e.g. the ~360px
+            // evaluation-page split view). Shrink it to fit with a CSS
+            // transform, sized from ResizeObserver's already-computed
+            // layout rather than a manual `scrollWidth`/`clientWidth` read
+            // -- that forces an immediate synchronous reflow of the whole
+            // page while embedded @font-face resources are still loading,
+            // which is what hung on the file above. ResizeObserver instead
+            // reports geometry the browser already settled on its own
+            // schedule, so it can't reintroduce that hang.
+            const page = container.querySelector<HTMLElement>(".docx-preview");
+            if (page) {
+              const wrapper = page.parentElement;
+
+              const observer = new ResizeObserver((entries) => {
+                const entry = entries[0];
+                const available = container.parentElement?.clientWidth;
+                // `contentRect` excludes the page's own padding (72pt/side);
+                // `borderBoxSize` is the full box that padding is part of,
+                // which is what actually needs to fit -- using contentRect
+                // here undershoots the scale and still clips the padded
+                // edges. Reading `offsetWidth`/`offsetHeight` as a fallback
+                // is safe here (unlike the scrollWidth read that hung
+                // earlier): this callback only runs once the browser has
+                // already computed layout, so it's not a new forced reflow.
+                const borderBox = entry?.borderBoxSize?.[0];
+                const natural = borderBox?.inlineSize ?? page.offsetWidth;
+                const naturalHeight = borderBox?.blockSize ?? page.offsetHeight;
+                if (!entry || !available || !natural) return;
+                const scale = Math.min(1, available / natural);
+                page.style.transformOrigin = "top left";
+                if (scale < 1) {
+                  // docx-preview's own wrapper centers the page horizontally
+                  // (`align-items: center`) using its *pre-transform* box
+                  // size, so scaling it down without neutralizing that
+                  // leaves it centered around the wrong (unscaled) midpoint
+                  // -- clipping off its left edge instead of sitting flush
+                  // against it. Only override this once scaling actually
+                  // applies; a page that already fits keeps its normal
+                  // centering.
+                  if (wrapper) wrapper.style.alignItems = "flex-start";
+                  page.style.transform = `scale(${scale})`;
+                  container.style.width = `${available}px`;
+                  container.style.height = `${naturalHeight * scale}px`;
+                  container.style.overflow = "hidden";
+                } else {
+                  if (wrapper) wrapper.style.alignItems = "";
+                  page.style.transform = "";
+                  container.style.width = "";
+                  container.style.height = "";
+                  container.style.overflow = "";
+                }
+              });
+              observer.observe(page);
+              docxResizeObserverRef.current = observer;
+            }
+          } catch (err) {
+            setMode("error");
+            setErrorMsg(
+              err instanceof Error ? err.message : "Failed to render DOCX preview.",
+            );
+          }
         });
       } else {
         setMode("pdf");
@@ -78,6 +151,10 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
     prevCvUrl.current = cvUrl;
     loadCv(cvUrl);
   }, [cvUrl, loadCv]);
+
+  useEffect(() => {
+    return () => docxResizeObserverRef.current?.disconnect();
+  }, []);
 
   useEffect(() => {
     if (mode !== "pdf") return;

@@ -1,8 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { today } from "@internationalized/date";
 import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import {
+  dateRangeQueryParam,
+  intQueryParam,
+  stringQueryParam,
+  useQueryParamState,
+} from "@/components/admin/shell/use-query-param-state";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 
 /**
@@ -22,14 +29,55 @@ function defaultStartDateRange(): RangeValue<CalendarDate> {
  * `use-jd-list-state.ts`) — this hook only owns the inputs to that query.
  */
 export function useJdFiltersState() {
+  const searchParams = useSearchParams();
+  // The server-rendered initial page (app/admin/jd/page.tsx) always fetches
+  // with the hardcoded last-3-months default, ignoring the URL -- so if the
+  // page was reached with filters already in the URL (e.g. browser back from
+  // a JD's pipeline page), that initial data won't match them and the first
+  // client-side fetch below must not be skipped. Captured once at mount;
+  // later filter changes always go through the normal "value changed" path.
+  const [hasUrlFiltersOnMount] = useState(() =>
+    ["q", "status", "startDate", "page", "pageSize"].some((key) =>
+      searchParams.has(key),
+    ),
+  );
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
-  const [jdListSearch, setJdListSearch] = useState("");
+
+  // Filters/page are mirrored into the URL (see use-query-param-state) so a
+  // browser back from a JD's pipeline page lands back on the same
+  // filtered/paged JD list instead of resetting to defaults.
+  const [urlJdListSearch, setUrlJdListSearch] = useQueryParamState(
+    "q",
+    "",
+    stringQueryParam,
+  );
+  // Kept as separate local state so the input stays lag-free while typing;
+  // only the debounced value is written back to the URL/used to fetch.
+  const [jdListSearch, setJdListSearch] = useState(urlJdListSearch);
   const debouncedJdListSearch = useDebouncedValue(jdListSearch, 350);
-  const [jdListStatusKey, setJdListStatusKey] = useState<string>("all");
-  const [jdStartDateRange, setJdStartDateRange] =
-    useState<RangeValue<CalendarDate> | null>(defaultStartDateRange);
-  const [pageSize, setPageSize] = useState(10);
+  useEffect(() => {
+    setUrlJdListSearch(debouncedJdListSearch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedJdListSearch]);
+
+  const [jdListStatusKey, setJdListStatusKey] = useQueryParamState(
+    "status",
+    "all",
+    stringQueryParam,
+  );
+  // Stable reference so an untouched date filter doesn't look like a new
+  // value on every render -- `use-jd-list-state.ts`'s refetch effect keys
+  // off this object by reference.
+  const defaultDateRange = useMemo(() => defaultStartDateRange(), []);
+  const [jdStartDateRange, setJdStartDateRange] = useQueryParamState<
+    RangeValue<CalendarDate> | null
+  >("startDate", defaultDateRange, dateRangeQueryParam);
+  const [pageSize, setPageSize] = useQueryParamState(
+    "pageSize",
+    10,
+    intQueryParam(10),
+  );
 
   useEffect(() => {
     if (skipInitialPageResetRef.current) {
@@ -40,6 +88,7 @@ export function useJdFiltersState() {
   }, [debouncedJdListSearch, jdListStatusKey, jdStartDateRange, pageSize]);
 
   return {
+    hasUrlFiltersOnMount,
     page,
     setPage,
     jdListSearch,
