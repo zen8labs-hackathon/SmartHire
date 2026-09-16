@@ -1,5 +1,6 @@
 import type { HybridJdMatchResult } from "@/lib/ai/jd-cv-match";
 import { aiWeightFromEnv } from "@/lib/candidates/jd-match-formula";
+import { runJdMatchForCandidate } from "@/lib/candidates/jd-match";
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import { getPool } from "@/lib/db/client";
 import {
@@ -108,4 +109,46 @@ export async function rerunAiMatching(jobData: { cvDetailVersionId: string }) {
   });
 
   return { id: cvDetailVersionId };
+}
+
+/**
+ * Re-scores JD match using the application's active CV version fields
+ * exactly as stored (skills/role/degree/school/experience_years) instead of
+ * re-downloading and re-parsing the original file. Used after a manual
+ * profile edit: `rerunAiMatching` above would silently re-derive the same
+ * (possibly wrong) values straight from the file text, ignoring whatever HR
+ * just corrected -- this instead scores the edited values themselves, via
+ * `runJdMatchForCandidate` (which already persists its own result/failure
+ * and handles the "CV version went stale mid-flight" race internally).
+ */
+export async function rerunAiMatchFromEditedProfile(jobData: {
+  campaignAppliedId: string;
+}) {
+  const db = getPool();
+
+  // `runJdMatchForCandidate` only flips `campaign_applied.jd_match_status`
+  // to "processing" (its own CAS lock, a separate column) -- the pipeline
+  // table's "JD match" column reads `cv_detail_versions.jd_match_status`
+  // instead, which `applyManualProfileEdit` already left `null` for this
+  // case. Without this, the row keeps showing "Not started" for the whole
+  // time this job is queued/running, then jumps straight to the finished
+  // score with no visible in-between state.
+  const application = await getCampaignAppliedById(
+    db,
+    jobData.campaignAppliedId,
+  );
+  if (application?.active_cv_version_id) {
+    await updateCvDetailVersionJdMatchResult(db, application.active_cv_version_id, {
+      jdMatchStatus: "processing",
+      jdMatchError: null,
+    });
+  }
+
+  const result = await runJdMatchForCandidate(jobData.campaignAppliedId, {
+    force: true,
+  });
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+  return result;
 }
