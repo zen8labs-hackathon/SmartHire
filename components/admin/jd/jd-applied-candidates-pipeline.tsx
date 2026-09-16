@@ -8,6 +8,13 @@ import {
   DataTablePagination,
 } from "@/components/admin/shell/table-system";
 import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import {
+  dateRangeQueryParam,
+  intQueryParam,
+  sortDescriptorQueryParam,
+  stringQueryParam,
+  useQueryParamState,
+} from "@/components/admin/shell/use-query-param-state";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
 import { DateRangeCalendarField } from "@/components/admin/shell/date-range-calendar-field";
 import { Button, ListBox, Select, Table, useOverlayState } from "@heroui/react";
@@ -43,6 +50,7 @@ import {
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
 import {
   buildCandidatesListSearchParams,
+  CANDIDATES_LIST_SORT_COLUMNS,
   type CandidatesListSortColumn,
 } from "@/lib/candidates/candidates-list-query";
 import { candidateService } from "@/lib/service/candidate.service";
@@ -220,24 +228,47 @@ export function JdAppliedCandidatesPipeline({
     [rationaleModal],
   );
 
-  const [query, setQuery] = useState("");
+  // Filters/sort/page are mirrored into the URL (see use-query-param-state)
+  // so a browser back from a candidate's evaluation page lands back on the
+  // same filtered/sorted/paged pipeline view instead of resetting.
+  const [urlQuery, setUrlQuery] = useQueryParamState(
+    "q",
+    "",
+    stringQueryParam,
+  );
+  // Kept as separate local state so the input stays lag-free while typing;
+  // only the debounced value is written back to the URL/used to fetch.
+  const [query, setQuery] = useState(urlQuery);
   const debouncedQuery = useDebouncedValue(query, 350);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  useEffect(() => {
+    setUrlQuery(debouncedQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+  const [statusFilter, setStatusFilter] = useQueryParamState(
+    "status",
+    "all",
+    stringQueryParam,
+  );
   const selectedFilterOption: PipelineStageSubStageFilterOption | null =
     useMemo(
       () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
       [filterOptions, statusFilter],
     );
-  const [uploadDateRange, setUploadDateRange] =
-    useState<RangeValue<CalendarDate> | null>(null);
-  const [sortDescriptor, setSortDescriptor] = useState<{
+  const [uploadDateRange, setUploadDateRange] = useQueryParamState<
+    RangeValue<CalendarDate> | null
+  >("uploadDate", null, dateRangeQueryParam);
+  const [sortDescriptor, setSortDescriptor] = useQueryParamState<{
     column: CandidatesListSortColumn;
     direction: "ascending" | "descending";
-  } | null>(null);
+  } | null>("sort", null, sortDescriptorQueryParam(CANDIDATES_LIST_SORT_COLUMNS));
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
 
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useQueryParamState(
+    "pageSize",
+    10,
+    intQueryParam(10),
+  );
 
   const handlePageSizeChange = useCallback(
     (size: number) => {

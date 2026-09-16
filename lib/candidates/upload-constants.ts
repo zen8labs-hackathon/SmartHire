@@ -31,3 +31,20 @@ export function isAllowedCvFilename(filename: string): boolean {
     ext != null && (ALLOWED_CV_EXTENSIONS as readonly string[]).includes(ext)
   );
 }
+
+const CV_MIME_BY_EXTENSION: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+
+/**
+ * Canonical MIME type for an allowed CV extension -- more reliable than a
+ * browser-reported `File.type`, which many OS/browser combos leave empty or
+ * wrong for `.docx`. Only meaningful once `isAllowedCvFilename` has already
+ * gated the extension.
+ */
+export function mimeTypeFromCvFilename(filename: string): string | null {
+  const ext = extensionFromFilename(filename);
+  return ext != null ? (CV_MIME_BY_EXTENSION[ext] ?? null) : null;
+}

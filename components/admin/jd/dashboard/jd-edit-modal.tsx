@@ -1,11 +1,14 @@
-import React, { type DragEvent, type ChangeEvent } from "react";
+import React, { useMemo, type DragEvent, type ChangeEvent } from "react";
 import { Modal, Card, Button, TextField, Label, Input, TextArea, Select, ListBox } from "@heroui/react";
+import type { RangeValue } from "react-aria-components";
+import { parseDate, type CalendarDate } from "@internationalized/date";
 import { SectionLabel } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
 import { JdRequirementsSection } from "./jd-requirements-section";
 
 import { JdPipelineStageSelect } from "./jd-stage-select";
+import { DateRangeCalendarField } from "@/components/admin/shell/date-range-calendar-field";
 
 const HIRE_TYPE_OPTIONS = ["New hire", "Replacement"] as const;
 
@@ -31,6 +34,23 @@ export function JdEditModal() {
     setEditSelectedStageIds,
     editStagesLoading,
   } = useJdDashboard();
+
+  const dateRangeValue = useMemo<RangeValue<CalendarDate> | null>(() => {
+    if (
+      !editForm.start_date ||
+      !editForm.hiring_deadline ||
+      editForm.start_date > editForm.hiring_deadline
+    )
+      return null;
+    try {
+      return {
+        start: parseDate(editForm.start_date),
+        end: parseDate(editForm.hiring_deadline),
+      };
+    } catch {
+      return null;
+    }
+  }, [editForm.start_date, editForm.hiring_deadline]);
 
   return (
     <Modal.Backdrop
@@ -153,14 +173,38 @@ export function JdEditModal() {
             {/* 1 – Role & organisation */}
             <div className="space-y-4">
               <SectionLabel>Role &amp; organisation</SectionLabel>
-              <TextField
-                value={editForm.position}
-                onChange={(v) => setEditField("position", v)}
-                isRequired
-              >
-                <Label>Job title</Label>
-                <Input placeholder="e.g. AI Engineer (Mid-level)" />
-              </TextField>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextField
+                  value={editForm.position}
+                  onChange={(v) => setEditField("position", v)}
+                  isRequired
+                >
+                  <Label>Job title</Label>
+                  <Input placeholder="e.g. AI Engineer (Mid-level)" />
+                </TextField>
+
+                <div className="flex flex-col gap-1 md:col-span-1">
+                  <Label className="text-xs font-medium text-foreground">
+                    Hiring Date{" "}
+                    <span className="font-normal text-danger">*</span>
+                  </Label>
+                  <DateRangeCalendarField
+                    value={dateRangeValue}
+                    onChange={(val) => {
+                      if (val?.start && val?.end) {
+                        setEditField("start_date", val.start.toString());
+                        setEditField("hiring_deadline", val.end.toString());
+                      } else {
+                        setEditField("start_date", "");
+                        setEditField("hiring_deadline", "");
+                      }
+                    }}
+                    className="w-full"
+                    dateFieldClassName="border-divider bg-surface-secondary/40 text-foreground shadow-sm h-10 rounded-xl py-1 px-3 text-sm"
+                    allowClear={false}
+                  />
+                </div>
+              </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <TextField
                   value={editForm.level}
@@ -360,10 +404,10 @@ export function JdEditModal() {
               </TextField>
 
               <TextField
-                value={editForm.hiring_deadline}
-                onChange={(v) => setEditField("hiring_deadline", v)}
+                value={editForm.end_date}
+                onChange={(v) => setEditField("end_date", v)}
               >
-                <Label>Hiring deadline</Label>
+                <Label>End date</Label>
                 <Input type="date" />
               </TextField>
             </div>

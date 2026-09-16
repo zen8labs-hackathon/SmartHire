@@ -8,6 +8,7 @@ import {
 import {
   CV_FOLDER_PREFIX,
   isAllowedCvFilename,
+  mimeTypeFromCvFilename,
 } from "@/lib/candidates/upload-constants";
 import type { CampaignAppliedSource } from "@/lib/db/campaign-applied";
 import { getPool } from "@/lib/db/config/client";
@@ -190,6 +191,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // `mimeType` above is only what the browser/client reported at upload
+  // time, which is unreliable for .docx (many OS/browser combos report ""
+
+  const resolvedMimeType = mimeTypeFromCvFilename(fileName) ?? mimeType;
+
   const name = stringOrNull(body.candidate?.name);
   if (!name) {
     return Response.json(
@@ -260,7 +266,7 @@ export async function POST(request: NextRequest) {
       cv: {
         storageKey,
         fileName,
-        mimeType,
+        mimeType: resolvedMimeType,
         fileSha256: null,
       },
       // Manual entries never run AI JD-match, even against a job -- "skipped"
@@ -291,7 +297,7 @@ export async function POST(request: NextRequest) {
           {
             fileName,
             storageKey,
-            mimeType,
+            mimeType: resolvedMimeType,
             fileSource,
             recruiter,
             uploadedBy: auth.userId,
