@@ -18,7 +18,6 @@ import { softDeleteOrphanedCandidates } from "@/lib/db/candidates";
 import { softDeleteAllCampaignAppliedForJob } from "@/lib/db/campaign-applied";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { getJobById, softDeleteJob, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
-import { syncJobRequirementsQuietly } from "@/lib/jd/sync-job-requirements";
 import {
   listJobStageMappings,
   reconcileJobStageMappings,
@@ -46,29 +45,6 @@ const UUID_RE =
 
 function parseId(raw: string): string | null {
   return UUID_RE.test(raw) ? raw : null;
-}
-
-/**
- * `UpdateJobInput` keys whose text feeds the requirement checklist
- * (`resolveJobDescriptionText` -> `job_requirements`). Editing anything else --
- * status, headcount, salary, viewers -- leaves the checklist valid, so it does
- * not deserve an LLM round-trip.
- */
-const REQUIREMENT_SOURCE_FIELDS = new Set<keyof UpdateJobInput>([
-  "roleOverview",
-  "dutiesAndResponsibilities",
-  "experienceRequirementsMustHave",
-  "experienceRequirementsNiceToHave",
-  "languageRequirements",
-  "otherRequirements",
-]);
-
-function touchesRequirementSources(patch: UpdateJobInput): boolean {
-  return Object.entries(patch).some(
-    ([key, value]) =>
-      value !== undefined &&
-      REQUIREMENT_SOURCE_FIELDS.has(key as keyof UpdateJobInput),
-  );
 }
 
 /** Standard (non-intake) edit: the JD workflow fields, e.g. status transitions from the list view. */
@@ -151,6 +127,10 @@ function sanitizeEditPayload(body: Partial<JdEditFormData>): UpdateJobInput {
     result.interviewProcess = optionalToDb(body.interview_process);
   if (body.hiring_deadline !== undefined)
     result.hiringDeadline = optionalDateToDb(body.hiring_deadline);
+  if (body.start_date !== undefined)
+    result.startDate = optionalDateToDb(body.start_date);
+  if (body.end_date !== undefined)
+    result.endDate = optionalDateToDb(body.end_date);
 
   return result;
 }
@@ -351,14 +331,6 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
     patch.updatedBy = auth.userId;
     await updateJob(db, jobId, patch);
-
-    // Non-fatal: the JD update is already committed, so a failed extraction
-    // leaves the previous checklist in place rather than failing the save.
-    // A replaced file counts too -- resolveJobDescriptionText reads it back
-    // alongside the structured fields.
-    if (touchesRequirementSources(patch) || newJdStoragePath) {
-      await syncJobRequirementsQuietly(jobId);
-    }
   }
 
   if (hasPipelineStages) {

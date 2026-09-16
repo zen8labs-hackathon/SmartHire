@@ -124,6 +124,10 @@ export type JdEditFormData = {
   interview_process: string;
   /** Hiring deadline — YYYY-MM-DD or "" */
   hiring_deadline: string;
+  /** First day of active hiring — YYYY-MM-DD or "" */
+  start_date: string;
+  /** Set when status is Done or Closed, but editable here too — YYYY-MM-DD or "" */
+  end_date: string;
 };
 
 /** Document fields returned by POST /api/admin/job-descriptions/extract */

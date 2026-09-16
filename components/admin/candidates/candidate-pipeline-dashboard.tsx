@@ -14,6 +14,13 @@ import { UploadCvModal } from "@/components/admin/jd/upload-cv-modal";
 import { UploadHistoryPanel } from "@/components/admin/jd/upload-history-panel";
 import { DataTableStats } from "@/components/admin/shell/table-system";
 import { useDebouncedValue } from "@/components/admin/shell/use-debounced-value";
+import { usePageQueryParam } from "@/components/admin/shell/use-page-query-param";
+import {
+  dateRangeQueryParam,
+  intQueryParam,
+  stringQueryParam,
+  useQueryParamState,
+} from "@/components/admin/shell/use-query-param-state";
 import { useToast } from "@/components/admin/toast-provider";
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
@@ -78,13 +85,31 @@ export function CandidatePipelineDashboard({ candidatesPromise }: Props) {
   const [activeRow, setActiveRow] = useState<GroupedCandidateRow | null>(null);
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   const [dbRows, setDbRows] = useState<GroupedCandidateRow[]>(initialRows);
-  const [uploadDateRangeFilter, setUploadDateRangeFilter] =
-    useState<RangeValue<CalendarDate> | null>(null);
-  const [query, setQuery] = useState<string>("");
+
+  // Filters/page are mirrored into the URL (see use-query-param-state) so a
+  // browser back from a candidate's detail page lands back on the same
+  // filtered/paged view instead of resetting to defaults.
+  const [uploadDateRangeFilter, setUploadDateRangeFilter] = useQueryParamState<
+    RangeValue<CalendarDate> | null
+  >("uploadDate", null, dateRangeQueryParam);
+  const [urlQuery, setUrlQuery] = useQueryParamState(
+    "q",
+    "",
+    stringQueryParam,
+  );
+  // Kept as separate local state so the input stays lag-free while typing;
+  // only the debounced value is written back to the URL/used to fetch.
+  const [query, setQuery] = useState<string>(urlQuery);
   const debouncedQuery = useDebouncedValue(query, 350);
-  const [page, setPage] = useState<number>(1);
-  const [listPageSize, setListPageSize] = useState<number>(
+  useEffect(() => {
+    setUrlQuery(debouncedQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+  const [page, setPage] = usePageQueryParam();
+  const [listPageSize, setListPageSize] = useQueryParamState(
+    "pageSize",
     CANDIDATES_LIST_DEFAULT_LIMIT,
+    intQueryParam(CANDIDATES_LIST_DEFAULT_LIMIT),
   );
   const [listTotal, setListTotal] = useState<number>(initialListTotal);
   const [listExperiencedTotal, setListExperiencedTotal] = useState<number>(

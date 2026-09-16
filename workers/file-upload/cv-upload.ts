@@ -132,6 +132,7 @@ export async function cvUploadProcessing(jobData: { fileUploadId: string }) {
       db,
       upload,
       parsedData,
+      bytes,
       job.id,
       jdMatchResult,
     );

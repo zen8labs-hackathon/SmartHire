@@ -37,6 +37,11 @@ export type JdListFilters = {
   jdListStatusKey: string;
   jdStartDateRange: RangeValue<CalendarDate> | null;
   pageSize: number;
+  /** True if the URL already carried filter params when this session
+   * mounted -- see `useJdFiltersState`. The server-rendered `initialData`
+   * always uses hardcoded defaults, so this forces the first client fetch
+   * to run instead of being skipped as "already matches". */
+  hasUrlFiltersOnMount: boolean;
 };
 
 /** Normalizes a raw JD row (server- or client-fetched) into display shape. */
@@ -98,7 +103,9 @@ export function useJdListState(
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const skipInitialFetchRef = useRef(Boolean(initialData));
+  const skipInitialFetchRef = useRef(
+    Boolean(initialData) && !filters.hasUrlFiltersOnMount,
+  );
 
   const filtersRef = useRef(filters);
   useEffect(() => {

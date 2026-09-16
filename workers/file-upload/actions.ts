@@ -27,6 +27,7 @@ import { markBatchDone } from "@/lib/db/batch-done";
 import { pushNotification } from "@/lib/notifications/http-push";
 import { getJobById } from "@/lib/db/jobs";
 import { getCandidateById } from "@/lib/db/candidates";
+import { resolveMimeType } from "@/lib/jd/detect-buffer-mime";
 
 export async function updateProcessingStatus(
   fileUploadId: string,
@@ -154,6 +155,7 @@ export async function validateAndInsertCandidateData(
   db: QueryExecutor,
   upload: FileUploadRow,
   parsedData: ParsedResume,
+  bytes: Buffer,
   jobId?: string,
   jdMatchResult?: HybridJdMatchResult,
 ): Promise<{
@@ -186,7 +188,10 @@ export async function validateAndInsertCandidateData(
       cv: {
         storageKey: upload.storage_key,
         fileName: upload.file_name,
-        mimeType: upload.mime_type,
+        // The browser-reported mime type (`upload.mime_type`) is unreliable for
+        // .docx -- many OS/browser combos report "" for it. Sniff the actual
+        // bytes instead so CvViewer picks the right renderer later.
+        mimeType: resolveMimeType(bytes, upload.mime_type ?? ""),
         fileSha256: upload.file_hash,
       },
       jdMatchResult,

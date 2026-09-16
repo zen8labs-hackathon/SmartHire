@@ -73,7 +73,7 @@ export async function candidateUploadProcessing(jobData: {
 
   //Check duplicate by email/phone, then insert/reuse candidate + application + CV version
   const { candidateId, applicationId, cvVersionId } =
-    await validateAndInsertCandidateData(db, upload, parsedData);
+    await validateAndInsertCandidateData(db, upload, parsedData, bytes);
 
   return { candidateId, applicationId, cvVersionId };
 }
