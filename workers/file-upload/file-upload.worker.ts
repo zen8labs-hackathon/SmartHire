@@ -10,12 +10,20 @@ import {
 } from "./actions";
 import { candidateUploadProcessing } from "./candidate-upload";
 import { cvUploadProcessing } from "./cv-upload";
-import { rerunAiMatching } from "./rerun-ai-matching";
+import {
+  rerunAiMatchFromEditedProfile,
+  rerunAiMatching,
+} from "./rerun-ai-matching";
+
+const NO_FILE_UPLOAD_ID_JOBS = new Set([
+  "rerun-ai-matching",
+  "rerun-ai-matching-edited",
+]);
 
 const worker = new Worker(
   "file-upload",
   async (job) => {
-    if (job.name !== "rerun-ai-matching") {
+    if (!NO_FILE_UPLOAD_ID_JOBS.has(job.name)) {
       await updateProcessingStatus(job.data.fileUploadId);
     }
 
@@ -28,6 +36,9 @@ const worker = new Worker(
         break;
       case "rerun-ai-matching":
         await rerunAiMatching(job.data);
+        break;
+      case "rerun-ai-matching-edited":
+        await rerunAiMatchFromEditedProfile(job.data);
         break;
       default:
         throw new UnrecoverableError(`Unknown job name: ${job.name}`);

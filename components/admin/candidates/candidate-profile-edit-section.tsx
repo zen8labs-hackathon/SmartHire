@@ -513,12 +513,17 @@ export function CandidateProfileEditSection({
             }
             return;
           }
-          setError(raw);
+          // Everything else (validation failures like the skills-limit
+          // message below, unexpected 4xx/5xx) comes straight from the API
+          // response, not from checking the form itself -- surface it as a
+          // toast rather than a persistent inline banner the user has to
+          // notice and dismiss.
+          toast.error(raw);
           return;
         }
         const json = (await res.json()) as { candidate?: unknown };
         if (!json.candidate || typeof json.candidate !== "object") {
-          setError("Save succeeded but response was incomplete.");
+          toast.error("Save succeeded but response was incomplete.");
           return;
         }
         savedCandidate =
@@ -543,7 +548,7 @@ export function CandidateProfileEditSection({
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
           };
-          setError(body.error ?? "Could not save pipeline stage.");
+          toast.error(body.error ?? "Could not save pipeline stage.");
           return;
         }
         const json = (await res.json()) as { candidate?: unknown };
@@ -552,7 +557,7 @@ export function CandidateProfileEditSection({
           typeof json.candidate !== "object" ||
           !("candidate_id" in json.candidate)
         ) {
-          setError("Save succeeded but response was incomplete.");
+          toast.error("Save succeeded but response was incomplete.");
           return;
         }
         savedCandidate = campaignAppliedToCandidateDbRow(
@@ -561,7 +566,7 @@ export function CandidateProfileEditSection({
       }
 
       if (!savedCandidate) {
-        setError("Save succeeded but response was incomplete.");
+        toast.error("Save succeeded but response was incomplete.");
         return;
       }
 
@@ -575,7 +580,7 @@ export function CandidateProfileEditSection({
         setStageDraft(null);
       }
     } catch {
-      setError("Could not save profile.");
+      toast.error("Could not save profile.");
     } finally {
       setBusy(false);
     }

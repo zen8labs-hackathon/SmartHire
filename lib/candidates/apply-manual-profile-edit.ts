@@ -34,6 +34,18 @@ export type ApplyManualProfileEditParams = {
   skipContactFields?: boolean;
 };
 
+/** Patch fields that feed the AI JD-match prompt/formula (see
+ * `buildCvSummary` in lib/candidates/jd-match.ts and
+ * `computeJdMatchFormulaAnchor` in lib/candidates/jd-match-formula.ts) --
+ * changing any of these makes the previous `jd_match_*` result stale. */
+const MATCH_AFFECTING_PATCH_KEYS = [
+  "skills",
+  "role",
+  "degree",
+  "school",
+  "experience_years",
+] as const;
+
 /**
  * Creates a new `manual_edit` `cv_detail_versions` row layering `patch` on
  * top of `baseCvVersion`, points the application at it, and updates the
@@ -44,7 +56,7 @@ export type ApplyManualProfileEditParams = {
 export async function applyManualProfileEdit(
   db: QueryExecutor,
   params: ApplyManualProfileEditParams,
-): Promise<{ cvVersionId: string }> {
+): Promise<{ cvVersionId: string; matchAffectingFieldsChanged: boolean }> {
   const {
     campaignAppliedId,
     candidateId,
@@ -55,6 +67,17 @@ export async function applyManualProfileEdit(
     createdBy,
     skipContactFields,
   } = params;
+
+  // Editing a field the match never reads (salary, source, name/email/phone,
+  // change summary) doesn't invalidate the previous result -- carry it
+  // forward onto the new version instead of leaving it blank ("Not
+  // started") for no reason. Editing skills/role/degree/school/experience
+  // does invalidate it: leave jd_match_* unset (null) below, same as
+  // before -- the caller is responsible for re-triggering AI JD-match for
+  // this version when this is true.
+  const matchAffectingFieldsChanged = MATCH_AFFECTING_PATCH_KEYS.some(
+    (key) => patch[key] !== undefined,
+  );
 
   const mergeFields = patchInputToMergeFields(patch);
   let mergedPayload = baseCvVersion.parsed_payload;
@@ -96,6 +119,22 @@ export async function applyManualProfileEdit(
     matchedOn: baseCvVersion.matched_on,
     changeSummary: patch.change_summary ?? null,
     createdBy,
+    ...(matchAffectingFieldsChanged
+      ? {}
+      : {
+          jdMatchScore: baseCvVersion.jd_match_score,
+          jdMatchStatus: baseCvVersion.jd_match_status,
+          jdMatchRationale: baseCvVersion.jd_match_rationale,
+          jdMatchError: baseCvVersion.jd_match_error,
+          jdMatchAiScore: baseCvVersion.jd_match_ai_score,
+          jdMatchFormulaScore: baseCvVersion.jd_match_formula_score,
+          jdMatchAiWeight: baseCvVersion.jd_match_ai_weight
+            ? parseFloat(baseCvVersion.jd_match_ai_weight)
+            : null,
+          jdMatchFormulaBreakdown: baseCvVersion.jd_match_formula_breakdown,
+          jdMatchModel: baseCvVersion.jd_match_model,
+          jdMatchProvider: baseCvVersion.jd_match_provider,
+        }),
   });
 
   await updateCampaignApplied(db, campaignAppliedId, {
@@ -118,5 +157,5 @@ export async function applyManualProfileEdit(
     await updateCandidate(db, candidateId, candidatePatch);
   }
 
-  return { cvVersionId: nextVersion.id };
+  return { cvVersionId: nextVersion.id, matchAffectingFieldsChanged };
 }
