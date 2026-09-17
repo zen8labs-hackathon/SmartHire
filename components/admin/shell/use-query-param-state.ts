@@ -31,6 +31,7 @@ export const dateRangeQueryParam: QueryParamCodec<
   RangeValue<CalendarDate> | null
 > = {
   parse: (raw) => {
+    if (raw === "") return null;
     const [startStr, endStr] = raw.split("_");
     if (!startStr || !endStr) throw new Error("Invalid date range param");
     return { start: parseDate(startStr), end: parseDate(endStr) };
