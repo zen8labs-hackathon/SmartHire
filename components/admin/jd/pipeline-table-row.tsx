@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Info, Pencil, RotateCw, Trash2 } from "lucide-react";
 import { Avatar, Button, Chip, ListBox, Select, Table } from "@heroui/react";
 
+import { CvFileTag } from "@/components/admin/candidates/cv-file-tag";
+
 import {
   candidateDisplayInitials,
   jdMatchChipColor,
@@ -58,6 +60,8 @@ export type PipelineTableRowProps = {
   onOpenSchedule: (r: JdPipelineApplicationRow) => void;
   /** Opens the JD-match reasoning modal (AI rationale behind the score) for this row. */
   onOpenRationale: (r: JdPipelineApplicationRow) => void;
+  /** Opens the CV preview modal for this row's active CV. */
+  onOpenCvPreview: (r: JdPipelineApplicationRow) => void;
   setRowPendingEdit: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
   /** `editModal.open` — only `.open()` is called from within a row, so we pass
    * just that (stable, `useCallback`-wrapped) function rather than the whole
@@ -104,6 +108,7 @@ function pipelineTableRowPropsAreEqual(
     prev.onRetryParsing === next.onRetryParsing &&
     prev.onOpenSchedule === next.onOpenSchedule &&
     prev.onOpenRationale === next.onOpenRationale &&
+    prev.onOpenCvPreview === next.onOpenCvPreview &&
     prev.setRowPendingEdit === next.setRowPendingEdit &&
     prev.openEditModal === next.openEditModal &&
     prev.setRowPendingDelete === next.setRowPendingDelete &&
@@ -132,6 +137,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   onRetryParsing,
   onOpenSchedule,
   onOpenRationale,
+  onOpenCvPreview,
   setRowPendingEdit,
   openEditModal,
   setRowPendingDelete,
@@ -186,6 +192,16 @@ export const PipelineTableRow = memo(function PipelineTableRow({
               >
                 {row.name}
               </Link>
+              {/* Sibling of the link, not a child: inside the <a> a click on the tag would navigate to the evaluation page. No stored file -> nothing for `cv-download` to serve, so no tag. */}
+              {r.cv_storage_path ? (
+                <CvFileTag
+                  file={{
+                    fileName: r.cv_original_filename,
+                    mimeType: r.cv_mime_type,
+                  }}
+                  onOpen={() => onOpenCvPreview(r)}
+                />
+              ) : null}
             </div>
             <p className="text-xs font-medium text-muted truncate max-w-[10rem] md:max-w-[6rem]">
               {row.role}
