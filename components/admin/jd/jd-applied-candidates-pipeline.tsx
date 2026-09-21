@@ -24,6 +24,7 @@ import type { RangeValue } from "react-aria-components";
 import { useToast } from "@/components/admin/toast-provider";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
+import { CvFilePreviewModal } from "@/components/admin/candidates/cv-file-preview-modal";
 import {
   InterviewScheduleModal,
   DeleteCandidateModal,
@@ -226,6 +227,26 @@ export function JdAppliedCandidatesPipeline({
       rationaleModal.open();
     },
     [rationaleModal],
+  );
+
+  const [rowPendingCvPreview, setRowPendingCvPreview] =
+    useState<JdPipelineApplicationRow | null>(null);
+
+  const cvPreviewModal = useOverlayState({
+    onOpenChange: (open) => {
+      if (!open) setRowPendingCvPreview(null);
+    },
+  });
+
+  // Depend on `.open` alone (stable), not the whole `useOverlayState` object
+  // (a fresh literal each render) -- this callback is a memoized row prop.
+  const openCvPreviewModal = cvPreviewModal.open;
+  const openCvPreview = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setRowPendingCvPreview(r);
+      openCvPreviewModal();
+    },
+    [openCvPreviewModal],
   );
 
   // Filters/sort/page are mirrored into the URL (see use-query-param-state)
@@ -1111,6 +1132,7 @@ export function JdAppliedCandidatesPipeline({
                     onRetryParsing={retryParsing}
                     onOpenSchedule={openSchedule}
                     onOpenRationale={openRationale}
+                    onOpenCvPreview={openCvPreview}
                     setRowPendingEdit={setRowPendingEdit}
                     openEditModal={editModal.open}
                     setRowPendingDelete={setRowPendingDelete}
@@ -1147,6 +1169,20 @@ export function JdAppliedCandidatesPipeline({
         isOpen={rationaleModal.isOpen}
         onOpenChange={rationaleModal.setOpen}
         row={rowPendingRationale}
+      />
+
+      <CvFilePreviewModal
+        isOpen={cvPreviewModal.isOpen}
+        onOpenChange={cvPreviewModal.setOpen}
+        target={
+          rowPendingCvPreview
+            ? {
+                applicationId: rowPendingCvPreview.id,
+                candidateName: rowPendingCvPreview.candidate_name ?? "candidate",
+                fileName: rowPendingCvPreview.cv_original_filename,
+              }
+            : null
+        }
       />
 
       <InterviewScheduleModal
