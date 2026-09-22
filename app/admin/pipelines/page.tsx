@@ -21,6 +21,7 @@ async function getPipelineStages(): Promise<PipelineStageRow[]> {
     label: r.label,
     desc: r.desc,
     color: r.color,
+    allow_schedule: r.allow_schedule,
     created_at: r.created_at.toISOString(),
     updated_at: r.updated_at.toISOString(),
   }));

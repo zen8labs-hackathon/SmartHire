@@ -1190,10 +1190,14 @@ export function JdAppliedCandidatesPipeline({
         onOpenChange={scheduleModal.setOpen}
         row={rowPendingSchedule}
         canEdit={canEditPipeline}
-        onSaved={() => {
+        onSaved={(action) => {
           void fetchStats();
           void fetchPage();
-          toast.success("Interview schedule saved.");
+          toast.success(
+            action === "canceled"
+              ? "Interview schedule canceled."
+              : "Interview schedule saved.",
+          );
         }}
       />
 

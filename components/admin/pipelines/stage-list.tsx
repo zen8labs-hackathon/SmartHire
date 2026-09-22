@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, cn } from "@heroui/react";
-import { Pencil, Trash2 } from "lucide-react";
+import { CalendarClock, Pencil, Trash2 } from "lucide-react";
 import type { PipelineStageRow } from "@/lib/pipelines/schemas";
 import { getStageColorClasses } from "@/lib/candidates/pipeline-status-styles";
 
@@ -57,6 +57,15 @@ export function StageList({
                 >
                   {stage.code}
                 </span>
+                {stage.allow_schedule ? (
+                  <span
+                    className="flex items-center gap-1 rounded-md border border-divider/50 px-1.5 py-0.5 text-[10px] text-muted"
+                    title="The Schedule action is available on this stage"
+                  >
+                    <CalendarClock className="h-3 w-3" />
+                    Schedulable
+                  </span>
+                ) : null}
               </div>
               {stage.desc && (
                 <p className="mt-1 text-xs text-muted line-clamp-2">

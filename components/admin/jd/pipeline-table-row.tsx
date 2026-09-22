@@ -333,8 +333,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         {formatSchedule(r.cv_created_at ?? r.created_at) ?? "—"}
       </Table.Cell>
       <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
-        {(resolved.stageMapping?.pipeline_stages?.code ?? "").toLowerCase() ===
-        "interview" ? (
+        {resolved.stageMapping?.pipeline_stages?.allow_schedule ? (
           <Button
             size="sm"
             variant="secondary"

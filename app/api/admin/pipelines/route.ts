@@ -31,10 +31,16 @@ export async function POST(request: Request) {
     );
   }
 
-  const { code, label, desc, color } = parsed.data;
+  const { code, label, desc, color, allow_schedule } = parsed.data;
 
   try {
-    const stage = await createPipelineStage(getPool(), { code, label, desc, color });
+    const stage = await createPipelineStage(getPool(), {
+      code,
+      label,
+      desc,
+      color,
+      allowSchedule: allow_schedule,
+    });
     return Response.json({ stage }, { status: 201 });
   } catch (err) {
     if (isUniqueViolation(err)) {
