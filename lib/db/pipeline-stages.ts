@@ -11,6 +11,7 @@ export type PipelineStageRow = {
   label: string;
   desc: string | null;
   color: string | null;
+  allow_schedule: boolean;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -21,6 +22,7 @@ export type CreatePipelineStageInput = {
   label: string;
   desc?: string | null;
   color?: string | null;
+  allowSchedule?: boolean;
 };
 
 export type UpdatePipelineStageInput = Partial<CreatePipelineStageInput>;
@@ -30,7 +32,7 @@ export async function getPipelineStageById(
   id: string,
 ): Promise<PipelineStageRow | null> {
   const { rows } = await db.query<PipelineStageRow>(
-    `SELECT id, code, label, "desc", color, created_at, updated_at, deleted_at
+    `SELECT id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at
      FROM pipeline_stages WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
@@ -41,7 +43,7 @@ export async function listPipelineStages(
   db: QueryExecutor,
 ): Promise<PipelineStageRow[]> {
   const { rows } = await db.query<PipelineStageRow>(
-    `SELECT id, code, label, "desc", color, created_at, updated_at, deleted_at
+    `SELECT id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at
      FROM pipeline_stages WHERE deleted_at IS NULL ORDER BY label`,
   );
   return rows;
@@ -52,10 +54,16 @@ export async function createPipelineStage(
   input: CreatePipelineStageInput,
 ): Promise<PipelineStageRow> {
   const { rows } = await db.query<PipelineStageRow>(
-    `INSERT INTO pipeline_stages (code, label, "desc", color)
-     VALUES ($1, $2, $3, COALESCE($4, 'zinc'))
-     RETURNING id, code, label, "desc", color, created_at, updated_at, deleted_at`,
-    [input.code, input.label, input.desc ?? null, input.color ?? null],
+    `INSERT INTO pipeline_stages (code, label, "desc", color, allow_schedule)
+     VALUES ($1, $2, $3, COALESCE($4, 'zinc'), COALESCE($5, false))
+     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
+    [
+      input.code,
+      input.label,
+      input.desc ?? null,
+      input.color ?? null,
+      input.allowSchedule ?? null,
+    ],
   );
   return rows[0];
 }
@@ -71,6 +79,7 @@ export async function updatePipelineStage(
       label: patch.label,
       '"desc"': patch.desc,
       color: patch.color,
+      allow_schedule: patch.allowSchedule,
     },
     2,
   );
@@ -80,7 +89,7 @@ export async function updatePipelineStage(
     `UPDATE pipeline_stages
      SET ${clause}, updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, code, label, "desc", color, created_at, updated_at, deleted_at`,
+     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
     [id, ...values],
   );
   return rows[0] ?? null;
@@ -94,7 +103,7 @@ export async function softDeletePipelineStage(
     `UPDATE pipeline_stages
      SET deleted_at = now(), updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, code, label, "desc", color, created_at, updated_at, deleted_at`,
+     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
     [id],
   );
   return rows[0] ?? null;
