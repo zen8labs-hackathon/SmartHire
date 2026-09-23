@@ -185,6 +185,40 @@ export function isCandidateInOfferStage(
   return row.status === "Offer" || row.status === "Matched" || row.status === "Rejected";
 }
 
+/**
+ * Resolves whether a candidate has *passed* the pipeline's final
+ * (last-`sequence_number`) stage -- the actual "hired" outcome. Narrower
+ * than {@link isCandidateInOfferStage}: that lights up every sub-stage of a
+ * hardcoded "offer" stage (offered/matched/rejected alike), whereas this
+ * only matches the final stage's `is_passed` sub-stage(s), for whichever
+ * stage happens to be configured last on this job's custom pipeline -- so
+ * "still pending" and "rejected" don't light up green.
+ *
+ * 2-tier fallback for candidates that predate the customizable pipeline (no
+ * `pipeline_status`-string tier like `isCandidateInOfferStage`'s: that
+ * denormalized column only encodes the stage *code*, not whether the
+ * sub-stage is a "passed" one, and the final stage is job-specific here, so
+ * there's no generic string check to fall back to):
+ *   1. `current_sub_state_id` is one of `finalStagePassedSubStateIds` (authoritative once set)
+ *   2. legacy `status === "Matched"` (pre-migration candidates)
+ */
+export function isCandidateInFinalPassedStage(
+  row: {
+    currentSubStateId?: string | null;
+    status?: string | null;
+  },
+  finalStagePassedSubStateIds: ReadonlySet<string> | null | undefined,
+): boolean {
+  if (
+    finalStagePassedSubStateIds &&
+    finalStagePassedSubStateIds.size > 0 &&
+    row.currentSubStateId
+  ) {
+    return finalStagePassedSubStateIds.has(row.currentSubStateId);
+  }
+  return row.status === "Matched";
+}
+
 const SUB_STAGE_KEYWORDS = {
   passed: ["pass", "match", "hired", "success"],
   failed: ["fail", "reject", "cancel", "no_show", "decline"],

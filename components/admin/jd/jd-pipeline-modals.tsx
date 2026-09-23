@@ -1,5 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Chip, Input, Label, Modal } from "@heroui/react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  Button,
+  Calendar,
+  Chip,
+  DateField,
+  DatePicker,
+  Input,
+  Label,
+  Modal,
+  TimeField,
+} from "@heroui/react";
+import type { CalendarDateTime } from "@internationalized/date";
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+import {
+  CalendarDays,
+  Calendar as CalendarIcon,
+  Clock,
+  History as HistoryIcon,
+  MapPin,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { DatePickerStateContext, Dialog } from "react-aria-components";
 
 import { CandidateProfileEditSection } from "@/components/admin/candidates/candidate-profile-edit-section";
 import {
@@ -15,7 +39,13 @@ import {
   sortJdRequirements,
   type JdRequirementCheck,
 } from "@/lib/candidates/jd-match-rationale";
-import { formatSchedule, localDatetimeToIso } from "@/lib/pipelines/jd-pipeline-row-helpers";
+import {
+  calendarDateTimeToIso,
+  formatSchedule,
+  isoToCalendarDateTime,
+} from "@/lib/pipelines/jd-pipeline-row-helpers";
+
+dayjs.extend(relativeTime);
 
 type ScheduleHistoryItem = {
   id: string;
@@ -24,13 +54,85 @@ type ScheduleHistoryItem = {
   duration_minutes: number | null;
   location: string | null;
   status: string;
+  created_at: string;
+  rescheduled_from_id: string | null;
 };
 
-function toLocalDatetimeInputValue(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/** Chip color + label per `candidate_schedules.status` (see lib/db/candidate-schedules.ts). */
+const SCHEDULE_STATUS_STYLE: Record<
+  string,
+  {
+    label: string;
+    color: "accent" | "success" | "warning" | "danger" | "default";
+  }
+> = {
+  Scheduled: { label: "Scheduled", color: "accent" },
+  Confirmed: { label: "Confirmed", color: "success" },
+  Completed: { label: "Completed", color: "success" },
+  Rescheduled: { label: "Rescheduled", color: "default" },
+  Canceled: { label: "Canceled", color: "danger" },
+  NoShow: { label: "No-show", color: "warning" },
+};
+
+function scheduleStatusStyle(status: string) {
+  return (
+    SCHEDULE_STATUS_STYLE[status] ?? {
+      label: status,
+      color: "default" as const,
+    }
+  );
+}
+
+/** Sort priority for the schedule history list: actionable statuses first, then how the round wound down. Unknown statuses sort last. */
+const SCHEDULE_STATUS_ORDER: Record<string, number> = {
+  Scheduled: 0,
+  Confirmed: 1,
+  Rescheduled: 2,
+  Completed: 3,
+  NoShow: 4,
+  Canceled: 5,
+};
+
+/**
+ * The time control inside the `DatePicker.Popover`. Must read/write the
+ * enclosing `<DatePicker>`'s own picker state via `DatePickerStateContext`
+ * (`state.dateValue`/`setTimeValue`) rather than being bound to our own
+ * `scheduledAt` -- react-stately's `useDatePickerState` only stages a
+ * Calendar click in `dateValue` internally (see
+ * node_modules/react-stately/dist/private/datepicker/useDatePickerState.js's
+ * `selectDate`) and doesn't call the picker's public `onChange` until a time
+ * is also set, so a TimeField controlled by our *own* value/onChange (which
+ * only exists once `onChange` has already fired) never sees that pending
+ * date and can never supply the missing time -- a deadlock. Reading `state`
+ * directly breaks that: `setTimeValue` commits the pending date + this time
+ * together, which is what finally fires the picker's `onChange`.
+ */
+function InterviewTimeField() {
+  const state = useContext(DatePickerStateContext);
+  const dateValue = state?.dateValue ?? null;
+
+  if (!state || !dateValue) {
+    return <span className="text-xs text-muted">Pick a date first</span>;
+  }
+
+  return (
+    <TimeField
+      aria-label="Interview time"
+      hourCycle={24}
+      defaultValue={state.timeValue ?? undefined}
+      onChange={(next) => {
+        if (next) state.setTimeValue(next);
+      }}
+    >
+      <TimeField.Group>
+        <TimeField.InputContainer>
+          <TimeField.Input>
+            {(segment) => <TimeField.Segment segment={segment} />}
+          </TimeField.Input>
+        </TimeField.InputContainer>
+      </TimeField.Group>
+    </TimeField>
+  );
 }
 
 type InterviewScheduleModalProps = {
@@ -38,7 +140,8 @@ type InterviewScheduleModalProps = {
   onOpenChange: (open: boolean) => void;
   row: JdPipelineApplicationRow | null;
   canEdit: boolean;
-  onSaved: () => void;
+  /** Lets the parent pick the right toast copy for a save vs. a cancel. */
+  onSaved: (action: "saved" | "canceled") => void;
 };
 
 /**
@@ -55,6 +158,7 @@ export function InterviewScheduleModal({
   canEdit,
   onSaved,
 }: InterviewScheduleModalProps) {
+  const [mode, setMode] = useState<"list" | "form">("list");
   const [roundLabel, setRoundLabel] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("");
@@ -63,53 +167,72 @@ export function InterviewScheduleModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+
+  // Shared by the on-open load and the post-save refresh, so the history list
+  // (and the form's prefill from whichever round is currently active) always
+  // reflect the latest server state without closing the modal. `requestIdRef`
+  // drops a response that resolves after a newer request has already started
+  // (e.g. the row changes, or the modal is reopened, mid-flight).
+  const refreshSchedules = useCallback(async (applicationId: string) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/candidates/${applicationId}/timeline`,
+        {
+          credentials: "include",
+        },
+      );
+      const json = (await res.json()) as {
+        schedules?: ScheduleHistoryItem[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error ?? "Could not load schedule.");
+      if (requestIdRef.current !== requestId) return;
+      const schedules = json.schedules ?? [];
+      setHistory(schedules);
+      const active = schedules.find(
+        (s) => s.status === "Scheduled" || s.status === "Confirmed",
+      );
+      setRoundLabel(active?.round_label ?? "");
+      setScheduledAt(active?.scheduled_at ?? "");
+      setDurationMinutes(
+        active?.duration_minutes != null ? String(active.duration_minutes) : "",
+      );
+      setLocation(active?.location ?? "");
+    } catch (e) {
+      if (requestIdRef.current === requestId) {
+        setError(e instanceof Error ? e.message : "Could not load schedule.");
+      }
+    } finally {
+      if (requestIdRef.current === requestId) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !row) return;
-    let cancelled = false;
-    setLoading(true);
+    setMode("list");
+    void refreshSchedules(row.id);
+  }, [isOpen, row, refreshSchedules]);
+
+  // "Add new" starts a fresh round, not an edit of whichever round is
+  // currently active -- `refreshSchedules` prefills those fields for its own
+  // purposes (so a reload shows the active round's values), but that
+  // shouldn't leak into a blank "new round" form.
+  const handleAddNew = useCallback(() => {
     setError(null);
-    (async () => {
-      try {
-        const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
-          credentials: "include",
-        });
-        const json = (await res.json()) as {
-          schedules?: ScheduleHistoryItem[];
-          error?: string;
-        };
-        if (!res.ok) throw new Error(json.error ?? "Could not load schedule.");
-        if (cancelled) return;
-        const schedules = json.schedules ?? [];
-        setHistory(schedules);
-        const active = schedules.find(
-          (s) => s.status === "Scheduled" || s.status === "Confirmed",
-        );
-        setRoundLabel(active?.round_label ?? "");
-        setScheduledAt(
-          active ? toLocalDatetimeInputValue(active.scheduled_at) : "",
-        );
-        setDurationMinutes(
-          active?.duration_minutes != null ? String(active.duration_minutes) : "",
-        );
-        setLocation(active?.location ?? "");
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Could not load schedule.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, row]);
+    setRoundLabel("");
+    setScheduledAt("");
+    setDurationMinutes("");
+    setLocation("");
+    setMode("form");
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!row) return;
-    const iso = localDatetimeToIso(scheduledAt);
-    if (!iso) {
+    if (!scheduledAt) {
       setError("Please set a valid date and time.");
       return;
     }
@@ -121,7 +244,7 @@ export function InterviewScheduleModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scheduledAt: iso,
+          scheduledAt,
           roundLabel: roundLabel.trim() || undefined,
           durationMinutes: durationMinutes.trim()
             ? Number(durationMinutes)
@@ -131,28 +254,112 @@ export function InterviewScheduleModal({
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(json.error ?? "Failed to save schedule.");
-      onSaved();
-      onOpenChange(false);
+      onSaved("saved");
+      await refreshSchedules(row.id);
+      setMode("list");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save schedule.");
     } finally {
       setSaving(false);
     }
-  }, [row, scheduledAt, roundLabel, durationMinutes, location, onSaved, onOpenChange]);
+  }, [
+    row,
+    scheduledAt,
+    roundLabel,
+    durationMinutes,
+    location,
+    onSaved,
+    refreshSchedules,
+  ]);
+
+  // Prefills the form from a specific history entry (only ever the active
+  // one -- see the `isActive` guard around the card's Edit button). Reuses
+  // the same PATCH contract as `handleSave`: since this round is still
+  // active, saving with the same `scheduledAt` updates it in place, and
+  // saving with a different one reschedules it (server-side, not here).
+  const handleEdit = useCallback((item: ScheduleHistoryItem) => {
+    setError(null);
+    setRoundLabel(item.round_label ?? "");
+    setScheduledAt(item.scheduled_at);
+    setDurationMinutes(
+      item.duration_minutes != null ? String(item.duration_minutes) : "",
+    );
+    setLocation(item.location ?? "");
+    setMode("form");
+  }, []);
+
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+
+  // "Delete" in the UI is a cancel: `candidate_schedules` has no soft-delete
+  // column (see lib/db/candidate-schedules.ts), so removing a round means
+  // marking it `"Canceled"`, which the DELETE route enforces server-side too.
+  const handleCancel = useCallback(
+    async (scheduleId: string) => {
+      if (!row) return;
+      if (!confirm("Cancel this scheduled interview?")) return;
+      setCancelingId(scheduleId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/admin/candidates/${row.id}/timeline`, {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scheduleId }),
+        });
+        const json = (await res.json()) as { error?: string };
+        if (!res.ok)
+          throw new Error(json.error ?? "Failed to cancel schedule.");
+        onSaved("canceled");
+        await refreshSchedules(row.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to cancel schedule.");
+      } finally {
+        setCancelingId(null);
+      }
+    },
+    [row, onSaved, refreshSchedules],
+  );
+
+  // Hide superseded/removed rounds from the list -- a reschedule leaves the
+  // *old* row in place with status "Rescheduled" (see PATCH handler in
+  // app/api/admin/candidates/[id]/timeline/route.ts), and a "delete" is just
+  // a status change to "Canceled" (no real soft-delete column on this
+  // table), so both would otherwise clutter the history with rounds that no
+  // longer matter.
+  const visibleHistory = history.filter(
+    (h) => h.status !== "Rescheduled" && h.status !== "Canceled",
+  );
+
+  // Grouped by status (SCHEDULE_STATUS_ORDER: Scheduled/Confirmed lead,
+  // Canceled trails), then newest-first within each group -- a reschedule
+  // keeps the *old* row's original timestamp, which can sort later than the
+  // round that replaced it, so a plain `scheduled_at DESC` (the API's order)
+  // can bury the one round that's actually actionable under stale history.
+  const sortedHistory = [...visibleHistory].sort((a, b) => {
+    const byStatus =
+      (SCHEDULE_STATUS_ORDER[a.status] ?? 99) -
+      (SCHEDULE_STATUS_ORDER[b.status] ?? 99);
+    if (byStatus !== 0) return byStatus;
+    return (
+      new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
+    );
+  });
 
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
       <Modal.Container>
-        <Modal.Dialog className="w-full max-w-lg overflow-hidden p-0">
+        <Modal.Dialog className="w-full max-w-xl overflow-hidden p-0">
           <Modal.CloseTrigger />
           <Modal.Header className="border-b border-divider px-5 py-4">
             <Modal.Heading>Interview schedule</Modal.Heading>
           </Modal.Header>
-          <Modal.Body className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4">
-            {loading ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <>
+          <Modal.Body className="flex max-h-[75vh] flex-col gap-4 px-5 py-4">
+            {error ? (
+              <p className="shrink-0 text-sm text-danger">{error}</p>
+            ) : null}
+
+            {mode === "form" ? (
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl border border-divider bg-surface-secondary/10 p-3.5">
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">Round label</Label>
                   <Input
@@ -165,13 +372,79 @@ export function InterviewScheduleModal({
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">Date &amp; time</Label>
-                  <Input
-                    type="datetime-local"
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                    disabled={!canEdit}
+                  <DatePicker
+                    aria-label="Interview date and time"
+                    granularity="minute"
+                    hourCycle={24}
+                    shouldCloseOnSelect={false}
+                    value={isoToCalendarDateTime(scheduledAt)}
+                    onChange={(next) =>
+                      setScheduledAt(
+                        calendarDateTimeToIso(
+                          next as CalendarDateTime | null,
+                        ) ?? "",
+                      )
+                    }
+                    isDisabled={!canEdit}
                     className="w-full"
-                  />
+                  >
+                    <DateField.Group fullWidth className="w-full">
+                      <DateField.InputContainer>
+                        <DateField.Input>
+                          {(segment) => <DateField.Segment segment={segment} />}
+                        </DateField.Input>
+                      </DateField.InputContainer>
+                      <DateField.Suffix>
+                        <DatePicker.Trigger className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted outline-none hover:bg-surface-tertiary">
+                          <CalendarIcon className="size-3.5" />
+                        </DatePicker.Trigger>
+                      </DateField.Suffix>
+                    </DateField.Group>
+                    <DatePicker.Popover>
+                      <Dialog className="z-50 rounded-2xl border border-divider bg-surface-primary p-4 shadow-2xl outline-none">
+                        <Calendar>
+                          <Calendar.Header className="mb-2 flex items-center justify-between gap-2">
+                            <Calendar.NavButton slot="previous" />
+                            <Calendar.Heading className="text-sm font-semibold" />
+                            <Calendar.NavButton slot="next" />
+                          </Calendar.Header>
+                          <Calendar.Grid
+                            weekdayStyle="short"
+                            className="border-collapse"
+                          >
+                            <Calendar.GridHeader>
+                              {(day) => (
+                                <Calendar.HeaderCell className="py-1 text-[10px] font-bold text-muted">
+                                  {day}
+                                </Calendar.HeaderCell>
+                              )}
+                            </Calendar.GridHeader>
+                            <Calendar.GridBody>
+                              {(date) => (
+                                <Calendar.Cell
+                                  date={date}
+                                  className="relative size-8 cursor-pointer p-0 text-center text-xs font-medium"
+                                >
+                                  {({ formattedDate }) => (
+                                    <>
+                                      <Calendar.CellIndicator className="absolute inset-0 rounded-lg bg-accent/10" />
+                                      <span className="relative z-[1] flex size-full items-center justify-center rounded-lg hover:bg-accent/15">
+                                        {formattedDate}
+                                      </span>
+                                    </>
+                                  )}
+                                </Calendar.Cell>
+                              )}
+                            </Calendar.GridBody>
+                          </Calendar.Grid>
+                        </Calendar>
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-divider pt-3">
+                          <Label className="text-xs font-medium">Time</Label>
+                          <InterviewTimeField />
+                        </div>
+                      </Dialog>
+                    </DatePicker.Popover>
+                  </DatePicker>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -198,48 +471,152 @@ export function InterviewScheduleModal({
                     />
                   </div>
                 </div>
-                {error ? <p className="text-sm text-danger">{error}</p> : null}
-                {history.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                      Past rounds
-                    </p>
-                    <ul className="space-y-1.5">
-                      {history.map((h) => (
-                        <li
-                          key={h.id}
-                          className="rounded-lg border border-divider bg-surface-secondary/20 px-3 py-2 text-xs"
-                        >
-                          <span className="font-medium text-foreground">
-                            {h.round_label ?? "Interview"}
-                          </span>{" "}
-                          <span className="text-muted">
-                            · {formatSchedule(h.scheduled_at) ?? h.scheduled_at} ·{" "}
-                            {h.status}
-                            {h.duration_minutes ? ` · ${h.duration_minutes}min` : ""}
-                            {h.location ? ` · ${h.location}` : ""}
-                          </span>
-                        </li>
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <div className="flex shrink-0 items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted">
+                    <HistoryIcon className="size-3.5" />
+                    Schedule history
+                  </p>
+                  {canEdit ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="gap-1"
+                      isDisabled={loading}
+                      onPress={handleAddNew}
+                    >
+                      <Plus className="size-3.5" />
+                      Add new
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {loading ? (
+                    <div className="animate-pulse space-y-2">
+                      {["sk-1", "sk-2"].map((id) => (
+                        <div
+                          key={id}
+                          className="h-20 rounded-xl border border-divider bg-surface-secondary/20"
+                        />
                       ))}
+                    </div>
+                  ) : visibleHistory.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-divider px-3 py-3 text-xs text-muted">
+                      No interview has been scheduled yet for this application.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2 pb-0.5">
+                      {sortedHistory.map((h) => {
+                        const style = scheduleStatusStyle(h.status);
+                        const isActive =
+                          h.status === "Scheduled" || h.status === "Confirmed";
+                        return (
+                          <li
+                            key={h.id}
+                            className={`rounded-xl border px-3.5 py-3 transition-colors ${
+                              isActive
+                                ? "border-accent/40 bg-accent/5"
+                                : "border-divider bg-surface-secondary/10"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-foreground">
+                                  {h.round_label ?? "Interview"}
+                                </span>
+                                <Chip
+                                  size="sm"
+                                  variant="soft"
+                                  color={style.color}
+                                >
+                                  {style.label}
+                                </Chip>
+                              </div>
+                              {canEdit && isActive ? (
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEdit(h)}
+                                    aria-label="Edit schedule"
+                                    title="Edit"
+                                    className="flex size-6 items-center justify-center rounded-md text-muted hover:bg-surface-tertiary hover:text-foreground"
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={cancelingId === h.id}
+                                    onClick={() => void handleCancel(h.id)}
+                                    aria-label="Cancel schedule"
+                                    title="Cancel"
+                                    className="flex size-6 items-center justify-center rounded-md text-danger hover:bg-danger/10 disabled:opacity-50"
+                                  >
+                                    <Trash2
+                                      className={`size-3.5 ${cancelingId === h.id ? "animate-pulse" : ""}`}
+                                    />
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
+                              <span className="flex items-center gap-1.5">
+                                <CalendarDays className="size-3.5 shrink-0" />
+                                {formatSchedule(h.scheduled_at) ??
+                                  h.scheduled_at}
+                                <span className="text-muted/70">
+                                  ({dayjs(h.scheduled_at).fromNow()})
+                                </span>
+                              </span>
+                              {h.duration_minutes ? (
+                                <span className="flex items-center gap-1.5">
+                                  <Clock className="size-3.5 shrink-0" />
+                                  {h.duration_minutes} min
+                                </span>
+                              ) : null}
+                              {h.location ? (
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <MapPin className="size-3.5 shrink-0" />
+                                  <span className="truncate">{h.location}</span>
+                                </span>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
-                  </div>
-                ) : null}
-              </>
+                  )}
+                </div>
+              </div>
             )}
           </Modal.Body>
           <Modal.Footer className="justify-end gap-2 border-t border-divider px-5 py-4">
-            <Button variant="secondary" onPress={() => onOpenChange(false)}>
-              Close
-            </Button>
-            {canEdit ? (
-              <Button
-                variant="primary"
-                isDisabled={saving || loading}
-                onPress={() => void handleSave()}
-              >
-                {saving ? "Saving…" : "Save"}
+            {mode === "form" ? (
+              <>
+                <Button
+                  variant="secondary"
+                  isDisabled={saving}
+                  onPress={() => {
+                    setError(null);
+                    setMode("list");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  isDisabled={saving || loading}
+                  onPress={() => void handleSave()}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </>
+            ) : (
+              <Button variant="secondary" onPress={() => onOpenChange(false)}>
+                Close
               </Button>
-            ) : null}
+            )}
           </Modal.Footer>
         </Modal.Dialog>
       </Modal.Container>
@@ -329,7 +706,9 @@ export function RationaleModal({
       : null;
 
   const rationale = parseJdMatchRationale(row?.jd_match_rationale);
-  const requirements = rationale ? sortJdRequirements(rationale.requirements) : [];
+  const requirements = rationale
+    ? sortJdRequirements(rationale.requirements)
+    : [];
 
   return (
     <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -371,7 +750,10 @@ export function RationaleModal({
                 {requirements.length > 0 ? (
                   <ul className="space-y-2 border-t border-divider pt-4 first:border-t-0 first:pt-0">
                     {requirements.map((check, i) => (
-                      <RequirementRow key={`${check.requirement}-${i}`} check={check} />
+                      <RequirementRow
+                        key={`${check.requirement}-${i}`}
+                        check={check}
+                      />
                     ))}
                   </ul>
                 ) : null}
@@ -432,9 +814,9 @@ export function DeleteCandidateModal({
             </p>
             <p className="text-xs text-danger font-medium bg-danger/5 border border-danger/25 rounded-lg p-2.5">
               This will remove the candidate from this JD campaign. Their
-              application and CV file are kept on record and won&apos;t
-              appear in search or reporting anymore. If this candidate has
-              applications to other jobs, those are left untouched.
+              application and CV file are kept on record and won&apos;t appear
+              in search or reporting anymore. If this candidate has applications
+              to other jobs, those are left untouched.
             </p>
             {deleteError ? (
               <p className="text-sm text-danger" role="alert">
@@ -612,7 +994,9 @@ export function EditCandidateModal({
           return;
         }
         const c =
-          json.candidate && typeof json.candidate === "object" && "candidate_id" in json.candidate
+          json.candidate &&
+          typeof json.candidate === "object" &&
+          "candidate_id" in json.candidate
             ? campaignAppliedToCandidateDbRow(json.candidate as any)
             : (json.candidate as CandidateDbRow);
         setDbRow(c);
@@ -655,7 +1039,9 @@ export function EditCandidateModal({
                   onBusyChange={setBusy}
                   saveActionRef={saveActionRef}
                   onSaved={onSaved}
-                  onCandidateIdChanged={onCandidateIdChanged ?? (() => onSaved())}
+                  onCandidateIdChanged={
+                    onCandidateIdChanged ?? (() => onSaved())
+                  }
                   hidePipelineAndSource={hidePipelineAndSource}
                   onCancel={() => onOpenChange(false)}
                 />

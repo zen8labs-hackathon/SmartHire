@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Users as UsersIcon, Layers as LayersIcon, Download } from "lucide-react";
+import {
+  Users as UsersIcon,
+  Layers as LayersIcon,
+  Download,
+} from "lucide-react";
 import {
   DataTableStats,
   DataTableToolbar,
@@ -42,8 +46,8 @@ import {
   type SubStage,
 } from "@/lib/pipelines/transition-validator";
 import {
-  buildPipelineStageSubStageFilterOptions,
-  type PipelineStageSubStageFilterOption,
+  buildPipelineFilterOptions,
+  type PipelineFilterOption,
 } from "@/lib/pipelines/jd-pipeline-filter-options";
 import {
   findFailSubStage,
@@ -97,9 +101,9 @@ export function JdAppliedCandidatesPipeline({
     [stageMappings, subStages],
   );
 
-  /** One status-filter option per (stageMapping, subStage) pair configured for this job. */
+  /** One "whole stage" option plus one per (stageMapping, subStage) pair configured for this job. */
   const filterOptions = useMemo(
-    () => buildPipelineStageSubStageFilterOptions(stageMappings, subStages),
+    () => buildPipelineFilterOptions(stageMappings, subStages),
     [stageMappings, subStages],
   );
 
@@ -133,17 +137,25 @@ export function JdAppliedCandidatesPipeline({
     [stageMappings],
   );
 
-  /** Every sub-stage id under the "offer" stage — used for the offer-row highlight. */
-  const offerStageSubStateIds = useMemo(() => {
-    if (!offerStageMapping) return null;
+  /**
+   * Every "passed" sub-stage id under the pipeline's final (last-sequence)
+   * stage — used for the row highlight, which should only light up on the
+   * actual "hired" outcome, not just "somewhere in the last stage" (that
+   * would also catch "still pending" and "rejected").
+   */
+  const finalStagePassedSubStateIds = useMemo(() => {
+    const finalStageMapping = orderedStageMappings.at(-1);
+    if (!finalStageMapping) return null;
     return new Set(
       subStages
         .filter(
-          (ss) => ss.pipeline_stage_id === offerStageMapping.pipeline_stage_id,
+          (ss) =>
+            ss.pipeline_stage_id === finalStageMapping.pipeline_stage_id &&
+            ss.is_passed,
         )
         .map((ss) => ss.id),
     );
-  }, [offerStageMapping, subStages]);
+  }, [orderedStageMappings, subStages]);
 
   const interviewStageMapping = useMemo(
     () =>
@@ -252,11 +264,7 @@ export function JdAppliedCandidatesPipeline({
   // Filters/sort/page are mirrored into the URL (see use-query-param-state)
   // so a browser back from a candidate's evaluation page lands back on the
   // same filtered/sorted/paged pipeline view instead of resetting.
-  const [urlQuery, setUrlQuery] = useQueryParamState(
-    "q",
-    "",
-    stringQueryParam,
-  );
+  const [urlQuery, setUrlQuery] = useQueryParamState("q", "", stringQueryParam);
   // Kept as separate local state so the input stays lag-free while typing;
   // only the debounced value is written back to the URL/used to fetch.
   const [query, setQuery] = useState(urlQuery);
@@ -270,18 +278,24 @@ export function JdAppliedCandidatesPipeline({
     "all",
     stringQueryParam,
   );
-  const selectedFilterOption: PipelineStageSubStageFilterOption | null =
-    useMemo(
-      () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
-      [filterOptions, statusFilter],
+  const selectedFilterOption: PipelineFilterOption | null = useMemo(
+    () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
+    [filterOptions, statusFilter],
+  );
+  const [uploadDateRange, setUploadDateRange] =
+    useQueryParamState<RangeValue<CalendarDate> | null>(
+      "uploadDate",
+      null,
+      dateRangeQueryParam,
     );
-  const [uploadDateRange, setUploadDateRange] = useQueryParamState<
-    RangeValue<CalendarDate> | null
-  >("uploadDate", null, dateRangeQueryParam);
   const [sortDescriptor, setSortDescriptor] = useQueryParamState<{
     column: CandidatesListSortColumn;
     direction: "ascending" | "descending";
-  } | null>("sort", null, sortDescriptorQueryParam(CANDIDATES_LIST_SORT_COLUMNS));
+  } | null>(
+    "sort",
+    null,
+    sortDescriptorQueryParam(CANDIDATES_LIST_SORT_COLUMNS),
+  );
   const [page, setPage] = usePageQueryParam();
   const skipInitialPageResetRef = useRef(true);
 
@@ -377,7 +391,7 @@ export function JdAppliedCandidatesPipeline({
         uploadFrom: uploadDateRange?.start.toString(),
         uploadTo: uploadDateRange?.end.toString(),
         stageMappingId: selectedFilterOption?.stageMapping.id,
-        subStateId: selectedFilterOption?.subStage.id,
+        subStateId: selectedFilterOption?.subStage?.id,
         sortBy: sortDescriptor?.column,
         sortDir: sortDescriptor
           ? sortDescriptor.direction === "ascending"
@@ -651,8 +665,10 @@ export function JdAppliedCandidatesPipeline({
       const ids = [...new Set(candidateIds)].filter(Boolean);
       if (ids.length === 0) return;
       try {
-        const { candidates, errorIds } =
-          await candidateService.rerunAIMatching(jobId, ids);
+        const { candidates, errorIds } = await candidateService.rerunAIMatching(
+          jobId,
+          ids,
+        );
         void fetchStats();
         await fetchPage();
         if (candidates.length === 0) {
@@ -665,9 +681,7 @@ export function JdAppliedCandidatesPipeline({
           toast.success(`${candidates.length} queued for AI processing.`);
         }
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "AI JD-match run failed.",
-        );
+        toast.error(e instanceof Error ? e.message : "AI JD-match run failed.");
       }
     },
     [jobId, fetchStats, fetchPage, toast],
@@ -799,7 +813,7 @@ export function JdAppliedCandidatesPipeline({
           }
         }
       }}
-      placeholder="All statuses"
+      placeholder="All stages"
       className="w-32"
     >
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
@@ -809,7 +823,10 @@ export function JdAppliedCandidatesPipeline({
             subStage={selectedFilterOption.subStage}
           />
         ) : (
-          <Select.Value />
+          <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-divider bg-surface-secondary/60 px-1.5 py-0.5 text-xs font-medium text-muted">
+            <LayersIcon className="size-3 shrink-0" />
+            All stages
+          </span>
         )}
         <Select.Indicator />
       </Select.Trigger>
@@ -817,26 +834,40 @@ export function JdAppliedCandidatesPipeline({
         <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl max-h-[300px] overflow-y-auto">
           <ListBox.Item
             id="all"
-            textValue="All statuses"
+            textValue="All stages"
             className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
           >
-            All statuses
+            <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-divider bg-surface-secondary/60 px-1.5 py-0.5 text-xs font-medium text-muted">
+              <LayersIcon className="size-3 shrink-0" />
+              All stages
+            </span>
             <ListBox.ItemIndicator />
           </ListBox.Item>
-          {filterOptions.map((opt) => (
-            <ListBox.Item
-              key={opt.id}
-              id={opt.id}
-              textValue={`${opt.stageMapping.pipeline_stages?.label ?? opt.stageMapping.pipeline_stages?.code} - ${opt.subStage.label}`}
-              className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
-            >
-              <PipelineStageSubStageInlineLabel
-                stageMapping={opt.stageMapping}
-                subStage={opt.subStage}
-              />
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-          ))}
+          {filterOptions.map((opt) => {
+            const stageLabel =
+              opt.stageMapping.pipeline_stages?.label ??
+              opt.stageMapping.pipeline_stages?.code;
+            return (
+              <ListBox.Item
+                key={opt.id}
+                id={opt.id}
+                textValue={
+                  opt.subStage
+                    ? `${stageLabel} - ${opt.subStage.label}`
+                    : `${stageLabel}`
+                }
+                className={`text-xs font-semibold rounded-lg hover:bg-surface-secondary cursor-pointer ${
+                  opt.subStage ? "py-1.5 pl-6 pr-2.5" : "mt-1 py-1.5 px-2.5"
+                }`}
+              >
+                <PipelineStageSubStageInlineLabel
+                  stageMapping={opt.stageMapping}
+                  subStage={opt.subStage}
+                />
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+            );
+          })}
         </ListBox>
       </Select.Popover>
     </Select>
@@ -921,16 +952,25 @@ export function JdAppliedCandidatesPipeline({
       value: totalCandidates,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
       description: "Applied to opening",
+      isActive: statusFilter === "all",
+      onClick: () => setStatusFilter("all"),
     },
+    // Clicking a stage card applies that stage's "whole stage" filter option
+    // (id === stageMapping.id, from buildPipelineFilterOptions) so the table
+    // below narrows to every candidate in that stage regardless of
+    // sub-stage; clicking the already-active card clears back to "all".
     ...orderedStageMappings.map((sm) => {
       const label =
         sm.pipeline_stages?.label ?? sm.pipeline_stages?.code ?? "Stage";
       const value = stageMappingCounts[sm.id] ?? 0;
+      const isActive = statusFilter === sm.id;
       return {
         label,
         value,
         description: "Candidates in stage",
         icon: <LayersIcon className="h-4.5 w-4.5" />,
+        isActive,
+        onClick: () => setStatusFilter(isActive ? "all" : sm.id),
       };
     }),
   ];
@@ -1127,7 +1167,7 @@ export function JdAppliedCandidatesPipeline({
                     resolveRow={resolveRow}
                     stageMappings={stageMappings}
                     subStages={subStages}
-                    offerStageSubStateIds={offerStageSubStateIds}
+                    finalStagePassedSubStateIds={finalStagePassedSubStateIds}
                     onStatusChange={onStatusChange}
                     onRetryParsing={retryParsing}
                     onOpenSchedule={openSchedule}
@@ -1178,7 +1218,8 @@ export function JdAppliedCandidatesPipeline({
           rowPendingCvPreview
             ? {
                 applicationId: rowPendingCvPreview.id,
-                candidateName: rowPendingCvPreview.candidate_name ?? "candidate",
+                candidateName:
+                  rowPendingCvPreview.candidate_name ?? "candidate",
                 fileName: rowPendingCvPreview.cv_original_filename,
               }
             : null
@@ -1190,10 +1231,14 @@ export function JdAppliedCandidatesPipeline({
         onOpenChange={scheduleModal.setOpen}
         row={rowPendingSchedule}
         canEdit={canEditPipeline}
-        onSaved={() => {
+        onSaved={(action) => {
           void fetchStats();
           void fetchPage();
-          toast.success("Interview schedule saved.");
+          toast.success(
+            action === "canceled"
+              ? "Interview schedule canceled."
+              : "Interview schedule saved.",
+          );
         }}
       />
 

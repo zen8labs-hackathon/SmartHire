@@ -4,6 +4,7 @@ import React from "react";
 import {
   Button,
   Card,
+  cn,
   Input,
   Modal,
   Pagination as HeroUIPagination,
@@ -346,6 +347,10 @@ export type TableStatItem = {
   value: string | number;
   description?: string;
   icon?: React.ReactNode;
+  /** Makes the card a toggle button (e.g. "filter the table by this stat"); omit for a plain, non-interactive card. */
+  onClick?: () => void;
+  /** Highlights the card as the currently-applied filter. Only meaningful alongside `onClick`. */
+  isActive?: boolean;
 };
 
 export type DataTableStatsProps = {
@@ -362,30 +367,52 @@ export function DataTableStats({ stats }: DataTableStatsProps) {
 
   return (
     <div className={`grid gap-4 ${gridCols} mb-3`}>
-      {stats.map((stat, idx) => (
-        <Card
-          key={idx}
-          variant="secondary"
-          className="border border-divider/60 bg-surface-secondary/20 p-4.5 rounded-2xl shadow-sm"
-        >
-          <div className="flex items-center justify-between gap-3 text-muted">
-            <span className="text-[10px] font-bold uppercase tracking-wider">
-              {stat.label}
-            </span>
-            {stat.icon && (
-              <div className="shrink-0 opacity-70">{stat.icon}</div>
+      {stats.map((stat, idx) => {
+        const clickable = !!stat.onClick;
+        return (
+          <Card
+            key={idx}
+            variant="secondary"
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-pressed={clickable ? !!stat.isActive : undefined}
+            onClick={stat.onClick}
+            onKeyDown={
+              clickable
+                ? (e: React.KeyboardEvent) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      stat.onClick?.();
+                    }
+                  }
+                : undefined
+            }
+            className={cn(
+              "border border-divider/60 bg-surface-secondary/20 p-4.5 rounded-2xl shadow-sm",
+              clickable &&
+                "cursor-pointer text-left transition-colors hover:border-accent/50 hover:bg-accent/5",
+              stat.isActive && "border-accent bg-accent/10 ring-1 ring-accent/40",
             )}
-          </div>
-          <p className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-            {stat.value}
-          </p>
-          {stat.description && (
-            <p className="mt-1 text-[10px] text-muted font-medium">
-              {stat.description}
+          >
+            <div className="flex items-center justify-between gap-3 text-muted">
+              <span className="text-[10px] font-bold uppercase tracking-wider">
+                {stat.label}
+              </span>
+              {stat.icon && (
+                <div className="shrink-0 opacity-70">{stat.icon}</div>
+              )}
+            </div>
+            <p className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              {stat.value}
             </p>
-          )}
-        </Card>
-      ))}
+            {stat.description && (
+              <p className="mt-1 text-[10px] text-muted font-medium">
+                {stat.description}
+              </p>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }

@@ -16,6 +16,7 @@ const mockStageMappings: StageMapping[] = [
       label: "CV Scan",
       desc: null,
       color: "sky",
+      allow_schedule: false,
     },
   },
   {
@@ -28,6 +29,7 @@ const mockStageMappings: StageMapping[] = [
       label: "Vendor Review",
       desc: null,
       color: "violet",
+      allow_schedule: false,
     },
   },
 ];

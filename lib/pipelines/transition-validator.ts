@@ -15,6 +15,7 @@ export interface StageMapping {
     label: string;
     desc: string | null;
     color: string | null;
+    allow_schedule: boolean;
   } | null;
 }
 
