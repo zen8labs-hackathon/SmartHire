@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, FieldError, Input, Label, TextField } from "@heroui/react";
+import { Button, Checkbox, FieldError, Input, Label, TextField } from "@heroui/react";
 import {
   pipelineStageSchema,
   type PipelineStageRow,
@@ -25,6 +25,7 @@ type StageFormProps = {
     label: string;
     desc: string | null;
     color: string | null;
+    allow_schedule: boolean;
   }) => Promise<void>;
   onCancel: () => void;
   busy: boolean;
@@ -52,6 +53,7 @@ export function StageForm({
   const [label, setLabel] = useState("");
   const [desc, setDesc] = useState("");
   const [color, setColor] = useState("zinc");
+  const [allowSchedule, setAllowSchedule] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
 
   const handleLabelChange = (val: string) => {
@@ -66,11 +68,13 @@ export function StageForm({
       setLabel(initialValues.label);
       setDesc(initialValues.desc ?? "");
       setColor(initialValues.color ?? "zinc");
+      setAllowSchedule(initialValues.allow_schedule);
     } else {
       setCode("");
       setLabel("");
       setDesc("");
       setColor("zinc");
+      setAllowSchedule(false);
     }
     setFieldError(null);
   }, [mode, initialValues]);
@@ -97,6 +101,7 @@ export function StageForm({
       label: label.trim(),
       desc: desc.trim() || null,
       color: trimmedColor || null,
+      allow_schedule: allowSchedule,
     };
 
     if (mode === "add") {
@@ -178,6 +183,21 @@ export function StageForm({
         />
         <FieldError className="text-[10px] text-rose-500 mt-1" />
       </TextField>
+
+      <Checkbox isSelected={allowSchedule} onChange={setAllowSchedule}>
+        <Checkbox.Content>
+          <Checkbox.Control className="border-2 border-slate-600 dark:border-slate-400 rounded-md">
+            <Checkbox.Indicator />
+          </Checkbox.Control>
+          <span className="text-xs">
+            Allow scheduling on this stage
+            <span className="block text-[10px] font-normal text-muted">
+              Shows the &quot;Schedule&quot; action in the pipeline table while a
+              candidate is on this stage.
+            </span>
+          </span>
+        </Checkbox.Content>
+      </Checkbox>
 
       {/* Color Selection UI */}
       <div className="flex flex-col gap-2">

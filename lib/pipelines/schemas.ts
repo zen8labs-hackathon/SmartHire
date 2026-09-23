@@ -25,6 +25,7 @@ export const pipelineStageSchema = z.object({
     .optional()
     .nullable()
     .transform((val) => (val?.trim() === "" ? null : val)),
+  allow_schedule: z.boolean().default(false),
 });
 
 export type PipelineStageFormValues = z.infer<typeof pipelineStageSchema>;

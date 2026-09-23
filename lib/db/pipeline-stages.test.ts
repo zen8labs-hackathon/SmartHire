@@ -88,7 +88,8 @@ describe("pipeline_stages", () => {
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE($4, 'zinc')");
-    expect(values).toEqual(["screening", "Screening", null, null]);
+    expect(sql).toContain("COALESCE($5, false)");
+    expect(values).toEqual(["screening", "Screening", null, null, null]);
   });
 
   it("updatePipelineStage quotes the desc column in the SET clause", async () => {
@@ -100,6 +101,17 @@ describe("pipeline_stages", () => {
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain(`"desc" = $2`);
     expect(values).toEqual(["s1", "New description"]);
+  });
+
+  it("updatePipelineStage includes allow_schedule = false (not treated as omitted)", async () => {
+    const row = { id: "s1", allow_schedule: false };
+    const db = fakeDb([row]);
+
+    await updatePipelineStage(db, "s1", { allowSchedule: false });
+
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("allow_schedule = $2");
+    expect(values).toEqual(["s1", false]);
   });
 
   it("softDeletePipelineStage sets deleted_at and updated_at", async () => {
