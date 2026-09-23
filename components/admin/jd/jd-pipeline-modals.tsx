@@ -56,6 +56,7 @@ type ScheduleHistoryItem = {
   status: string;
   created_at: string;
   rescheduled_from_id: string | null;
+  job_stage_mapping_id: string | null;
 };
 
 /** Chip color + label per `candidate_schedules.status` (see lib/db/candidate-schedules.ts). */
@@ -83,15 +84,19 @@ function scheduleStatusStyle(status: string) {
   );
 }
 
-/** Sort priority for the schedule history list: actionable statuses first, then how the round wound down. Unknown statuses sort last. */
-const SCHEDULE_STATUS_ORDER: Record<string, number> = {
-  Scheduled: 0,
-  Confirmed: 1,
-  Rescheduled: 2,
-  Completed: 3,
-  NoShow: 4,
-  Canceled: 5,
-};
+function isScheduleActiveStatus(status: string): boolean {
+  return status === "Scheduled" || status === "Confirmed";
+}
+
+/** Purely time-based "has this round's slot already passed" -- computed from `scheduled_at` vs. now, not from the DB `status` column (used for sorting: not-started-vs-ended is a manual calculation, independent of status). */
+function hasSchedulePassed(item: Pick<ScheduleHistoryItem, "scheduled_at">): boolean {
+  return new Date(item.scheduled_at).getTime() < Date.now();
+}
+
+/** A round only counts as "expired" (the red, needs-attention badge) while it's still sitting in an active status past its own time -- resolved rounds (Completed/NoShow/...) aren't "expired", they're just done. Nothing in this app currently sets those statuses, so in practice this is equivalent to `hasSchedulePassed`, but it stays status-aware for when it isn't. */
+function isScheduleExpired(item: Pick<ScheduleHistoryItem, "status" | "scheduled_at">): boolean {
+  return isScheduleActiveStatus(item.status) && hasSchedulePassed(item);
+}
 
 /**
  * The time control inside the `DatePicker.Popover`. Must read/write the
@@ -163,6 +168,16 @@ export function InterviewScheduleModal({
   const [scheduledAt, setScheduledAt] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("");
   const [location, setLocation] = useState("");
+  // Which existing round the form is editing, if any -- `null` means the
+  // form will create a brand-new, independent round on save instead of
+  // rescheduling something. Set by `handleEdit`, cleared by `handleAddNew`.
+  // Sending this explicit id to the PATCH endpoint (instead of letting it
+  // guess "whichever round is currently active") is what makes "Add new"
+  // always additive: without it, saving a second round used to look
+  // indistinguishable from rescheduling the first one.
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(
+    null,
+  );
   const [history, setHistory] = useState<ScheduleHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -214,19 +229,23 @@ export function InterviewScheduleModal({
   useEffect(() => {
     if (!isOpen || !row) return;
     setMode("list");
+    setEditingScheduleId(null);
     void refreshSchedules(row.id);
   }, [isOpen, row, refreshSchedules]);
 
   // "Add new" starts a fresh round, not an edit of whichever round is
   // currently active -- `refreshSchedules` prefills those fields for its own
   // purposes (so a reload shows the active round's values), but that
-  // shouldn't leak into a blank "new round" form.
+  // shouldn't leak into a blank "new round" form. Clearing
+  // `editingScheduleId` is what tells `handleSave` to create an independent
+  // round instead of rescheduling one.
   const handleAddNew = useCallback(() => {
     setError(null);
     setRoundLabel("");
     setScheduledAt("");
     setDurationMinutes("");
     setLocation("");
+    setEditingScheduleId(null);
     setMode("form");
   }, []);
 
@@ -250,6 +269,10 @@ export function InterviewScheduleModal({
             ? Number(durationMinutes)
             : undefined,
           location: location.trim() || undefined,
+          // Omitted -> the backend always creates a brand-new, independent
+          // round (the "Add new" path). Present -> reschedules/updates
+          // exactly that round, whatever stage it belongs to.
+          scheduleId: editingScheduleId ?? undefined,
         }),
       });
       const json = (await res.json()) as { error?: string };
@@ -268,15 +291,17 @@ export function InterviewScheduleModal({
     roundLabel,
     durationMinutes,
     location,
+    editingScheduleId,
     onSaved,
     refreshSchedules,
   ]);
 
   // Prefills the form from a specific history entry (only ever the active
-  // one -- see the `isActive` guard around the card's Edit button). Reuses
-  // the same PATCH contract as `handleSave`: since this round is still
-  // active, saving with the same `scheduledAt` updates it in place, and
-  // saving with a different one reschedules it (server-side, not here).
+  // one -- see the `isActive` guard around the card's Edit button), and
+  // records its id so `handleSave` reschedules *this exact round* rather
+  // than whichever one the backend might otherwise guess is "active".
+  // Saving with the same `scheduledAt` updates it in place, and saving with
+  // a different one reschedules it (server-side, not here).
   const handleEdit = useCallback((item: ScheduleHistoryItem) => {
     setError(null);
     setRoundLabel(item.round_label ?? "");
@@ -285,6 +310,7 @@ export function InterviewScheduleModal({
       item.duration_minutes != null ? String(item.duration_minutes) : "",
     );
     setLocation(item.location ?? "");
+    setEditingScheduleId(item.id);
     setMode("form");
   }, []);
 
@@ -330,18 +356,18 @@ export function InterviewScheduleModal({
     (h) => h.status !== "Rescheduled" && h.status !== "Canceled",
   );
 
-  // Grouped by status (SCHEDULE_STATUS_ORDER: Scheduled/Confirmed lead,
-  // Canceled trails), then newest-first within each group -- a reschedule
-  // keeps the *old* row's original timestamp, which can sort later than the
-  // round that replaced it, so a plain `scheduled_at DESC` (the API's order)
-  // can bury the one round that's actually actionable under stale history.
+  // Grouped by a manually-computed time state -- not started (scheduled_at
+  // still in the future) before ended (scheduled_at already passed) -- not
+  // by the DB `status` column: nothing in the app ever sets `Completed`/
+  // `NoShow` (see isScheduleExpired's docstring), so a status-based group
+  // would never actually separate anything. Ascending by `scheduled_at`
+  // within each group: the soonest-due round leads the "not started" group,
+  // and the longest-overdue (most urgent) round leads the "ended" group.
   const sortedHistory = [...visibleHistory].sort((a, b) => {
-    const byStatus =
-      (SCHEDULE_STATUS_ORDER[a.status] ?? 99) -
-      (SCHEDULE_STATUS_ORDER[b.status] ?? 99);
-    if (byStatus !== 0) return byStatus;
+    const endedDiff = Number(hasSchedulePassed(a)) - Number(hasSchedulePassed(b));
+    if (endedDiff !== 0) return endedDiff;
     return (
-      new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
+      new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
     );
   });
 
@@ -510,19 +536,21 @@ export function InterviewScheduleModal({
                     <ul className="space-y-2 pb-0.5">
                       {sortedHistory.map((h) => {
                         const style = scheduleStatusStyle(h.status);
-                        const isActive =
-                          h.status === "Scheduled" || h.status === "Confirmed";
+                        const isActive = isScheduleActiveStatus(h.status);
+                        const isExpired = isScheduleExpired(h);
                         return (
                           <li
                             key={h.id}
                             className={`rounded-xl border px-3.5 py-3 transition-colors ${
-                              isActive
-                                ? "border-accent/40 bg-accent/5"
-                                : "border-divider bg-surface-secondary/10"
+                              isExpired
+                                ? "border-danger/40 bg-danger/5"
+                                : isActive
+                                  ? "border-accent/40 bg-accent/5"
+                                  : "border-divider bg-surface-secondary/10"
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <div className="flex min-w-0 items-center gap-2">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className="truncate text-sm font-semibold text-foreground">
                                   {h.round_label ?? "Interview"}
                                 </span>
@@ -533,6 +561,11 @@ export function InterviewScheduleModal({
                                 >
                                   {style.label}
                                 </Chip>
+                                {isExpired ? (
+                                  <Chip size="sm" variant="soft" color="danger">
+                                    Expired
+                                  </Chip>
+                                ) : null}
                               </div>
                               {canEdit && isActive ? (
                                 <div className="flex shrink-0 items-center gap-1">
