@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isCandidateInOfferStage } from "./pipeline-status-styles";
+import {
+  isCandidateInFinalPassedStage,
+  isCandidateInOfferStage,
+} from "./pipeline-status-styles";
 
 describe("isCandidateInOfferStage", () => {
   const offerStageSubStateIds = new Set(["sub-offer-offer", "sub-offer-matched", "sub-offer-rejected"]);
@@ -63,6 +66,65 @@ describe("isCandidateInOfferStage", () => {
     ).toBe(false);
     expect(
       isCandidateInOfferStage({ currentSubStateId: "some-id", status: "Offer" }, new Set()),
+    ).toBe(true);
+  });
+});
+
+describe("isCandidateInFinalPassedStage", () => {
+  const finalStagePassedSubStateIds = new Set(["sub-offer-matched"]);
+
+  it("tier 1: uses currentSubStateId membership when finalStagePassedSubStateIds is present", () => {
+    expect(
+      isCandidateInFinalPassedStage(
+        { currentSubStateId: "sub-offer-matched" },
+        finalStagePassedSubStateIds,
+      ),
+    ).toBe(true);
+    // Still in the final stage, but not its "passed" sub-stage -- unlike
+    // isCandidateInOfferStage, this must not light up.
+    expect(
+      isCandidateInFinalPassedStage(
+        { currentSubStateId: "sub-offer-offer" },
+        finalStagePassedSubStateIds,
+      ),
+    ).toBe(false);
+    expect(
+      isCandidateInFinalPassedStage(
+        { currentSubStateId: "sub-offer-rejected" },
+        finalStagePassedSubStateIds,
+      ),
+    ).toBe(false);
+  });
+
+  it("tier 2: falls back to legacy status when currentSubStateId is absent", () => {
+    expect(
+      isCandidateInFinalPassedStage({ status: "Matched" }, finalStagePassedSubStateIds),
+    ).toBe(true);
+    expect(
+      isCandidateInFinalPassedStage({ status: "Offer" }, finalStagePassedSubStateIds),
+    ).toBe(false);
+    expect(
+      isCandidateInFinalPassedStage({ status: "Rejected" }, finalStagePassedSubStateIds),
+    ).toBe(false);
+  });
+
+  it("returns false when every field is null/undefined", () => {
+    expect(isCandidateInFinalPassedStage({}, finalStagePassedSubStateIds)).toBe(false);
+    expect(isCandidateInFinalPassedStage({}, null)).toBe(false);
+  });
+
+  it("does not use currentSubStateId when finalStagePassedSubStateIds itself is not resolved", () => {
+    expect(
+      isCandidateInFinalPassedStage({ currentSubStateId: "some-id", status: "Matched" }, null),
+    ).toBe(true);
+    expect(
+      isCandidateInFinalPassedStage({ currentSubStateId: "some-id", status: "Offer" }, null),
+    ).toBe(false);
+    expect(
+      isCandidateInFinalPassedStage(
+        { currentSubStateId: "some-id", status: "Matched" },
+        new Set(),
+      ),
     ).toBe(true);
   });
 });

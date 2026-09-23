@@ -59,7 +59,7 @@ export type CampaignAppliedAdminRow = {
 
 export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   jobId?: string;
-  /** Paired with {@link subStateId} -- both required together to filter by pipeline position. */
+  /** Filters on the application's current custom pipeline stage; {@link subStateId} further narrows to one sub-stage within it, but isn't required. */
   stageMappingId?: string;
   subStateId?: string;
   /** Case-insensitive substring match against candidate name and school (education). */
@@ -193,9 +193,11 @@ export async function listCampaignAppliedForAdmin(
     values.push(filters.jobId);
     conditions.push(`ca.job_id = $${values.length}`);
   }
-  if (filters.stageMappingId && filters.subStateId) {
+  if (filters.stageMappingId) {
     values.push(filters.stageMappingId);
     conditions.push(`ca.current_job_stage_mapping_id = $${values.length}`);
+  }
+  if (filters.subStateId) {
     values.push(filters.subStateId);
     conditions.push(`ca.current_sub_state_id = $${values.length}`);
   }

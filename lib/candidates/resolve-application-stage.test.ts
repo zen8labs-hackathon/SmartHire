@@ -31,6 +31,7 @@ function stageMapping(id: string, label: string, color: string) {
       label,
       desc: null,
       color,
+      allow_schedule: false,
     },
   };
 }

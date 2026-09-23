@@ -20,6 +20,7 @@ const mockStageMappings: StageMapping[] = [
       label: "CV Scan",
       desc: "CV Scan desc",
       color: "sky",
+      allow_schedule: false,
     },
   },
   {
@@ -32,6 +33,7 @@ const mockStageMappings: StageMapping[] = [
       label: "Interview",
       desc: "Interview desc",
       color: "violet",
+      allow_schedule: true,
     },
   },
   {
@@ -44,6 +46,7 @@ const mockStageMappings: StageMapping[] = [
       label: "Offer",
       desc: "Offer desc",
       color: "teal",
+      allow_schedule: false,
     },
   },
 ];
@@ -230,6 +233,7 @@ describe("wasCandidateStageOrphaned", () => {
           label: "Custom",
           desc: null,
           color: null,
+          allow_schedule: false,
         },
       },
     ];
