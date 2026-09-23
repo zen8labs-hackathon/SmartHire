@@ -68,14 +68,18 @@ describe("listCampaignAppliedForAdmin", () => {
     );
   });
 
-  it("requires both stageMappingId and subStateId together", async () => {
+  it("filters by stageMappingId alone (whole-stage filter)", async () => {
     const db = fakeDb([]);
 
     await listCampaignAppliedForAdmin(db, { stageMappingId: "stage-1" });
 
-    const [sql, values] = db.query.mock.calls[0];
-    expect(sql).not.toContain("ca.current_job_stage_mapping_id = $");
-    expect(values).not.toContain("stage-1");
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("ca.current_job_stage_mapping_id = $1"),
+      expect.arrayContaining(["stage-1"]),
+    );
+    expect(db.query.mock.calls[0][0]).not.toContain(
+      "ca.current_sub_state_id = $",
+    );
   });
 
   it("applies both stage filters when both ids are present", async () => {

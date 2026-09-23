@@ -11,7 +11,7 @@ import {
 } from "@/lib/candidates/candidate-display";
 import {
   getSubStageTextColorClass,
-  isCandidateInOfferStage,
+  isCandidateInFinalPassedStage,
 } from "@/lib/candidates/pipeline-status-styles";
 import {
   campaignAppliedAdminRowToTableRow,
@@ -30,14 +30,14 @@ import {
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
 
 /**
- * Fixed green wash for rows anywhere in the offer stage — intentionally
- * independent of the pipeline stage's configured DB color (which only
- * drives the status tag). Applied per-`Table.Cell` rather than `Table.Row`:
- * HeroUI table cells paint their own opaque background on top of the row,
- * so a row-level background never shows. `!important` keeps it visible
- * through the row's hover background too.
+ * Fixed green wash for rows that have passed the pipeline's final stage —
+ * intentionally independent of the pipeline stage's configured DB color
+ * (which only drives the status tag). Applied per-`Table.Cell` rather than
+ * `Table.Row`: HeroUI table cells paint their own opaque background on top
+ * of the row, so a row-level background never shows. `!important` keeps it
+ * visible through the row's hover background too.
  */
-const OFFER_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
+const PASSED_ROW_CELL_CLASS = "!bg-emerald-100 dark:!bg-emerald-500/25";
 
 export type PipelineTableRowProps = {
   r: JdPipelineApplicationRow;
@@ -49,7 +49,7 @@ export type PipelineTableRowProps = {
   resolveRow: (r: JdPipelineApplicationRow) => ResolvedRowPipeline;
   stageMappings: StageMapping[];
   subStages: SubStage[];
-  offerStageSubStateIds: Set<string> | null;
+  finalStagePassedSubStateIds: Set<string> | null;
   onStatusChange: (
     id: string,
     next: { toStageMappingId: string; toSubStateId: string },
@@ -84,7 +84,7 @@ export type PipelineTableRowProps = {
  *   would force every row to re-render whenever any single row's selection
  *   or busy state changes.
  * - Everything else (including `r` itself) is compared by reference, which
- *   is safe here: `stageMappings`/`subStages`/`offerStageSubStateIds` come
+ *   is safe here: `stageMappings`/`subStages`/`finalStagePassedSubStateIds` come
  *   from `useMemo`, and the various callbacks come from `useCallback` /
  *   `useState` setters in the parent, so they're stable across renders that
  *   don't actually change them.
@@ -103,7 +103,7 @@ function pipelineTableRowPropsAreEqual(
     prev.resolveRow === next.resolveRow &&
     prev.stageMappings === next.stageMappings &&
     prev.subStages === next.subStages &&
-    prev.offerStageSubStateIds === next.offerStageSubStateIds &&
+    prev.finalStagePassedSubStateIds === next.finalStagePassedSubStateIds &&
     prev.onStatusChange === next.onStatusChange &&
     prev.onRetryParsing === next.onRetryParsing &&
     prev.onOpenSchedule === next.onOpenSchedule &&
@@ -132,7 +132,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   resolveRow,
   stageMappings,
   subStages,
-  offerStageSubStateIds,
+  finalStagePassedSubStateIds,
   onStatusChange,
   onRetryParsing,
   onOpenSchedule,
@@ -146,11 +146,11 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   const row: JdPipelineTableRow = campaignAppliedAdminRowToTableRow(r);
   const busy = rowUpdating === r.id;
   const resolved = resolveRow(r);
-  const inOfferStage = isCandidateInOfferStage(
+  const isFinalStagePassed = isCandidateInFinalPassedStage(
     { currentSubStateId: r.current_sub_state_id },
-    offerStageSubStateIds,
+    finalStagePassedSubStateIds,
   );
-  const offerCellClass = inOfferStage ? OFFER_ROW_CELL_CLASS : "";
+  const passedCellClass = isFinalStagePassed ? PASSED_ROW_CELL_CLASS : "";
   const stageOptions =
     resolved.stageMappingId && resolved.subStateId
       ? allowedStageTargets(
@@ -166,7 +166,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
       : undefined;
   return (
     <Table.Row id={r.id}>
-      <Table.Cell className={offerCellClass}>
+      <Table.Cell className={passedCellClass}>
         <input
           type="checkbox"
           className="mt-1 size-4 rounded border-divider accent-accent cursor-pointer disabled:cursor-not-allowed"
@@ -176,7 +176,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           aria-label={`Select ${row.name}`}
         />
       </Table.Cell>
-      <Table.Cell className={offerCellClass}>
+      <Table.Cell className={passedCellClass}>
         <div className="flex items-center gap-4">
           <Avatar className="size-10 shrink-0" size="md">
             {row.avatarUrl ? <Avatar.Image alt="" src={row.avatarUrl} /> : null}
@@ -209,7 +209,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           </div>
         </div>
       </Table.Cell>
-      <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
+      <Table.Cell className={`text-center align-middle ${passedCellClass}`}>
         <div className="flex flex-col items-center tabular-nums">
           <span className="text-lg font-semibold leading-none text-foreground">
             {row.experienceYears}
@@ -218,12 +218,12 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         </div>
       </Table.Cell>
 
-      <Table.Cell className={offerCellClass}>
+      <Table.Cell className={passedCellClass}>
         <p className="text-sm font-medium text-foreground">
           {row.school || "—"}
         </p>
       </Table.Cell>
-      <Table.Cell className={`text-center align-middle ${offerCellClass}`}>
+      <Table.Cell className={`text-center align-middle ${passedCellClass}`}>
         <div className="flex items-center justify-center gap-1.5">
           <Chip
             size="sm"
@@ -248,7 +248,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
         </div>
       </Table.Cell>
       <Table.Cell
-        className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${offerCellClass}`}
+        className={`focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 outline-none ${passedCellClass}`}
       >
         <Select
           value={currentOptionKey}
@@ -329,10 +329,10 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           </Select.Popover>
         </Select>
       </Table.Cell>
-      <Table.Cell className={`text-xs text-foreground ${offerCellClass}`}>
+      <Table.Cell className={`text-xs text-foreground ${passedCellClass}`}>
         {formatSchedule(r.cv_created_at ?? r.created_at) ?? "—"}
       </Table.Cell>
-      <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
+      <Table.Cell className={`align-middle text-center ${passedCellClass}`}>
         {resolved.stageMapping?.pipeline_stages?.allow_schedule ? (
           <Button
             size="sm"
@@ -346,7 +346,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           <span className="text-xs text-muted">—</span>
         )}
       </Table.Cell>
-      <Table.Cell className={`align-middle text-center ${offerCellClass}`}>
+      <Table.Cell className={`align-middle text-center ${passedCellClass}`}>
         <div className="flex items-center justify-center gap-1">
           {r.cv_parsing_status === "failed" ? (
             <Button

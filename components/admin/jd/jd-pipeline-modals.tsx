@@ -16,7 +16,6 @@ import relativeTime from "dayjs/plugin/relativeTime";
 import {
   CalendarDays,
   Calendar as CalendarIcon,
-  ChevronDown,
   Clock,
   History as HistoryIcon,
   MapPin,
@@ -168,17 +167,7 @@ export function InterviewScheduleModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const requestIdRef = useRef(0);
-
-  const toggleExpanded = useCallback((id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   // Shared by the on-open load and the post-save refresh, so the history list
   // (and the form's prefill from whichever round is currently active) always
@@ -225,7 +214,6 @@ export function InterviewScheduleModal({
   useEffect(() => {
     if (!isOpen || !row) return;
     setMode("list");
-    setExpandedIds(new Set());
     void refreshSchedules(row.id);
   }, [isOpen, row, refreshSchedules]);
 
@@ -332,19 +320,22 @@ export function InterviewScheduleModal({
     [row, onSaved, refreshSchedules],
   );
 
-  // Newer entries point back at the round they replaced via `rescheduled_from_id`;
-  // index that so a superseded card can link forward to what replaced it.
-  const supersededByMap = new Map<string, ScheduleHistoryItem>();
-  for (const h of history) {
-    if (h.rescheduled_from_id) supersededByMap.set(h.rescheduled_from_id, h);
-  }
+  // Hide superseded/removed rounds from the list -- a reschedule leaves the
+  // *old* row in place with status "Rescheduled" (see PATCH handler in
+  // app/api/admin/candidates/[id]/timeline/route.ts), and a "delete" is just
+  // a status change to "Canceled" (no real soft-delete column on this
+  // table), so both would otherwise clutter the history with rounds that no
+  // longer matter.
+  const visibleHistory = history.filter(
+    (h) => h.status !== "Rescheduled" && h.status !== "Canceled",
+  );
 
   // Grouped by status (SCHEDULE_STATUS_ORDER: Scheduled/Confirmed lead,
   // Canceled trails), then newest-first within each group -- a reschedule
   // keeps the *old* row's original timestamp, which can sort later than the
   // round that replaced it, so a plain `scheduled_at DESC` (the API's order)
   // can bury the one round that's actually actionable under stale history.
-  const sortedHistory = [...history].sort((a, b) => {
+  const sortedHistory = [...visibleHistory].sort((a, b) => {
     const byStatus =
       (SCHEDULE_STATUS_ORDER[a.status] ?? 99) -
       (SCHEDULE_STATUS_ORDER[b.status] ?? 99);
@@ -511,7 +502,7 @@ export function InterviewScheduleModal({
                         />
                       ))}
                     </div>
-                  ) : history.length === 0 ? (
+                  ) : visibleHistory.length === 0 ? (
                     <p className="rounded-lg border border-dashed border-divider px-3 py-3 text-xs text-muted">
                       No interview has been scheduled yet for this application.
                     </p>
@@ -521,8 +512,6 @@ export function InterviewScheduleModal({
                         const style = scheduleStatusStyle(h.status);
                         const isActive =
                           h.status === "Scheduled" || h.status === "Confirmed";
-                        const isExpanded = expandedIds.has(h.id);
-                        const supersededBy = supersededByMap.get(h.id);
                         return (
                           <li
                             key={h.id}
@@ -532,56 +521,21 @@ export function InterviewScheduleModal({
                                 : "border-divider bg-surface-secondary/10"
                             }`}
                           >
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-foreground">
-                                {h.round_label ?? "Interview"}
-                              </span>
-                              <Chip
-                                size="sm"
-                                variant="soft"
-                                color={style.color}
-                              >
-                                {style.label}
-                              </Chip>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
-                              <span className="flex items-center gap-1.5">
-                                <CalendarDays className="size-3.5 shrink-0" />
-                                {formatSchedule(h.scheduled_at) ??
-                                  h.scheduled_at}
-                                <span className="text-muted/70">
-                                  ({dayjs(h.scheduled_at).fromNow()})
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-foreground">
+                                  {h.round_label ?? "Interview"}
                                 </span>
-                              </span>
-                              {h.duration_minutes ? (
-                                <span className="flex items-center gap-1.5">
-                                  <Clock className="size-3.5 shrink-0" />
-                                  {h.duration_minutes} min
-                                </span>
-                              ) : null}
-                              {h.location ? (
-                                <span className="flex min-w-0 items-center gap-1.5">
-                                  <MapPin className="size-3.5 shrink-0" />
-                                  <span className="truncate">{h.location}</span>
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleExpanded(h.id)}
-                                className="flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
-                              >
-                                <ChevronDown
-                                  className={`size-3.5 transition-transform ${
-                                    isExpanded ? "rotate-180" : ""
-                                  }`}
-                                />
-                                {isExpanded ? "Hide details" : "View details"}
-                              </button>
+                                <Chip
+                                  size="sm"
+                                  variant="soft"
+                                  color={style.color}
+                                >
+                                  {style.label}
+                                </Chip>
+                              </div>
                               {canEdit && isActive ? (
-                                <div className="flex items-center gap-1">
+                                <div className="flex shrink-0 items-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => handleEdit(h)}
@@ -606,28 +560,28 @@ export function InterviewScheduleModal({
                                 </div>
                               ) : null}
                             </div>
-
-                            {isExpanded ? (
-                              <div className="mt-2 space-y-1 border-t border-divider/70 pt-2 text-[11px] text-muted">
-                                <p>
-                                  Created{" "}
-                                  {formatSchedule(h.created_at) ?? h.created_at}{" "}
-                                  ({dayjs(h.created_at).fromNow()})
-                                </p>
-                                {h.rescheduled_from_id ? (
-                                  <p>Rescheduled from an earlier round.</p>
-                                ) : null}
-                                {supersededBy ? (
-                                  <p>
-                                    Rescheduled to{" "}
-                                    {formatSchedule(
-                                      supersededBy.scheduled_at,
-                                    ) ?? supersededBy.scheduled_at}
-                                    .
-                                  </p>
-                                ) : null}
-                              </div>
-                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
+                              <span className="flex items-center gap-1.5">
+                                <CalendarDays className="size-3.5 shrink-0" />
+                                {formatSchedule(h.scheduled_at) ??
+                                  h.scheduled_at}
+                                <span className="text-muted/70">
+                                  ({dayjs(h.scheduled_at).fromNow()})
+                                </span>
+                              </span>
+                              {h.duration_minutes ? (
+                                <span className="flex items-center gap-1.5">
+                                  <Clock className="size-3.5 shrink-0" />
+                                  {h.duration_minutes} min
+                                </span>
+                              ) : null}
+                              {h.location ? (
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <MapPin className="size-3.5 shrink-0" />
+                                  <span className="truncate">{h.location}</span>
+                                </span>
+                              ) : null}
+                            </div>
                           </li>
                         );
                       })}
