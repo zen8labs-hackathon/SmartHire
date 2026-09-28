@@ -5,6 +5,7 @@ import {
   Users as UsersIcon,
   Layers as LayersIcon,
   Download,
+  Zap,
 } from "lucide-react";
 import {
   DataTableStats,
@@ -31,7 +32,7 @@ import { useFileUploadsStream } from "@/components/admin/jd/use-file-uploads-str
 import { FILE_UPLOAD_STATUS } from "@/lib/db/upload-history";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
-import { CvFilePreviewModal } from "@/components/admin/candidates/cv-file-preview-modal";
+import { QuickReviewModal } from "@/components/admin/jd/quick-review-modal";
 import {
   InterviewScheduleModal,
   DeleteCandidateModal,
@@ -251,6 +252,11 @@ export function JdAppliedCandidatesPipeline({
 
   const [rowPendingCvPreview, setRowPendingCvPreview] =
     useState<JdPipelineApplicationRow | null>(null);
+  // The CV tag opens the quick-review modal; its prev/next queue is the page's
+  // rows in table order, snapshotted at open so a refetch can't reshuffle it.
+  const [quickReviewQueueIds, setQuickReviewQueueIds] = useState<string[]>([]);
+  // `pageRows` is declared further down; read it through a ref here.
+  const pageRowsRef = useRef<JdPipelineApplicationRow[]>([]);
 
   const cvPreviewModal = useOverlayState({
     onOpenChange: (open) => {
@@ -263,6 +269,7 @@ export function JdAppliedCandidatesPipeline({
   const openCvPreviewModal = cvPreviewModal.open;
   const openCvPreview = useCallback(
     (r: JdPipelineApplicationRow) => {
+      setQuickReviewQueueIds(pageRowsRef.current.map((row) => row.id));
       setRowPendingCvPreview(r);
       openCvPreviewModal();
     },
@@ -381,6 +388,7 @@ export function JdAppliedCandidatesPipeline({
 
   useEffect(() => {
     setSelected(new Set());
+    pageRowsRef.current = pageRows;
   }, [pageRows]);
 
   const fetchPageSeqRef = useRef(0);
@@ -408,10 +416,7 @@ export function JdAppliedCandidatesPipeline({
           : undefined,
       });
       const { candidates, pagination } =
-        await candidateService.getFilteredCandidateList(
-          jobId,
-          params,
-        );
+        await candidateService.getFilteredCandidateList(jobId, params);
       if (seq !== fetchPageSeqRef.current) return;
       const total = pagination?.total ?? candidates.length;
       setPageRows(candidates);
@@ -448,9 +453,8 @@ export function JdAppliedCandidatesPipeline({
   const uploadStream = useFileUploadsStream(jobId);
   const completedUploadCount = useMemo(
     () =>
-      uploadStream.rows.filter(
-        (r) => r.status === FILE_UPLOAD_STATUS.Completed,
-      ).length,
+      uploadStream.rows.filter((r) => r.status === FILE_UPLOAD_STATUS.Completed)
+        .length,
     [uploadStream.rows],
   );
   const lastCompletedUploadCountRef = useRef<number | null>(null);
@@ -825,6 +829,19 @@ export function JdAppliedCandidatesPipeline({
     [fetchStats, postPipeline, fetchPage, toast],
   );
 
+  const startQuickReview = useCallback(() => {
+    // Start at the first not-yet-screened row (a stage's default sub-stage,
+    // e.g. "CV Scan · New"); fall back to the top of the page.
+    const first =
+      pageRows.find((r) => resolveRow(r).subStage?.is_default) ?? pageRows[0];
+    if (first) openCvPreview(first);
+  }, [openCvPreview, pageRows, resolveRow]);
+
+  const onQuickReviewPipelineChanged = useCallback(() => {
+    void fetchStats();
+    void fetchPage();
+  }, [fetchStats, fetchPage]);
+
   const retryParsing = useCallback(
     async (row: JdPipelineApplicationRow) => {
       setRowUpdating(row.id);
@@ -855,7 +872,7 @@ export function JdAppliedCandidatesPipeline({
       placeholder="All stages"
       className="w-40"
     >
-      <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
+      <Select.Trigger className="w-full h-9 min-w-0 gap-1 overflow-hidden whitespace-nowrap rounded-xl border border-divider bg-surface-secondary/40 text-xs">
         {selectedFilterOptions.length === 1 ? (
           <PipelineStageSubStageInlineLabel
             stageMapping={selectedFilterOptions[0].stageMapping}
@@ -872,14 +889,15 @@ export function JdAppliedCandidatesPipeline({
             All stages
           </span>
         )}
-        <Select.Indicator />
+        <Select.Indicator className="shrink-0" />
       </Select.Trigger>
-      <Select.Popover>
+      {/* Wider than the 160px trigger so `Stage · Sub-stage` labels fit; each item keeps `pr-8` free for the absolutely-positioned check indicator. */}
+      <Select.Popover className="min-w-56">
         <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl max-h-[300px] overflow-y-auto">
           <ListBox.Item
             id={ALL_STAGES_KEY}
             textValue="All stages"
-            className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
+            className="text-xs font-semibold py-1.5 pl-2.5 pr-8 rounded-lg hover:bg-surface-secondary cursor-pointer"
           >
             <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-divider bg-surface-secondary/60 px-1.5 py-0.5 text-xs font-medium text-muted">
               <LayersIcon className="size-3 shrink-0" />
@@ -901,7 +919,7 @@ export function JdAppliedCandidatesPipeline({
                     : `${stageLabel}`
                 }
                 className={`text-xs font-semibold rounded-lg hover:bg-surface-secondary cursor-pointer ${
-                  opt.subStage ? "py-1.5 pl-6 pr-2.5" : "mt-1 py-1.5 px-2.5"
+                  opt.subStage ? "py-1.5 pl-6 pr-8" : "mt-1 py-1.5 pl-2.5 pr-8"
                 }`}
               >
                 <PipelineStageSubStageInlineLabel
@@ -1260,19 +1278,17 @@ export function JdAppliedCandidatesPipeline({
         row={rowPendingRationale}
       />
 
-      <CvFilePreviewModal
+      <QuickReviewModal
         isOpen={cvPreviewModal.isOpen}
         onOpenChange={cvPreviewModal.setOpen}
-        target={
-          rowPendingCvPreview
-            ? {
-                applicationId: rowPendingCvPreview.id,
-                candidateName:
-                  rowPendingCvPreview.candidate_name ?? "candidate",
-                fileName: rowPendingCvPreview.cv_original_filename,
-              }
-            : null
-        }
+        jobId={jobId}
+        rows={pageRows}
+        queueIds={quickReviewQueueIds}
+        initialId={rowPendingCvPreview?.id ?? null}
+        stageMappings={stageMappings}
+        subStages={subStages}
+        canDecide={canEditPipeline}
+        onPipelineChanged={onQuickReviewPipelineChanged}
       />
 
       <InterviewScheduleModal
