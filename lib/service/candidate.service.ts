@@ -58,6 +58,8 @@ export type CandidateApplicationRow = {
   sub_stage_code: string | null;
   sub_stage_label: string | null;
   sub_stage_is_passed: boolean | null;
+  /** Recruiter on the upload that produced the active CV; null for manual entries. */
+  recruiter: string | null;
 };
 
 /** An existing candidate that already owns the submitted email/phone, from
