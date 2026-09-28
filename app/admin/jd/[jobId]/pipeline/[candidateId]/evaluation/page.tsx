@@ -11,6 +11,7 @@ import { getRequestAuth } from "@/lib/admin/request-auth";
 import { can, canViewJob, canViewSalary } from "@/lib/authz/can";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import { getPool } from "@/lib/db/config/client";
+import { getRecruiterByStorageKey } from "@/lib/db/upload-history";
 import { campaignAppliedAdminRowToEvaluationRow } from "@/lib/jd/campaign-applied-to-evaluation-row";
 import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
 
@@ -43,6 +44,8 @@ export default async function PipelineCandidateEvaluationPage({
   ]);
   if (!row || row.job_id !== jobId) notFound();
 
+  const recruiter = await getRecruiterByStorageKey(db, row.cv_storage_path);
+
   const candidate = campaignAppliedAdminRowToEvaluationRow(row, {
     canViewSalary: viewSalary,
     stageMappings: pipelineConfig.stageMappings,
@@ -57,6 +60,7 @@ export default async function PipelineCandidateEvaluationPage({
       currentUserId={user.id}
       isAdmin={access.isAdmin}
       canEditProfile={canEditProfile}
+      recruiter={recruiter}
     />
   );
 }

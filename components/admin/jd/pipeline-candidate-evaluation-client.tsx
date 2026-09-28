@@ -41,6 +41,8 @@ type Props = {
   isAdmin: boolean;
   /** HR/admin may edit the candidate's profile fields from this page. */
   canEditProfile: boolean;
+  /** Recruiter on the upload that produced this application's CV; null for manual entries. */
+  recruiter: string | null;
 };
 
 type LatestEval = {
@@ -105,6 +107,7 @@ export function PipelineCandidateEvaluationClient({
   currentUserId,
   isAdmin,
   canEditProfile,
+  recruiter,
 }: Props) {
   const router = useRouter();
   const toast = useToast();
@@ -417,25 +420,38 @@ export function PipelineCandidateEvaluationClient({
 
   return (
     <div className="flex flex-col gap-4 font-sans">
-      <Breadcrumbs className="text-xs text-muted">
-        <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
-        <Breadcrumbs.Item href={`/admin/jd/${jobId}/pipeline`}>
-          {jobTitle}
-        </Breadcrumbs.Item>
-        <Breadcrumbs.Item>Evaluation</Breadcrumbs.Item>
-      </Breadcrumbs>
+      {/* Pinned with the CV preview: `-top-8`/`-mt-8 pt-8` pull it up over
+          main's 2rem top padding so nothing scrolls visibly above it, and
+          `pb-4 -mb-4` fills the gap down to where the preview column sticks,
+          so right-column content scrolls underneath both. */}
+      <div className="sticky -top-8 z-20 -mt-8 -mb-4 bg-background pt-8 pb-4">
+        <Breadcrumbs className="text-xs text-muted">
+          <Breadcrumbs.Item href="/admin/jd">Jobs list</Breadcrumbs.Item>
+          <Breadcrumbs.Item href={`/admin/jd/${jobId}/pipeline`}>
+            {jobTitle}
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Item>Evaluation</Breadcrumbs.Item>
+        </Breadcrumbs>
+      </div>
 
       <div className="flex gap-6 items-start">
-        {/* Left: CV viewer */}
-        <div className="w-5/12 shrink-0 sticky top-6">
-          <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
+        {/* Left: CV viewer. Sticks at its own resting position inside the
+            scrolling <main> (`top-9` = the breadcrumb row; sticky offsets are
+            measured inside main's 2rem padding) and is sized to what's
+            visible below it: 100vh - 3.5rem header - 2rem top padding -
+            2.25rem - 2rem bottom gap. The bottom gap must equal main's 2rem
+            bottom padding -- a sticky box can't pass its row's content edge,
+            so any less and it gets pushed up once the right column is
+            scrolled to its end. */}
+        <div className="sticky top-9 flex h-[calc(100vh-9.75rem)] w-7/12 shrink-0 flex-col">
+          <p className="mb-2 shrink-0 truncate text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
           </p>
           <CvViewer
             cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
-            className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
-            style={{ height: "calc(100vh - 120px)" }}
+            className="min-h-0 w-full flex-1 rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
+            hidePdfSidebar
           />
         </div>
 
@@ -493,6 +509,7 @@ export function PipelineCandidateEvaluationClient({
                   canEditSalary={canEditSalary}
                   isPreview={false}
                   dbLoadState={dbLoadState}
+                  recruiter={recruiter}
                   startInEditMode
                   embedded
                   hidePipeline
@@ -540,6 +557,10 @@ export function PipelineCandidateEvaluationClient({
                 <p className="font-semibold text-foreground text-sm">
                   {candidate.studentYears} · {candidate.majorSchool} · GPA {candidate.gpa}
                 </p>
+              </div>
+              <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
+                <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Recruiter</span>
+                <p className="font-semibold text-foreground text-sm truncate" title={recruiter ?? undefined}>{recruiter || "—"}</p>
               </div>
               <div className="bg-surface-secondary/20 p-2.5 rounded-xl border border-divider">
                 <span className="text-[10px] uppercase font-bold text-muted tracking-wider block mb-0.5">Source</span>

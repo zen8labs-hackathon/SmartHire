@@ -376,3 +376,24 @@ export async function checkIsUploadingByJobId(
   );
   return rows[0]?.exists ?? false;
 }
+
+/**
+ * Recruiter label typed on the upload batch that produced a given CV file
+ * (`file_uploads.storage_key` = `cv_detail_versions.cv_storage_path`). NULL
+ * when the CV wasn't queued through an upload (manual entry) or predates
+ * recruiter tracking.
+ */
+export async function getRecruiterByStorageKey(
+  db: QueryExecutor,
+  storageKey: string | null,
+): Promise<string | null> {
+  if (!storageKey) return null;
+  const { rows } = await db.query<{ recruiter: string | null }>(
+    `SELECT recruiter FROM file_uploads
+     WHERE storage_key = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [storageKey],
+  );
+  return rows[0]?.recruiter?.trim() || null;
+}
