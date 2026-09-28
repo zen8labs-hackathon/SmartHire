@@ -8,6 +8,13 @@ type Props = {
   title: string;
   className?: string;
   style?: React.CSSProperties;
+  /**
+   * Hide the browser PDF viewer's page-thumbnail sidebar (`#navpanes=0`). In a
+   * narrow column that sidebar takes ~40% of the width, so the page renders
+   * tiny; without it the viewer's own fit-to-width shows it much larger while
+   * still fitting the frame. PDFs only -- DOCX previews are unaffected.
+   */
+  hidePdfSidebar?: boolean;
 };
 
 const DOCX_MIME =
@@ -17,7 +24,13 @@ function isDocx(mime: string): boolean {
   return mime === DOCX_MIME || mime.includes("wordprocessingml");
 }
 
-export function CvViewer({ cvUrl, title, className, style }: Props) {
+export function CvViewer({
+  cvUrl,
+  title,
+  className,
+  style,
+  hidePdfSidebar = false,
+}: Props) {
   const [mode, setMode] = useState<"loading" | "pdf" | "docx" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const prevCvUrl = useRef("");
@@ -162,12 +175,15 @@ export function CvViewer({ cvUrl, title, className, style }: Props) {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
+    // PDF open parameters ride in the fragment, which survives the
+    // cv-download redirect to the signed storage URL.
+    const src = hidePdfSidebar ? `${cvUrl}#navpanes=0` : cvUrl;
     try {
-      iframe.contentWindow?.location.replace(cvUrl);
+      iframe.contentWindow?.location.replace(src);
     } catch {
-      iframe.src = cvUrl;
+      iframe.src = src;
     }
-  }, [cvUrl, mode]);
+  }, [cvUrl, hidePdfSidebar, mode]);
 
   if (mode === "loading") {
     return (

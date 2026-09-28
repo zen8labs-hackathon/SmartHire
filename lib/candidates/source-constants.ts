@@ -13,6 +13,25 @@ export function isCandidateSource(value: string): value is CandidateSource {
   return (CANDIDATE_SOURCE_VALUES as readonly string[]).includes(value);
 }
 
+/**
+ * Maps the free-form `file_uploads.file_source` an upload batch recorded onto
+ * `campaign_applied.source` / `source_other`. The upload modals store the
+ * canonical key for the fixed sources ("LinkedIn", "TopCV", ...) but the
+ * typed description itself for "Other" (e.g. "Career fair"), so anything that
+ * isn't a known key is an "Other" description. Empty/missing leaves both
+ * undefined so the column default applies.
+ */
+export function fileSourceToApplicationSource(
+  fileSource: string | null | undefined,
+): { source?: CandidateSource; sourceOther?: string | null } {
+  const value = fileSource?.trim();
+  if (!value) return {};
+  if (isCandidateSource(value)) {
+    return { source: value, sourceOther: null };
+  }
+  return { source: "Other", sourceOther: value };
+}
+
 export function formatCandidateSourceLabel(
   source: string,
   sourceOther: string | null | undefined,

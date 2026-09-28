@@ -294,20 +294,66 @@ export function CandidateDetailClient({ candidate }: Props) {
       </Breadcrumbs>
 
       <div className="flex gap-6 items-start">
-        {/* Left: CV viewer */}
-        <div className="w-5/12 shrink-0 sticky top-6">
-          <p className="mb-2 text-xs font-semibold text-muted uppercase tracking-wider">
+        {/* Left: CV viewer. Sticks at its own resting position inside the
+            scrolling <main> (`top-9` = the breadcrumb row; sticky offsets are
+            measured inside main's 2rem padding) and is sized to what's
+            visible below it: 100vh - 3.5rem header - 2rem top padding -
+            2.25rem - 2rem bottom gap. The bottom gap must equal main's 2rem
+            bottom padding -- a sticky box can't pass its row's content edge,
+            so any less and it gets pushed up once the right column is
+            scrolled to its end. */}
+        <div className="sticky top-9 flex h-[calc(100vh-9.75rem)] w-7/12 shrink-0 flex-col">
+          <p className="mb-2 shrink-0 truncate text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
             {` · ${selectedApp?.job_title ?? "No Job Assigned"}`}
             {selectedVersionItem
               ? ` · ${versionEventLabel(selectedVersionItem)}`
               : ""}
           </p>
+          {selectedApp ? (
+            <div className="mb-3 grid shrink-0 grid-cols-2 gap-2 text-xs">
+              <div className="min-w-0 rounded-xl border border-divider bg-surface-secondary/20 p-2.5">
+                <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-muted">
+                  Source
+                </span>
+                <span
+                  className={cn(
+                    "inline-flex max-w-full items-center truncate rounded-md border px-1.5 py-0.5 text-[11px] font-bold",
+                    candidateSourceChipClass(
+                      formatCandidateSourceLabel(
+                        selectedApp.source,
+                        selectedApp.source_other,
+                      ),
+                    ),
+                  )}
+                  title={formatCandidateSourceLabel(
+                    selectedApp.source,
+                    selectedApp.source_other,
+                  )}
+                >
+                  {formatCandidateSourceLabel(
+                    selectedApp.source,
+                    selectedApp.source_other,
+                  )}
+                </span>
+              </div>
+              <div className="min-w-0 rounded-xl border border-divider bg-surface-secondary/20 p-2.5">
+                <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-muted">
+                  Recruiter
+                </span>
+                <p
+                  className="m-0 truncate text-sm font-semibold text-foreground"
+                  title={selectedApp.recruiter ?? undefined}
+                >
+                  {selectedApp.recruiter?.trim() || "—"}
+                </p>
+              </div>
+            </div>
+          ) : null}
           <CvViewer
             cvUrl={cvUrl}
             title={`CV - ${candidate.name}`}
-            className="w-full rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
-            style={{ height: "calc(100vh - 120px)" }}
+            className="min-h-0 w-full flex-1 rounded-xl border border-divider bg-surface-secondary/40 shadow-sm"
           />
         </div>
 
