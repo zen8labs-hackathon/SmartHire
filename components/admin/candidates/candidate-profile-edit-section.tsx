@@ -98,6 +98,12 @@ export type CandidateProfileEditSectionProps = {
    * pipeline table/kanban still edits them here).
    */
   hidePipelineAndSource?: boolean;
+  /**
+   * Read-only recruiter label shown next to "Sourced from" -- the recruiter on
+   * the upload that produced this application's CV. Omit (undefined) to hide
+   * the field; `null` shows it as "—".
+   */
+  recruiter?: string | null;
   onCancel?: () => void;
   /**
    * Drop Card chrome + sticky Save/Cancel footer so a parent (e.g. candidate
@@ -222,6 +228,7 @@ export function CandidateProfileEditSection({
   hideSource = false,
   hidePipeline = false,
   hidePipelineAndSource = false,
+  recruiter,
   onCancel,
   embedded = false,
   onDirtyChange,
@@ -821,6 +828,17 @@ export function CandidateProfileEditSection({
           className="mt-1 text-sm"
         />
       </TextField>
+      {recruiter !== undefined ? (
+        <div className="min-w-0">
+          <span className={FIELD_LABEL}>Recruiter</span>
+          <p
+            className="m-0 mt-1 flex h-10 items-center truncate rounded-lg border border-divider bg-surface-secondary/30 px-3 text-sm text-foreground"
+            title={recruiter ?? undefined}
+          >
+            {recruiter || "—"}
+          </p>
+        </div>
+      ) : null}
       {!hideSourceField ? (
         <div className="min-w-0">
           <Select

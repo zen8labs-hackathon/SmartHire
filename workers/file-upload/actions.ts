@@ -1,6 +1,7 @@
 import type { HybridJdMatchResult } from "@/lib/ai/jd-cv-match";
 import type { ParsedResume } from "@/lib/ai/parse-resume";
 import { insertCandidateCvVersion } from "@/lib/candidates/insert-candidate-cv";
+import { fileSourceToApplicationSource } from "@/lib/candidates/source-constants";
 import { QueryExecutor } from "@/lib/db/client";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { updateCampaignApplied } from "@/lib/db/campaign-applied";
@@ -195,6 +196,10 @@ export async function validateAndInsertCandidateData(
         fileSha256: upload.file_hash,
       },
       jdMatchResult,
+      // The source picked in the upload modal was only ever stored on the
+      // `file_uploads` row -- carry it onto the application, else every
+      // queued upload lands as a bare "Other".
+      ...fileSourceToApplicationSource(upload.file_source),
       createdBy: upload.uploaded_by ?? null,
       onCommitted: async (tx, result) => {
         await updateFileUploadById(tx, upload.id, {

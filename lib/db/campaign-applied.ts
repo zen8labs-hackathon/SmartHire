@@ -144,6 +144,10 @@ export type CampaignAppliedWithJobRow = CampaignAppliedRow & {
   sub_stage_code: string | null;
   sub_stage_label: string | null;
   sub_stage_is_passed: boolean | null;
+  /** Recruiter label typed on the upload batch that produced the active CV
+   * (`file_uploads.recruiter`, matched by storage key); NULL for manual
+   * entries and CVs that predate upload tracking. */
+  recruiter: string | null;
 };
 
 export async function listCampaignAppliedByCandidate(
@@ -161,12 +165,20 @@ export async function listCampaignAppliedByCandidate(
             ps.code AS stage_code, ps.label AS stage_label, ps.color AS stage_color,
             pss.code AS sub_stage_code, pss.label AS sub_stage_label,
             pss.is_passed AS sub_stage_is_passed,
+            fu.recruiter AS recruiter,
             count(*) OVER() AS total_count
      FROM campaign_applied ca
      LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
      LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
      LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
+     LEFT JOIN cv_detail_versions acv ON acv.id = ca.active_cv_version_id
+     LEFT JOIN LATERAL (
+       SELECT f.recruiter FROM file_uploads f
+       WHERE f.storage_key = acv.cv_storage_path
+       ORDER BY f.created_at DESC
+       LIMIT 1
+     ) fu ON true
      WHERE ca.candidate_id = $1 AND ca.deleted_at IS NULL
      ORDER BY ca.id DESC
      LIMIT $2 OFFSET $3`,

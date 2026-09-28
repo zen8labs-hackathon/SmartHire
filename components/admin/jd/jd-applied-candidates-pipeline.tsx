@@ -1149,7 +1149,7 @@ export function JdAppliedCandidatesPipeline({
                 </Table.SortableColumnHeader>
               </Table.Column>
               <Table.Column>Schedule</Table.Column>
-              <Table.Column className="text-center w-[140px]">
+              <Table.Column className="text-center w-[172px]">
                 Action
               </Table.Column>
             </Table.Header>
