@@ -19,6 +19,7 @@ import {
 } from "@/lib/db/upload-history";
 import { formatDisplayDate } from "@/lib/format-date";
 import { useToast } from "@/components/admin/toast-provider";
+import { useFileUploadsStream } from "@/components/admin/jd/use-file-uploads-stream";
 
 /** Mirrors `uploadCvService.retryFiles`'s own eligibility filter -- a row
  * that filter would silently skip shouldn't show a Retry button in the
@@ -134,7 +135,7 @@ export function UploadHistoryPanel({ jobId, jobTitle }: Props) {
   const { success: triggerSuccess, error: triggerError } = useToast();
 
   const [rows, setRows] = useState<FileUploadRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -170,22 +171,17 @@ export function UploadHistoryPanel({ jobId, jobTitle }: Props) {
     [jobId],
   );
 
+  // Live list over SSE (see `useFileUploadsStream`) -- replaces polling.
+  // `load` stays for an immediate refresh after this panel's own writes
+  // (retry/manual entry); the next stream snapshot supersedes it.
+  const stream = useFileUploadsStream(jobId);
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Polls while any row is still in flight, so status/progress update live
-  // without the user needing to leave and revisit this tab.
+    if (stream.snapshotCount > 0) setRows(stream.rows);
+  }, [stream.rows, stream.snapshotCount]);
   useEffect(() => {
-    const hasInFlight = rows.some(
-      (r) =>
-        r.status === FILE_UPLOAD_STATUS.Pending ||
-        r.status === FILE_UPLOAD_STATUS.Processing,
-    );
-    if (!hasInFlight) return;
-    const interval = setInterval(() => void load(true), 5000);
-    return () => clearInterval(interval);
-  }, [rows, load]);
+    setLoading(stream.loading);
+    setLoadError(stream.error);
+  }, [stream.loading, stream.error]);
 
   const retryRow = useCallback(
     async (row: FileUploadRow) => {

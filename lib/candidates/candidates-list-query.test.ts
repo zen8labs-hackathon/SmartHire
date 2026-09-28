@@ -11,6 +11,7 @@ import {
 const STAGE_MAPPING_ID = "11111111-1111-4111-8111-111111111111";
 const SUB_STATE_ID = "22222222-2222-4222-8222-222222222222";
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
+const OTHER_STAGE_MAPPING_ID = "44444444-4444-4444-8444-444444444444";
 
 describe("parseCandidatesListQuery", () => {
   it("defaults to all mode when limit omitted", () => {
@@ -56,34 +57,35 @@ describe("parseCandidatesListQuery", () => {
     expect(query.jobId).toBeUndefined();
   });
 
-  it("parses stageMappingId/subStateId when both are valid", () => {
+  it("parses repeated stage params (whole stage and stage:subStage)", () => {
     const { query } = parseCandidatesListQuery(
-      new URLSearchParams({
-        stageMappingId: STAGE_MAPPING_ID,
-        subStateId: SUB_STATE_ID,
-      }),
+      new URLSearchParams([
+        ["stage", `${STAGE_MAPPING_ID}:${SUB_STATE_ID}`],
+        ["stage", OTHER_STAGE_MAPPING_ID],
+      ]),
     );
-    expect(query.stageMappingId).toBe(STAGE_MAPPING_ID);
-    expect(query.subStateId).toBe(SUB_STATE_ID);
+    expect(query.stageFilters).toEqual([
+      { stageMappingId: STAGE_MAPPING_ID, subStateId: SUB_STATE_ID },
+      { stageMappingId: OTHER_STAGE_MAPPING_ID },
+    ]);
   });
 
-  it("drops subStateId when stageMappingId is missing or invalid", () => {
-    const { query } = parseCandidatesListQuery(
-      new URLSearchParams({ subStateId: SUB_STATE_ID }),
-    );
-    expect(query.stageMappingId).toBeUndefined();
-    expect(query.subStateId).toBeUndefined();
+  it("leaves stageFilters undefined when no stage param is given", () => {
+    const { query } = parseCandidatesListQuery(new URLSearchParams());
+    expect(query.stageFilters).toBeUndefined();
   });
 
-  it("rejects a non-UUID stageMappingId/subStateId", () => {
+  it("drops malformed and duplicate stage params", () => {
     const { query } = parseCandidatesListQuery(
-      new URLSearchParams({
-        stageMappingId: "not-a-uuid",
-        subStateId: "also-not-a-uuid",
-      }),
+      new URLSearchParams([
+        ["stage", "not-a-uuid"],
+        ["stage", `${STAGE_MAPPING_ID}:also-not-a-uuid`],
+        ["stage", `${STAGE_MAPPING_ID}:${SUB_STATE_ID}:extra`],
+        ["stage", STAGE_MAPPING_ID],
+        ["stage", STAGE_MAPPING_ID],
+      ]),
     );
-    expect(query.stageMappingId).toBeUndefined();
-    expect(query.subStateId).toBeUndefined();
+    expect(query.stageFilters).toEqual([{ stageMappingId: STAGE_MAPPING_ID }]);
   });
 
   it("parses upload date range", () => {
@@ -125,16 +127,24 @@ describe("buildCandidatesListSearchParams", () => {
     expect(params.get("all")).toBe("true");
   });
 
-  it("round-trips jobId/stageMappingId/subStateId", () => {
+  it("round-trips jobId/stageFilters", () => {
+    const stageFilters = [
+      { stageMappingId: STAGE_MAPPING_ID, subStateId: SUB_STATE_ID },
+      { stageMappingId: OTHER_STAGE_MAPPING_ID },
+    ];
     const params = buildCandidatesListSearchParams({
       all: true,
       jobId: JOB_ID,
-      stageMappingId: STAGE_MAPPING_ID,
-      subStateId: SUB_STATE_ID,
+      stageFilters,
     });
     expect(params.get("jobId")).toBe(JOB_ID);
-    expect(params.get("stageMappingId")).toBe(STAGE_MAPPING_ID);
-    expect(params.get("subStateId")).toBe(SUB_STATE_ID);
+    expect(params.getAll("stage")).toEqual([
+      `${STAGE_MAPPING_ID}:${SUB_STATE_ID}`,
+      OTHER_STAGE_MAPPING_ID,
+    ]);
+    expect(parseCandidatesListQuery(params).query.stageFilters).toEqual(
+      stageFilters,
+    );
   });
 
   it("round-trips parsingStatus", () => {

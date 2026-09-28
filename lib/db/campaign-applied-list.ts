@@ -57,11 +57,16 @@ export type CampaignAppliedAdminRow = {
   sub_stage_label: string | null;
 };
 
+/** One pipeline-position filter: a whole stage, or one sub-stage within it when `subStateId` is set. */
+export type PipelineStageFilter = {
+  stageMappingId: string;
+  subStateId?: string;
+};
+
 export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   jobId?: string;
-  /** Filters on the application's current custom pipeline stage; {@link subStateId} further narrows to one sub-stage within it, but isn't required. */
-  stageMappingId?: string;
-  subStateId?: string;
+  /** Filters on the application's current custom pipeline stage; rows matching ANY entry are returned (OR). */
+  stageFilters?: PipelineStageFilter[];
   /** Case-insensitive substring match against candidate name and school (education). */
   q?: string;
   /** Exact match on the active CV version's `parsing_status`. */
@@ -193,13 +198,15 @@ export async function listCampaignAppliedForAdmin(
     values.push(filters.jobId);
     conditions.push(`ca.job_id = $${values.length}`);
   }
-  if (filters.stageMappingId) {
-    values.push(filters.stageMappingId);
-    conditions.push(`ca.current_job_stage_mapping_id = $${values.length}`);
-  }
-  if (filters.subStateId) {
-    values.push(filters.subStateId);
-    conditions.push(`ca.current_sub_state_id = $${values.length}`);
+  if (filters.stageFilters && filters.stageFilters.length > 0) {
+    const stageClauses = filters.stageFilters.map((f) => {
+      values.push(f.stageMappingId);
+      const stageClause = `ca.current_job_stage_mapping_id = $${values.length}`;
+      if (!f.subStateId) return stageClause;
+      values.push(f.subStateId);
+      return `(${stageClause} AND ca.current_sub_state_id = $${values.length})`;
+    });
+    conditions.push(`(${stageClauses.join(" OR ")})`);
   }
   if (filters.uploadFrom) {
     values.push(filters.uploadFrom);

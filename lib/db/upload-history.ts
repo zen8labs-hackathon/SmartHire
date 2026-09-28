@@ -291,6 +291,26 @@ export async function listFileUploads(
   };
 }
 
+/**
+ * Cheap change marker for one upload-history scope (a job, or the job-less
+ * candidate pool): row count + latest `updated_at` (bumped by trigger on
+ * every UPDATE). Any insert/update/delete in the scope changes it -- lets the
+ * upload-history SSE stream re-send the full list only when something moved.
+ */
+export async function getFileUploadsFingerprint(
+  db: QueryExecutor,
+  scope: { jobId: string | null },
+): Promise<string> {
+  const { rows } = await db.query<{ total: number; last_updated: Date | null }>(
+    `SELECT count(*)::int AS total, max(updated_at) AS last_updated
+     FROM file_uploads
+     WHERE ${scope.jobId ? "job_id = $1" : "job_id IS NULL"}`,
+    scope.jobId ? [scope.jobId] : [],
+  );
+  const row = rows[0];
+  return `${row?.total ?? 0}:${row?.last_updated?.toISOString() ?? ""}`;
+}
+
 /** Per-status row counts for one batch. */
 export type BatchStatusCounts = {
   total: number;
