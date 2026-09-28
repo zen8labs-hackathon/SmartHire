@@ -1,5 +1,3 @@
-"use client";
-
 import { FileText } from "lucide-react";
 
 import {
@@ -9,29 +7,22 @@ import {
 
 type CvFileTagProps = {
   file: CvFileInfo;
-  onOpen: () => void;
 };
 
 /**
- * File-type tag ("PDF", "DOCX", ...) that asks its owner to open a CV preview.
- * Purely presentational -- the modal lives with the parent, like the table's
- * other row modals. Styled after the jobs list's "JD file" tag and is a plain
- * `<button>` like it: HeroUI's `Button` brings its own variant hover styles
- * that fight custom hover classes. Must stay a sibling of the candidate-name
- * link, never inside it, or a click bubbles into the anchor and navigates.
+ * Static file-type tag ("PDF", "DOCX", ...) shown next to a candidate's name.
+ * Previewing the CV is done by clicking the name itself, so this is only an
+ * indicator; the full file name is on hover.
  */
-export function CvFileTag({ file, onOpen }: CvFileTagProps) {
+export function CvFileTag({ file }: CvFileTagProps) {
   const typeLabel = cvFileTypeLabel(file);
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={file.fileName ? `Preview ${file.fileName}` : "Preview CV file"}
-      aria-label={`Preview CV file (${typeLabel})`}
-      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-divider bg-surface-secondary px-1.5 py-0.5 text-[10px] font-bold text-muted transition-colors hover:bg-surface-tertiary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+    <span
+      title={file.fileName ?? undefined}
+      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-divider bg-surface-secondary px-1.5 py-0.5 text-[10px] font-bold text-muted"
     >
       <FileText className="size-2.5" aria-hidden />
       {typeLabel}
-    </button>
+    </span>
   );
 }

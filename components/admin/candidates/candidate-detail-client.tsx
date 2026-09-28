@@ -293,16 +293,16 @@ export function CandidateDetailClient({ candidate }: Props) {
         <Breadcrumbs.Item>{candidate.name}</Breadcrumbs.Item>
       </Breadcrumbs>
 
-      <div className="flex gap-6 items-start">
+      {/* `-mb-5` pulls main's 2rem bottom padding in to 0.75rem, so the sticky preview can sit that close to the bottom edge (a sticky box can't pass its row, and the scroll extent shrinks with the margin). */}
+      <div className="-mb-5 flex gap-6 items-start">
         {/* Left: CV viewer. Sticks at its own resting position inside the
             scrolling <main> (`top-9` = the breadcrumb row; sticky offsets are
             measured inside main's 2rem padding) and is sized to what's
             visible below it: 100vh - 3.5rem header - 2rem top padding -
-            2.25rem - 2rem bottom gap. The bottom gap must equal main's 2rem
-            bottom padding -- a sticky box can't pass its row's content edge,
-            so any less and it gets pushed up once the right column is
-            scrolled to its end. */}
-        <div className="sticky top-9 flex h-[calc(100vh-9.75rem)] w-7/12 shrink-0 flex-col">
+            2.25rem - 0.75rem bottom gap = 100vh - 8.5rem. The row's `-mb-5`
+            keeps that gap constant when the right column is scrolled to its
+            end. */}
+        <div className="sticky top-9 flex h-[calc(100vh-8.5rem)] w-7/12 shrink-0 flex-col">
           <p className="mb-2 shrink-0 truncate text-xs font-semibold text-muted uppercase tracking-wider">
             CV — {candidate.name}
             {` · ${selectedApp?.job_title ?? "No Job Assigned"}`}

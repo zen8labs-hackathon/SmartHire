@@ -1,6 +1,6 @@
 import { memo, type Dispatch, type SetStateAction } from "react";
-import Link from "next/link";
-import { Info, Pencil, RotateCw, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FileSearch, Info, Pencil, RotateCw, Trash2 } from "lucide-react";
 import { Avatar, Button, Chip, ListBox, Select, Table } from "@heroui/react";
 
 import { CvFileTag } from "@/components/admin/candidates/cv-file-tag";
@@ -60,7 +60,7 @@ export type PipelineTableRowProps = {
   onOpenSchedule: (r: JdPipelineApplicationRow) => void;
   /** Opens the JD-match reasoning modal (AI rationale behind the score) for this row. */
   onOpenRationale: (r: JdPipelineApplicationRow) => void;
-  /** Opens the CV preview modal for this row's active CV. */
+  /** Opens the quick-review modal (CV preview + status) starting at this row. */
   onOpenCvPreview: (r: JdPipelineApplicationRow) => void;
   setRowPendingEdit: Dispatch<SetStateAction<JdPipelineApplicationRow | null>>;
   /** `editModal.open` — only `.open()` is called from within a row, so we pass
@@ -143,6 +143,7 @@ export const PipelineTableRow = memo(function PipelineTableRow({
   setRowPendingDelete,
   openDeleteModal,
 }: PipelineTableRowProps) {
+  const router = useRouter();
   const row: JdPipelineTableRow = campaignAppliedAdminRowToTableRow(r);
   const busy = rowUpdating === r.id;
   const resolved = resolveRow(r);
@@ -186,24 +187,28 @@ export const PipelineTableRow = memo(function PipelineTableRow({
           </Avatar>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Link
-                href={`/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`}
-                className="font-semibold text-accent hover:underline"
+              {/* Opens the quick-review modal; the full evaluation page is the "View" button in the Action column. */}
+              <button
+                type="button"
+                onClick={() => onOpenCvPreview(r)}
+                title={row.name}
+                className="min-w-0 max-w-full cursor-pointer truncate text-left font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
               >
                 {row.name}
-              </Link>
-              {/* Sibling of the link, not a child: inside the <a> a click on the tag would navigate to the evaluation page. No stored file -> nothing for `cv-download` to serve, so no tag. */}
+              </button>
               {r.cv_storage_path ? (
                 <CvFileTag
                   file={{
                     fileName: r.cv_original_filename,
                     mimeType: r.cv_mime_type,
                   }}
-                  onOpen={() => onOpenCvPreview(r)}
                 />
               ) : null}
             </div>
-            <p className="text-xs font-medium text-muted truncate max-w-[10rem] md:max-w-[6rem]">
+            <p
+              className="text-xs font-medium text-muted truncate max-w-[10rem] md:max-w-[6rem]"
+              title={row.role}
+            >
               {row.role}
             </p>
           </div>
@@ -348,6 +353,19 @@ export const PipelineTableRow = memo(function PipelineTableRow({
       </Table.Cell>
       <Table.Cell className={`align-middle text-center ${passedCellClass}`}>
         <div className="flex items-center justify-center gap-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="min-w-0"
+            onPress={() =>
+              router.push(
+                `/admin/jd/${jobId}/pipeline/${encodeURIComponent(r.id)}/evaluation`,
+              )
+            }
+            aria-label={`View CV detail for ${row.name}`}
+          >
+            <FileSearch className="size-4" />
+          </Button>
           {r.cv_parsing_status === "failed" ? (
             <Button
               size="sm"
