@@ -68,13 +68,15 @@ describe("listCampaignAppliedForAdmin", () => {
     );
   });
 
-  it("filters by stageMappingId alone (whole-stage filter)", async () => {
+  it("filters by a whole stage alone", async () => {
     const db = fakeDb([]);
 
-    await listCampaignAppliedForAdmin(db, { stageMappingId: "stage-1" });
+    await listCampaignAppliedForAdmin(db, {
+      stageFilters: [{ stageMappingId: "stage-1" }],
+    });
 
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ca.current_job_stage_mapping_id = $1"),
+      expect.stringContaining("(ca.current_job_stage_mapping_id = $1)"),
       expect.arrayContaining(["stage-1"]),
     );
     expect(db.query.mock.calls[0][0]).not.toContain(
@@ -82,19 +84,32 @@ describe("listCampaignAppliedForAdmin", () => {
     );
   });
 
-  it("applies both stage filters when both ids are present", async () => {
+  it("ORs multiple stage / sub-stage filters together", async () => {
     const db = fakeDb([]);
 
     await listCampaignAppliedForAdmin(db, {
-      stageMappingId: "stage-1",
-      subStateId: "sub-1",
+      stageFilters: [
+        { stageMappingId: "stage-1", subStateId: "sub-1" },
+        { stageMappingId: "stage-2" },
+      ],
     });
 
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ca.current_job_stage_mapping_id = $1"),
-      expect.arrayContaining(["stage-1", "sub-1"]),
+      expect.stringContaining(
+        "((ca.current_job_stage_mapping_id = $1 AND ca.current_sub_state_id = $2) OR ca.current_job_stage_mapping_id = $3)",
+      ),
+      expect.arrayContaining(["stage-1", "sub-1", "stage-2"]),
     );
-    expect(db.query.mock.calls[0][0]).toContain("ca.current_sub_state_id = $2");
+  });
+
+  it("skips the stage clause for an empty stageFilters list", async () => {
+    const db = fakeDb([]);
+
+    await listCampaignAppliedForAdmin(db, { stageFilters: [] });
+
+    expect(db.query.mock.calls[0][0]).not.toContain(
+      "ca.current_job_stage_mapping_id = $",
+    );
   });
 
   it("builds an ILIKE OR clause across name and school for q", async () => {

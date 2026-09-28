@@ -78,7 +78,7 @@ export const candidateService = {
   // filter, sort, pagination)
   getFilteredCandidateList: async (
     jobId: string,
-    queryParams: Record<string, string>,
+    queryParams: Record<string, string> | URLSearchParams,
   ): Promise<{
     candidates: JdPipelineApplicationRow[];
     pagination: CandidatesListPagination | null;

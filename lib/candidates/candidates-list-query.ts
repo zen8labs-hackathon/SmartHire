@@ -1,12 +1,15 @@
 import {
   listCampaignAppliedForAdmin,
   type CampaignAppliedAdminRow,
+  type PipelineStageFilter,
 } from "@/lib/db/campaign-applied-list";
 import type { QueryExecutor } from "@/lib/db/config/client";
 
 export const CANDIDATES_LIST_DEFAULT_LIMIT = 10;
 export const CANDIDATES_LIST_MAX_LIMIT = 200;
 export const CANDIDATES_LIST_MAX_ALL = 2000;
+/** Upper bound on `stage` params accepted per request (a job has far fewer stage/sub-stage pairs). */
+export const CANDIDATES_LIST_MAX_STAGE_FILTERS = 50;
 
 /** Whitelisted sortable columns for the admin candidates list. */
 export const CANDIDATES_LIST_SORT_COLUMNS = [
@@ -31,10 +34,12 @@ export type CandidatesListParsingStatus =
 export type CandidatesListQuery = {
   /** `jobs.id` -- DB7X2K merged job_openings + job_descriptions, so there's a single id now. */
   jobId?: string;
-  /** `job_stage_mappings.id` — filters on the application's current custom pipeline stage. */
-  stageMappingId?: string;
-  /** `pipeline_sub_stages.id`, paired with {@link stageMappingId}. */
-  subStateId?: string;
+  /**
+   * Filters on the application's current custom pipeline stage; matches ANY
+   * entry. Serialized as repeated `stage` params: `<job_stage_mappings.id>`
+   * (whole stage) or `<job_stage_mappings.id>:<pipeline_sub_stages.id>`.
+   */
+  stageFilters?: PipelineStageFilter[];
   uploadFrom?: string;
   uploadTo?: string;
   q?: string;
@@ -82,6 +87,23 @@ function parseDateParam(raw: string | null): string | undefined {
   return s;
 }
 
+/** Parses `stage` params (`<stageMappingId>` or `<stageMappingId>:<subStateId>`), dropping malformed and duplicate entries. */
+function parseStageFilters(raws: string[]): PipelineStageFilter[] {
+  const seen = new Set<string>();
+  const filters: PipelineStageFilter[] = [];
+  for (const raw of raws) {
+    const value = raw.trim();
+    if (!value || seen.has(value)) continue;
+    const [stageMappingId, subStateId, ...rest] = value.split(":");
+    if (rest.length > 0 || !UUID_RE.test(stageMappingId)) continue;
+    if (subStateId !== undefined && !UUID_RE.test(subStateId)) continue;
+    seen.add(value);
+    filters.push(subStateId ? { stageMappingId, subStateId } : { stageMappingId });
+    if (filters.length >= CANDIDATES_LIST_MAX_STAGE_FILTERS) break;
+  }
+  return filters;
+}
+
 export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   query: CandidatesListQuery;
   error: string | null;
@@ -102,14 +124,7 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
     limit = Math.min(Math.max(1, limit), CANDIDATES_LIST_MAX_LIMIT);
   }
 
-  const stageMappingIdRaw = searchParams.get("stageMappingId")?.trim() ?? "";
-  const stageMappingId =
-    stageMappingIdRaw && UUID_RE.test(stageMappingIdRaw)
-      ? stageMappingIdRaw
-      : undefined;
-  const subStateIdRaw = searchParams.get("subStateId")?.trim() ?? "";
-  const subStateId =
-    subStateIdRaw && UUID_RE.test(subStateIdRaw) ? subStateIdRaw : undefined;
+  const stageFilters = parseStageFilters(searchParams.getAll("stage"));
 
   const sortByRaw = searchParams.get("sortBy");
   const sortBy = (CANDIDATES_LIST_SORT_COLUMNS as readonly string[]).includes(
@@ -131,8 +146,7 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
   return {
     query: {
       jobId,
-      stageMappingId,
-      subStateId: stageMappingId ? subStateId : undefined,
+      stageFilters: stageFilters.length > 0 ? stageFilters : undefined,
       uploadFrom: parseDateParam(searchParams.get("uploadFrom")),
       uploadTo: parseDateParam(searchParams.get("uploadTo")),
       q: searchParams.get("q")?.trim() || undefined,
@@ -152,8 +166,12 @@ export function buildCandidatesListSearchParams(
 ): URLSearchParams {
   const params = new URLSearchParams();
   if (query.jobId) params.set("jobId", query.jobId);
-  if (query.stageMappingId) params.set("stageMappingId", query.stageMappingId);
-  if (query.subStateId) params.set("subStateId", query.subStateId);
+  for (const f of query.stageFilters ?? []) {
+    params.append(
+      "stage",
+      f.subStateId ? `${f.stageMappingId}:${f.subStateId}` : f.stageMappingId,
+    );
+  }
   if (query.uploadFrom) params.set("uploadFrom", query.uploadFrom);
   if (query.uploadTo) params.set("uploadTo", query.uploadTo);
   if (query.q) params.set("q", query.q);
@@ -187,8 +205,7 @@ export async function queryCandidatesList(
     // see its docstring for why that's safe.
     const { rows, total } = await listCampaignAppliedForAdmin(db, {
       jobId: input.jobId,
-      stageMappingId: input.stageMappingId,
-      subStateId: input.subStateId,
+      stageFilters: input.stageFilters,
       q: input.q,
       uploadFrom: input.uploadFrom,
       uploadTo: input.uploadTo,
