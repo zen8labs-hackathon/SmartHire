@@ -50,28 +50,39 @@ export function PipelineStageSubStageInlineLabel({
         stageColor,
       )
     : undefined;
+  const stageLabel =
+    stageMapping.pipeline_stages?.label ?? stageMapping.pipeline_stages?.code;
   return (
+    // `min-w-0` + truncating children: inside a fixed-width Select trigger a
+    // long stage name must ellipsize on one line rather than wrap and spill
+    // out of the (fixed-height) box. `title` keeps the full text on hover.
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
+        "inline-flex min-w-0 max-w-full items-center rounded-md border px-1.5 py-0.5 font-medium",
         surfaceClass,
         !subStage && "border-2 shadow-sm",
       )}
       style={surfaceStyle}
+      title={subStage ? `${stageLabel} · ${subStage.label}` : stageLabel}
     >
       {!subStage ? (
         <Layers className="mr-1 size-3 shrink-0 opacity-70" />
       ) : null}
       <span
-        className={cn("text-xs text-foreground", !subStage && "font-semibold")}
+        className={cn(
+          "min-w-0 truncate text-xs text-foreground",
+          !subStage && "font-semibold",
+        )}
       >
-        {stageMapping.pipeline_stages?.label ??
-          stageMapping.pipeline_stages?.code}
+        {stageLabel}
       </span>
       {subStage ? (
         <>
-          <span className="mx-1 text-xs text-muted">·</span>
-          <span className={cn("text-xs", detailClass)} style={detailStyle}>
+          <span className="mx-1 shrink-0 text-xs text-muted">·</span>
+          <span
+            className={cn("max-w-[60%] shrink-0 truncate text-xs", detailClass)}
+            style={detailStyle}
+          >
             {subStage.label}
           </span>
         </>
