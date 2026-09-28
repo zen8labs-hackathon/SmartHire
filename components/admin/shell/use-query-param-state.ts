@@ -15,6 +15,18 @@ export const stringQueryParam: QueryParamCodec<string> = {
   serialize: (value) => value,
 };
 
+/** Comma-separated list <-> string array (empty entries and the legacy
+ * `"all"` sentinel dropped; `[]` serializes to `""`). Values must not
+ * contain commas. */
+export const stringListQueryParam: QueryParamCodec<string[]> = {
+  parse: (raw) =>
+    raw
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => v !== "" && v !== "all"),
+  serialize: (value) => value.join(","),
+};
+
 export function intQueryParam(fallback: number): QueryParamCodec<number> {
   return {
     parse: (raw) => {

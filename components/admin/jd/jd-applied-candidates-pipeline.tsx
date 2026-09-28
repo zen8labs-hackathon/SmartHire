@@ -16,6 +16,7 @@ import {
   dateRangeQueryParam,
   intQueryParam,
   sortDescriptorQueryParam,
+  stringListQueryParam,
   stringQueryParam,
   useQueryParamState,
 } from "@/components/admin/shell/use-query-param-state";
@@ -26,6 +27,8 @@ import type { CalendarDate } from "@internationalized/date";
 import type { RangeValue } from "react-aria-components";
 
 import { useToast } from "@/components/admin/toast-provider";
+import { useFileUploadsStream } from "@/components/admin/jd/use-file-uploads-stream";
+import { FILE_UPLOAD_STATUS } from "@/lib/db/upload-history";
 import { PipelineStageSubStageInlineLabel } from "@/components/admin/jd/pipeline-stage-substage-inline-label";
 import { PipelineTableRow } from "@/components/admin/jd/pipeline-table-row";
 import { CvFilePreviewModal } from "@/components/admin/candidates/cv-file-preview-modal";
@@ -59,6 +62,11 @@ import {
   type CandidatesListSortColumn,
 } from "@/lib/candidates/candidates-list-query";
 import { candidateService } from "@/lib/service/candidate.service";
+
+/** Stable default for the multi-stage filter (an inline `[]` would re-trigger `useQueryParamState`'s memo every render). */
+const NO_STAGE_FILTER: string[] = [];
+/** Pseudo-option id that clears the stage filter. */
+const ALL_STAGES_KEY = "all";
 
 /** Shape of `/api/admin/job-descriptions/[id]/candidate-status-counts`'s `counts` entries. */
 type StageCount = {
@@ -273,13 +281,14 @@ export function JdAppliedCandidatesPipeline({
     setUrlQuery(debouncedQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
+  // Filter option ids (see `buildPipelineFilterOptions`); empty = all stages.
   const [statusFilter, setStatusFilter] = useQueryParamState(
     "status",
-    "all",
-    stringQueryParam,
+    NO_STAGE_FILTER,
+    stringListQueryParam,
   );
-  const selectedFilterOption: PipelineFilterOption | null = useMemo(
-    () => filterOptions.find((opt) => opt.id === statusFilter) ?? null,
+  const selectedFilterOptions: PipelineFilterOption[] = useMemo(
+    () => filterOptions.filter((opt) => statusFilter.includes(opt.id)),
     [filterOptions, statusFilter],
   );
   const [uploadDateRange, setUploadDateRange] =
@@ -321,15 +330,12 @@ export function JdAppliedCandidatesPipeline({
     setPage(1);
   }, [debouncedQuery, statusFilter, uploadDateRange, sortDescriptor]);
 
-  // If the selected filter's stage/sub-stage was removed by a JD pipeline
-  // edit (stale composite id), reset to "all" instead of silently showing
-  // zero rows.
+  // Drop any selected stage/sub-stage that was removed by a JD pipeline edit
+  // (stale composite id) instead of silently filtering on it.
   useEffect(() => {
-    if (statusFilter === "all") return;
-    if (!filterOptions.some((opt) => opt.id === statusFilter)) {
-      setStatusFilter("all");
-    }
-  }, [statusFilter, filterOptions]);
+    if (selectedFilterOptions.length === statusFilter.length) return;
+    setStatusFilter(selectedFilterOptions.map((opt) => opt.id));
+  }, [statusFilter, selectedFilterOptions]);
 
   const [statusCounts, setStatusCounts] = useState<StageCount[]>([]);
   const [totalCandidates, setTotalCandidates] = useState(0);
@@ -390,8 +396,10 @@ export function JdAppliedCandidatesPipeline({
         q: debouncedQuery.trim() || undefined,
         uploadFrom: uploadDateRange?.start.toString(),
         uploadTo: uploadDateRange?.end.toString(),
-        stageMappingId: selectedFilterOption?.stageMapping.id,
-        subStateId: selectedFilterOption?.subStage?.id,
+        stageFilters: selectedFilterOptions.map((opt) => ({
+          stageMappingId: opt.stageMapping.id,
+          subStateId: opt.subStage?.id,
+        })),
         sortBy: sortDescriptor?.column,
         sortDir: sortDescriptor
           ? sortDescriptor.direction === "ascending"
@@ -402,7 +410,7 @@ export function JdAppliedCandidatesPipeline({
       const { candidates, pagination } =
         await candidateService.getFilteredCandidateList(
           jobId,
-          Object.fromEntries(params),
+          params,
         );
       if (seq !== fetchPageSeqRef.current) return;
       const total = pagination?.total ?? candidates.length;
@@ -421,15 +429,42 @@ export function JdAppliedCandidatesPipeline({
     page,
     debouncedQuery,
     uploadDateRange,
-    selectedFilterOption,
+    selectedFilterOptions,
     sortDescriptor,
     pageSize,
     setPage,
   ]);
 
+  // `dbRows` changes whenever the parent refetches (e.g. after the upload
+  // modal closes) -- reload the visible page too, not just the stat cards.
   useEffect(() => {
     void fetchPage();
-  }, [fetchPage]);
+  }, [fetchPage, dbRows]);
+
+  // CVs are turned into applications asynchronously by the file-upload
+  // worker. Watch this job's upload rows over SSE and reload the table and
+  // stats whenever another file finishes, so new candidates show up without
+  // a manual refresh. The first snapshot is just the baseline.
+  const uploadStream = useFileUploadsStream(jobId);
+  const completedUploadCount = useMemo(
+    () =>
+      uploadStream.rows.filter(
+        (r) => r.status === FILE_UPLOAD_STATUS.Completed,
+      ).length,
+    [uploadStream.rows],
+  );
+  const lastCompletedUploadCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (uploadStream.snapshotCount === 0) return;
+    const previous = lastCompletedUploadCountRef.current;
+    lastCompletedUploadCountRef.current = completedUploadCount;
+    if (previous == null || completedUploadCount <= previous) return;
+    void fetchStats();
+    void fetchPage();
+    // Only react to new completions, not to filter/page changes (fetchPage
+    // identity) -- those already refetch via the effect above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedUploadCount, uploadStream.snapshotCount]);
 
   const handleDeleteCandidate = useCallback(async () => {
     if (!rowPendingDelete) return;
@@ -804,24 +839,33 @@ export function JdAppliedCandidatesPipeline({
 
   const filtersElement = (
     <Select
-      value={statusFilter}
-      onChange={(k) => {
-        if (typeof k === "string") {
-          setStatusFilter(k);
-          if (document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur();
-          }
-        }
+      selectionMode="multiple"
+      aria-label="Filter by pipeline stage"
+      value={statusFilter.length > 0 ? statusFilter : [ALL_STAGES_KEY]}
+      onChange={(keys) => {
+        const next = keys.map(String);
+        // Picking "All stages" clears the filter; picking any stage while
+        // "All stages" is shown replaces it.
+        const justPickedAll =
+          next.includes(ALL_STAGES_KEY) && statusFilter.length > 0;
+        setStatusFilter(
+          justPickedAll ? [] : next.filter((k) => k !== ALL_STAGES_KEY),
+        );
       }}
       placeholder="All stages"
-      className="w-32"
+      className="w-40"
     >
       <Select.Trigger className="w-full h-9 rounded-xl border border-divider bg-surface-secondary/40 text-xs">
-        {statusFilter !== "all" && selectedFilterOption ? (
+        {selectedFilterOptions.length === 1 ? (
           <PipelineStageSubStageInlineLabel
-            stageMapping={selectedFilterOption.stageMapping}
-            subStage={selectedFilterOption.subStage}
+            stageMapping={selectedFilterOptions[0].stageMapping}
+            subStage={selectedFilterOptions[0].subStage}
           />
+        ) : selectedFilterOptions.length > 1 ? (
+          <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/5 px-1.5 py-0.5 text-xs font-medium text-accent">
+            <LayersIcon className="size-3 shrink-0" />
+            {selectedFilterOptions.length} stages
+          </span>
         ) : (
           <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-divider bg-surface-secondary/60 px-1.5 py-0.5 text-xs font-medium text-muted">
             <LayersIcon className="size-3 shrink-0" />
@@ -833,7 +877,7 @@ export function JdAppliedCandidatesPipeline({
       <Select.Popover>
         <ListBox className="p-1 border border-divider rounded-2xl bg-surface-primary shadow-xl max-h-[300px] overflow-y-auto">
           <ListBox.Item
-            id="all"
+            id={ALL_STAGES_KEY}
             textValue="All stages"
             className="text-xs font-semibold py-1.5 px-2.5 rounded-lg hover:bg-surface-secondary cursor-pointer"
           >
@@ -952,25 +996,30 @@ export function JdAppliedCandidatesPipeline({
       value: totalCandidates,
       icon: <UsersIcon className="h-4.5 w-4.5" />,
       description: "Applied to opening",
-      isActive: statusFilter === "all",
-      onClick: () => setStatusFilter("all"),
+      isActive: statusFilter.length === 0,
+      onClick: () => setStatusFilter([]),
     },
-    // Clicking a stage card applies that stage's "whole stage" filter option
-    // (id === stageMapping.id, from buildPipelineFilterOptions) so the table
-    // below narrows to every candidate in that stage regardless of
-    // sub-stage; clicking the already-active card clears back to "all".
+    // Clicking a stage card toggles that stage's "whole stage" filter option
+    // (id === stageMapping.id, from buildPipelineFilterOptions) in the
+    // multi-stage filter, so the table below includes every candidate in
+    // that stage regardless of sub-stage.
     ...orderedStageMappings.map((sm) => {
       const label =
         sm.pipeline_stages?.label ?? sm.pipeline_stages?.code ?? "Stage";
       const value = stageMappingCounts[sm.id] ?? 0;
-      const isActive = statusFilter === sm.id;
+      const isActive = statusFilter.includes(sm.id);
       return {
         label,
         value,
         description: "Candidates in stage",
         icon: <LayersIcon className="h-4.5 w-4.5" />,
         isActive,
-        onClick: () => setStatusFilter(isActive ? "all" : sm.id),
+        onClick: () =>
+          setStatusFilter(
+            isActive
+              ? statusFilter.filter((id) => id !== sm.id)
+              : [...statusFilter, sm.id],
+          ),
       };
     }),
   ];
