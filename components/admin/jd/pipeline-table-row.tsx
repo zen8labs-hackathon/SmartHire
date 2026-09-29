@@ -3,8 +3,6 @@ import { useRouter } from "next/navigation";
 import { FileSearch, Info, Pencil, RotateCw, Trash2 } from "lucide-react";
 import { Avatar, Button, Chip, ListBox, Select, Table } from "@heroui/react";
 
-import { CvFileTag } from "@/components/admin/candidates/cv-file-tag";
-
 import {
   candidateDisplayInitials,
   jdMatchChipColor,
@@ -196,14 +194,6 @@ export const PipelineTableRow = memo(function PipelineTableRow({
               >
                 {row.name}
               </button>
-              {r.cv_storage_path ? (
-                <CvFileTag
-                  file={{
-                    fileName: r.cv_original_filename,
-                    mimeType: r.cv_mime_type,
-                  }}
-                />
-              ) : null}
             </div>
             <p
               className="text-xs font-medium text-muted truncate max-w-[10rem] md:max-w-[6rem]"

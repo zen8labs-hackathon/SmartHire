@@ -38,6 +38,7 @@ import {
   stageSubStageOptionKey,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
 import {
+  QUICK_REVIEW_PREFETCH_THRESHOLD,
   reviewQueueNeighbors,
   groupRequirementsByVerdict,
   type QuickReviewTarget,
@@ -53,8 +54,16 @@ type Props = {
   jobId: string;
   /** Rows the table is showing; the modal keeps its own copy so a refetch can't reshuffle the queue mid-review. */
   rows: JdPipelineApplicationRow[];
-  /** Queue order, snapshotted by the table when the modal opens. */
+  /** Queue order, snapshotted by the table when the modal opens (from wherever it was clicked, not necessarily the start of the list) and extended in both directions as more batches load. */
   queueIds: string[];
+  /** Whether more rows exist past the end of `queueIds` (same filter/sort, next batch) -- gates calls to `onLoadMoreAfter`. */
+  hasMoreAfter: boolean;
+  /** Fetches and appends the next batch past the end of `rows`/`queueIds`. Called once the reviewer is within `QUICK_REVIEW_PREFETCH_THRESHOLD` rows of the end of what's loaded; safe to call repeatedly -- the caller dedupes overlapping loads. */
+  onLoadMoreAfter: () => void;
+  /** Whether more rows exist before the start of `queueIds` -- gates calls to `onLoadMoreBefore`. */
+  hasMoreBefore: boolean;
+  /** Fetches and prepends the batch just before the start of `rows`/`queueIds`. Called once the reviewer is within `QUICK_REVIEW_PREFETCH_THRESHOLD` rows of the start of what's loaded; safe to call repeatedly -- the caller dedupes overlapping loads. */
+  onLoadMoreBefore: () => void;
   /** The application shown when the modal opens. */
   initialId: string | null;
   stageMappings: StageMapping[];
@@ -95,17 +104,30 @@ const SUMMARY_CLAMP_CHARS = 240;
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return (
+  if (
     target.isContentEditable ||
     target.tagName === "INPUT" ||
     target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
-    // The status `<Select>` uses its own arrow-key navigation between
-    // options while its popover is open -- never treated as a typing
-    // target, but also never let the modal's own arrow-key shortcuts
-    // (prev/next CV, prev/next sub-stage) fire while it's in play.
-    !!target.closest('[data-slot="select"], [data-slot="select-popover"]')
-  );
+    target.tagName === "SELECT"
+  ) {
+    return true;
+  }
+  // The status `<Select>` uses its own arrow-key navigation between
+  // options while its popover is open -- never treated as a typing target
+  // then. But react-aria keeps real DOM focus on the *trigger* button even
+  // while the popover is open (the highlighted option is virtual, via
+  // `aria-activedescendant`), so `target` alone can't tell "popover open,
+  // arrows pick an option" apart from "popover already closed, trigger
+  // merely still has focus" -- both report the trigger as `target`.
+  // Require the popover to actually be mounted (react-aria only renders it
+  // while open) so a closed-but-focused trigger doesn't swallow ← / → /
+  // ↑ / ↓: previously that let react-aria's native-`<select>`-style
+  // arrow-key value-cycling silently change the pipeline status instead of
+  // moving between CVs.
+  if (target.closest('[data-slot="select"], [data-slot="select-popover"]')) {
+    return !!document.querySelector('[data-slot="select-popover"]');
+  }
+  return false;
 }
 
 /** `Stage · Sub-stage` pill in the stage's configured colour; ellipsizes on one line if space is short. */
@@ -243,6 +265,10 @@ function QuickReviewBody({
   jobId,
   rows,
   queueIds,
+  hasMoreAfter,
+  onLoadMoreAfter,
+  hasMoreBefore,
+  onLoadMoreBefore,
   initialId,
   stageMappings,
   subStages,
@@ -266,23 +292,50 @@ function QuickReviewBody({
     });
   }, [rows]);
 
-  const [busy, setBusy] = useState(false);
+  // Keyed by candidate id, not a single flag -- a save can still be in
+  // flight for the candidate the reviewer just navigated away from, and
+  // must not show up as "busy"/"saved" on whichever CV is now on screen.
+  const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
   // Per candidate: the status it had before the first change made here. ↑ / ↓ steps one sub-stage at a time, so "the previous status" is meaningless -- Revert restores this instead.
   const [baselines, setBaselines] = useState<Record<string, StatusBaseline>>({});
   const [showFullSummary, setShowFullSummary] = useState(false);
-  // True from a successful save until the reviewer moves to another CV -- drives the "Saved" line.
-  const [justSaved, setJustSaved] = useState(false);
+  // The candidate whose save most recently completed -- drives the "Saved"
+  // line, but only while that candidate is still the one on screen.
+  const [justSavedId, setJustSavedId] = useState<string | null>(null);
 
   const row = rowsById.get(currentId) ?? null;
   const { index, total, prevId, nextId } = reviewQueueNeighbors(
     queueIds,
     currentId,
   );
+  const busy = busyIds.has(currentId);
+  const justSaved = justSavedId === currentId;
+
+  // Keep the queue topped up in whichever direction the reviewer is
+  // heading, so Back/Next never run out just because a batch hasn't
+  // arrived yet -- whether the modal was opened at the start of the list
+  // or from the middle of it.
+  useEffect(() => {
+    if (index === -1) return;
+    if (hasMoreAfter && total - 1 - index <= QUICK_REVIEW_PREFETCH_THRESHOLD) {
+      onLoadMoreAfter();
+    }
+    if (hasMoreBefore && index <= QUICK_REVIEW_PREFETCH_THRESHOLD) {
+      onLoadMoreBefore();
+    }
+  }, [
+    hasMoreAfter,
+    onLoadMoreAfter,
+    hasMoreBefore,
+    onLoadMoreBefore,
+    index,
+    total,
+  ]);
 
   const goTo = useCallback((id: string) => {
     setCurrentId(id);
     setShowFullSummary(false);
-    setJustSaved(false);
+    setJustSavedId(null);
   }, []);
 
   const resolved = useMemo(
@@ -385,37 +438,40 @@ function QuickReviewBody({
 
   const decide = useCallback(
     async (target: QuickReviewTarget) => {
+      const id = currentId;
       if (
         !canDecide ||
-        busy ||
+        busyIds.has(id) ||
         !display ||
         !resolved?.stageMappingId ||
         !resolved.subStateId
       ) {
         return;
       }
-      setBusy(true);
+      setBusyIds((prev) => new Set(prev).add(id));
       try {
         const before: StatusBaseline = {
           stageMappingId: resolved.stageMappingId,
           subStateId: resolved.subStateId,
           label: `${resolved.stageMapping?.pipeline_stages?.label ?? resolved.stageMapping?.pipeline_stages?.code ?? "Stage"} · ${resolved.subStage?.label ?? ""}`,
         };
-        await postPipeline(currentId, target.stageMappingId, target.subStateId);
-        setBaselines((prev) =>
-          prev[currentId] ? prev : { ...prev, [currentId]: before },
-        );
+        await postPipeline(id, target.stageMappingId, target.subStateId);
+        setBaselines((prev) => (prev[id] ? prev : { ...prev, [id]: before }));
 
-        setJustSaved(true);
+        setJustSavedId(id);
         // Stay on this candidate -- the reviewer moves on with Back/Next
         // (or ← / →) on their own; a status change alone doesn't advance.
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Update failed.");
       } finally {
-        setBusy(false);
+        setBusyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
       }
     },
-    [busy, canDecide, currentId, display, postPipeline, resolved, toast],
+    [busyIds, canDecide, currentId, display, postPipeline, resolved, toast],
   );
 
   const onStatusSelect = useCallback(
@@ -456,21 +512,22 @@ function QuickReviewBody({
       baseline.subStateId !== resolved.subStateId);
 
   const revert = useCallback(async () => {
-    if (!baseline || busy) return;
-    setBusy(true);
+    const id = currentId;
+    if (!baseline || busyIds.has(id)) return;
+    setBusyIds((prev) => new Set(prev).add(id));
     try {
-      await postPipeline(
-        currentId,
-        baseline.stageMappingId,
-        baseline.subStateId,
-      );
-      setJustSaved(true);
+      await postPipeline(id, baseline.stageMappingId, baseline.subStateId);
+      setJustSavedId(id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Revert failed.");
     } finally {
-      setBusy(false);
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
-  }, [baseline, busy, currentId, postPipeline, toast]);
+  }, [baseline, busyIds, currentId, postPipeline, toast]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -479,18 +536,25 @@ function QuickReviewBody({
       if (isTypingTarget(e.target)) return;
       // ← / → move between CVs; ↑ / ↓ step the current CV through its
       // sub-stages -- the only two things arrow keys do here, no letter
-      // shortcuts for picking a status.
+      // shortcuts for picking a status. `stopPropagation` (not just
+      // `preventDefault`) so the closed-but-still-focused status `<Select>`
+      // trigger never also sees the key and cycles its own value -- see
+      // `isTypingTarget`.
       if (e.key === "ArrowRight" && nextId) {
         e.preventDefault();
+        e.stopPropagation();
         goTo(nextId);
       } else if (e.key === "ArrowLeft" && prevId) {
         e.preventDefault();
+        e.stopPropagation();
         goTo(prevId);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
+        e.stopPropagation();
         changeSubStage(1);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        e.stopPropagation();
         changeSubStage(-1);
       }
     };
