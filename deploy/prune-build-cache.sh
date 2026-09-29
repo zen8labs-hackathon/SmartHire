@@ -14,5 +14,5 @@ help="$(docker builder prune --help 2>&1 || true)"
 if grep -q -- '--keep-storage' <<<"$help"; then
   docker builder prune -af --keep-storage 10GB || echo "WARN: build cache prune failed"
 else
-  docker builder prune -af --filter until=72h || echo "WARN: build cache prune failed"
+  docker builder prune -af --filter until=168h || echo "WARN: build cache prune failed"
 fi
