@@ -7,6 +7,11 @@ import type { JdRequirementCheck } from "@/lib/candidates/jd-match-rationale";
  * the rows the table is showing.
  */
 
+/** Rows fetched per quick-review queue batch (see `JdAppliedCandidatesPipeline`'s `loadMoreQuickReview`) -- keeps each fetch small instead of loading every matching candidate up front. */
+export const QUICK_REVIEW_BATCH_SIZE = 20;
+/** Load the next batch once the reviewer is within this many rows of the end of what's loaded (see `QuickReviewModal`). */
+export const QUICK_REVIEW_PREFETCH_THRESHOLD = 5;
+
 /** One (stageMapping, subStage) the candidate can be moved to -- same set `allowedStageTargets` returns, shaped for the status `<Select>`. */
 export type QuickReviewTarget = {
   stageMappingId: string;

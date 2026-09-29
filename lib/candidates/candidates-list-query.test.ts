@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CANDIDATES_LIST_DEFAULT_LIMIT,
+  CANDIDATES_LIST_MAX_ALL,
   CANDIDATES_LIST_MAX_LIMIT,
   buildCandidatesListSearchParams,
   parseCandidatesListQuery,
@@ -187,6 +188,29 @@ describe("queryCandidatesList", () => {
       total: 0,
       hasMore: false,
     });
+  });
+
+  it("honors the full `all` limit resolved by parseCandidatesListQuery, not the page-size cap", async () => {
+    const db = fakeDb([]);
+
+    // Mirrors what the route actually passes through: `parseCandidatesListQuery`
+    // resolves `all=true` to `limit: CANDIDATES_LIST_MAX_ALL` up front.
+    const result = await queryCandidatesList(db, {
+      all: true,
+      limit: CANDIDATES_LIST_MAX_ALL,
+    });
+
+    expect(result.pagination?.limit).toBe(CANDIDATES_LIST_MAX_ALL);
+  });
+
+  it("still caps a paginated (non-`all`) request at the page-size limit", async () => {
+    const db = fakeDb([]);
+
+    const result = await queryCandidatesList(db, {
+      limit: CANDIDATES_LIST_MAX_ALL,
+    });
+
+    expect(result.pagination?.limit).toBe(CANDIDATES_LIST_MAX_LIMIT);
   });
 
   it("returns an error string instead of throwing on DB failure", async () => {
