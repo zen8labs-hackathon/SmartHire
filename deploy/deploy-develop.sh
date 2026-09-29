@@ -29,4 +29,5 @@ echo "==> Start / recreate app + worker"
 echo "==> Status"
 "${COMPOSE[@]}" ps
 curl -fsS -o /dev/null -w "app HTTP %{http_code}\n" http://127.0.0.1:3200/ || true
+bash "$(dirname "$0")/prune-build-cache.sh"
 echo "Done."

@@ -88,4 +88,5 @@ echo "==> Recreate BullMQ worker with the new image (slot-independent)"
 echo "==> Status"
 "${COMPOSE[@]}" ps
 echo "Active slot: $(cat "$STATE_FILE")"
+bash "$(dirname "$0")/prune-build-cache.sh"
 echo "Done."
