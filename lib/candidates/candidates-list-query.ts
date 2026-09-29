@@ -193,9 +193,16 @@ export async function queryCandidatesList(
   db: QueryExecutor,
   input: CandidatesListQuery,
 ): Promise<CandidatesListResult> {
+  // `parseCandidatesListQuery` already resolves `all: true` into
+  // `limit: CANDIDATES_LIST_MAX_ALL` before this runs, but re-clamping here
+  // unconditionally to `CANDIDATES_LIST_MAX_LIMIT` would silently cut that
+  // back down to a page size -- so the cap itself has to follow `input.all`.
+  const maxLimit = input.all
+    ? CANDIDATES_LIST_MAX_ALL
+    : CANDIDATES_LIST_MAX_LIMIT;
   const limit = Math.min(
     Math.max(1, input.limit ?? CANDIDATES_LIST_DEFAULT_LIMIT),
-    CANDIDATES_LIST_MAX_LIMIT,
+    maxLimit,
   );
   const offset = input.offset ?? 0;
 

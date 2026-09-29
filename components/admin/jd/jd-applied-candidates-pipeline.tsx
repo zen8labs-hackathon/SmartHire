@@ -57,6 +57,7 @@ import {
   findFailSubStage,
   resolveRowPipeline,
 } from "@/lib/pipelines/jd-pipeline-row-helpers";
+import { QUICK_REVIEW_BATCH_SIZE } from "@/lib/pipelines/quick-review";
 import {
   buildCandidatesListSearchParams,
   CANDIDATES_LIST_SORT_COLUMNS,
@@ -252,9 +253,36 @@ export function JdAppliedCandidatesPipeline({
 
   const [rowPendingCvPreview, setRowPendingCvPreview] =
     useState<JdPipelineApplicationRow | null>(null);
-  // The CV tag opens the quick-review modal; its prev/next queue is the page's
-  // rows in table order, snapshotted at open so a refetch can't reshuffle it.
+  // The name opens the quick-review modal from wherever it was clicked
+  // (any table page) -- its prev/next queue and row data (see
+  // `openCvPreview`/`loadMoreQuickReviewAfter`/`loadMoreQuickReviewBefore`
+  // further down, once filters/sort are in scope) cover every candidate
+  // matching the current filter/sort, not just this page, loaded
+  // `QUICK_REVIEW_BATCH_SIZE` rows at a time in whichever direction (Back
+  // or Next) the reviewer approaches the edge of what's loaded, so neither
+  // direction is capped at the page size and nothing is fetched up front.
   const [quickReviewQueueIds, setQuickReviewQueueIds] = useState<string[]>([]);
+  const [quickReviewRows, setQuickReviewRows] = useState<
+    JdPipelineApplicationRow[]
+  >([]);
+  const [quickReviewHasMoreAfter, setQuickReviewHasMoreAfter] =
+    useState(false);
+  const [quickReviewHasMoreBefore, setQuickReviewHasMoreBefore] =
+    useState(false);
+  // Offsets (in the current filter/sort order) of the loaded window's
+  // edges: the next batch continues forward from `...NextOffsetRef`, and
+  // backward from just before `...StartOffsetRef`. Refs so the loaders
+  // always read the latest value without needing it in their dependency
+  // arrays.
+  const quickReviewStartOffsetRef = useRef(0);
+  const quickReviewNextOffsetRef = useRef(0);
+  // True while a batch fetch in that direction is in flight -- dedupes
+  // load-more calls fired on every render the reviewer stays near an edge
+  // of the queue. Separate refs so a Back-triggered load can't be starved
+  // by a concurrent Next-triggered one, or vice versa.
+  const quickReviewLoadingAfterRef = useRef(false);
+  const quickReviewLoadingBeforeRef = useRef(false);
+  const quickReviewSeqRef = useRef(0);
   // `pageRows` is declared further down; read it through a ref here.
   const pageRowsRef = useRef<JdPipelineApplicationRow[]>([]);
 
@@ -267,14 +295,6 @@ export function JdAppliedCandidatesPipeline({
   // Depend on `.open` alone (stable), not the whole `useOverlayState` object
   // (a fresh literal each render) -- this callback is a memoized row prop.
   const openCvPreviewModal = cvPreviewModal.open;
-  const openCvPreview = useCallback(
-    (r: JdPipelineApplicationRow) => {
-      setQuickReviewQueueIds(pageRowsRef.current.map((row) => row.id));
-      setRowPendingCvPreview(r);
-      openCvPreviewModal();
-    },
-    [openCvPreviewModal],
-  );
 
   // Filters/sort/page are mirrored into the URL (see use-query-param-state)
   // so a browser back from a candidate's evaluation page lands back on the
@@ -393,27 +413,37 @@ export function JdAppliedCandidatesPipeline({
 
   const fetchPageSeqRef = useRef(0);
 
+  // The filter/sort half of a candidates-list request -- shared by the
+  // paginated table fetch and the quick-review queue fetch below, which
+  // differ only in how much of the result they ask for.
+  const buildListFilterParams = useCallback(
+    () => ({
+      jobId,
+      q: debouncedQuery.trim() || undefined,
+      uploadFrom: uploadDateRange?.start.toString(),
+      uploadTo: uploadDateRange?.end.toString(),
+      stageFilters: selectedFilterOptions.map((opt) => ({
+        stageMappingId: opt.stageMapping.id,
+        subStateId: opt.subStage?.id,
+      })),
+      sortBy: sortDescriptor?.column,
+      sortDir: sortDescriptor
+        ? sortDescriptor.direction === "ascending"
+          ? ("asc" as const)
+          : ("desc" as const)
+        : undefined,
+    }),
+    [jobId, debouncedQuery, uploadDateRange, selectedFilterOptions, sortDescriptor],
+  );
+
   const fetchPage = useCallback(async () => {
     const seq = ++fetchPageSeqRef.current;
     setPageLoadState((s) => (s === "ok" ? "ok" : "loading"));
     try {
       const params = buildCandidatesListSearchParams({
-        jobId,
+        ...buildListFilterParams(),
         limit: pageSize,
         offset: (page - 1) * pageSize,
-        q: debouncedQuery.trim() || undefined,
-        uploadFrom: uploadDateRange?.start.toString(),
-        uploadTo: uploadDateRange?.end.toString(),
-        stageFilters: selectedFilterOptions.map((opt) => ({
-          stageMappingId: opt.stageMapping.id,
-          subStateId: opt.subStage?.id,
-        })),
-        sortBy: sortDescriptor?.column,
-        sortDir: sortDescriptor
-          ? sortDescriptor.direction === "ascending"
-            ? "asc"
-            : "desc"
-          : undefined,
       });
       const { candidates, pagination } =
         await candidateService.getFilteredCandidateList(jobId, params);
@@ -429,16 +459,122 @@ export function JdAppliedCandidatesPipeline({
     } catch {
       if (seq === fetchPageSeqRef.current) setPageLoadState("error");
     }
-  }, [
-    jobId,
-    page,
-    debouncedQuery,
-    uploadDateRange,
-    selectedFilterOptions,
-    sortDescriptor,
-    pageSize,
-    setPage,
-  ]);
+  }, [jobId, page, pageSize, setPage, buildListFilterParams]);
+
+  // Opens the quick-review modal starting from this page's rows (instant,
+  // no fetch), whichever table page that is -- e.g. clicking a candidate on
+  // page 5 starts the queue there, not at the beginning of the full list.
+  // `loadMoreQuickReviewAfter`/`...Before` then extend it in
+  // `QUICK_REVIEW_BATCH_SIZE` batches (same filter/sort as the table) as
+  // the reviewer approaches either edge of what's loaded, so Back and Next
+  // both cover every candidate matching the current filter/sort without
+  // ever fetching more than a few pages' worth at a time.
+  const openCvPreview = useCallback(
+    (r: JdPipelineApplicationRow) => {
+      setQuickReviewQueueIds(pageRowsRef.current.map((row) => row.id));
+      setQuickReviewRows(pageRowsRef.current);
+      const startOffset = (page - 1) * pageSize;
+      const nextOffset = startOffset + pageRowsRef.current.length;
+      quickReviewStartOffsetRef.current = startOffset;
+      quickReviewNextOffsetRef.current = nextOffset;
+      setQuickReviewHasMoreAfter(nextOffset < pageTotal);
+      setQuickReviewHasMoreBefore(startOffset > 0);
+      quickReviewLoadingAfterRef.current = false;
+      quickReviewLoadingBeforeRef.current = false;
+      quickReviewSeqRef.current += 1;
+      setRowPendingCvPreview(r);
+      openCvPreviewModal();
+    },
+    [openCvPreviewModal, page, pageSize, pageTotal],
+  );
+
+  // Fetches the next `QUICK_REVIEW_BATCH_SIZE` rows past what's already
+  // loaded and appends them to the quick-review queue. Called by the modal
+  // once the reviewer is within `QUICK_REVIEW_PREFETCH_THRESHOLD` rows of
+  // the end of what's loaded; safe to call repeatedly -- `quickReviewLoadingAfterRef`
+  // dedupes overlapping calls, and `quickReviewSeqRef` drops a response that
+  // arrives after the reviewer has since opened a different candidate.
+  const loadMoreQuickReviewAfter = useCallback(() => {
+    if (quickReviewLoadingAfterRef.current || !quickReviewHasMoreAfter) return;
+    quickReviewLoadingAfterRef.current = true;
+    const seq = quickReviewSeqRef.current;
+    const offset = quickReviewNextOffsetRef.current;
+    void (async () => {
+      try {
+        const params = buildCandidatesListSearchParams({
+          ...buildListFilterParams(),
+          limit: QUICK_REVIEW_BATCH_SIZE,
+          offset,
+        });
+        const { candidates, pagination } =
+          await candidateService.getFilteredCandidateList(jobId, params);
+        if (seq !== quickReviewSeqRef.current) return;
+        quickReviewNextOffsetRef.current = offset + candidates.length;
+        setQuickReviewQueueIds((prev) => [
+          ...prev,
+          ...candidates.map((row) => row.id),
+        ]);
+        setQuickReviewRows((prev) => [...prev, ...candidates]);
+        const total = pagination?.total ?? quickReviewNextOffsetRef.current;
+        setQuickReviewHasMoreAfter(quickReviewNextOffsetRef.current < total);
+      } catch {
+        // Leave `hasMoreAfter` as-is -- the reviewer keeps browsing what's
+        // already loaded, and the modal retries once it's still near the
+        // end on a later render.
+      } finally {
+        if (seq === quickReviewSeqRef.current) {
+          quickReviewLoadingAfterRef.current = false;
+        }
+      }
+    })();
+  }, [jobId, quickReviewHasMoreAfter, buildListFilterParams]);
+
+  // Mirror of `loadMoreQuickReviewAfter` for Back: fetches the
+  // `QUICK_REVIEW_BATCH_SIZE` rows just before what's already loaded and
+  // prepends them. The batch shrinks to whatever's left once fewer than
+  // `QUICK_REVIEW_BATCH_SIZE` rows remain before the start of the list.
+  const loadMoreQuickReviewBefore = useCallback(() => {
+    if (quickReviewLoadingBeforeRef.current || !quickReviewHasMoreBefore) {
+      return;
+    }
+    const startOffset = quickReviewStartOffsetRef.current;
+    if (startOffset <= 0) {
+      setQuickReviewHasMoreBefore(false);
+      return;
+    }
+    quickReviewLoadingBeforeRef.current = true;
+    const seq = quickReviewSeqRef.current;
+    const batchOffset = Math.max(0, startOffset - QUICK_REVIEW_BATCH_SIZE);
+    const limit = startOffset - batchOffset;
+    void (async () => {
+      try {
+        const params = buildCandidatesListSearchParams({
+          ...buildListFilterParams(),
+          limit,
+          offset: batchOffset,
+        });
+        const { candidates } = await candidateService.getFilteredCandidateList(
+          jobId,
+          params,
+        );
+        if (seq !== quickReviewSeqRef.current) return;
+        quickReviewStartOffsetRef.current = batchOffset;
+        setQuickReviewQueueIds((prev) => [
+          ...candidates.map((row) => row.id),
+          ...prev,
+        ]);
+        setQuickReviewRows((prev) => [...candidates, ...prev]);
+        setQuickReviewHasMoreBefore(batchOffset > 0);
+      } catch {
+        // Leave `hasMoreBefore` as-is -- retried once the reviewer is still
+        // near the start on a later render.
+      } finally {
+        if (seq === quickReviewSeqRef.current) {
+          quickReviewLoadingBeforeRef.current = false;
+        }
+      }
+    })();
+  }, [jobId, quickReviewHasMoreBefore, buildListFilterParams]);
 
   // `dbRows` changes whenever the parent refetches (e.g. after the upload
   // modal closes) -- reload the visible page too, not just the stat cards.
@@ -1282,8 +1418,12 @@ export function JdAppliedCandidatesPipeline({
         isOpen={cvPreviewModal.isOpen}
         onOpenChange={cvPreviewModal.setOpen}
         jobId={jobId}
-        rows={pageRows}
+        rows={quickReviewRows}
         queueIds={quickReviewQueueIds}
+        hasMoreAfter={quickReviewHasMoreAfter}
+        onLoadMoreAfter={loadMoreQuickReviewAfter}
+        hasMoreBefore={quickReviewHasMoreBefore}
+        onLoadMoreBefore={loadMoreQuickReviewBefore}
         initialId={rowPendingCvPreview?.id ?? null}
         stageMappings={stageMappings}
         subStages={subStages}
