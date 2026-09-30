@@ -78,19 +78,23 @@ function redirectTo(
   pathname: string,
   params?: Record<string, string>,
 ): NextResponse {
-  const url = request.nextUrl.clone();
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  if (host) {
-    url.host = host;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().replace(/:$/, "");
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+
+  // Behind nginx, nextUrl is the in-container address (host:3200 / host:3100).
+  // Cloning it and only flipping the scheme keeps that port, so the browser
+  // opens https://<domain>:3200 and times out. Build the public origin instead.
+  let url: URL;
+  if (forwardedProto || forwardedHost) {
+    const rawHost = (forwardedHost || request.headers.get("host") || "").split(",")[0].trim();
+    const hostname = rawHost.replace(/:\d+$/, "") || request.nextUrl.hostname;
+    const proto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
+    url = new URL(pathname, `${proto}://${hostname}`);
+  } else {
+    url = request.nextUrl.clone();
+    url.pathname = pathname;
   }
-  // Keep the request's own scheme when no proxy header is present. Defaulting
-  // to https sends HTTP (local, or Node behind nginx) at a TLS port that never
-  // answers, so the browser stays on the loading spinner.
-  if (forwardedProto) {
-    url.protocol = forwardedProto.endsWith(":") ? forwardedProto : `${forwardedProto}:`;
-  }
-  url.pathname = pathname;
+
   url.search = "";
   if (params) {
     for (const [key, value] of Object.entries(params)) {
