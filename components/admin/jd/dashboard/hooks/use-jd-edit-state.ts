@@ -32,7 +32,10 @@ const DEFAULT_EDIT_FORM: JdEditFormData = {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-export function useJdEditState(loadDescriptions: () => Promise<void>) {
+export function useJdEditState(
+  loadDescriptions: () => Promise<void>,
+  canAdministerJds: boolean,
+) {
   const editJdFileInputRef = useRef<HTMLInputElement>(null);
   const editDraftStoragePathRef = useRef<string | null>(null);
   const toast = useToast();
@@ -49,6 +52,9 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const [editDragOver, setEditDragOver] = useState(false);
   const [editSelectedStageIds, setEditSelectedStageIds] = useState<string[]>([]);
   const [editStagesLoading, setEditStagesLoading] = useState(false);
+  const [editViewerEmails, setEditViewerEmails] = useState<string[]>([]);
+  const [editViewerChapterIds, setEditViewerChapterIds] = useState<string[]>([]);
+  const [editViewersLoading, setEditViewersLoading] = useState(false);
 
   const deleteJdDraftOnServer = useCallback(async (storagePath: string) => {
     await fetch(
@@ -87,6 +93,8 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
         setEditForm(DEFAULT_EDIT_FORM);
         setEditError(null);
         setEditSelectedStageIds([]);
+        setEditViewerEmails([]);
+        setEditViewerChapterIds([]);
       }
     },
   });
@@ -123,17 +131,26 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       end_date: row.end_date ? row.end_date.slice(0, 10) : "",
     });
     setEditSelectedStageIds([]);
+    setEditViewerEmails([]);
+    setEditViewerChapterIds([]);
     setEditStagesLoading(true);
+    setEditViewersLoading(canAdministerJds);
     editIntakeModal.open();
     try {
       const res = await fetch(`/api/admin/job-descriptions/${row.id}`, {
         credentials: "include",
       });
       if (res.ok) {
-        const json = (await res.json()) as { pipelineStages?: string[] };
+        const json = (await res.json()) as {
+          pipelineStages?: string[];
+          viewerEmails?: string[];
+          viewerChapterIds?: string[];
+        };
         if (json.pipelineStages) {
           setEditSelectedStageIds(json.pipelineStages);
         }
+        setEditViewerEmails(json.viewerEmails ?? []);
+        setEditViewerChapterIds(json.viewerChapterIds ?? []);
       } else {
         const json = (await res.json()) as { error?: string };
         throw new Error(json.error ?? "Failed to load pipeline stages.");
@@ -143,8 +160,9 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       toast.error(e instanceof Error ? e.message : "Failed to load pipeline stages for editing.");
     } finally {
       setEditStagesLoading(false);
+      setEditViewersLoading(false);
     }
-  }, [editIntakeModal, resetEditUploadState]);
+  }, [canAdministerJds, editIntakeModal, resetEditUploadState]);
 
   const ingestJdFileForEdit = useCallback(
     async (file: File) => {
@@ -273,6 +291,16 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
           ...editForm,
           _editMode: true,
           pipelineStages: editSelectedStageIds,
+          // Only HR / chapter heads may change viewers (server enforces the
+          // same); sending the keys for anyone else would 403 the whole save.
+          // Skipped while the current list is still loading so a fast save
+          // can't wipe grants with an empty list.
+          ...(canAdministerJds && !editViewersLoading
+            ? {
+                viewerEmails: editViewerEmails,
+                viewerChapterIds: editViewerChapterIds,
+              }
+            : {}),
           // Only when a replacement file was actually uploaded this session --
           // the server moves it from its temp key into place under this job's
           // id and repoints jd_storage_path at it. The old file is left alone.
@@ -301,6 +329,10 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
       setEditSubmitting(false);
     }
   }, [
+    canAdministerJds,
+    editViewerChapterIds,
+    editViewerEmails,
+    editViewersLoading,
     editDraftMimeType,
     editDraftStoragePath,
     editForm,
@@ -331,5 +363,10 @@ export function useJdEditState(loadDescriptions: () => Promise<void>) {
     editSelectedStageIds,
     setEditSelectedStageIds,
     editStagesLoading,
+    editViewerEmails,
+    setEditViewerEmails,
+    editViewerChapterIds,
+    setEditViewerChapterIds,
+    editViewersLoading,
   };
 }

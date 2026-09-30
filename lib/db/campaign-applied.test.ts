@@ -236,7 +236,8 @@ describe("getOrCreateCampaignApplied", () => {
     expect(db.query).toHaveBeenCalledTimes(1);
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("ON CONFLICT (candidate_id, job_id)");
-    expect(sql).toContain("DO UPDATE SET updated_at = now()");
+    expect(sql).toContain("DO UPDATE SET");
+    expect(sql).toContain("source = COALESCE($3, campaign_applied.source)");
     expect(sql).toContain("RETURNING *, (xmax = 0) AS created");
     expect(values).toEqual(["cand-1", "job-1", null, null, null]);
   });
