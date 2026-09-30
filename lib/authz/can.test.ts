@@ -111,11 +111,22 @@ describe("can", () => {
     ).resolves.toBe(true);
   });
 
-  it("allows job.manage for recruiter when ACL grants the job", async () => {
+  it("allows job.manage when the user heads a chapter granted on the job", async () => {
     const db = fakeDb([[{ ok: 1 }]]);
     await expect(
       can(db, access({ role: "recruiter" }), "job.manage", { jobId: "job-1" }),
     ).resolves.toBe(true);
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("job_allowed_chapters");
+    expect(sql).toContain("pc.role = 'head'");
+    expect(sql).not.toContain("job_allowed_profiles");
+  });
+
+  it("denies job.manage to an email-only viewer (no granted chapter headed)", async () => {
+    const db = fakeDb([[]]);
+    await expect(
+      can(db, access({ role: "recruiter" }), "job.manage", { jobId: "job-1" }),
+    ).resolves.toBe(false);
   });
 
   it("allows job.manage for admin", async () => {

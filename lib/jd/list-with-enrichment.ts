@@ -1,5 +1,6 @@
 import { countActiveApplicationsByJobIds } from "@/lib/db/campaign-applied";
 import type { QueryExecutor } from "@/lib/db/config/client";
+import { filterJobIdsHeadedViaChapter } from "@/lib/authz/job-access";
 import { countJobsByStatus, listJobs, type JobRow } from "@/lib/db/jobs";
 import { dbDateToIso } from "@/lib/db/query-helpers";
 import type { JdStatus } from "@/lib/jd/types";
@@ -29,6 +30,8 @@ export type JobDescriptionListRow = Omit<
   updated_at: string;
   applicant_count: number;
   has_jd_source_file: boolean;
+  /** Caller may edit this job (HR/admin, or head of a chapter granted on it). */
+  can_manage: boolean;
 };
 
 export type JobDescriptionsListPagination = {
@@ -49,7 +52,8 @@ export type QueryJobDescriptionsWithEnrichmentOptions = {
   offset?: number;
   /**
    * When set (non-HR), restrict list + status counts to jobs this user can
-   * view via ACL. Omit for HR/admin unrestricted lists.
+   * view via ACL, and compute `can_manage` per row for this user. Omit for
+   * HR/admin unrestricted lists (every row is then manageable).
    */
   visibleToUserId?: string;
 };
@@ -120,10 +124,13 @@ export async function queryJobDescriptionsWithEnrichment(
     return { jobDescriptions: [], pagination, statusCounts };
   }
 
-  const applicantCountByJob = await countActiveApplicationsByJobIds(
-    db,
-    jobs.map((j) => j.id),
-  );
+  const jobIds = jobs.map((j) => j.id);
+  const [applicantCountByJob, managedJobIds] = await Promise.all([
+    countActiveApplicationsByJobIds(db, jobIds),
+    visibleToUserId
+      ? filterJobIdsHeadedViaChapter(db, visibleToUserId, jobIds)
+      : null,
+  ]);
 
   const jobDescriptions = jobs.map(
     (job): JobDescriptionListRow => ({
@@ -135,6 +142,7 @@ export async function queryJobDescriptionsWithEnrichment(
       updated_at: job.updated_at.toISOString(),
       applicant_count: applicantCountByJob.get(job.id) ?? 0,
       has_jd_source_file: job.jd_storage_path != null,
+      can_manage: managedJobIds ? managedJobIds.has(job.id) : true,
     }),
   );
 

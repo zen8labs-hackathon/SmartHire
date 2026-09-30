@@ -10,12 +10,18 @@ import type { NextRequest } from "next/server";
  */
 export function publicUrlFromRequest(request: NextRequest): URL {
   const url = request.nextUrl.clone();
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  const host =
+    firstHeaderValue(request, "x-forwarded-host") || firstHeaderValue(request, "host");
   if (host) {
-    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const proto = firstHeaderValue(request, "x-forwarded-proto") || "https";
     url.protocol = proto;
     url.port = "";
     url.host = host;
   }
   return url;
+}
+
+/** Proxy chains append to `x-forwarded-*` ("a.com, b.com"); the first hop is the client-facing one. */
+function firstHeaderValue(request: NextRequest, name: string): string | undefined {
+  return request.headers.get(name)?.split(",")[0]?.trim() || undefined;
 }
