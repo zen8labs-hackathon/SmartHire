@@ -77,15 +77,6 @@ export interface JdDashboardContextValue {
   setActiveRow: (row: JobDescription | null) => void;
   drawerStatusCounts: StageSubStageCount[] | null;
   drawerStatusCountsError: string | null;
-  drawerViewerEmails: string[];
-  setDrawerViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
-  drawerViewerChapterIds: string[];
-  setDrawerViewerChapterIds: (ids: string[]) => void;
-  drawerViewersLoading: boolean;
-  drawerViewersBusy: boolean;
-  drawerViewersError: string | null;
-  drawerViewersSuccess: string | null;
-  saveDrawerViewers: () => Promise<void>;
 
   // Create Modal / Form
   form: JobDescriptionFormData;
@@ -149,6 +140,11 @@ export interface JdDashboardContextValue {
   editSelectedStageIds: string[];
   setEditSelectedStageIds: (ids: string[]) => void;
   editStagesLoading: boolean;
+  editViewerEmails: string[];
+  setEditViewerEmails: React.Dispatch<React.SetStateAction<string[]>>;
+  editViewerChapterIds: string[];
+  setEditViewerChapterIds: (ids: string[]) => void;
+  editViewersLoading: boolean;
 
   // API Helpers
   loadDescriptions: () => Promise<void>;
@@ -217,8 +213,8 @@ export function JdDashboardProvider({
     allPipelineStages,
     chapters,
   );
-  const editState = useJdEditState(listState.loadDescriptions);
-  const drawerState = useJdDrawerState(canAdministerJds);
+  const editState = useJdEditState(listState.loadDescriptions, canAdministerJds);
+  const drawerState = useJdDrawerState();
 
   // Gluing status updates to active drawer item
   const updateJdStatus = useCallback(
@@ -304,15 +300,6 @@ export function JdDashboardProvider({
         setActiveRow: drawerState.setActiveRow,
         drawerStatusCounts: drawerState.drawerStatusCounts,
         drawerStatusCountsError: drawerState.drawerStatusCountsError,
-        drawerViewerEmails: drawerState.drawerViewerEmails,
-        setDrawerViewerEmails: drawerState.setDrawerViewerEmails,
-        drawerViewerChapterIds: drawerState.drawerViewerChapterIds,
-        setDrawerViewerChapterIds: drawerState.setDrawerViewerChapterIds,
-        drawerViewersLoading: drawerState.drawerViewersLoading,
-        drawerViewersBusy: drawerState.drawerViewersBusy,
-        drawerViewersError: drawerState.drawerViewersError,
-        drawerViewersSuccess: drawerState.drawerViewersSuccess,
-        saveDrawerViewers: drawerState.saveDrawerViewers,
 
         // Creation state
         form: createState.form,
@@ -361,6 +348,11 @@ export function JdDashboardProvider({
         editSelectedStageIds: editState.editSelectedStageIds,
         setEditSelectedStageIds: editState.setEditSelectedStageIds,
         editStagesLoading: editState.editStagesLoading,
+        editViewerEmails: editState.editViewerEmails,
+        setEditViewerEmails: editState.setEditViewerEmails,
+        editViewerChapterIds: editState.editViewerChapterIds,
+        setEditViewerChapterIds: editState.setEditViewerChapterIds,
+        editViewersLoading: editState.editViewersLoading,
 
         // Actions
         loadDescriptions: listState.loadDescriptions,

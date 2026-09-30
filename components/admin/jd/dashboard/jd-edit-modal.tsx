@@ -2,7 +2,8 @@ import React, { useMemo, type DragEvent, type ChangeEvent } from "react";
 import { Modal, Card, Button, TextField, Label, Input, TextArea, Select, ListBox } from "@heroui/react";
 import type { RangeValue } from "react-aria-components";
 import { parseDate, type CalendarDate } from "@internationalized/date";
-import { SectionLabel } from "./shared-components";
+import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
+import { SectionLabel, ChapterPicker } from "./shared-components";
 import { CheckCircle as CheckCircleIcon } from "lucide-react";
 import { useJdDashboard } from "./context";
 import { JdRequirementsSection } from "./jd-requirements-section";
@@ -33,6 +34,14 @@ export function JdEditModal() {
     editSelectedStageIds,
     setEditSelectedStageIds,
     editStagesLoading,
+    canAdministerJds,
+    chapters,
+    authHeaders,
+    editViewerEmails,
+    setEditViewerEmails,
+    editViewerChapterIds,
+    setEditViewerChapterIds,
+    editViewersLoading,
   } = useJdDashboard();
 
   const dateRangeValue = useMemo<RangeValue<CalendarDate> | null>(() => {
@@ -254,6 +263,37 @@ export function JdEditModal() {
                 <Input placeholder="e.g. VP of Engineering, CTO, Project Manager…" />
               </TextField>
             </div>
+
+            {canAdministerJds ? (
+              <div className="space-y-3">
+                <SectionLabel>Recruiter access</SectionLabel>
+                <p className="text-xs text-muted">
+                  Emails must match existing accounts. You can also add whole
+                  chapters. HR always has full access.
+                </p>
+                {editViewersLoading ? (
+                  <p className="text-xs text-muted">Loading viewers…</p>
+                ) : (
+                  <>
+                    <JdViewerEmailsField
+                      emails={editViewerEmails}
+                      onChange={setEditViewerEmails}
+                      getHeaders={authHeaders}
+                    />
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted">
+                        Viewer chapters (chapter heads)
+                      </Label>
+                      <ChapterPicker
+                        chapters={chapters}
+                        selectedIds={editViewerChapterIds}
+                        onChange={setEditViewerChapterIds}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {/* 2 – Project & team */}
             <div className="space-y-4">
