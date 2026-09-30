@@ -84,12 +84,15 @@ function redirectTo(
   // Behind nginx, nextUrl is the in-container address (host:3200 / host:3100).
   // Cloning it and only flipping the scheme keeps that port, so the browser
   // opens https://<domain>:3200 and times out. Build the public origin instead.
+  // The listen port only lives in nextUrl, never in the Host header (nginx
+  // sends `$host`), so a port that IS in the header is the public one -- e.g.
+  // localhost:3000 in dev -- and must be kept.
   let url: URL;
   if (forwardedProto || forwardedHost) {
     const rawHost = (forwardedHost || request.headers.get("host") || "").split(",")[0].trim();
-    const hostname = rawHost.replace(/:\d+$/, "") || request.nextUrl.hostname;
+    const host = rawHost || request.nextUrl.hostname;
     const proto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
-    url = new URL(pathname, `${proto}://${hostname}`);
+    url = new URL(pathname, `${proto}://${host}`);
   } else {
     url = request.nextUrl.clone();
     url.pathname = pathname;

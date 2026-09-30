@@ -207,7 +207,9 @@ export function useJdListState(
         if (json.jobDescription) {
           const jd = json.jobDescription;
           const normalized = normalizeJdRow(jd);
-          setRows((rs) => rs.map((r) => (r.id === id ? normalized : r)));
+          // The PUT returns the bare job row -- keep list-only fields
+          // (`can_manage`, `applicant_count`) from the existing row.
+          setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...normalized } : r)));
           if (onUpdateActiveRow) onUpdateActiveRow(normalized);
         }
         toast.success(`Status updated to ${next}.`);

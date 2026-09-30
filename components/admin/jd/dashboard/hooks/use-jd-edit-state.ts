@@ -32,10 +32,7 @@ const DEFAULT_EDIT_FORM: JdEditFormData = {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-export function useJdEditState(
-  loadDescriptions: () => Promise<void>,
-  canAdministerJds: boolean,
-) {
+export function useJdEditState(loadDescriptions: () => Promise<void>) {
   const editJdFileInputRef = useRef<HTMLInputElement>(null);
   const editDraftStoragePathRef = useRef<string | null>(null);
   const toast = useToast();
@@ -55,6 +52,13 @@ export function useJdEditState(
   const [editViewerEmails, setEditViewerEmails] = useState<string[]>([]);
   const [editViewerChapterIds, setEditViewerChapterIds] = useState<string[]>([]);
   const [editViewersLoading, setEditViewersLoading] = useState(false);
+  /** Viewers loaded OK and the server says this user may change them on this job. */
+  const [editViewersEditable, setEditViewersEditable] = useState(false);
+  /** Stage ids loaded OK -- until then `editSelectedStageIds` is a placeholder `[]`. */
+  const [editStagesLoaded, setEditStagesLoaded] = useState(false);
+  const [editLockedChapterIds, setEditLockedChapterIds] = useState<string[]>([]);
+  /** Bumped per openEdit so a slow GET for a previously opened job is ignored. */
+  const editLoadSeqRef = useRef(0);
 
   const deleteJdDraftOnServer = useCallback(async (storagePath: string) => {
     await fetch(
@@ -95,6 +99,10 @@ export function useJdEditState(
         setEditSelectedStageIds([]);
         setEditViewerEmails([]);
         setEditViewerChapterIds([]);
+        setEditViewersEditable(false);
+        setEditStagesLoaded(false);
+        setEditLockedChapterIds([]);
+        editLoadSeqRef.current += 1;
       }
     },
   });
@@ -133,36 +141,58 @@ export function useJdEditState(
     setEditSelectedStageIds([]);
     setEditViewerEmails([]);
     setEditViewerChapterIds([]);
+    setEditViewersEditable(false);
+    setEditStagesLoaded(false);
+    setEditLockedChapterIds([]);
     setEditStagesLoading(true);
-    setEditViewersLoading(canAdministerJds);
+    setEditViewersLoading(true);
+    const seq = ++editLoadSeqRef.current;
     editIntakeModal.open();
     try {
       const res = await fetch(`/api/admin/job-descriptions/${row.id}`, {
         credentials: "include",
       });
+      if (seq !== editLoadSeqRef.current) return;
       if (res.ok) {
         const json = (await res.json()) as {
           pipelineStages?: string[];
           viewerEmails?: string[];
           viewerChapterIds?: string[];
+          canAdministerAcl?: boolean;
+          lockedChapterIds?: string[];
         };
-        if (json.pipelineStages) {
+        if (seq !== editLoadSeqRef.current) return;
+        // The server omits a list it failed to read; only a list that
+        // actually loaded may be sent back on save (else `[]` wipes it).
+        if (Array.isArray(json.pipelineStages)) {
           setEditSelectedStageIds(json.pipelineStages);
+          setEditStagesLoaded(true);
         }
-        setEditViewerEmails(json.viewerEmails ?? []);
-        setEditViewerChapterIds(json.viewerChapterIds ?? []);
+        if (
+          json.canAdministerAcl === true &&
+          Array.isArray(json.viewerEmails) &&
+          Array.isArray(json.viewerChapterIds)
+        ) {
+          setEditViewerEmails(json.viewerEmails);
+          setEditViewerChapterIds(json.viewerChapterIds);
+          setEditLockedChapterIds(json.lockedChapterIds ?? []);
+          setEditViewersEditable(true);
+        }
       } else {
         const json = (await res.json()) as { error?: string };
         throw new Error(json.error ?? "Failed to load pipeline stages.");
       }
     } catch (e) {
+      if (seq !== editLoadSeqRef.current) return;
       logError("Failed to load pipeline stages for editing", e instanceof Error ? e : undefined);
       toast.error(e instanceof Error ? e.message : "Failed to load pipeline stages for editing.");
     } finally {
-      setEditStagesLoading(false);
-      setEditViewersLoading(false);
+      if (seq === editLoadSeqRef.current) {
+        setEditStagesLoading(false);
+        setEditViewersLoading(false);
+      }
     }
-  }, [canAdministerJds, editIntakeModal, resetEditUploadState]);
+  }, [editIntakeModal, resetEditUploadState]);
 
   const ingestJdFileForEdit = useCallback(
     async (file: File) => {
@@ -290,12 +320,12 @@ export function useJdEditState(
         body: JSON.stringify({
           ...editForm,
           _editMode: true,
-          pipelineStages: editSelectedStageIds,
-          // Only HR / chapter heads may change viewers (server enforces the
-          // same); sending the keys for anyone else would 403 the whole save.
-          // Skipped while the current list is still loading so a fast save
-          // can't wipe grants with an empty list.
-          ...(canAdministerJds && !editViewersLoading
+          // Lists are only sent once they loaded -- a save before (or after
+          // a failed) load would otherwise replace them with `[]`. Viewers
+          // additionally need per-job ACL admin rights, or the server 403s
+          // the whole save.
+          ...(editStagesLoaded ? { pipelineStages: editSelectedStageIds } : {}),
+          ...(editViewersEditable
             ? {
                 viewerEmails: editViewerEmails,
                 viewerChapterIds: editViewerChapterIds,
@@ -329,10 +359,10 @@ export function useJdEditState(
       setEditSubmitting(false);
     }
   }, [
-    canAdministerJds,
+    editStagesLoaded,
     editViewerChapterIds,
     editViewerEmails,
-    editViewersLoading,
+    editViewersEditable,
     editDraftMimeType,
     editDraftStoragePath,
     editForm,
@@ -368,5 +398,7 @@ export function useJdEditState(
     editViewerChapterIds,
     setEditViewerChapterIds,
     editViewersLoading,
+    editViewersEditable,
+    editLockedChapterIds,
   };
 }

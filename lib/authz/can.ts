@@ -31,7 +31,8 @@ export function hasAdminAccess(access: StaffProfileAccess): boolean {
  * Central authorization check.
  *
  * - Global manage permissions: HR/admin via role / `isHr`.
- * - `job.manage` with `jobId`: HR/admin, or ACL viewer (chapter head / email grant).
+ * - `job.manage` with `jobId`: HR/admin, or head of a chapter granted on that
+ *   job. Email-only viewers can see the job but not edit it.
  * - `job.view` / `candidate.view` / `candidate.manage` with `jobId`:
  *   HR bypasses ACL; otherwise profile grant or chapter-head grant.
  * - `salary.view` with `jobId`: role has `salary.view` (HR/admin) OR chapter
@@ -54,11 +55,11 @@ export async function can(
   }
 
   // Create without jobId: HR, or any chapter head (they own new JDs via chapter grant).
-  // Per-job manage: HR/admin, or ACL viewer (chapter head / email grant).
+  // Per-job manage: HR/admin, or head of a chapter granted on this job.
   if (permission === "job.manage") {
     if (access.isHr || hasRolePermission(access, permission)) return true;
     if (!jobId) return access.headedChapterIds.length > 0;
-    return canViewJobViaAcl(db, access.userId, jobId);
+    return isChapterHeadGrantedOnJob(db, access.userId, jobId);
   }
 
   if (permission === "salary.view") {
