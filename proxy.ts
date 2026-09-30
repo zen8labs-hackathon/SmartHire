@@ -80,10 +80,15 @@ function redirectTo(
 ): NextResponse {
   const url = request.nextUrl.clone();
   const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") || "https";
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   if (host) {
-    url.protocol = proto;
     url.host = host;
+  }
+  // Keep the request's own scheme when no proxy header is present. Defaulting
+  // to https sends HTTP (local, or Node behind nginx) at a TLS port that never
+  // answers, so the browser stays on the loading spinner.
+  if (forwardedProto) {
+    url.protocol = forwardedProto.endsWith(":") ? forwardedProto : `${forwardedProto}:`;
   }
   url.pathname = pathname;
   url.search = "";
@@ -95,17 +100,30 @@ function redirectTo(
   return NextResponse.redirect(url);
 }
 
+/** Pages that must stay reachable with no session. */
+function isPublicPage(path: string): boolean {
+  return (
+    path === "/login" ||
+    path.startsWith("/login/") ||
+    path.startsWith("/evaluation-preview")
+  );
+}
+
+/**
+ * Routes that are not browser pages. `/api/admin` still refreshes the session
+ * cookie; other APIs authenticate themselves (SSO, public token, worker secret).
+ */
+function skipsPageLoginGate(path: string): boolean {
+  if (!path.startsWith("/api/")) return false;
+  return !path.startsWith("/api/admin");
+}
+
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const requestId = getRequestIdFromRequest(request) ?? createRequestId();
-  const needsAuthCheck =
-    path === "/signup" ||
-    path.startsWith("/admin") ||
-    path.startsWith("/dashboard") ||
-    path.startsWith("/api/admin");
 
   // Avoid a network call on public routes to keep local dev responsive.
-  if (!needsAuthCheck) {
+  if (isPublicPage(path) || skipsPageLoginGate(path)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set(REQUEST_ID_HEADER, requestId);
     return attachRequestId(
@@ -131,21 +149,12 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  if (path.startsWith("/admin")) {
-    if (!user) {
-      return applyCookies(
-        redirectTo(request, "/login", { next: "/admin" }),
-        pendingCookies,
-      );
-    }
-    // Auth only here. Staff vs dashboard-only (including `role=none` users who
-    // still have chapter memberships) is decided by `getStaffProfileAccess` in
-    // `app/admin/layout.tsx` — JWT `role` alone is not authoritative.
-  }
-
-  if (path.startsWith("/dashboard") && !user) {
+  // Every other page requires a session. Staff vs dashboard-only is decided
+  // later by `getStaffProfileAccess` in the layout — JWT role is not enough.
+  if (!path.startsWith("/api/") && !user) {
+    const next = `${path}${request.nextUrl.search}`;
     return applyCookies(
-      redirectTo(request, "/login", { next: path }),
+      redirectTo(request, "/login", { next }),
       pendingCookies,
     );
   }
