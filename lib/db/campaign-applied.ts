@@ -259,8 +259,10 @@ export async function createCampaignApplied(
  * round trip via `ON CONFLICT` against `campaign_applied_candidate_job_unique_idx`
  * -- for callers (e.g. the CV-upload worker) that would otherwise pay for a
  * separate `getCampaignAppliedByCandidateAndJob` SELECT before this INSERT.
- * The `DO UPDATE` is a no-op write (bumps `updated_at`) purely so `ON
- * CONFLICT` still returns the existing row via `RETURNING`.
+ * The `DO UPDATE` bumps `updated_at` so `ON CONFLICT` still returns the
+ * existing row via `RETURNING`. When the caller supplies a `source` (e.g. the
+ * upload modal's pick on a duplicate CV) it overwrites the stored one, with
+ * `source_other` following it; without one the existing source is kept.
  *
  * Only actually de-duplicates when `jobId` is non-null -- that index is
  * partial (excludes `job_id IS NULL`) by design, so a pool/unassigned
@@ -274,7 +276,10 @@ export async function getOrCreateCampaignApplied(
     `INSERT INTO campaign_applied (candidate_id, job_id, source, source_other, expected_salary)
      VALUES ($1, $2, COALESCE($3, 'Other'), $4, $5)
      ON CONFLICT (candidate_id, job_id) WHERE deleted_at IS NULL AND job_id IS NOT NULL
-     DO UPDATE SET updated_at = now()
+     DO UPDATE SET
+       updated_at = now(),
+       source = COALESCE($3, campaign_applied.source),
+       source_other = CASE WHEN $3 IS NULL THEN campaign_applied.source_other ELSE $4 END
      RETURNING *, (xmax = 0) AS created`,
     [
       input.candidateId,

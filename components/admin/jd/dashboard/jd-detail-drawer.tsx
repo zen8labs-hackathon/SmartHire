@@ -1,7 +1,5 @@
 import React from "react";
-import { Drawer, Chip, Separator, Label, Button } from "@heroui/react";
-import { JdViewerEmailsField } from "@/components/admin/jd/jd-viewer-email-search";
-import { SectionLabel, ChapterPicker } from "./shared-components";
+import { Drawer, Chip, Separator, Button } from "@heroui/react";
 import {
   statusChipColor,
   formatJdCalendarDate,
@@ -18,19 +16,7 @@ export function JdDetailDrawer() {
     drawerStatusCountsError,
     drawerStatusCounts,
     canManageJds,
-    canAdministerJds,
     openEdit,
-    drawerViewersLoading,
-    authHeaders,
-    setDrawerViewerEmails,
-    drawerViewerEmails,
-    chapters,
-    drawerViewerChapterIds,
-    setDrawerViewerChapterIds,
-    drawerViewersError,
-    drawerViewersSuccess,
-    drawerViewersBusy,
-    saveDrawerViewers,
   } = useJdDashboard();
 
   return (
@@ -362,65 +348,6 @@ export function JdDetailDrawer() {
                     </section>
                   </>
                 )}
-
-                {canAdministerJds ? (
-                  <>
-                    <Separator />
-                    <section className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Recruiter access
-                      </h3>
-                      <p className="text-xs text-muted">
-                        Emails must match existing accounts. You can also add
-                        whole chapters. HR always has full access.
-                      </p>
-                      {drawerViewersLoading ? (
-                        <p className="text-xs text-muted">Loading viewers…</p>
-                      ) : (
-                        <>
-                          <JdViewerEmailsField
-                            emails={drawerViewerEmails}
-                            onChange={setDrawerViewerEmails}
-                            getHeaders={authHeaders}
-                          />
-                          <div className="space-y-2">
-                            <Label className="text-xs text-muted">
-                              Viewer chapters (chapter heads)
-                            </Label>
-                            <ChapterPicker
-                              chapters={chapters}
-                              selectedIds={drawerViewerChapterIds}
-                              onChange={setDrawerViewerChapterIds}
-                            />
-                          </div>
-                        </>
-                      )}
-                      {drawerViewersError ? (
-                        <p className="text-sm text-danger" role="alert">
-                          {drawerViewersError}
-                        </p>
-                      ) : null}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          isDisabled={drawerViewersBusy || drawerViewersLoading}
-                          onPress={() => void saveDrawerViewers()}
-                        >
-                          {drawerViewersBusy ? "Saving…" : "Save viewers"}
-                        </Button>
-                        {drawerViewersSuccess ? (
-                          <p
-                            className="text-sm font-medium text-success"
-                            role="status"
-                          >
-                            {drawerViewersSuccess}
-                          </p>
-                        ) : null}
-                      </div>
-                    </section>
-                  </>
-                ) : null}
 
                 <Separator />
 
