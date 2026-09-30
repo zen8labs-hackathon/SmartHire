@@ -12,7 +12,6 @@ import {
 import type { ProfileRole } from "@/lib/db/users";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
-import { publicUrlFromRequest } from "@/lib/public-url";
 import { createRequestId, getRequestIdFromRequest, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 type AuthedUser = { id: string; role: ProfileRole };
@@ -79,8 +78,26 @@ function redirectTo(
   pathname: string,
   params?: Record<string, string>,
 ): NextResponse {
-  const url = publicUrlFromRequest(request);
-  url.pathname = pathname;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().replace(/:$/, "");
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+
+  // Behind nginx, nextUrl is the in-container address (host:3200 / host:3100).
+  // Cloning it and only flipping the scheme keeps that port, so the browser
+  // opens https://<domain>:3200 and times out. Build the public origin instead.
+  // The listen port only lives in nextUrl, never in the Host header (nginx
+  // sends `$host`), so a port that IS in the header is the public one -- e.g.
+  // localhost:3000 in dev -- and must be kept.
+  let url: URL;
+  if (forwardedProto || forwardedHost) {
+    const rawHost = (forwardedHost || request.headers.get("host") || "").split(",")[0].trim();
+    const host = rawHost || request.nextUrl.hostname;
+    const proto = forwardedProto || request.nextUrl.protocol.replace(/:$/, "");
+    url = new URL(pathname, `${proto}://${host}`);
+  } else {
+    url = request.nextUrl.clone();
+    url.pathname = pathname;
+  }
+
   url.search = "";
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -90,17 +107,30 @@ function redirectTo(
   return NextResponse.redirect(url);
 }
 
+/** Pages that must stay reachable with no session. */
+function isPublicPage(path: string): boolean {
+  return (
+    path === "/login" ||
+    path.startsWith("/login/") ||
+    path.startsWith("/evaluation-preview")
+  );
+}
+
+/**
+ * Routes that are not browser pages. `/api/admin` still refreshes the session
+ * cookie; other APIs authenticate themselves (SSO, public token, worker secret).
+ */
+function skipsPageLoginGate(path: string): boolean {
+  if (!path.startsWith("/api/")) return false;
+  return !path.startsWith("/api/admin");
+}
+
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const requestId = getRequestIdFromRequest(request) ?? createRequestId();
-  const needsAuthCheck =
-    path === "/signup" ||
-    path.startsWith("/admin") ||
-    path.startsWith("/dashboard") ||
-    path.startsWith("/api/admin");
 
   // Avoid a network call on public routes to keep local dev responsive.
-  if (!needsAuthCheck) {
+  if (isPublicPage(path) || skipsPageLoginGate(path)) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set(REQUEST_ID_HEADER, requestId);
     return attachRequestId(
@@ -126,21 +156,12 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  if (path.startsWith("/admin")) {
-    if (!user) {
-      return applyCookies(
-        redirectTo(request, "/login", { next: "/admin" }),
-        pendingCookies,
-      );
-    }
-    // Auth only here. Staff vs dashboard-only (including `role=none` users who
-    // still have chapter memberships) is decided by `getStaffProfileAccess` in
-    // `app/admin/layout.tsx` — JWT `role` alone is not authoritative.
-  }
-
-  if (path.startsWith("/dashboard") && !user) {
+  // Every other page requires a session. Staff vs dashboard-only is decided
+  // later by `getStaffProfileAccess` in the layout — JWT role is not enough.
+  if (!path.startsWith("/api/") && !user) {
+    const next = `${path}${request.nextUrl.search}`;
     return applyCookies(
-      redirectTo(request, "/login", { next: path }),
+      redirectTo(request, "/login", { next }),
       pendingCookies,
     );
   }
