@@ -42,6 +42,8 @@ export function JdEditModal() {
     editViewerChapterIds,
     setEditViewerChapterIds,
     editViewersLoading,
+    editViewersEditable,
+    editLockedChapterIds,
   } = useJdDashboard();
 
   const dateRangeValue = useMemo<RangeValue<CalendarDate> | null>(() => {
@@ -264,7 +266,10 @@ export function JdEditModal() {
               </TextField>
             </div>
 
-            {canAdministerJds ? (
+            {/* Page-level flag only hints; the per-job answer arrives with
+                the GET (a chapter head may manage a job without being able
+                to change its viewers). Hidden if the lists failed to load. */}
+            {canAdministerJds && (editViewersLoading || editViewersEditable) ? (
               <div className="space-y-3">
                 <SectionLabel>Recruiter access</SectionLabel>
                 <p className="text-xs text-muted">
@@ -288,6 +293,7 @@ export function JdEditModal() {
                         chapters={chapters}
                         selectedIds={editViewerChapterIds}
                         onChange={setEditViewerChapterIds}
+                        lockedIds={editLockedChapterIds}
                       />
                     </div>
                   </>

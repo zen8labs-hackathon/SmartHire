@@ -61,6 +61,8 @@ export type JobDescription = {
   applicant_count?: number;
   /** Whether a JD document exists on a linked job opening */
   has_jd_source_file?: boolean;
+  /** Set by the list query: caller may edit this job (HR/admin or granted chapter head). */
+  can_manage?: boolean;
 };
 
 /** Form payload for create / update */

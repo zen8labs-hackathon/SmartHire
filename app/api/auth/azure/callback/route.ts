@@ -23,12 +23,13 @@ import {
   linkSsoIdentity,
   type UserRow,
 } from "@/lib/db/users";
+import { publicUrlFromRequest } from "@/lib/public-url";
 import { logError, logApiError } from "@/lib/logger";
 
 const SSO_PROVIDER = "azure_ad";
 
 function loginRedirect(request: NextRequest, reason: string): NextResponse {
-  const url = request.nextUrl.clone();
+  const url = publicUrlFromRequest(request);
   url.pathname = "/login";
   url.search = "";
   url.searchParams.set("reason", reason);

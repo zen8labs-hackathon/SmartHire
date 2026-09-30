@@ -108,3 +108,26 @@ export async function filterJobIdsViewableViaAcl(
   );
   return new Set(rows.map((row) => row.job_id));
 }
+
+/**
+ * Batched form of {@link isChapterHeadGrantedOnJob}: the subset of `jobIds`
+ * the user heads a granted chapter on (i.e. may edit, for non-HR callers).
+ */
+export async function filterJobIdsHeadedViaChapter(
+  db: QueryExecutor,
+  userId: string,
+  jobIds: readonly string[],
+): Promise<Set<string>> {
+  if (jobIds.length === 0) return new Set();
+  const { rows } = await db.query<{ job_id: string }>(
+    `SELECT DISTINCT jac.job_id
+       FROM job_allowed_chapters jac
+       JOIN profile_chapters pc
+         ON pc.chapter_id = jac.chapter_id
+        AND pc.profile_id = $1
+        AND pc.role = 'head'
+      WHERE jac.job_id = ANY($2)`,
+    [userId, [...jobIds]],
+  );
+  return new Set(rows.map((row) => row.job_id));
+}

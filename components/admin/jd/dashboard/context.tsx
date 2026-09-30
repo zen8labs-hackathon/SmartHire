@@ -145,6 +145,8 @@ export interface JdDashboardContextValue {
   editViewerChapterIds: string[];
   setEditViewerChapterIds: (ids: string[]) => void;
   editViewersLoading: boolean;
+  editViewersEditable: boolean;
+  editLockedChapterIds: string[];
 
   // API Helpers
   loadDescriptions: () => Promise<void>;
@@ -213,7 +215,7 @@ export function JdDashboardProvider({
     allPipelineStages,
     chapters,
   );
-  const editState = useJdEditState(listState.loadDescriptions, canAdministerJds);
+  const editState = useJdEditState(listState.loadDescriptions);
   const drawerState = useJdDrawerState();
 
   // Gluing status updates to active drawer item
@@ -353,6 +355,8 @@ export function JdDashboardProvider({
         editViewerChapterIds: editState.editViewerChapterIds,
         setEditViewerChapterIds: editState.setEditViewerChapterIds,
         editViewersLoading: editState.editViewersLoading,
+        editViewersEditable: editState.editViewersEditable,
+        editLockedChapterIds: editState.editLockedChapterIds,
 
         // Actions
         loadDescriptions: listState.loadDescriptions,

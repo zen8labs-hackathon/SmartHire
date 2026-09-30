@@ -12,6 +12,7 @@ import {
 import type { ProfileRole } from "@/lib/db/users";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
+import { publicUrlFromRequest } from "@/lib/public-url";
 import { createRequestId, getRequestIdFromRequest, REQUEST_ID_HEADER } from "@/lib/request-id";
 
 type AuthedUser = { id: string; role: ProfileRole };
@@ -78,13 +79,7 @@ function redirectTo(
   pathname: string,
   params?: Record<string, string>,
 ): NextResponse {
-  const url = request.nextUrl.clone();
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") || "https";
-  if (host) {
-    url.protocol = proto;
-    url.host = host;
-  }
+  const url = publicUrlFromRequest(request);
   url.pathname = pathname;
   url.search = "";
   if (params) {

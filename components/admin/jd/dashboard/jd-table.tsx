@@ -147,7 +147,9 @@ export function JdTable() {
                       <Select
                         value={row.status}
                         isDisabled={
-                          !canManageJds || statusUpdatingId === row.id
+                          !canManageJds ||
+                          row.can_manage === false ||
+                          statusUpdatingId === row.id
                         }
                         onChange={(key) => {
                           if (typeof key === "string")
@@ -197,7 +199,7 @@ export function JdTable() {
                             <p>View detail</p>
                           </Tooltip.Content>
                         </Tooltip>
-                        {canManageJds ? (
+                        {canManageJds && row.can_manage !== false ? (
                           <>
                             <Tooltip delay={0}>
                               <Button

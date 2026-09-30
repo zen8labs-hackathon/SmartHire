@@ -14,6 +14,7 @@ import {
   requirePermissionOnJob,
 } from "@/lib/authz/require-permission";
 import { requireJobViewAccess } from "@/lib/authz/require-job-view";
+import { canAdministerJobAcl } from "@/lib/authz/can";
 import { softDeleteOrphanedCandidates } from "@/lib/db/candidates";
 import { softDeleteAllCampaignAppliedForJob } from "@/lib/db/campaign-applied";
 import { getPool, withTransaction } from "@/lib/db/config/client";
@@ -162,23 +163,45 @@ export async function GET(request: Request, { params }: RouteContext) {
   const job = await getJobById(db, jobId);
   if (!job) return Response.json({ error: "Not found." }, { status: 404 });
 
-  let viewerEmails: string[] = [];
-  let viewerChapterIds: string[] = [];
-  let pipelineStages: string[] = [];
+  // A failed read omits the field rather than returning `[]`: the edit modal
+  // sends these lists back verbatim on save, and an empty list there would
+  // wipe the job's real grants / stage mappings.
+  let viewerEmails: string[] | undefined;
+  let viewerChapterIds: string[] | undefined;
+  let pipelineStages: string[] | undefined;
   try {
     viewerEmails = await fetchViewerEmailsForJobDescription(db, jobId);
     viewerChapterIds = await fetchViewerChapterIdsForJobDescription(db, jobId);
+  } catch (err) {
+    viewerEmails = undefined;
+    viewerChapterIds = undefined;
+    logError("Failed to fetch job viewers", err instanceof Error ? err : undefined, { jobId });
+  }
+  try {
     const mappings = await listJobStageMappings(db, jobId);
     pipelineStages = mappings.map((m) => m.pipeline_stage_id);
   } catch (err) {
-    logError("Failed to fetch pipeline stages or viewers", err instanceof Error ? err : undefined, { jobId });
+    logError("Failed to fetch pipeline stages", err instanceof Error ? err : undefined, { jobId });
   }
+
+  // Per-job, same check PUT applies to viewer changes -- the page-level
+  // "can administer JDs" flag is true for any chapter head, not just heads
+  // granted on this job.
+  const canAdministerAcl = await canAdministerJobAcl(db, auth.access, jobId);
+  // Granted chapters the caller heads -- PUT refuses to drop these for non-HR.
+  const lockedChapterIds = auth.access.isHr
+    ? []
+    : (viewerChapterIds ?? []).filter((id) =>
+        auth.access.headedChapterIds.includes(id),
+      );
 
   return Response.json({
     jobDescription: job,
     viewerEmails,
     viewerChapterIds,
     pipelineStages,
+    canAdministerAcl,
+    lockedChapterIds,
   });
 }
 
@@ -260,6 +283,28 @@ export async function PUT(request: Request, { params }: RouteContext) {
   }
 
   const db = getPool();
+
+  // A chapter head's edit rights on this job come from their own chapter's
+  // grant -- dropping it would lock them out mid-save. Only HR/admin may
+  // remove a chapter the caller heads. Checked before any write.
+  if (hasViewerChapterKey && !auth.access.isHr) {
+    const nextChapterIds = new Set(
+      parseViewerChapterIds(
+        viewerChapterIdsRaw as string[] | string | null | undefined,
+      ),
+    );
+    const currentChapterIds = await fetchViewerChapterIdsForJobDescription(db, jobId);
+    const ownRemoved = currentChapterIds.filter(
+      (id) => auth.access.headedChapterIds.includes(id) && !nextChapterIds.has(id),
+    );
+    if (ownRemoved.length > 0) {
+      return Response.json(
+        { error: "You can't remove your own chapter from this job. Ask HR to change it." },
+        { status: 403 },
+      );
+    }
+  }
+
   const existing = await getJobById(db, jobId);
   if (!existing) {
     return Response.json({ error: "Not found." }, { status: 404 });

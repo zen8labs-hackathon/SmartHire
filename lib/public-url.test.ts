@@ -19,4 +19,16 @@ describe("publicUrlFromRequest", () => {
     );
     expect(url.origin).toBe("https://example.com:8443");
   });
+
+  it("uses the first hop of a multi-value x-forwarded-host / proto", () => {
+    const url = publicUrlFromRequest(
+      req({ "x-forwarded-host": "a.example.com, b.example.com", "x-forwarded-proto": "http, https" }),
+    );
+    expect(url.origin).toBe("http://a.example.com");
+  });
+
+  it("leaves the URL untouched when no host header is present", () => {
+    const url = publicUrlFromRequest(req({}));
+    expect(url.origin).toBe("http://0.0.0.0:3100");
+  });
 });

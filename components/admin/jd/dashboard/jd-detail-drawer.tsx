@@ -364,7 +364,7 @@ export function JdDetailDrawer() {
                 <Button slot="close" variant="secondary">
                   Close
                 </Button>
-                {canManageJds ? (
+                {canManageJds && activeRow.can_manage !== false ? (
                   <Button variant="primary" onPress={() => openEdit(activeRow)}>
                     Hiring details
                   </Button>
