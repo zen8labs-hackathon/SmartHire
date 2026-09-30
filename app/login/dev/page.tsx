@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { safeNextPath } from "@/lib/auth/next-path";
@@ -11,12 +12,17 @@ import { Card } from "@heroui/react";
  * `signIn` server action + seeded `admin@smart-hire.test`) reachable without
  * exposing it in the main UI.
  *
- * Resolves the same way `lib/logger.ts` does: `APP_ENV`, falling back to
- * `NODE_ENV`. Real production sets `APP_ENV=production` (docker-compose.prod.yml)
- * so this 404s there; `DEV_LOGIN_ENABLED=true` forces it on regardless.
+ * Compose sets APP_ENV to `development` or `production`. Local `next dev`
+ * leaves it unset, so fall back to NODE_ENV. Read it per request:
+ * `.env` is dockerignored, and a module-scope read during `next build`
+ * bakes a 404 into the image. `connection()` skips that prerender.
  */
-
-const devLoginEnabled = process.env.APP_ENV === "development";
+function isDevLoginEnabled(): boolean {
+  const appEnv =
+    process.env.APP_ENV ??
+    (process.env.NODE_ENV === "production" ? "production" : "development");
+  return appEnv === "development";
+}
 
 export const metadata: Metadata = {
   title: "Dev sign-in — Smart Hire",
@@ -28,7 +34,8 @@ type Props = {
 };
 
 export default async function DevLoginPage({ searchParams }: Props) {
-  if (!devLoginEnabled) notFound();
+  await connection();
+  if (!isDevLoginEnabled()) notFound();
 
   const { next } = await searchParams;
   const nextPath = safeNextPath(typeof next === "string" ? next : "/dashboard");
