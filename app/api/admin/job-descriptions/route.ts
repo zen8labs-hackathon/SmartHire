@@ -35,6 +35,11 @@ import {
   type JobDescriptionFormData,
 } from "@/lib/jd/types";
 import { deleteObject, moveObject } from "@/lib/storage/s3";
+import {
+  BLANK_POSITION_TITLE,
+  DEFAULT_HIRE_TYPE,
+  validateHeadcount,
+} from "@/lib/positions/create-position";
 
 type CreateBody = Partial<JobDescriptionFormData> & {
   /** S3 key from a prior POST /api/admin/job-openings/sign-upload + direct PUT to the returned signedUrl. */
@@ -63,6 +68,11 @@ type CreateBody = Partial<JobDescriptionFormData> & {
    * with `reuseEvaluationTemplateId`.
    */
   evaluationTemplateText?: string | null;
+  /**
+   * F1.1 "create blank position": allows omitting `jdStoragePath`. The
+   * position is created Pending with a placeholder title unless one is sent.
+   */
+  blank?: boolean | null;
 };
 
 function sanitizeCreate(body: Partial<JobDescriptionFormData>): CreateJobInput {
@@ -93,6 +103,35 @@ function sanitizeCreate(body: Partial<JobDescriptionFormData>): CreateJobInput {
     endDate,
     hiringDeadline: optionalDateToDb(body.hiring_deadline),
   };
+}
+
+/** Validates the F1.1 headcount / hire type fields; `null` means valid. */
+function parsePositionBasics(body: {
+  headcount?: unknown;
+  hire_type?: unknown;
+}):
+  | { ok: true; headcount: number | null; hireType: string | null }
+  | { ok: false; error: string } {
+  let headcount: number | null = null;
+  const rawHeadcount = body.headcount;
+  if (rawHeadcount !== undefined && rawHeadcount !== null && String(rawHeadcount).trim() !== "") {
+    const parsed = validateHeadcount(rawHeadcount as string | number);
+    if (parsed.error) return { ok: false, error: parsed.error };
+    headcount = parsed.value;
+  }
+  let hireType: string | null = null;
+  const rawHireType = body.hire_type;
+  if (rawHireType !== undefined && rawHireType !== null && String(rawHireType) !== "") {
+    // The legacy create form still sends free-text values ("New hire", ...),
+    // so only the shape is enforced here; the F1.1 dialog only offers HIRE_TYPES.
+    if (typeof rawHireType !== "string" || rawHireType.length > 50) {
+      return { ok: false, error: "Hire type must be Full-time or Internship." };
+    }
+    hireType = rawHireType;
+  } else if (headcount !== null) {
+    hireType = DEFAULT_HIRE_TYPE;
+  }
+  return { ok: true, headcount, hireType };
 }
 
 const JD_LIST_MAX_LIMIT = 100;
@@ -159,6 +198,7 @@ export async function POST(request: Request) {
     pipelineStages: pipelineStagesRaw,
     reuseEvaluationTemplateId,
     evaluationTemplateText: evaluationTemplateTextRaw,
+    blank: blankRaw,
     ...formFields
   } = body;
 
@@ -166,7 +206,8 @@ export async function POST(request: Request) {
     typeof jdStoragePathRaw === "string" && jdStoragePathRaw.length > 0
       ? jdStoragePathRaw
       : null;
-  if (!jdStoragePath) {
+  const isBlank = blankRaw === true;
+  if (!jdStoragePath && !isBlank) {
     return Response.json(
       { error: "Attaching a JD document is required to create a new definition." },
       { status: 400 },
@@ -260,7 +301,18 @@ export async function POST(request: Request) {
     }
   }
 
-  const input = sanitizeCreate(formFields as Partial<JobDescriptionFormData>);
+  const basics = parsePositionBasics(formFields as { headcount?: unknown; hire_type?: unknown });
+  if (!basics.ok) {
+    return Response.json({ error: basics.error }, { status: 400 });
+  }
+  const input = sanitizeCreate({
+    ...(formFields as Partial<JobDescriptionFormData>),
+    position:
+      (formFields as Partial<JobDescriptionFormData>).position ||
+      (isBlank ? BLANK_POSITION_TITLE : ""),
+  });
+  input.headcount = basics.headcount;
+  input.hireType = basics.hireType;
   if (!input.position) {
     return Response.json({ error: "position is required." }, { status: 400 });
   }
@@ -346,43 +398,46 @@ export async function POST(request: Request) {
       return created;
     });
 
-    // The job id only exists after insert, so the JD file is uploaded to a
-    // temp `jd/` key up front (see job-openings/sign-upload) and moved to its
-    // final `job_descriptions/{jobId}/` key here, now that the id is known.
-    const finalJdStoragePath = buildFinalJdStoragePath(
-      job.id,
-      jdStoragePath,
-      input.jdOriginalFilename,
-    );
-
-    try {
-      await moveObject(jdStoragePath, finalJdStoragePath);
-      const updated = await updateJob(db, job.id, { jdStoragePath: finalJdStoragePath });
-      if (updated) Object.assign(job, updated);
-    } catch (e) {
-      // Never leave a persisted job pointing at the temp `jd/` key: a job
-      // stuck there indefinitely would be indistinguishable from a genuinely
-      // abandoned upload to any future age-based cleanup job for that
-      // prefix, which could then delete a file still in use. Roll the job
-      // back instead and make the caller retry -- a just-created job has no
-      // campaign_applied rows yet, so this is safe to hard-delete.
-      await hardDeleteJob(db, job.id).catch(() => {});
-      await deleteObject(finalJdStoragePath).catch(() => {});
-      console.error("Failed to move JD file to its final storage path:", e);
-      return Response.json(
-        {
-          error:
-            "Job description was not created: the JD file failed to finalize. Please retry.",
-        },
-        { status: 500 },
+    if (jdStoragePath) {
+      // The job id only exists after insert, so the JD file is uploaded to a
+      // temp `jd/` key up front (see job-openings/sign-upload) and moved to its
+      // final `job_descriptions/{jobId}/` key here, now that the id is known.
+      const finalJdStoragePath = buildFinalJdStoragePath(
+        job.id,
+        jdStoragePath,
+        input.jdOriginalFilename,
       );
+
+      try {
+        await moveObject(jdStoragePath, finalJdStoragePath);
+        const updated = await updateJob(db, job.id, { jdStoragePath: finalJdStoragePath });
+        if (updated) Object.assign(job, updated);
+      } catch (e) {
+        // Never leave a persisted job pointing at the temp `jd/` key: a job
+        // stuck there indefinitely would be indistinguishable from a genuinely
+        // abandoned upload to any future age-based cleanup job for that
+        // prefix, which could then delete a file still in use. Roll the job
+        // back instead and make the caller retry -- a just-created job has no
+        // campaign_applied rows yet, so this is safe to hard-delete.
+        await hardDeleteJob(db, job.id).catch(() => {});
+        await deleteObject(finalJdStoragePath).catch(() => {});
+        console.error("Failed to move JD file to its final storage path:", e);
+        return Response.json(
+          {
+            error:
+              "Job description was not created: the JD file failed to finalize. Please retry.",
+          },
+          { status: 500 },
+        );
+      }
+
+      // Only once the JD file is at its final key, so the extractor (which reads
+      // the file back through `resolveJobDescriptionText`) sees the moved object.
+      // Non-fatal: the job row is already committed, so a failed extraction
+      // leaves the checklist empty rather than failing the create.
     }
 
-    // Only once the JD file is at its final key, so the extractor (which reads
-    // the file back through `resolveJobDescriptionText`) sees the moved object.
-    // Non-fatal: the job row is already committed, so a failed extraction
-    // leaves the checklist empty rather than failing the create.
-    await syncJobRequirementsQuietly(job.id);
+    if (jdStoragePath) await syncJobRequirementsQuietly(job.id);
 
     return Response.json({ jobDescription: job }, { status: 201 });
   } catch (e) {

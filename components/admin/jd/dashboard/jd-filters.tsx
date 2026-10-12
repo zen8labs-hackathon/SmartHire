@@ -1,6 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { OpenPositionDialog } from "@/components/positions/open-position-dialog";
 import { ListBox, Select } from "@heroui/react";
 import { JD_STATUS_OPTIONS } from "@/lib/jd/types";
 import { useJdDashboard } from "./context";
@@ -13,7 +15,6 @@ export function JdFilters() {
     canAdministerJds,
     loading,
     loadDescriptions,
-    jdModal,
     jdListSearch,
     setJdListSearch,
     jdListStatusKey,
@@ -21,6 +22,9 @@ export function JdFilters() {
     jdStartDateRange,
     setJdStartDateRange,
   } = useJdDashboard();
+
+  const router = useRouter();
+  const [openDialog, setOpenDialog] = useState(false);
 
   const filtersElement = (
     <Select
@@ -62,6 +66,7 @@ export function JdFilters() {
   );
 
   return (
+    <>
     <DataTableToolbar
       searchQuery={jdListSearch}
       onSearchChange={setJdListSearch}
@@ -71,8 +76,17 @@ export function JdFilters() {
       onRefresh={loadDescriptions}
       isRefreshing={loading}
       createButtonLabel={canAdministerJds ? "New Position" : undefined}
-      onCreate={canAdministerJds ? jdModal.open : undefined}
+      onCreate={canAdministerJds ? () => setOpenDialog(true) : undefined}
     />
+    <OpenPositionDialog
+      open={openDialog}
+      onClose={() => setOpenDialog(false)}
+      onCreated={(id) => {
+        setOpenDialog(false);
+        router.push(`/admin/jd/${id}/pipeline`);
+      }}
+    />
+    </>
   );
 }
 

@@ -5,14 +5,20 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 
 type ToastType = "success" | "danger";
 
+export type ToastAction = { label: string; onClick: () => void };
+export type ToastOptions = { action?: ToastAction; duration?: number };
+
 type Toast = {
   id: string;
   message: string;
   type: ToastType;
+  action?: ToastAction;
 };
 
 type ToastContextType = {
-  toast: (message: string, type?: ToastType) => void;
+  toast: (message: string, type?: ToastType, options?: ToastOptions) => void;
+  /** Success toast with an Undo action (F0.3). Stays 8s so it is reachable. */
+  undoable: (message: string, onUndo: () => void) => void;
   success: (message: string) => void;
   error: (message: string) => void;
 };
@@ -26,15 +32,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const toast = useCallback((message: string, type: ToastType = "success") => {
+  const toast = useCallback((message: string, type: ToastType = "success", options?: ToastOptions) => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => [...prev, { id, message, type, action: options?.action }]);
 
-    // Auto dismiss after 4 seconds
     setTimeout(() => {
       removeToast(id);
-    }, 4000);
+    }, options?.duration ?? (options?.action ? 8000 : 4000));
   }, [removeToast]);
+
+  const undoable = useCallback((message: string, onUndo: () => void) => {
+    toast(message, "success", { action: { label: "Undo", onClick: onUndo } });
+  }, [toast]);
 
   const success = useCallback((message: string) => {
     toast(message, "success");
@@ -45,8 +54,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, [toast]);
 
   const contextValue = React.useMemo(
-    () => ({ toast, success, error }),
-    [toast, success, error]
+    () => ({ toast, success, error, undoable }),
+    [toast, success, error, undoable]
   );
 
   return (
@@ -58,7 +67,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           default is z-50, and some overlays already bump themselves to
           z-[100] to stack above each other), or a toast fired while a
           modal/drawer is open renders invisibly behind it. */}
-      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+      <div role="status" aria-live="polite" className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-3 max-w-sm w-full pointer-events-none">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -76,6 +85,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               )}
               <span className="text-sm font-medium text-foreground">{t.message}</span>
             </div>
+            {t.action ? (
+              <button
+                type="button"
+                className="sh-btn sh-btn--ghost sh-btn--sm"
+                onClick={() => {
+                  t.action?.onClick();
+                  removeToast(t.id);
+                }}
+              >
+                {t.action.label}
+              </button>
+            ) : null}
             <button
               onClick={() => removeToast(t.id)}
               className="text-muted hover:text-foreground p-1 rounded-md hover:bg-surface-tertiary transition-colors"

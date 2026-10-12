@@ -29,6 +29,7 @@ export default async function AdminLayout({
       userEmail={user.email ?? ""}
       isHr={canManage}
       chapterIds={access.chapterIds}
+      isChapterHead={access.headedChapterIds.length > 0}
     >
       {children}
     </DashboardLayout>

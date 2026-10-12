@@ -47,45 +47,43 @@ export default async function LoginPage({ searchParams }: Props) {
   const reasonMessage = reason ? REASON_MESSAGES[reason] : undefined;
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-brand-green-dark bg-grid-pattern p-6">
-      {/* Radiant Spotlight Background Effect */}
-      <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-brand-gold/15 blur-[120px] animate-pulse-glow" />
+    <div className="flex min-h-screen flex-col items-center justify-center bg-surface-subtle p-6">
 
-      <div className="relative z-10 w-full max-w-[420px]">
+      <div className="w-full max-w-[400px]">
         {/* Logo and Header */}
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center transition-transform duration-300 hover:scale-105">
-            <img src="/logo.svg" alt="SmartHire Logo" className="h-14 w-14" />
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="flex h-12 w-12 items-center justify-center">
+            <img src="/logo.svg" alt="SmartHire Logo" className="h-12 w-12" />
           </div>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight text-white">
+          <h1 className="mt-4 text-page font-semibold text-heading">
             Welcome back
           </h1>
-          <p className="mt-2 text-sm text-white/65">
+          <p className="mt-1 text-body text-muted">
             Sign in to manage your recruitment pipeline
           </p>
         </div>
 
         {/* Login Card */}
-        <Card className="glass-panel w-full border border-divider shadow-2xl rounded-2xl p-6">
+        <Card className="w-full rounded-lg border border-divider bg-surface p-6 shadow-none">
           <Card.Content className="flex flex-col gap-4 p-0">
             {reasonMessage ? (
               <Alert
                 status="warning"
-                className="rounded-xl border border-warning/10 bg-warning/5 text-warning p-3"
+                className="rounded-md border border-warning/30 bg-warning-soft p-3 text-warning"
               >
                 <Alert.Indicator />
                 <Alert.Content>
-                  <Alert.Title className="text-xs font-semibold">
+                  <Alert.Title className="text-caption font-semibold">
                     {reasonMessage.title}
                   </Alert.Title>
-                  <Alert.Description className="text-xs text-warning opacity-90 mt-1 leading-normal">
+                  <Alert.Description className="mt-1 text-caption leading-normal text-fg-2">
                     {reasonMessage.description}
                   </Alert.Description>
                 </Alert.Content>
               </Alert>
             ) : null}
 
-            <p className="text-center text-xs font-medium text-muted">
+            <p className="text-center text-caption text-muted">
               Continue with your organization&apos;s Microsoft account
             </p>
 
@@ -94,7 +92,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </Card>
 
         {/* Footer info */}
-        <p className="mt-8 text-center text-xs text-white/55 leading-relaxed">
+        <p className="mt-6 text-center text-caption leading-relaxed text-muted">
           Smart Hire is used internally by authorized HR teams.
           <br />
           Protected by role-based workspace security.

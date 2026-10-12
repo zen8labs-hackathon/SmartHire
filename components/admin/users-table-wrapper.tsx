@@ -105,7 +105,7 @@ function RoleBadges({ user }: { user: OrgUser }) {
       ) : null}
       {isHr ? (
         <span
-          className={`${BADGE_BASE} bg-brand-gold/15 text-brand-green dark:text-brand-gold`}
+          className={`${BADGE_BASE} bg-highlight text-highlight-foreground`}
         >
           HR
         </span>

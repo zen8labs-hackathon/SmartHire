@@ -252,7 +252,7 @@ export function DuplicateCandidateModal({
                 </Button>
                 <Button
                   variant="primary"
-                  className="min-h-[52px] min-w-[220px] flex-col gap-0 rounded-xl bg-gradient-to-br from-[#002542] to-[#1b3b5a] py-2 font-bold text-white shadow-md"
+                  className="min-h-[52px] min-w-[220px] flex-col gap-0 py-2"
                   onPress={() => void handleUpdate()}
                   isPending={isSubmitting}
                 >

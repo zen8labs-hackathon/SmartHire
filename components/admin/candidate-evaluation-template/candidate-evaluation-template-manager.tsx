@@ -228,7 +228,7 @@ export function CandidateEvaluationTemplateManager({
                 className="flex flex-col gap-3 rounded-2xl border border-divider bg-surface-secondary/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="h-11 w-11 shrink-0 flex items-center justify-center bg-gradient-to-br from-accent/20 to-brand-gold/20 rounded-xl text-accent border border-accent/20 shadow-sm shadow-accent/10">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
                     {t.hasFile ? <FileText className="h-5 w-5" /> : <Type className="h-5 w-5" />}
                   </div>
                   <div className="min-w-0">
@@ -586,8 +586,8 @@ function TemplateForm({
           <div
             className={
               dragOver
-                ? "group relative rounded-2xl border-2 border-dashed border-accent bg-gradient-to-br from-accent/8 to-brand-gold/10 p-8 text-center transition-all duration-200 cursor-pointer ring-4 ring-accent/10"
-                : "group relative rounded-2xl border-2 border-dashed border-divider bg-surface-secondary/10 p-8 text-center transition-all duration-200 hover:border-accent/40 hover:bg-surface-secondary/25 cursor-pointer"
+                ? "group relative cursor-pointer rounded-lg border border-dashed border-accent bg-surface-selected p-8 text-center transition-colors duration-[120ms] ease-standard"
+                : "group relative cursor-pointer rounded-lg border border-dashed border-border-field bg-surface-subtle p-8 text-center transition-colors duration-[120ms] ease-standard hover:border-accent hover:bg-surface-selected"
             }
             onClick={() => !busy && fileInputRef.current?.click()}
             onDragOver={(e: DragEvent) => {

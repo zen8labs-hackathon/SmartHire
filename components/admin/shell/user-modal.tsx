@@ -128,7 +128,7 @@ export function UserModal({
             {/* Modal Header */}
             <Modal.Header className="border-b border-divider bg-surface-secondary/40 px-6 py-5">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-gold font-sans text-xl font-bold text-brand-gold-foreground shadow-md shadow-black/15">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-highlight text-section font-semibold text-highlight-foreground">
                   {initials}
                 </div>
                 <div className="min-w-0">

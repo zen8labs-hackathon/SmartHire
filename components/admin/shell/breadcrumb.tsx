@@ -14,10 +14,10 @@ export type BreadcrumbProps = {
 
 export function Breadcrumb({ items }: BreadcrumbProps) {
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center space-x-1.5 text-xs text-muted">
+    <nav aria-label="Breadcrumb" className="flex items-center space-x-1.5 text-caption text-muted">
       <Link
         href="/dashboard"
-        className="flex items-center gap-1 hover:text-foreground transition-colors duration-150 py-1"
+        className="flex items-center gap-1 hover:text-foreground transition-colors duration-[120ms] py-1"
       >
         <Home className="h-3.5 w-3.5" />
       </Link>
@@ -27,15 +27,15 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
         
         return (
           <div key={index} className="flex items-center space-x-1.5">
-            <ChevronRight className="h-3 w-3 text-muted/60 shrink-0" />
+            <ChevronRight className="h-3 w-3 shrink-0 text-muted" />
             {isLast || !item.href ? (
-              <span className="font-semibold text-foreground py-1 truncate max-w-[160px] sm:max-w-[280px]">
+              <span className="font-medium text-fg-2 py-1 truncate max-w-[160px] sm:max-w-[280px]">
                 {item.label}
               </span>
             ) : (
               <Link
                 href={item.href}
-                className="hover:text-foreground transition-colors duration-150 py-1 truncate max-w-[160px] sm:max-w-[280px]"
+                className="hover:text-foreground transition-colors duration-[120ms] py-1 truncate max-w-[160px] sm:max-w-[280px]"
               >
                 {item.label}
               </Link>
