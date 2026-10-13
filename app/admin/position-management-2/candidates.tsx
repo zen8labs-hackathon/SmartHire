@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { JD, srcInfo, type AttentionItem, type Candidate, type Criterion, type Role } from "./data";
+import { STAGES, srcInfo, type AttentionItem, type Candidate, type Criterion, type Role, type Stage } from "./data";
 import { MoveButton, Pop, StageChip, StagePath, moveItems, stageOf, type MoveHandlers } from "./shell";
 import {
   AIBadge, AIRationale, ActivityTimeline, ApplicationRow, Avatar, Badge, Banner, Button, CVVersionItem, CandidateHeader, Checkbox, CriterionResult,
@@ -50,11 +50,11 @@ function OptLabel({ text, n }: { text: React.ReactNode; n: number }) {
   return <span className="shx-row" style={{ flex: 1 }}><span style={{ flex: 1, minWidth: 0 }}>{text}</span><span className="shx-small shx-mono">{n}</span></span>;
 }
 
-function StageFilter({ value, onChange, count }: { value: string[]; onChange: (v: string[]) => void; count: (k: string, sb?: string) => number }) {
+function StageFilter({ value, onChange, count, stages = STAGES }: { value: string[]; onChange: (v: string[]) => void; count: (k: string, sb?: string) => number; stages?: Stage[] }) {
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
   const toggleOpen = () => { if (!open) setDraft(value); setOpen(!open); };
-  const S = JD.stages;
+  const S = stages;
   const keys = (s: (typeof S)[number]) => s.subs.map((x) => s.id + ":" + x);
   const togStage = (s: (typeof S)[number]) => setDraft((d) => { const k = keys(s), all = k.every((x) => d.includes(x)); return all ? d.filter((x) => !k.includes(x)) : [...new Set([...d, ...k])]; });
   const tog = (k: string) => setDraft((d) => (d.includes(k) ? d.filter((x) => x !== k) : [...d, k]));
@@ -97,8 +97,8 @@ function StageFilter({ value, onChange, count }: { value: string[]; onChange: (v
   );
 }
 
-const stageChips = (v: string[]): [string, string, string][] =>
-  JD.stages.flatMap((s) => {
+const stageChips = (v: string[], stages: Stage[] = STAGES): [string, string, string][] =>
+  stages.flatMap((s) => {
     const k = s.subs.map((x) => s.id + ":" + x), on = k.filter((x) => v.includes(x));
     if (!on.length) return [];
     return on.length === k.length && k.length > 1 ? [["g", s.id, s.label] as [string, string, string]] : on.map((x) => ["g", x, s.label + " - " + x.split(":")[1]] as [string, string, string]);
@@ -129,9 +129,9 @@ export function FilterSelect({ label, options, value, onChange, count, render }:
   );
 }
 
-export function CandidatesTab({ user, cands, h, view, setView, open, compact, nextOf, preset }: {
+export function CandidatesTab({ user, cands, h, view, setView, open, compact, nextOf, preset, stages = STAGES }: {
   user: Role; cands: Candidate[]; h: CandHandlers; view: string; setView: (v: string) => void; isPool?: boolean; open: OpenCand;
-  compact?: boolean; nextOf?: (c: Candidate) => NextStep; preset?: CandPreset;
+  compact?: boolean; nextOf?: (c: Candidate) => NextStep; preset?: CandPreset; stages?: Stage[];
 }) {
   const P0 = preset || {};
   const [sel, setSel] = React.useState<number[]>([]);
@@ -141,7 +141,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const [fBand, setFBand] = React.useState<string[]>(P0.band || []);
   const [fSrc, setFSrc] = React.useState<string[]>(P0.source || []);
   const [fScore, setFScore] = React.useState<string[]>(P0.scoring || []);
-  const S = JD.stages;
+  const S = stages;
   const isMine = (c: Candidate) => !!(nextOf && nextOf(c)?.mine);
   const scoreKey = (c: Candidate) => (c.st === "done" ? "done" : c.st || "none");
   const pass = (c: Candidate, skip?: string) =>
@@ -155,7 +155,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const sources = [...new Set(cands.map((c) => c.source))].sort().map((x) => [x, x] as [string, string]);
   const optLabel = (opts: [string, string][], k: string) => opts.find((o) => o[0] === k)?.[1] ?? k;
   const active: [string, string, string][] = [
-    ...stageChips(fStage),
+    ...stageChips(fStage, S),
     ...fBand.map((k) => ["b", k, optLabel(BAND_OPTS, k)] as [string, string, string]),
     ...fSrc.map((k) => ["s", k, k] as [string, string, string]),
     ...fScore.map((k) => ["k", k, optLabel(SCORE_OPTS, k)] as [string, string, string]),
@@ -173,11 +173,10 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         </div>
       ),
     },
-    { key: "stage", label: "Stage", render: (c) => <StageChip stage={c.stage} sub={c.sub} /> },
+    { key: "stage", label: "Stage", render: (c) => <StageChip stage={c.stage} sub={c.sub} stages={S} /> },
     { key: "match", label: "Match", render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
     ...(user.salary ? [{ key: "salary", label: "Expected salary", align: "right", render: (c) => <span className="sh-num">{c.salary}</span> } as Column<Candidate>] : []),
-    { key: "owner", label: "Owner", render: (c) => <Avatar name={c.owner} size={24} /> },
     { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
     {
       key: "days", label: "Days in stage", align: "right", render: (c) => (
@@ -186,7 +185,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         </span>
       ),
     },
-    ...(user.key !== "iv" ? [{ key: "act", label: "", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" /> } as Column<Candidate>] : []),
+    ...(user.key !== "iv" ? [{ key: "act", label: "", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
   ];
   const scoring = cands.filter((c) => c.st === "scoring").length;
   const listLabel = active.length ? "Filtered list" : "All candidates";
@@ -198,7 +197,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
-        <StageFilter value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
+        <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
         {!user.hideScore && (
           <FilterSelect label="Match band" options={BAND_OPTS} value={fBand} onChange={setFBand} count={(k) => base.filter((c) => pass(c, "b") && c.st === "done" && c.band === k).length} render={(k) => <MatchBand band={k as BandKey} compact />} />
         )}
@@ -262,7 +261,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
                   onMove={user.key === "iv" ? undefined : () => setMenuFor(menuFor === c.id ? null : c.id)}
                 />
                 <Pop open={menuFor === c.id} onClose={() => setMenuFor(null)} top={36} width={300}>
-                  <MoveToMenu items={moveItems(c, { onMove: closeMenu(h.onMove), onSub: closeMenu(h.onSub), onReject: closeMenu(h.onReject) }, user)} />
+                  <MoveToMenu items={moveItems(c, { onMove: closeMenu(h.onMove), onSub: closeMenu(h.onSub), onReject: closeMenu(h.onReject) }, user, S)} />
                 </Pop>
               </div>
             );
@@ -342,10 +341,10 @@ const ZOOMS = ["md", "full"] as const;
 type Zoom = (typeof ZOOMS)[number];
 const readZoom = (): Zoom => { const z = lsGet<string>("jb-drawer-zoom", "md"); return z === "full" ? "full" : "md"; };
 
-export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSubmitNotes }: {
-  c: Candidate | null; user: Role; h: MoveHandlers; onClose: () => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void;
+export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSubmitNotes, nav, onOpen, stages = STAGES }: {
+  c: Candidate | null; user: Role; h: MoveHandlers; onClose: () => void; nav?: { ids: number[]; label: string } | null; onOpen?: (id: number) => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void; stages?: Stage[];
 }) {
-  const [crit, setCrit] = React.useState<CritRow[]>(() => JD.criteria.map((x) => ({ ...x })));
+  const [crit, setCrit] = React.useState<CritRow[]>(() => []);
   const [tab, setTab] = React.useState(user.key === "iv" ? "notes" : "match");
   const [zoom, setZoom] = React.useState<Zoom>(readZoom);
   const setZ = (z: Zoom) => { setZoom(z); lsSet("jb-drawer-zoom", z); };
@@ -353,90 +352,85 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && t.closest && t.closest("input,textarea,select,[contenteditable]")) return;
+      if (e.key === "Escape") { onClose(); return; }
+      if ((e.key === "j" || e.key === "k") && nav && onOpen && c) {
+        const i = nav.ids.indexOf(c.id), n = nav.ids[i + (e.key === "j" ? 1 : -1)];
+        if (i >= 0 && n != null) onOpen(n);
+        return;
+      }
       const step = e.key === "+" || e.key === "=" ? 1 : e.key === "-" ? -1 : 0;
       if (!step) return;
       setZoom((cur) => { const z = ZOOMS[Math.max(0, Math.min(1, ZOOMS.indexOf(cur) + step))]; lsSet("jb-drawer-zoom", z); return z; });
     };
     addEventListener("keydown", k);
     return () => removeEventListener("keydown", k);
-  }, []);
+  });
   if (!c) return null;
-  const s = stageOf(c.stage);
+  const s = stageOf(c.stage, stages);
   const prev = (c.flags || []).includes("prev");
   const hidden = !!user.hideScore && !c.ivDone;
   const tabs = [
     { id: "match", label: "Match" },
-    { id: "apps", label: "Applications", count: prev ? 3 : 1 },
-    { id: "history", label: "History" },
-    ...(s.schedule ? [{ id: "notes", label: "Interview notes", count: c.noNote ? 1 : null, warn: true }] : []),
+    ...(s.schedule ? [{ id: "notes", label: "Interviews & notes", count: c.noNote ? 1 : null, warn: true }] : []),
+    { id: "history", label: "Activity" },
   ];
+  const idx = nav ? nav.ids.indexOf(c.id) : -1;
+  const go = (d: number) => { const n = nav?.ids[idx + d]; if (n != null && onOpen) onOpen(n); };
+  const full = zoom === "full";
   return (
     <>
-      <div className="jb-scrim" onClick={onClose} />
-      <aside className={"jb-drawer jb-drawer--" + zoom} role="dialog" aria-label={c.name}>
-        <header style={{ padding: "20px 20px 0", display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
+      {!full && <div className="jb-scrim" onClick={onClose} />}
+      <div className={full ? "ad-full" : "ad-quick"} role="dialog" aria-label={c.name}>
+        <div className="ad-ctx">
+          <nav className="ad-crumb" aria-label="Breadcrumb">
+            <span>{nav?.label ?? "Candidates"}</span><Icon name="chevron-right" /><b>{c.name}</b>
+          </nav>
+          <span className="ad-sp" />
+          {nav && idx >= 0 && (
+            <div className="ad-pager">
+              <button type="button" className="sh-iconbtn" aria-label="Previous candidate" disabled={idx <= 0} onClick={() => go(-1)}><Icon name="chevron-up" /></button>
+              <span className="ad-pager__n">{idx + 1} / {nav.ids.length}</span>
+              <button type="button" className="sh-iconbtn" aria-label="Next candidate" disabled={idx >= nav.ids.length - 1} onClick={() => go(1)}><Icon name="chevron-down" /></button>
+            </div>
+          )}
+          <span className="ad-vr" />
+          <button type="button" className="sh-iconbtn" aria-label={full ? "Collapse panel" : "Expand panel"} aria-pressed={full} title={full ? "Collapse (−)" : "Expand (+)"} onClick={() => setZ(full ? "md" : "full")}>
+            <Icon name={full ? "minimize-2" : "maximize-2"} />
+          </button>
+          <button type="button" className="sh-iconbtn" aria-label="Close (Esc)" onClick={onClose}><Icon name="x" /></button>
+        </div>
+        <header className="ad-head">
+          <div className="ad-head__top">
+            <div style={{ flex: 1, minWidth: 240 }}>
               <CandidateHeader
                 name={c.name} tags={<><Flags c={c} />{prev && <IdentityTag kind="apps" count={3} />}</>}
                 meta={c.headline + " · " + c.source + " · added " + c.applied} sync={prev ? "Skills and experience updated from CV v2 · 24/09" : undefined}
               />
             </div>
-            {user.key !== "iv" && <Button size="sm" variant="ghost" icon="user-round">Candidate profile</Button>}
-            <button
-              type="button" className="sh-iconbtn" aria-label={zoom === "md" ? "Expand panel" : "Collapse panel"} aria-pressed={zoom !== "md"}
-              title={zoom === "md" ? "Expand (+)" : "Collapse (−)"} onClick={() => setZ(zoom === "md" ? "full" : "md")}
-            >
-              <Icon name={zoom === "md" ? "maximize-2" : "minimize-2"} />
-            </button>
-            <button type="button" className="sh-iconbtn" aria-label="Close" onClick={onClose}><Icon name="x" /></button>
+            {user.key !== "iv" && (
+              <div className="ad-acts">
+                <MoveButton c={c} h={h} user={user} size="lg" stages={stages} />
+                <Button variant="secondary" icon="link" onClick={onShare}>Share evaluation</Button>
+              </div>
+            )}
           </div>
-          <StagePath c={c} />
-          {user.key !== "iv" && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <MoveButton c={c} h={h} user={user} size="lg" />
-              <Button variant="secondary" icon="link" onClick={onShare}>Share evaluation</Button>
-              <span style={{ flex: 1 }} />
-              <Button variant="ghost" iconRight="arrow-up-right">Full profile</Button>
-            </div>
-          )}
-          <EntityTabs tabs={tabs} value={tab} onChange={setTab} />
+          <StagePath c={c} stages={stages} />
         </header>
-        <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {tab === "match" &&
-            (hidden ? (
-              <HiddenScoreNotice />
-            ) : c.st === "error" ? (
-              <Banner tone="danger" title="AI scoring failed" action={<Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => onRescore(c)}>Rescore</Button>}>
-                {c.err}. Rule checks completed; the AI part is missing so no band is shown.
-              </Banner>
-            ) : c.st === "scoring" ? (
-              <Banner tone="info" icon="loader-circle">Reading CV and scoring against 5 criteria. You can keep working; the row updates when done.</Banner>
-            ) : (
-              <>
-                <div className="shx-row"><MatchBand band={c.band} score={c.score} /><AIBadge meta={{ Model: "gpt-4.1", Provider: "Azure OpenAI", At: "24/09 14:22" }} /></div>
-                {c.band !== "review" && <ScoreComposition ai={c.ai} rule={c.formula ?? 0} at="24/09 14:22" />}
-                <div>
-                  <div className="jb-overline" style={{ marginBottom: 6 }}>By criterion</div>
-                  <div className="shx-list">
-                    {crit.map((r) => (
-                      <CriterionResult
-                        key={r.id} name={r.req} importance={r.imp} result={r.status} evidence={r.evidence} src={r.src}
-                        edited={r.edited && r.aiStatus ? { by: user.name, reason: "Confirmed in phone screen", ai: r.aiStatus } : null}
-                        onOverride={user.canDecide ? (v) => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, aiStatus: x.aiStatus || x.status, status: v, edited: true } : x))) : undefined}
-                        onRevert={r.edited ? () => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, status: x.aiStatus || x.status, edited: false, aiStatus: null } : x))) : undefined}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <AIRationale text="Solid frontend experience on payment systems; strong React and TypeScript across two companies. REST integrations are well described, GraphQL is not mentioned. English level is not stated anywhere in the CV, so the language criterion could not be assessed and should be checked in the phone screen." />
-              </>
-            ))}
-          {tab === "apps" && (
-            <>
-              <div className="jb-overline">Applications</div>
+        <div className="ad-body">
+          <div className="ad-left"><div className="ad-pane" style={{ overflow: "auto" }}>
+            <section className="ad-card"><div className="ad-card__h">Application</div><div className="ad-card__b">
+              <dl className="ad-kv">
+                <dt>Stage</dt><dd><StageChip stage={c.stage} sub={c.sub} stages={stages} /></dd>
+                <dt>Source</dt><dd>{c.source}</dd>
+                <dt>Applied</dt><dd>{c.applied}</dd>
+                <dt>Days in stage</dt><dd>{c.days}</dd>
+                <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
+              </dl>
+            </div></section>
+            <section className="ad-sec">
+              <div className="ad-ov">Applications</div>
               <ApplicationRow
-                job="Senior Web Developer #142" date="09/2026" stage={<StageChip stage={c.stage} sub={c.sub} />} band={!hidden && c.st === "done" ? c.band : undefined}
+                job={"This position"} date={c.applied} stage={<StageChip stage={c.stage} sub={c.sub} stages={stages} />} band={!hidden && c.st === "done" ? c.band : undefined}
                 score={c.score} status={c.stage === "hired" ? "hired" : "open"} salaryRestricted={!user.salary}
               />
               {prev && (
@@ -445,7 +439,9 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                   <ApplicationRow job="Web Developer #97" date="03/2025" stage="stopped at Interview 2" status="ended" />
                 </>
               )}
-              <div className="jb-overline" style={{ marginTop: 4 }}>CV versions</div>
+            </section>
+            <section className="ad-sec">
+              <div className="ad-ov">CV versions</div>
               {prev ? (
                 <>
                   <CVVersionItem version={2} active date="24/09/2026" change="added 1 year at FinPay, added React Native" />
@@ -454,29 +450,52 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
               ) : (
                 <CVVersionItem version={1} active date={c.applied} />
               )}
-              <div className="jb-overline" style={{ marginTop: 4 }}>This application</div>
-              <dl className="jb-dl">
-                <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
-                <dt>Owner</dt><dd>{c.owner}</dd>
-                <dt>Days in stage</dt><dd>{c.days}</dd>
-              </dl>
-            </>
-          )}
-          {tab === "history" && (
-            <>
-              <ActivityTimeline items={JD.timeline} />
-              <div className="shx-small">Stage moves before 09/2026 were not recorded with reasons.</div>
-            </>
-          )}
-          {tab === "notes" && (
-            <>
-              {hidden && <HiddenScoreNotice />}
-              <InterviewNoteEditor round={s.label} submitted={c.ivDone} initial={c.ivNote || ""} onSubmit={(v) => onSubmitNotes(c, v)} />
-              <div className="shx-small">Notes are independent: other interviewers&apos; notes appear after you submit yours.</div>
-            </>
-          )}
+            </section>
+          </div></div>
+          <div className="ad-right">
+            <div className="ad-right__tabs"><EntityTabs tabs={tabs} value={tab} onChange={setTab} /></div>
+            <div className="ad-pane">
+              {tab === "match" &&
+                (hidden ? (
+                  <HiddenScoreNotice />
+                ) : c.st === "error" ? (
+                  <Banner tone="danger" title="AI scoring failed" action={<Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => onRescore(c)}>Rescore</Button>}>
+                    {c.err}. Rule checks completed; the AI part is missing so no band is shown.
+                  </Banner>
+                ) : c.st === "scoring" ? (
+                  <Banner tone="info" icon="loader-circle">Reading CV and scoring against 5 criteria. You can keep working; the row updates when done.</Banner>
+                ) : (
+                  <>
+                    <div className="shx-row"><MatchBand band={c.band} score={c.score} /><AIBadge meta={{ Model: "gpt-4.1", Provider: "Azure OpenAI", At: "24/09 14:22" }} /></div>
+                    {c.band !== "review" && <ScoreComposition ai={c.ai} rule={c.formula ?? 0} at="24/09 14:22" />}
+                    <div className="ad-sec">
+                      <div className="ad-ov">By criterion</div>
+                      <div className="shx-list">
+                        {crit.map((r) => (
+                          <CriterionResult
+                            key={r.id} name={r.req} importance={r.imp} result={r.status} evidence={r.evidence} src={r.src}
+                            edited={r.edited && r.aiStatus ? { by: user.name, reason: "Confirmed in phone screen", ai: r.aiStatus } : null}
+                            onOverride={user.canDecide ? (v) => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, aiStatus: x.aiStatus || x.status, status: v, edited: true } : x))) : undefined}
+                            onRevert={r.edited ? () => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, status: x.aiStatus || x.status, edited: false, aiStatus: null } : x))) : undefined}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <AIRationale text="Solid frontend experience on payment systems; strong React and TypeScript across two companies. REST integrations are well described, GraphQL is not mentioned. English level is not stated anywhere in the CV, so the language criterion could not be assessed and should be checked in the phone screen." />
+                  </>
+                ))}
+              {tab === "history" && <ActivityTimeline items={[]} />}
+              {tab === "notes" && (
+                <>
+                  {hidden && <HiddenScoreNotice />}
+                  <InterviewNoteEditor round={s.label} submitted={c.ivDone} initial={c.ivNote || ""} onSubmit={(v) => onSubmitNotes(c, v)} />
+                  <div className="shx-small">Notes are independent: other interviewers&apos; notes appear after you submit yours.</div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      </aside>
+      </div>
     </>
   );
 }

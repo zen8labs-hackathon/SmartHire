@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+import { PageTitleProvider } from "./page-title";
 
 export type DashboardLayoutProps = {
   userEmail: string;
@@ -22,6 +23,7 @@ export function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
+    <PageTitleProvider>
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
       {/* Sidebar navigation */}
       <Sidebar
@@ -53,5 +55,6 @@ export function DashboardLayout({
         </main>
       </div>
     </div>
+    </PageTitleProvider>
   );
 }

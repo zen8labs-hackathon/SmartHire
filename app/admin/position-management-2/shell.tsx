@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Button, Icon, MoveToMenu, NotificationItem, type MoveItem } from "./ext";
-import { JD, stageColor, stageOf, type Candidate, type Notif, type Role, type StageId } from "./data";
+import { useSetBreadcrumbs } from "@/components/admin/shell/page-title";
+import { Button, Icon, MoveToMenu, type MoveItem } from "./ext";
+import { STAGES, stageColor, stageOf, type Candidate, type Role, type Stage } from "./data";
 
 type Style = React.CSSProperties;
 
@@ -42,21 +43,21 @@ export function Pop({ open, onClose, children, align = "right", top = 34, width 
 
 type NavKey = "dash" | "jobs" | "cands" | "cal" | "users" | "pipes" | "chap" | "tpl";
 
-export function Shell({ user, crumbs, title, meta, actions, children, onHome, notifs = [], onNotif, active = "jobs", embedded = false }: {
+export function Shell({ user, crumbs, title, subtitle, onBack, trail, meta, actions, children, onHome, active = "jobs", embedded = false }: {
   embedded?: boolean;
   user: Role;
   crumbs?: React.ReactNode;
   title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  onBack?: () => void;
+  trail?: { label: React.ReactNode; href?: string }[];
   meta?: React.ReactNode;
   actions?: React.ReactNode;
   children?: React.ReactNode;
   onHome: () => void;
-  notifs?: Notif[];
-  onNotif: (n: Notif | null, kind?: "readall") => void;
   active?: NavKey;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const unread = notifs.filter((n) => n.unread).length;
+  useSetBreadcrumbs(embedded ? trail ?? null : null);
   const ws: [NavKey, string, number | null][] = [
     ["dash", "Dashboard", null],
     ["jobs", "Position Management", user.key === "iv" ? 1 : 12],
@@ -75,36 +76,14 @@ export function Shell({ user, crumbs, title, meta, actions, children, onHome, no
   const header = (emb: boolean) => (
         <div style={{ padding: emb ? "0 0 12px" : "16px 32px 12px", display: "flex", alignItems: "flex-end", gap: 16, flex: "none", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+            {onBack && <button type="button" className="jb-back" onClick={onBack} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: 0, background: "none", padding: 0, marginBottom: 6, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}><Icon name="arrow-left" size={14} />Back</button>}
             {crumbs && <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>{crumbs}</div>}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "var(--heading)" }}>{title}</h1>{meta}
-            </div>
+            {(!emb || subtitle || onBack) && <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: "var(--heading)" }}>{title}</h1>}
+            {subtitle && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{subtitle}</div>}
+            {meta && <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8 }}>{meta}</div>}
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto" }}>{emb && bell}{actions}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto" }}>{actions}</div>
         </div>
-  );
-  const bell = (
-          <span style={{ position: "relative" }}>
-            <button type="button" className="dn-ib" aria-label={`Notifications, ${unread} unread`} onClick={() => setOpen(!open)}>
-              <Svg n="bell" />{unread > 0 && <span className="dot" />}
-            </button>
-            <span aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{unread} new notifications</span>
-            <Pop open={open} onClose={() => setOpen(false)} top={44} width={380}>
-              <div className="sh-popover" style={{ width: 380, padding: 0, overflow: "hidden" }}>
-                <div className="shx-row" style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
-                  <b style={{ fontWeight: 600 }}>Notifications</b><span className="shx-sp" />
-                  <button type="button" className="sh-btn sh-btn--ghost sh-btn--sm" onClick={() => onNotif(null, "readall")}>Mark all read</button>
-                </div>
-                <div style={{ maxHeight: 420, overflow: "auto" }}>
-                  {notifs.map((n) => (
-                    <NotificationItem key={n.id} title={n.title} body={n.body} time={n.time} unread={n.unread} action={n.action}
-                      onAction={() => { setOpen(false); onNotif(n); }} onClick={() => { setOpen(false); onNotif(n); }} />
-                  ))}
-                  {!notifs.length && <div style={{ padding: 20, textAlign: "center" }} className="shx-small">No notifications</div>}
-                </div>
-              </div>
-            </Pop>
-          </span>
   );
   if (embedded) {
     return (
@@ -138,7 +117,6 @@ export function Shell({ user, crumbs, title, meta, actions, children, onHome, no
         <div className="dn-top">
           <div className="dn-search" role="search"><Svg n="search" /><span>Search candidates, jobs, people…</span><kbd>⌘K</kbd></div>
           <div style={{ flex: 1 }} />
-          {bell}
           <div className="dn-av">{ini}</div>
         </div>
         {header(false)}
@@ -148,17 +126,18 @@ export function Shell({ user, crumbs, title, meta, actions, children, onHome, no
   );
 }
 
-export const stageIdx = (id: string) => JD.stages.findIndex((s) => s.id === id);
+export const stageIdx = (id: string, stages: Stage[] = STAGES) => stages.findIndex((s) => s.id === id);
 
 export type MoveHandlers = {
-  onMove: (c: Candidate, to: StageId) => void;
+  onMove: (c: Candidate, to: string) => void;
   onSub: (c: Candidate, sub: string) => void;
   onReject: (c: Candidate) => void;
 };
 
 /** MoveToMenu items enforcing the is_passed / is_default rules. */
-export function moveItems(c: Candidate, { onMove, onSub, onReject }: MoveHandlers, user?: Role): MoveItem[] {
-  const S = JD.stages, i = stageIdx(c.stage), cur = S[i];
+export function moveItems(c: Candidate, { onMove, onSub, onReject }: MoveHandlers, user?: Role, stages: Stage[] = STAGES): MoveItem[] {
+  const S = stages, i = stageIdx(c.stage, S), cur = S[i];
+  if (!cur) return [{ label: "Reject…", icon: "x", danger: true, onClick: () => onReject(c) }];
   const passed = c.sub === cur.pass, atDefault = c.sub === cur.def;
   const items: MoveItem[] = [{ heading: "Result in " + cur.label }];
   cur.subs.filter((s) => s !== c.sub).forEach((s) => items.push({
@@ -178,36 +157,36 @@ export function moveItems(c: Candidate, { onMove, onSub, onReject }: MoveHandler
     if (j === i + 1) {
       items.push(passed
         ? { label: s.label, icon: "arrow-right", shortcut: "M", note: user && !user.canDecide ? "Sent to Chapter Head as a proposal" : `Starts at "${s.def}"`, onClick: () => onMove(c, s.id) }
-        : { label: s.label, icon: "lock", disabled: true, note: `Opens after ${cur.label} is ${cur.pass.toLowerCase()}` });
+        : { label: s.label, icon: "lock", disabled: true, note: `Opens after ${cur.label} is ${(cur.pass || "passed").toLowerCase()}` });
       return;
     }
-    items.push({ label: s.label, icon: "lock", disabled: true, note: `Opens after ${S[j - 1].label} is ${S[j - 1].pass.toLowerCase()}` });
+    items.push({ label: s.label, icon: "lock", disabled: true, note: `Opens after ${S[j - 1].label} is ${(S[j - 1].pass || "passed").toLowerCase()}` });
   });
   items.push("-", { label: user && !user.canDecide ? "Propose rejection…" : "Reject…", icon: "x", danger: true, shortcut: "X", onClick: () => onReject(c) });
   return items;
 }
 
-export function MoveButton({ c, h, user, size = "sm", label = "Move to…" }: { c: Candidate; h: MoveHandlers; user?: Role; size?: "sm" | "lg"; label?: string }) {
+export function MoveButton({ c, h, user, size = "sm", label = "Move to…", stages }: { c: Candidate; h: MoveHandlers; user?: Role; size?: "sm" | "lg"; label?: string; stages?: Stage[] }) {
   const [open, setOpen] = React.useState(false);
   const wrap = <A extends unknown[]>(f: (...a: A) => void) => (...a: A) => { setOpen(false); f(...a); };
   return (
     <span style={{ position: "relative", display: "inline-flex" }} onClick={(e) => e.stopPropagation()}>
       <Button size={size} variant="secondary" icon="arrow-right-left" iconRight="chevron-down" onClick={() => setOpen(!open)}>{label}</Button>
       <Pop open={open} onClose={() => setOpen(false)} width={300}>
-        <MoveToMenu items={moveItems(c, { onMove: wrap(h.onMove), onSub: wrap(h.onSub), onReject: wrap(h.onReject) }, user)} />
+        <MoveToMenu items={moveItems(c, { onMove: wrap(h.onMove), onSub: wrap(h.onSub), onReject: wrap(h.onReject) }, user, stages)} />
       </Pop>
     </span>
   );
 }
 
-export function StagePath({ c }: { c: Candidate }) {
-  const S = JD.stages, i = stageIdx(c.stage);
+export function StagePath({ c, stages = STAGES }: { c: Candidate; stages?: Stage[] }) {
+  const S = stages, i = stageIdx(c.stage, S);
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 12 }}>
       {S.map((s, j) => (
         <React.Fragment key={s.id}>
           {j > 0 && <Icon name="chevron-right" size={12} style={{ color: "var(--neutral-400)" }} />}
-          <span className={"jb-step" + (j === i ? " is-cur" : j < i ? " is-done" : j === i + 1 && c.sub !== S[i].pass ? " is-lock" : "")} style={{ "--stc": s.color } as Style}>
+          <span className={"jb-step" + (j === i ? " is-cur" : j < i ? " is-done" : j === i + 1 && c.sub !== S[i]?.pass ? " is-lock" : "")} style={{ "--stc": s.color } as Style}>
             {j === i ? `${s.label} - ${c.sub}` : s.label}
           </span>
         </React.Fragment>
@@ -216,10 +195,10 @@ export function StagePath({ c }: { c: Candidate }) {
   );
 }
 
-export function StageChip({ stage, sub }: { stage: string; sub?: string }) {
-  const s = JD.stages.find((x) => x.id === stage);
+export function StageChip({ stage, sub, stages = STAGES }: { stage: string; sub?: string; stages?: Stage[] }) {
+  const s = stages.find((x) => x.id === stage);
   return (
-    <span className="stc-chip" style={{ "--stc": stageColor(stage) } as Style}>
+    <span className="stc-chip" style={{ "--stc": s?.color || stageColor(stage) } as Style}>
       {s ? s.label : stage}{sub && <span className="stc-sub">- {sub}</span>}
     </span>
   );

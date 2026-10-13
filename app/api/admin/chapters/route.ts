@@ -1,7 +1,23 @@
-import { requireHrForRequest } from "@/lib/admin/require-staff-request";
-import { createChapter } from "@/lib/db/chapters";
+import { requireHrForRequest, requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { createChapter, listChapters } from "@/lib/db/chapters";
 import { getPool } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
+
+export async function GET(request: Request) {
+  const auth = await requireStaffForRequest(request);
+  if (!auth.ok) return auth.response;
+  try {
+    const rows = await listChapters(getPool());
+    return Response.json({
+      chapters: rows.map((c) => ({ id: c.id, name: c.name })),
+      headedChapterIds: auth.access.headedChapterIds,
+      isHr: auth.access.isHr,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not load chapters.";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   const auth = await requireHrForRequest(request);

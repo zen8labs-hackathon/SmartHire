@@ -32,7 +32,8 @@ export function UserDropdown({ userEmail, isHr }: UserDropdownProps) {
     <div className="relative font-sans">
       <button
         onClick={() => setDropdownOpen(!dropdownOpen)}
-        className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-tertiary border border-divider text-xs font-bold text-foreground cursor-pointer focus:outline-none hover:bg-surface-secondary transition-all"
+        className="hd-av focus-visible:outline-2 focus-visible:outline-offset-2"
+        aria-label="Account menu"
       >
         {initials}
       </button>

@@ -1,0 +1,399 @@
+import type { Batch, BatchFile, Candidate, Job, Stage } from "./data";
+import type { PositionCandidate, PositionCandidatesResult, PositionPipelineStage } from "@/lib/position/list-position-candidates";
+import type { PositionDescription } from "@/lib/position/get-position-description";
+import type { PositionListResult, PositionListRow } from "@/lib/position/list-with-enrichment";
+
+/** The UI keys jobs by number; the API uses uuids. `uuidById` maps the surrogate back. */
+export type LoadedPositions = {
+  jobs: Job[];
+  uuidById: Map<number, string>;
+  pool: { candidates: number; attention: number } | null;
+};
+
+function ddmmyyyy(iso: string | null): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : null;
+}
+
+export function positionToJob(p: PositionListRow, id: number): Job {
+  return {
+    id,
+    title: p.title,
+    chapter: p.chapters[0]?.name ?? "—",
+    level: p.level ?? "—",
+    type: p.type,
+    status: p.status,
+    headcount: p.headcount ?? 0,
+    hired: p.hired,
+    deadline: ddmmyyyy(p.deadline),
+    daysLeft: p.daysLeft ?? undefined,
+    candidates: p.candidates,
+    attention: p.attention,
+    owner: p.owner?.username ?? "—",
+    updated: ddmmyyyy(p.updated) ?? "",
+    draftNote: p.draftNote,
+    processing: p.processing === "processing" ? "extract" : null,
+    procError: p.processing === "failed" ? (p.processingError ?? "JD processing failed") : null,
+    fresh: p.fresh,
+  };
+}
+
+export async function fetchPositionDescription(uuid: string, signal?: AbortSignal): Promise<PositionDescription> {
+  const res = await fetch(`/api/admin/positions/${uuid}`, { signal });
+  if (!res.ok) throw new Error(`Failed to load description (${res.status})`);
+  return ((await res.json()) as { description: PositionDescription }).description;
+}
+
+export async function fetchPositions(signal?: AbortSignal, idOf?: (uuid: string) => number): Promise<LoadedPositions> {
+  const res = await fetch("/api/admin/positions", { signal });
+  if (!res.ok) throw new Error(`Failed to load positions (${res.status})`);
+  const data = (await res.json()) as PositionListResult;
+  const uuidById = new Map<number, string>();
+  const jobs = data.positions.map((p, i) => {
+    const id = idOf ? idOf(p.id) : i + 1;
+    uuidById.set(id, p.id);
+    return positionToJob(p, id);
+  });
+  return { jobs, uuidById, pool: data.pool ?? null };
+}
+
+export type ChapterOption = { id: string; name: string };
+export type ChapterInfo = { chapters: ChapterOption[]; headedChapterIds: string[]; isHr: boolean };
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  try {
+    return ((await res.json()) as { error?: string }).error ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function fetchChapters(signal?: AbortSignal): Promise<ChapterInfo> {
+  const res = await fetch("/api/admin/chapters", { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load chapters."));
+  return (await res.json()) as ChapterInfo;
+}
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+async function uploadJd(file: File): Promise<{ path: string }> {
+  const sign = await fetch("/api/admin/job-openings/sign-upload", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ filename: file.name, mimeType: file.type || null }),
+  });
+  if (!sign.ok) throw new Error(await readError(sign, "Could not start upload."));
+  const { path, signedUrl } = (await sign.json()) as { path?: string; signedUrl?: string };
+  if (!path || !signedUrl) throw new Error("Could not start upload.");
+  let put: Response;
+  try {
+    put = await fetch(signedUrl, {
+      method: "PUT",
+      body: file,
+      headers: file.type ? { "Content-Type": file.type } : undefined,
+    });
+  } catch {
+    throw new Error("Could not reach file storage. Please try again.");
+  }
+  if (!put.ok) throw new Error("Could not upload file to storage.");
+  return { path };
+}
+
+export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; file?: File | null };
+
+/** Uploads the JD (if any) then creates the Draft position. Returns the new row. */
+export async function createPosition(a: CreatePositionArgs): Promise<PositionListRow> {
+  const body: Record<string, unknown> = { chapterId: a.chapterId, type: a.type, headcount: a.headcount };
+  if (a.file) {
+    const { path } = await uploadJd(a.file);
+    body.jdStoragePath = path;
+    body.jdOriginalFilename = a.file.name;
+    body.jdMimeType = a.file.type || null;
+  } else {
+    body.blank = true;
+  }
+  const res = await fetch("/api/admin/positions", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await readError(res, "Could not create the position."));
+  const json = (await res.json()) as { position: PositionListRow | null };
+  if (!json.position) throw new Error("Position was created but could not be loaded.");
+  return json.position;
+}
+
+/** Retry JD processing, optionally with a replacement file. */
+export async function reprocessPosition(uuid: string, file?: File | null): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (file) {
+    const { path } = await uploadJd(file);
+    body.jdStoragePath = path;
+    body.jdOriginalFilename = file.name;
+    body.jdMimeType = file.type || null;
+  }
+  const res = await fetch(`/api/admin/positions/${uuid}/reprocess`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await readError(res, "Could not retry processing."));
+}
+
+export type PositionPatch = {
+  title?: string;
+  level?: string | null;
+  type?: "Full-time" | "Internship";
+  headcount?: number | string;
+  deadline?: string | null;
+  startDate?: string | null;
+} & Partial<NonNullable<Job["details"]>>;
+
+export async function updatePosition(uuid: string, patch: PositionPatch): Promise<PositionListRow | null> {
+  const res = await fetch(`/api/admin/positions/${uuid}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(patch) });
+  if (!res.ok) throw new Error(await readError(res, "Could not update the position."));
+  return ((await res.json()) as { position: PositionListRow | null }).position;
+}
+
+export type PositionTransitionKind = "open" | "hold" | "reopen" | "close";
+
+export async function transitionPosition(uuid: string, to: PositionTransitionKind): Promise<PositionListRow | null> {
+  const res = await fetch(`/api/admin/positions/${uuid}/transition`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ to }) });
+  if (!res.ok) throw new Error(await readError(res, "Could not change the position status."));
+  return ((await res.json()) as { position: PositionListRow | null }).position;
+}
+
+export async function requestReview(uuid: string): Promise<void> {
+  const res = await fetch(`/api/admin/positions/${uuid}/request-review`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
+  if (!res.ok) throw new Error(await readError(res, "Could not request review."));
+}
+
+export async function duplicatePosition(uuid: string): Promise<PositionListRow> {
+  const res = await fetch(`/api/admin/positions/${uuid}/duplicate`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
+  if (!res.ok) throw new Error(await readError(res, "Could not duplicate the position."));
+  const json = (await res.json()) as { position: PositionListRow | null };
+  if (!json.position) throw new Error("Position was duplicated but could not be loaded.");
+  return json.position;
+}
+
+export type { AccessGrantDto, AccessDirectoryPerson, PositionAccess } from "@/app/api/admin/positions/[id]/access/route";
+import type { PositionAccess } from "@/app/api/admin/positions/[id]/access/route";
+
+export async function fetchAccess(uuid: string, signal?: AbortSignal): Promise<PositionAccess> {
+  const res = await fetch(`/api/admin/positions/${uuid}/access`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load access."));
+  return (await res.json()) as PositionAccess;
+}
+
+export async function changeAccess(uuid: string, method: "POST" | "DELETE", kind: "chapter" | "person", targetId: string): Promise<PositionAccess> {
+  const res = await fetch(`/api/admin/positions/${uuid}/access`, { method, headers: JSON_HEADERS, body: JSON.stringify({ kind, targetId }) });
+  if (!res.ok) throw new Error(await readError(res, method === "POST" ? "Could not grant access." : "Could not revoke access."));
+  return (await res.json()) as PositionAccess;
+}
+
+export type CriterionInput = { requirement: string; importance: "must_have" | "nice_to_have" | "bonus"; origin: "jd" | "criteria" | "ai_inferred" | "manual" };
+export type SavedCriterion = { id: string; requirement: string; importance: CriterionInput["importance"]; origin: CriterionInput["origin"] };
+
+/** Replace the position's scoring criteria. `staleApplications` = scored candidates now needing a rescore. */
+export async function saveCriteria(uuid: string, criteria: CriterionInput[]): Promise<{ requirements: SavedCriterion[]; staleApplications: number }> {
+  const res = await fetch(`/api/admin/positions/${uuid}/criteria`, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ criteria }) });
+  if (!res.ok) throw new Error(await readError(res, "Could not save the criteria."));
+  return (await res.json()) as { requirements: SavedCriterion[]; staleApplications: number };
+}
+
+/** Queue AI re-matching of every application of the position against the current criteria. */
+export async function rescorePosition(uuid: string): Promise<number> {
+  const res = await fetch(`/api/admin/positions/${uuid}/rescore`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
+  if (!res.ok) throw new Error(await readError(res, "Could not start rescoring."));
+  return ((await res.json()) as { queued: number }).queued;
+}
+
+
+export type CandidatesParams = {
+  q?: string; stageMappingId?: string; subStateId?: string;
+  sortBy?: string; sortDir?: "asc" | "desc"; limit?: number; offset?: number; all?: boolean;
+};
+
+export async function fetchPositionCandidates(uuid: string, params: CandidatesParams = {}, signal?: AbortSignal): Promise<PositionCandidatesResult> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v != null && v !== "" && v !== false) qs.set(k, String(v));
+  const res = await fetch(`/api/admin/positions/${uuid}/candidates${qs.size ? `?${qs}` : ""}`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load candidates."));
+  return (await res.json()) as PositionCandidatesResult;
+}
+
+export function toCandidate(pc: PositionCandidate, id: number): Candidate {
+  return {
+    id,
+    name: pc.name,
+    headline: pc.headline,
+    stage: pc.stageMappingId ?? "",
+    sub: pc.subStageLabel ?? "",
+    band: pc.band ?? undefined,
+    score: pc.score ?? undefined,
+    st: pc.scoring,
+    err: pc.scoringError ?? undefined,
+    source: pc.source,
+    owner: "—",
+    applied: ddmmyyyy(pc.appliedAt) ?? "",
+    days: pc.daysInStage,
+    salary: pc.expectedSalary ?? "",
+    flags: [],
+  };
+}
+
+export function toStages(p: PositionPipelineStage[]): Stage[] {
+  return p.map((st) => ({
+    id: st.id,
+    label: st.label,
+    color: st.color || "var(--neutral-500)",
+    subs: st.subs.map((x) => x.label),
+    def: (st.subs.find((x) => x.isDefault) ?? st.subs[0])?.label ?? "",
+    pass: st.subs.find((x) => x.isPassed)?.label ?? "",
+    schedule: st.allowSchedule,
+  }));
+}
+
+export type CvFileState = "pending" | "uploading" | "queued" | "error";
+export type CvUploadResult = { batchId: string | null; ok: number; failed: number };
+
+/** PUT a file to a signed URL, reporting byte progress. */
+function putWithProgress(url: string, file: File, mimeType: string | null, onProgress: (loaded: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    if (mimeType) xhr.setRequestHeader("Content-Type", mimeType);
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Could not upload file to storage.")));
+    xhr.onerror = () => reject(new Error("Could not upload file to storage."));
+    xhr.send(file);
+  });
+}
+
+/**
+ * Uploads CVs into a position (`target` = position uuid) or the talent pool
+ * (`"pool"`). `recruiter` defaults to the session user server-side.
+ * init -> S3 PUTs (bounded concurrency, byte progress) -> enqueue.
+ */
+export async function uploadPositionCvs(
+  target: string,
+  files: File[],
+  source: string,
+  onFile: (index: number, state: CvFileState, error?: string) => void,
+  opts: { recruiter?: string; onBytes?: (index: number, loaded: number) => void } = {},
+): Promise<CvUploadResult> {
+  const base = `/api/admin/positions/${encodeURIComponent(target)}/cv-uploads`;
+  const init = await fetch(base, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ source, recruiter: opts.recruiter || undefined, files: files.map((f) => ({ fileName: f.name, mimeType: f.type || null, size: f.size })) }),
+  });
+  if (!init.ok) throw new Error(await readError(init, "Could not start the upload."));
+  const { batchId, files: slots } = (await init.json()) as { batchId: string; files: { id: string; signedUrl: string; mimeType: string | null }[] };
+
+  const uploaded: { id: string; index: number }[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const i = next++;
+      const slot = slots[i];
+      onFile(i, "uploading");
+      try {
+        await putWithProgress(slot.signedUrl, files[i], slot.mimeType, (n) => opts.onBytes?.(i, n));
+        opts.onBytes?.(i, files[i].size);
+        uploaded.push({ id: slot.id, index: i });
+      } catch (e) {
+        onFile(i, "error", e instanceof Error ? e.message : "Upload failed.");
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(10, files.length) }, worker));
+
+  let ok = 0;
+  if (uploaded.length) {
+    const res = await fetch(`${base}/enqueue`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ fileUploadIds: uploaded.map((u) => u.id) }) });
+    if (!res.ok) {
+      const msg = await readError(res, "Could not queue files for processing.");
+      uploaded.forEach((u) => onFile(u.index, "error", msg));
+    } else {
+      const { results } = (await res.json()) as { results: { id: string; ok: boolean; error?: string }[] };
+      for (const r of results) {
+        const u = uploaded.find((x) => x.id === r.id);
+        if (!u) continue;
+        if (r.ok) { ok++; onFile(u.index, "queued"); } else onFile(u.index, "error", r.error);
+      }
+    }
+  }
+  return { batchId, ok, failed: files.length - ok };
+}
+
+type HistoryFile = {
+  id: string; fileName: string; kind: "new" | "existing" | "dup_job" | "same_file" | "failed" | "processing";
+  candidateName: string | null; errorMessage: string | null; errorStage: string | null; score: number | null;
+  candidateId: string | null; errorCode: string | null; storageKey: string; mimeType: string | null;
+  fileSource: string | null; recruiter: string | null; inProgress: boolean; createdAt: string;
+};
+export type CvUploadHistoryResponse = {
+  batches: { id: string; at: string; by: string; source: string; files: HistoryFile[] }[];
+};
+
+const DID: Record<HistoryFile["kind"], string> = {
+  new: "Created a new application",
+  existing: "Re-read and re-scored",
+  dup_job: "Already applied to this position",
+  same_file: "Identical file already uploaded",
+  failed: "Failed",
+  processing: "Processing…",
+};
+
+/** Upload history of a position (`target` = position uuid or "pool"). */
+export async function fetchUploadHistory(target: string, signal?: AbortSignal): Promise<Batch[]> {
+  const res = await fetch(`/api/admin/positions/${target}/cv-uploads/history`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load upload history."));
+  const { batches } = (await res.json()) as CvUploadHistoryResponse;
+  const now = Date.now();
+  return batches.map((b) => ({
+    id: b.id,
+    at: ddmmyyyy(b.at) ?? "",
+    ago: Math.floor((now - new Date(b.at).getTime()) / 86400000),
+    by: b.by,
+    source: b.source,
+    files: b.files.map((f): BatchFile => ({
+      id: f.id,
+      file: f.fileName,
+      kind: f.kind,
+      cand: f.candidateName ?? undefined,
+      candUuid: f.candidateId ?? undefined,
+      errorCode: f.errorCode,
+      errorStage: f.errorStage,
+      storageKey: f.storageKey,
+      mimeType: f.mimeType,
+      fileSource: f.fileSource,
+      recruiter: f.recruiter,
+      inProgress: f.inProgress,
+      matched: f.kind === "existing" || f.kind === "dup_job" ? "Existing candidate" : "—",
+      did: f.kind === "failed" ? f.errorMessage || "Failed" : DID[f.kind],
+      score: f.score ?? undefined,
+    })),
+  }));
+}
+
+const upBase = (target: string) => `/api/admin/positions/${encodeURIComponent(target)}/cv-uploads`;
+
+export type RetryOutcome = { id: string; ok: boolean; error?: string };
+/** Re-queue failed uploads. */
+export async function retryUploads(target: string, ids: string[]): Promise<RetryOutcome[]> {
+  const res = await fetch(`${upBase(target)}/retry`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ids }) });
+  if (!res.ok) throw new Error(await readError(res, "Could not retry the upload."));
+  return ((await res.json()) as { results: RetryOutcome[] }).results;
+}
+
+/** Mark an upload with a new status (e.g. resolve a failure manually). */
+export async function changeUploadStatus(target: string, fileId: string, body: { status: string; errorCode?: string | null; errorMessage?: string | null; errorStage?: string | null }): Promise<void> {
+  const res = await fetch(`${upBase(target)}/${encodeURIComponent(fileId)}/change-status`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(await readError(res, "Could not update the upload."));
+}
+
+export type CandidateApplication = {
+  id: string; jobId: string; jobTitle: string; appliedAt: string | null; cvOriginalFilename: string | null;
+  stageLabel: string | null; subStageLabel: string | null;
+};
+/** Applications of the candidate identified by an upload. */
+export async function fetchCandidateApplications(target: string, fileId: string): Promise<CandidateApplication[]> {
+  const res = await fetch(`${upBase(target)}/${encodeURIComponent(fileId)}/candidate-applications`);
+  if (!res.ok) throw new Error(await readError(res, "Could not load applications."));
+  return ((await res.json()) as { applications: CandidateApplication[] }).applications;
+}

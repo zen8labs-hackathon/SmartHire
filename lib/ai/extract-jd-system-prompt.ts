@@ -12,5 +12,9 @@ Rules:
 - duties_and_responsibilities: main tasks/responsibilities body when present.
 - experience_requirements_must_have / nice_to_have: requirement lists only.
 - what_we_offer: benefits/perks only.
+- language_requirements: required spoken/written languages only (e.g. English level, Japanese N3).
+- project_info: the project/product/client the hire will work on, only if stated.
+- team_size: team headcount/composition only if stated.
+- salary_range: salary or compensation range only if stated; copy the figures and currency exactly.
 - For empty fields return JSON null, not the string "null".
 - Never use placeholder strings: "null", "undefined", "N/A", "-".`;

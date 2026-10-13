@@ -254,8 +254,6 @@ body:has(.dn-app){margin:0}
 
 .jb-textlink { border: 0; background: transparent; padding: 0; color: var(--brand, var(--green-700)); font: inherit; font-size: 13px; cursor: pointer; }
 .jb-textlink:hover { text-decoration: underline; }
-.jb-meta { font-size: 13px; color: var(--text-muted, #5b6660); }
-.jb-metarow { display: inline-flex; gap: 6px; align-items: center; }
 
 /* Ported from design app-detail.css — overview, uploads, headcount, source chips */
 .ad-sp{flex:1}
@@ -303,3 +301,32 @@ body:has(.dn-app){margin:0}
 .pf__subs{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--border);padding-top:6px}
 .pf__sub{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;border:0;border-radius:4px;background:none;font:inherit;font-size:12px;color:var(--fg-2);cursor:pointer;text-align:left}.pf__sub span{overflow-wrap:anywhere;min-width:0}.pf__sub b{font-weight:600;color:var(--foreground)}.pf__sub:disabled{cursor:default;color:var(--muted)}.pf__sub:disabled b{color:var(--muted);font-weight:400}.pf__sub:not(:disabled):hover{background:var(--surface-subtle)}
 .pf__hc{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:12px;color:var(--muted)}.pf__hc .ov-prog{flex:1;margin:0}
+
+.jb-dledit{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;margin-left:-4px;color:inherit;background:transparent;border:0;border-radius:4px;cursor:pointer}.jb-dledit:hover{background:var(--muted,rgba(0,0,0,.06))}.jb-dledit:focus-visible{outline:2px solid var(--ring,currentColor);outline-offset:1px}
+.shx-tabs>.shx-tab:first-child{padding-left:0}
+
+/* Candidate detail (ApplicationDetail) */
+.ad-quick{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1600px,calc(100vw - 48px));height:calc(100vh - 48px);background:#fff;z-index:51;box-shadow:var(--shadow-overlay);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.ad-full{position:fixed;inset:0;background:#fff;z-index:51;display:flex;flex-direction:column}
+.ad-ctx{flex:none;height:48px;display:flex;align-items:center;gap:12px;padding:0 16px 0 24px;border-bottom:1px solid var(--border);background:#fff;font-size:13px;min-width:0}
+.ad-crumb{display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden}
+.ad-crumb b{font-weight:600;color:var(--foreground);overflow:hidden;text-overflow:ellipsis}
+.ad-sp{flex:1}
+.ad-pager{display:inline-flex;align-items:center;gap:4px}
+.ad-pager__n{font-size:13px;font-variant-numeric:tabular-nums;padding:3px 8px;white-space:nowrap}
+.ad-vr{width:1px;height:20px;background:var(--border);flex:none}
+.ad-head{flex:none;padding:16px 24px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:12px;background:#fff}
+.ad-head__top{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.ad-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
+.ad-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(400px,1.1fr)}
+.ad-left{min-height:0;overflow:auto;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface-subtle)}
+.ad-right{min-height:0;overflow:auto;display:flex;flex-direction:column}
+.ad-right__tabs{position:sticky;top:0;z-index:2;background:#fff;padding:0 20px;border-bottom:1px solid var(--border)}
+.ad-pane{padding:16px 20px 24px;display:flex;flex-direction:column;gap:16px}
+.ad-sec{display:flex;flex-direction:column;gap:8px}
+.ad-ov{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.ad-card{border:1px solid var(--border);border-radius:8px;background:#fff}
+.ad-card__h{padding:10px 14px;font-size:14px;font-weight:600}
+.ad-card__b{padding:4px 14px 14px;font-size:13px}
+.ad-kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:6px 12px;margin:0;font-size:13px}.ad-kv dt{color:var(--muted)}.ad-kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+@media(max-width:1099px){.ad-body{grid-template-columns:minmax(0,1fr);overflow:auto}.ad-left{border-right:0}}

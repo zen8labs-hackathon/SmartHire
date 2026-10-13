@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { JD, srcInfo, type AttentionItem, type Batch, type BatchFile, type Candidate, type Job, type Role } from "./data";
+import { STAGES, srcInfo, type AttentionItem, type Batch, type BatchFile, type Candidate, type Job, type Role } from "./data";
 import { AttentionTab, FilterSelect, type CandHandlers, type CandPreset } from "./candidates";
 import { Badge, Button, Icon, Tabs } from "./ext";
 
@@ -10,12 +10,6 @@ type Style = React.CSSProperties;
 const BAND_L = { strong: "Strong match", good: "Good match", partial: "Partial", limited: "Limited", review: "Needs manual review" } as const;
 const BAND_C: Record<keyof typeof BAND_L, string> = {
   strong: "var(--green-700)", good: "var(--z8-green-500, #2E8B57)", partial: "var(--z8-green-300, #7FC29B)", limited: "var(--z8-green-100, #D6EDDE)", review: "var(--neutral-300, #C5CEC9)",
-};
-const OV_SAMPLE = {
-  opened: "02/09/2026",
-  reached: { cv: 52, iv: 14, offer: 2, probation: 1, hired: 0 } as Record<string, number>,
-  weeks: [["W36", 8], ["W37", 12], ["W38", 15], ["W39", 25]] as [string, number][],
-  tth: { median: 38 },
 };
 
 function Card({ title, right, children, span, note }: { title: React.ReactNode; right?: React.ReactNode; children: React.ReactNode; span?: number; note?: React.ReactNode }) {
@@ -43,7 +37,7 @@ type Alert = { tone: "warn" | "info"; icon: string; text: React.ReactNode; go: (
 export function OverviewTab({ job, cands, att, onFilter, onTab }: {
   job: Job; cands: Candidate[]; att: AttentionItem[]; user?: Role; onFilter: (p: CandPreset) => void; onTab: (tab: string, sub?: string) => void;
 }) {
-  const S = JD.stages;
+  const S = STAGES;
   const open = job.headcount - job.hired;
   const atOffer = cands.filter((c) => c.stage === "offer" && c.sub !== "Rejected").length;
   const stale = cands.filter((c) => c.stage === "cv" && (c.sub === "New" || c.sub === "Consider") && c.days > 7);
@@ -62,7 +56,7 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
   const risk = open > 0 && job.daysLeft != null && job.daysLeft <= 14 && atOffer < open;
 
   const funnel = S.map((s) => ({ s, n: cands.filter((c) => c.stage === s.id).length, subs: s.subs.map((sb) => [sb, cands.filter((c) => c.stage === s.id && c.sub === sb).length] as [string, number]) }));
-  const R = OV_SAMPLE.reached, rk = ["cv", "iv", "offer", "probation", "hired"];
+  const R = Object.fromEntries(S.map((x, i) => [x.id, cands.filter((c) => S.findIndex((y) => y.id === c.stage) >= i).length])) as Record<string, number>, rk = ["cv", "iv", "offer", "probation", "hired"];
   const bands = (Object.keys(BAND_L) as (keyof typeof BAND_L)[]).map((b) => [b, cands.filter((c) => c.st === "done" && c.band === b).length] as const);
   const unscored: [string, number, string][] = [["Scoring", cands.filter((c) => c.st === "scoring").length, "scoring"], ["Scoring failed", scoreErr.length, "error"]];
   const maxB = Math.max(1, ...bands.map((b) => b[1]));
@@ -73,12 +67,13 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
     })
     .sort((a, b) => b[1] - a[1]);
   const maxS = Math.max(1, ...srcs.map((s) => s[1]));
-  const maxW = Math.max(...OV_SAMPLE.weeks.map((w) => w[1]));
-  const kinds = (k: BatchFile["kind"]) => JD.batches.reduce((a, b) => a + b.files.filter((f) => f.kind === k).length, 0);
+  const weeks: [string, number][] = [];
+  const maxW = Math.max(1, ...weeks.map((w) => w[1]));
+  const kinds = (k: BatchFile["kind"]) => ([] as Batch[]).reduce((a, b) => a + b.files.filter((f) => f.kind === k).length, 0);
 
   return (
     <div className="ov-grid">
-      <Card title="Hiring progress" span={4} note={"Open since " + OV_SAMPLE.opened + " · median " + OV_SAMPLE.tth.median + " days from CV to hire · click a stage or sub-stage to open the list"}>
+      <Card title="Hiring progress" span={4} note="Click a stage or sub-stage to open the list">
         <div className="hc-top">
           <div className="hc-big"><b className="sh-num">{job.hired}</b><span>of {job.headcount} positions filled</span></div>
           {job.daysLeft != null && (
@@ -151,7 +146,7 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
         <div className="ov-legend"><span><i style={{ background: "var(--green-700)" }} />Passed CV Scan</span><span><i style={{ background: "var(--z8-green-200, #ADDABD)" }} />Received</span></div>
       </Card>
       <Card title="Upload activity" span={2} right={<Button size="sm" variant="ghost" iconRight="arrow-right" onClick={() => onTab("uploads", "history")}>Upload history</Button>}>
-        <div className="ov-weeks">{OV_SAMPLE.weeks.map(([w, n]) => <div key={w} className="ov-week"><span className="sh-num">{n}</span><i style={{ height: (n / maxW) * 64 + "px" }} /><small>{w}</small></div>)}</div>
+        <div className="ov-weeks">{weeks.map(([w, n]) => <div key={w} className="ov-week"><span className="sh-num">{n}</span><i style={{ height: (n / maxW) * 64 + "px" }} /><small>{w}</small></div>)}</div>
         <div className="ov-mini">
           <span className="ov-subchip">New candidates <b className="sh-num">{kinds("new")}</b></span>
           <span className="ov-subchip">Existing <b className="sh-num">{kinds("existing") + kinds("dup_job") + kinds("same_file")}</b></span>
@@ -165,14 +160,14 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
 const KIND: Record<BatchFile["kind"], [string, string, string]> = {
   new: ["success", "user-plus", "New candidate"], existing: ["info", "history", "Existing candidate"], dup_job: ["warning", "copy", "Already in this position"],
   same_file: ["warning", "file-check", "Same file"], suspected: ["warning", "users", "Possible duplicate"], failed: ["danger", "file-x", "Failed"],
+  processing: ["info", "loader", "Processing"],
 };
 const KIND_KEYS = Object.keys(KIND) as BatchFile["kind"][];
 
-export function UploadsTab({ h, att, resolve, admin, view, setView, onOpenCand }: {
-  h: CandHandlers; att: AttentionItem[]; resolve: (id: string) => void; admin?: boolean; view: string; setView: (v: string) => void; isPool?: boolean;
+export function UploadsTab({ h, att, resolve, admin, view, setView, onOpenCand, bs, histErr }: {
+  bs: Batch[]; histErr?: string | null; h: CandHandlers; att: AttentionItem[]; resolve: (id: string) => void; admin?: boolean; view: string; setView: (v: string) => void; isPool?: boolean;
   onOpenCand: (f: BatchFile, tab?: string) => void;
 }) {
-  const bs: Batch[] = JD.batches;
   const [fKind, setFKind] = React.useState<string[]>([]);
   const [fBy, setFBy] = React.useState<string[]>([]);
   const [fSrc, setFSrc] = React.useState<string[]>([]);
@@ -201,6 +196,7 @@ export function UploadsTab({ h, att, resolve, admin, view, setView, onOpenCand }
       </div>
       {view === "attention" ? <AttentionTab h={h} items={att} resolve={resolve} admin={admin} /> : (
         <>
+          {histErr && <span className="shx-small" style={{ color: "var(--red-700)" }}>{histErr}</span>}
           <span className="shx-small">Each upload batch, how every file was identified and what the system did. If a CV matches an application that already exists, it is read and scored again and the newest version becomes the one in use; older versions stay for comparison.</span>
           {list.length ? list.map((b) => {
             const isOpen = openB.includes(b.id), files = b.files.filter(fileOk);

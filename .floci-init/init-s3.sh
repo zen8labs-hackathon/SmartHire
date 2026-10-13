@@ -19,8 +19,11 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 if ! command -v curl >/dev/null 2>&1; then
-  echo "Error: curl is required to initialize S3 bucket, but it is not installed and couldn't be auto-installed."
-  exit 1
+  # Newer floci images ship without curl or a package manager. Exiting non-zero here makes floci
+  # shut itself down (restart loop -> ERR_CONNECTION_REFUSED on :4566). The bucket + CORS are
+  # persisted in ./floci-data, so skipping is safe once they exist.
+  echo "Warning: curl is not available; skipping S3 bucket/CORS init (persisted in floci-data)."
+  exit 0
 fi
 
 ENDPOINT="http://localhost:4566"

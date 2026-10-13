@@ -99,6 +99,32 @@ const jdExtractionSchema = z.object({
     .describe(
       "Benefits, perks, compensation highlights, culture. Null if not mentioned.",
     ),
+  language_requirements: z
+    .string()
+    .nullable()
+    .describe(
+      "Spoken/written language requirements (e.g. 'English – fluent; Japanese N3'). Null if not mentioned.",
+    ),
+  project_info: z
+    .string()
+    .nullable()
+    .describe(
+      "Project, product or client the person will work on. Null if not mentioned.",
+    ),
+  team_size: z
+    .string()
+    .max(100)
+    .nullable()
+    .describe(
+      "Team size or composition exactly as written (e.g. '8 engineers'). Null if not mentioned.",
+    ),
+  salary_range: z
+    .string()
+    .max(100)
+    .nullable()
+    .describe(
+      "Salary or compensation range exactly as written (e.g. '30-45M VND gross'). Null if not mentioned.",
+    ),
 });
 
 export type ExtractedJd = Pick<
@@ -114,7 +140,15 @@ export type ExtractedJd = Pick<
   | "experience_requirements_must_have"
   | "experience_requirements_nice_to_have"
   | "what_we_offer"
->;
+> &
+  /** Position-management extras; the legacy JD form ignores these. */
+  Partial<Record<JdExtractedExtraKey, string>>;
+
+export type JdExtractedExtraKey =
+  | "language_requirements"
+  | "project_info"
+  | "team_size"
+  | "salary_range";
 
 // ---------------------------------------------------------------------------
 // AI extraction via Vercel AI Gateway
@@ -132,6 +166,10 @@ const EMPTY_EXTRACTED: ExtractedJd = {
   experience_requirements_must_have: "",
   experience_requirements_nice_to_have: "",
   what_we_offer: "",
+  language_requirements: "",
+  project_info: "",
+  team_size: "",
+  salary_range: "",
 };
 
 const MAX_RAW_FALLBACK_CHARS = 20_000;
@@ -219,6 +257,10 @@ export function mergeHeuristicAndAi(rawText: string, ai: ExtractedJd): Extracted
       rawText,
     ),
     what_we_offer: pickLongFormField(offerH, ai.what_we_offer, rawText),
+    language_requirements: ai.language_requirements ?? "",
+    project_info: ai.project_info ?? "",
+    team_size: ai.team_size ?? "",
+    salary_range: ai.salary_range ?? "",
   };
 }
 
@@ -260,7 +302,7 @@ export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
     system: SYSTEM_PROMPT,
     prompt: `Extract structured information from the following job description:\n\n${truncated}`,
     temperature: 0.1,
-    maxOutputTokens: 2048,
+    maxOutputTokens: 3072,
   });
 
   return {
@@ -281,5 +323,9 @@ export async function extractJdWithAI(text: string): Promise<ExtractedJd> {
       output.experience_requirements_nice_to_have,
     ),
     what_we_offer: normalizeFormText(output.what_we_offer),
+    language_requirements: normalizeFormText(output.language_requirements),
+    project_info: normalizeFormText(output.project_info),
+    team_size: normalizeFormText(output.team_size).slice(0, 100),
+    salary_range: normalizeFormText(output.salary_range).slice(0, 100),
   };
 }

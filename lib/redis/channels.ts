@@ -11,6 +11,9 @@ export const NOTIFICATION_TYPE = {
   BatchComplete: "BATCH_COMPLETE",
   RerunAiMatchComplete: "RERUN_AI_MATCH_COMPLETE",
   RerunAiMatchFailed: "RERUN_AI_MATCH_FAILED",
+  JdProcessed: "JD_PROCESSED",
+  JdProcessFailed: "JD_PROCESS_FAILED",
+  ReviewRequested: "REVIEW_REQUESTED",
 } as const;
 
 export type NotificationType =

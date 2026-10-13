@@ -6,18 +6,18 @@
 
 import * as React from "react";
 import {
-  Archive, ArrowRight, CircleArrowRight, ArrowRightLeft, ArrowUpRight, BadgeCheck, Bell, Briefcase, Building2,
+  Archive, ArrowLeft, ArrowRight, CircleArrowRight, ArrowRightLeft, ArrowUpRight, BadgeCheck, Bell, Briefcase, Building2,
   Calendar, CalendarCheck, CalendarClock, CalendarPlus, Check, ChevronDown, ChevronRight, ChevronUp,
   Circle, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleX, Clock, Contact, Copy, Ellipsis, Eye, EyeOff,
   FileText, FileUp, FileWarning, FileX, FilterX, Flag, GitCompare, GitMerge, Globe, GraduationCap, History, Hourglass,
   Inbox, Layers, Link, ListChecks, LoaderCircle, Lock, Mail, Maximize2, Minimize2, MessageSquare, Pause, Pencil, Plus,
   RefreshCw, RotateCcw, Route, Search, Send, Shield, Sparkles, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck,
-  UserPlus, UserRound, Users, X, Cpu, Download, FileCheck, LayoutGrid, List, LogIn, LogOut, Merge, Move, Save, School, UserCog, UserX,
+  UserPlus, UserRound, Users, X, Cpu, Download, FileCheck, LayoutGrid, List, LogIn, LogOut, Merge, Move, Save, School, UserCog, UserX, Settings,
   type LucideIcon,
 } from "lucide-react";
 
 const ICONS: Record<string, LucideIcon> = {
-  archive: Archive, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
+  archive: Archive, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
   "arrow-up-right": ArrowUpRight, "badge-check": BadgeCheck, bell: Bell, briefcase: Briefcase, "building-2": Building2,
   calendar: Calendar, "calendar-check": CalendarCheck, "calendar-clock": CalendarClock, "calendar-plus": CalendarPlus,
   check: Check, "chevron-down": ChevronDown, "chevron-right": ChevronRight, "chevron-up": ChevronUp,
@@ -32,7 +32,7 @@ const ICONS: Record<string, LucideIcon> = {
   "trash-2": Trash2, "triangle-alert": TriangleAlert, "undo-2": Undo2, upload: Upload, user: User,
   "user-check": UserCheck, "user-plus": UserPlus, "user-round": UserRound, users: Users, x: X,
   cpu: Cpu, download: Download, "file-check": FileCheck, grid: LayoutGrid, list: List, "log-in": LogIn, "log-out": LogOut,
-  merge: Merge, move: Move, save: Save, school: School, "user-cog": UserCog, "user-x": UserX,
+  merge: Merge, move: Move, save: Save, school: School, "user-cog": UserCog, "user-x": UserX, settings: Settings,
 };
 
 type Style = React.CSSProperties | null | undefined;
@@ -142,14 +142,18 @@ export function Switch({ checked, disabled, onChange, label }: { checked?: boole
   );
 }
 
+const dialogStack: object[] = [];
 export function Dialog({ title, description, width = 480, onClose, footer, children }: {
   title: React.ReactNode; description?: React.ReactNode; width?: number; onClose?: () => void; footer?: React.ReactNode; children?: React.ReactNode;
 }) {
   const tid = React.useId();
   React.useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose && onClose();
+    // Only the top-most dialog reacts to Escape, so nested dialogs close one at a time.
+    const token = {};
+    dialogStack.push(token);
+    const k = (e: KeyboardEvent) => e.key === "Escape" && dialogStack[dialogStack.length - 1] === token && onClose && onClose();
     addEventListener("keydown", k);
-    return () => removeEventListener("keydown", k);
+    return () => { removeEventListener("keydown", k); const i = dialogStack.indexOf(token); if (i >= 0) dialogStack.splice(i, 1); };
   }, [onClose]);
   return (
     <div className="sh-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose && onClose()}>
@@ -224,7 +228,7 @@ export function Tabs({ value, onChange, tabs, variant }: { value: string; onChan
 export type MenuItem = { label: React.ReactNode; icon?: string; onClick?: () => void; danger?: boolean; disabled?: boolean } | "-";
 export function Menu({ items }: { items: MenuItem[] }) {
   return (
-    <div className="sh-menu" role="menu">
+    <div className="sh-menu sh-popover" style={{ background: "#fff" }} role="menu">
       {items.map((it, i) => it === "-" ? <div key={i} className="shx-menu__sep" role="separator" /> : (
         <button key={i} type="button" role="menuitem" disabled={it.disabled} className={`sh-menu__item${it.danger ? " sh-menu__item--danger" : ""}`} onClick={it.onClick}>
           {it.icon && <Icon name={it.icon} size={14} />}{it.label}
@@ -522,31 +526,29 @@ export function JobRow({ job: j, onOpen, onAttention }: { job: JobLike; onOpen?:
   );
 }
 
-export function AIFilledField({ label, value, source, initial = "ai", multiline, readOnly }: {
-  label: string; value?: string; source?: string; initial?: "ai" | "edited" | "confirmed" | "missing"; multiline?: boolean; readOnly?: boolean;
+export function AIFilledField({ label, value, source, initial = "ai", multiline, readOnly, onCommit }: {
+  label: string; value?: string; source?: string; initial?: "ai" | "edited" | "plain" | "missing"; multiline?: boolean; readOnly?: boolean;
+  /** Called on blur with the new text when the user changed it. */
+  onCommit?: (v: string) => void;
 }) {
+  const saved = React.useRef(value || "");
   const [state, setState] = React.useState(value ? initial : "missing");
   const [v, setV] = React.useState(value || "");
   const cls = "shx-aif" + (state === "ai" ? " shx-aif--ai" : state === "missing" ? " shx-aif--missing" : "");
   const common = {
     className: "shx-aif__box", value: v, readOnly, placeholder: state === "missing" ? "Not found in JD" : "",
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setV(e.target.value); setState("edited"); },
+    onBlur: () => { if (onCommit && v !== saved.current) { saved.current = v; onCommit(v); } },
   };
   return (
     <div className={cls}>
       <label className="shx-aif__label">
         {label}
-        {state === "ai" && <AIBadge unconfirmed meta={source ? { Source: source } : null} title="Filled from JD by AI" note="Confirm or edit before the position opens." />}
+        {state === "ai" && <AIBadge unconfirmed meta={source ? { Source: source } : null} title="Filled from JD by AI" note="Review, and edit if needed, before the position opens." />}
         {state === "edited" && <span className="shx-edited"><Icon name="pencil" size={11} />Edited</span>}
-        {state === "confirmed" && <span className="shx-edited" style={{ color: "var(--success)" }}><Icon name="check" size={11} />Confirmed</span>}
       </label>
       {multiline ? <textarea rows={2} {...common} /> : <input {...common} />}
-      {state === "ai" && !readOnly && (
-        <div className="shx-row" style={{ gap: 4 }}>
-          <Button size="sm" variant="secondary" icon="check" onClick={() => setState("confirmed")}>Confirm</Button><span className="shx-sp" />
-          {source && <span className="shx-small">From {source}</span>}
-        </div>
-      )}
+      {state === "ai" && source && <div className="shx-row" style={{ gap: 4 }}><span className="shx-sp" /><span className="shx-small">From {source}</span></div>}
     </div>
   );
 }

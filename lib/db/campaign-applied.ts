@@ -551,6 +551,79 @@ export async function countActiveApplicationsByJobIds(
   return counts;
 }
 
+/** Hired applications (`hired_at` set, not soft-deleted) per job, in one round trip. */
+export async function countHiredByJobIds(
+  db: QueryExecutor,
+  jobIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (jobIds.length === 0) return counts;
+
+  const { rows } = await db.query<{ job_id: string; count: string }>(
+    `SELECT job_id, count(*) AS count
+     FROM campaign_applied
+     WHERE deleted_at IS NULL AND hired_at IS NOT NULL AND job_id = ANY($1::uuid[])
+     GROUP BY job_id`,
+    [jobIds],
+  );
+  for (const r of rows) counts.set(r.job_id, Number(r.count));
+  return counts;
+}
+
+/**
+ * "Needs attention" per job = failed processing items: applications whose JD match failed or whose
+ * active CV failed parsing, plus failed `file_uploads` rows for the job.
+ */
+export async function countAttentionByJobIds(
+  db: QueryExecutor,
+  jobIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (jobIds.length === 0) return counts;
+
+  const { rows } = await db.query<{ job_id: string; count: string }>(
+    `SELECT job_id, sum(n) AS count FROM (
+       SELECT ca.job_id, count(*) AS n
+       FROM campaign_applied ca
+       LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
+       WHERE ca.deleted_at IS NULL
+         AND ca.job_id = ANY($1::uuid[])
+         AND (ca.jd_match_status = 'failed' OR cv.parsing_status = 'failed')
+       GROUP BY ca.job_id
+       UNION ALL
+       SELECT fu.job_id, count(*) AS n
+       FROM file_uploads fu
+       WHERE fu.status = 'failed' AND fu.job_id = ANY($1::uuid[])
+       GROUP BY fu.job_id
+     ) t GROUP BY job_id`,
+    [jobIds],
+  );
+  for (const r of rows) counts.set(r.job_id, Number(r.count));
+  return counts;
+}
+
+/** Talent pool (applications with no job): total candidates and failed-processing count. */
+export async function countPoolSummary(
+  db: QueryExecutor,
+): Promise<{ candidates: number; attention: number }> {
+  const { rows } = await db.query<{ candidates: string; attention: string }>(
+    `SELECT
+       (SELECT count(*) FROM campaign_applied WHERE deleted_at IS NULL AND job_id IS NULL) AS candidates,
+       (
+         (SELECT count(*)
+          FROM campaign_applied ca
+          LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
+          WHERE ca.deleted_at IS NULL AND ca.job_id IS NULL
+            AND (ca.jd_match_status = 'failed' OR cv.parsing_status = 'failed'))
+         + (SELECT count(*) FROM file_uploads WHERE job_id IS NULL AND status = 'failed')
+       ) AS attention`,
+  );
+  return {
+    candidates: Number(rows[0]?.candidates ?? 0),
+    attention: Number(rows[0]?.attention ?? 0),
+  };
+}
+
 export async function createApplicationWithInitialCv(
   db: QueryExecutor,
   input: CreateApplicationWithInitialCvInput,

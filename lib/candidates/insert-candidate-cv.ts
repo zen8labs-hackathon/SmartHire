@@ -190,8 +190,18 @@ export async function insertCandidateCvVersion(
         stageMappings,
         subStages,
       );
-      initialStageMappingId = resolved.stageMappingId;
-      initialSubStateId = resolved.subStateId;
+      // A job with no own `job_stage_mappings` rows gets the global stages as a
+      // display-only fallback (ids are pipeline_stages ids), which would violate
+      // the current_job_stage_mapping_id FK. Only persist real mapping ids.
+      const { rows: realMapping } = await tx.query(
+        `SELECT 1 FROM job_stage_mappings
+         WHERE id = $1 AND job_id = $2 AND deleted_at IS NULL`,
+        [resolved.stageMappingId, jobId],
+      );
+      if (resolved.stageMappingId && realMapping.length > 0) {
+        initialStageMappingId = resolved.stageMappingId;
+        initialSubStateId = resolved.subStateId;
+      }
     }
 
     const versionNumber = await getNextCvVersionNumber(tx, application.id);

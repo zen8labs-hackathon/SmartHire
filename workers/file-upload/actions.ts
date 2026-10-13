@@ -1,5 +1,6 @@
 import type { HybridJdMatchResult } from "@/lib/ai/jd-cv-match";
 import type { ParsedResume } from "@/lib/ai/parse-resume";
+import { sourceFromFileSource } from "@/lib/position/cv-upload";
 import { insertCandidateCvVersion } from "@/lib/candidates/insert-candidate-cv";
 import { QueryExecutor } from "@/lib/db/client";
 import { getPool, withTransaction } from "@/lib/db/config/client";
@@ -195,6 +196,7 @@ export async function validateAndInsertCandidateData(
         fileSha256: upload.file_hash,
       },
       jdMatchResult,
+      ...sourceFromFileSource(upload.file_source),
       createdBy: upload.uploaded_by ?? null,
       onCommitted: async (tx, result) => {
         await updateFileUploadById(tx, upload.id, {

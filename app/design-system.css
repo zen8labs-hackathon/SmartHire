@@ -300,3 +300,30 @@
 .jb-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
 .jb-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer}
 .jb-card:hover{border-color:var(--border-strong)}
+
+/* Root header + notifications (Jobs.html dn-top / shx-notif design) */
+.hd-top{height:60px;flex:none;display:flex;align-items:center;gap:16px;padding:0 32px;background:#fff;border-bottom:1px solid oklch(0.91 0.008 155)}
+.hd-top svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.hd-search{flex:1;max-width:440px;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:8px;border:1px solid oklch(0.91 0.008 155);border-radius:9px;padding:8px 12px;color:oklch(0.5 0.015 155);background:oklch(0.985 0.004 155);font-size:14px}
+.hd-search span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hd-search kbd{margin-left:auto;flex:none;font-family:'JetBrains Mono',monospace;font-size:11px;border:1px solid oklch(0.91 0.008 155);border-radius:5px;padding:1px 6px;background:#fff}
+.hd-ib{width:36px;height:36px;border:1px solid oklch(0.91 0.008 155);border-radius:9px;display:grid;place-items:center;background:#fff;color:oklch(0.24 0.02 155);position:relative;cursor:pointer;padding:0}
+.hd-ib:hover{background:oklch(0.985 0.004 155)}
+.hd-ib .dot{position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:50%;background:oklch(0.78 0.15 70);border:1.5px solid #fff}
+.hd-av{width:34px;height:34px;border-radius:50%;background:oklch(0.9 0.04 155);color:oklch(0.33 0.07 155);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none;border:0;cursor:pointer;padding:0}
+.hd-av:hover{background:oklch(0.86 0.05 155)}
+.hd-pop{position:absolute;right:0;top:44px;z-index:50;width:380px;max-width:calc(100vw - 32px);background:#fff;border:1px solid oklch(0.91 0.008 155);border-radius:12px;box-shadow:0 12px 32px oklch(0.24 0.02 155 / .14);overflow:hidden}
+.hd-pop__head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid oklch(0.91 0.008 155);font-size:14px}
+.hd-pop__head b{font-weight:600;flex:1}
+.hd-ghost{border:0;background:none;font:inherit;font-size:13px;font-weight:600;color:oklch(0.33 0.07 155);padding:4px 8px;border-radius:6px;cursor:pointer}
+.hd-ghost:hover{background:oklch(0.96 0.02 155)}
+.hd-ghost:disabled{opacity:.5;cursor:not-allowed}
+.hd-nf{position:relative;padding:12px 14px 12px 26px;border-bottom:1px solid oklch(0.91 0.008 155);display:flex;flex-direction:column;gap:4px;font-size:13px;cursor:pointer;text-align:left;width:100%;background:none;border-left:0;border-right:0;border-top:0;font-family:inherit;color:inherit}
+.hd-nf:last-child{border-bottom:0}
+.hd-nf:hover{background:oklch(0.985 0.004 155)}
+.hd-nf[data-unread="true"]::before{content:"";position:absolute;left:11px;top:18px;width:7px;height:7px;border-radius:50%;background:oklch(0.78 0.15 70)}
+.hd-nf__row{display:flex;align-items:center;gap:8px;min-width:0}
+.hd-nf__row b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.hd-nf__time{font-size:12px;color:oklch(0.5 0.015 155);flex:none}
+.hd-nf__body{color:oklch(0.35 0.02 155);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+@media(max-width:760px){.hd-top{padding:0 16px}}
