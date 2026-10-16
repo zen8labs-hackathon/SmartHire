@@ -1,4 +1,4 @@
-import type { Batch, BatchFile, Candidate, Job, Stage } from "./data";
+import type { Batch, BatchFile, Candidate, Job, Stage, TimelineItem } from "./data";
 import type { PositionCandidate, PositionCandidatesResult, PositionPipelineStage } from "@/lib/position/list-position-candidates";
 import type { PositionDescription } from "@/lib/position/get-position-description";
 import type { PositionListResult, PositionListRow } from "@/lib/position/list-with-enrichment";
@@ -100,11 +100,20 @@ async function uploadJd(file: File): Promise<{ path: string }> {
   return { path };
 }
 
-export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; file?: File | null };
+export type PipelineChoice = { id: string; name: string };
+
+export async function fetchPipelineChoices(signal?: AbortSignal): Promise<PipelineChoice[]> {
+  const res = await fetch("/api/admin/pipelines/list", { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load pipelines."));
+  const json = (await res.json()) as { pipelines: { id: string; name: string }[] };
+  return json.pipelines.map((p) => ({ id: p.id, name: p.name }));
+}
+
+export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; pipelineId: string; file?: File | null };
 
 /** Uploads the JD (if any) then creates the Draft position. Returns the new row. */
 export async function createPosition(a: CreatePositionArgs): Promise<PositionListRow> {
-  const body: Record<string, unknown> = { chapterId: a.chapterId, type: a.type, headcount: a.headcount };
+  const body: Record<string, unknown> = { chapterId: a.chapterId, type: a.type, headcount: a.headcount, pipelineId: a.pipelineId };
   if (a.file) {
     const { path } = await uploadJd(a.file);
     body.jdStoragePath = path;
@@ -218,6 +227,7 @@ export async function fetchPositionCandidates(uuid: string, params: CandidatesPa
 export function toCandidate(pc: PositionCandidate, id: number): Candidate {
   return {
     id,
+    caId: pc.id,
     name: pc.name,
     headline: pc.headline,
     stage: pc.stageMappingId ?? "",
@@ -396,4 +406,138 @@ export async function fetchCandidateApplications(target: string, fileId: string)
   const res = await fetch(`${upBase(target)}/${encodeURIComponent(fileId)}/candidate-applications`);
   if (!res.ok) throw new Error(await readError(res, "Could not load applications."));
   return ((await res.json()) as { applications: CandidateApplication[] }).applications;
+}
+
+/* ───────── Candidate detail tabs (keyed by campaign_applied.id) ───────── */
+
+const candBase = (id: string) => `/api/admin/candidates/${encodeURIComponent(id)}`;
+
+export type MatchStatus = "meets" | "partial" | "not_met" | "unknown";
+export type MatchCriterion = {
+  id: string; req: string; imp: string; origin: string; status: MatchStatus; evidence: string;
+  override: { reason: string | null; original: MatchStatus | null } | null;
+};
+export type CandidateMatch = {
+  score: number | null; status: string | null; error: string | null;
+  summary: string; meta: string;
+  composition: {
+    ai: number | null; formula: number | null; aiWeight: number | null;
+    breakdown: unknown; model: string | null; provider: string | null;
+  } | null;
+  criteria: MatchCriterion[];
+  stale: boolean;
+};
+
+export async function fetchCandidateMatch(caId: string, signal?: AbortSignal): Promise<CandidateMatch> {
+  const res = await fetch(`${candBase(caId)}/match`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load the match."));
+  return (await res.json()) as CandidateMatch;
+}
+
+export async function overrideCriterion(caId: string, key: string, verdict: "met" | "partial" | "missing" | "unclear", reason: string | null): Promise<void> {
+  const res = await fetch(`${candBase(caId)}/match/overrides/${encodeURIComponent(key)}`, {
+    method: "PUT", headers: JSON_HEADERS, body: JSON.stringify({ verdict, reason }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Could not save the override."));
+}
+
+export async function revertCriterion(caId: string, key: string): Promise<void> {
+  const res = await fetch(`${candBase(caId)}/match/overrides/${encodeURIComponent(key)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await readError(res, "Could not revert the override."));
+}
+
+export async function rescoreCandidate(caId: string): Promise<void> {
+  const res = await fetch(`${candBase(caId)}/rescore`, { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Could not rescore."));
+}
+
+export type CandidateCv = {
+  id: string; versionNumber: number; sourceEvent: string; changeSummary: string | null;
+  createdAt: string; createdBy: string | null; filename: string | null; mimeType: string | null;
+  parsingStatus: string | null; parsingError: string | null; parsedPayload: unknown;
+  fields: {
+    role: string | null; degree: string | null; education: string | null; experienceYears: string | null;
+    gpa: string | null; englishLevel: string | null; studentYears: string | null; dateOfBirth: string | null; skills: string[];
+  };
+  diff: string[]; isActive: boolean; versionCount: number;
+};
+
+export async function fetchCandidateCv(caId: string, version?: number, signal?: AbortSignal): Promise<CandidateCv> {
+  const q = version != null ? `?version=${version}` : "";
+  const res = await fetch(`${candBase(caId)}/cv${q}`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load the CV."));
+  return (await res.json()) as CandidateCv;
+}
+
+export type CvVersionItem = {
+  kind: "active" | "archived_cv" | "snapshot_event"; sortAt: string; isLatest: boolean;
+  versionEventId: string; versionNumber: number; eventType?: string; changeSummary: string | null;
+};
+export async function fetchCvHistory(caId: string, signal?: AbortSignal): Promise<CvVersionItem[]> {
+  const res = await fetch(`${candBase(caId)}/cv-history`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load CV history."));
+  return ((await res.json()) as { versions: CvVersionItem[] }).versions;
+}
+
+/** Lightweight file info; the viewer iframes `cvFileUrl` itself. */
+export async function fetchCvFileMeta(caId: string, signal?: AbortSignal): Promise<{ mimeType: string }> {
+  const res = await fetch(`${candBase(caId)}/cv-download?meta=1`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "No CV file on record."));
+  return (await res.json()) as { mimeType: string };
+}
+export const cvFileUrl = (caId: string, versionId?: string) =>
+  `${candBase(caId)}/cv-download${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ""}`;
+
+export type CvEdit = {
+  role?: string | null; degree?: string | null; school?: string | null;
+  experience_years?: number; skills?: string[]; change_summary?: string;
+};
+export async function saveCvEdits(caId: string, edit: CvEdit): Promise<void> {
+  const res = await fetch(`${candBase(caId)}/profile`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(edit) });
+  if (!res.ok) throw new Error(await readError(res, "Could not save the CV."));
+}
+
+export type InterviewNote = {
+  id: string; body: string; created_at: string; updated_at: string;
+  author_id: string | null; author_username: string | null;
+};
+export async function fetchInterviewNotes(caId: string, signal?: AbortSignal): Promise<InterviewNote[]> {
+  const res = await fetch(`${candBase(caId)}/interview-notes`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load notes."));
+  return ((await res.json()) as { notes: InterviewNote[] }).notes;
+}
+export async function saveInterviewNote(caId: string, body: string, noteId?: string): Promise<InterviewNote> {
+  const res = await fetch(`${candBase(caId)}/interview-notes`, {
+    method: noteId ? "PATCH" : "POST", headers: JSON_HEADERS,
+    body: JSON.stringify(noteId ? { noteId, body } : { body }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Could not save the note."));
+  return ((await res.json()) as { note: InterviewNote }).note;
+}
+
+export type CandidateSchedule = {
+  id: string | number; interviewers: string[]; [k: string]: unknown;
+};
+export async function fetchSchedules(caId: string, signal?: AbortSignal): Promise<CandidateSchedule[]> {
+  const res = await fetch(`${candBase(caId)}/timeline`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load interviews."));
+  return ((await res.json()) as { schedules: CandidateSchedule[] }).schedules;
+}
+
+export type ActivityPage = { items: TimelineItem[]; nextCursor: string | null };
+export async function fetchActivity(caId: string, cursor?: string | null, signal?: AbortSignal): Promise<ActivityPage> {
+  const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  const res = await fetch(`${candBase(caId)}/activity${q}`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load activity."));
+  return (await res.json()) as ActivityPage;
+}
+
+export type CandidateApplicationRow = {
+  id: string; jobTitle: string; jobId: string | null; appliedAt: string; cvUploadedAt: string;
+  [k: string]: unknown;
+};
+export async function fetchApplications(caId: string, signal?: AbortSignal): Promise<CandidateApplicationRow[]> {
+  const res = await fetch(`${candBase(caId)}/applications`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load applications."));
+  return ((await res.json()) as { applications: CandidateApplicationRow[] }).applications;
 }

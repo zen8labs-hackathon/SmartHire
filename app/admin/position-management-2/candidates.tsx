@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { STAGES, srcInfo, type AttentionItem, type Candidate, type Criterion, type Role, type Stage } from "./data";
+import { STAGES, srcInfo, type AttentionItem, type Candidate, type Criterion, type Role, type Stage, type TimelineItem } from "./data";
+import { CVSideBySide } from "./cv-view";
+import { fetchActivity, fetchApplications, fetchCandidateMatch, fetchCvHistory, fetchInterviewNotes, fetchSchedules, saveInterviewNote, overrideCriterion, revertCriterion, rescoreCandidate, type CandidateApplicationRow, type CandidateMatch, type CandidateSchedule, type InterviewNote, type CvVersionItem as CvVer } from "./api";
+import { NextStepPanel, nextStep, stageKind, type Act } from "./nextstep";
 import { MoveButton, Pop, StageChip, StagePath, moveItems, stageOf, type MoveHandlers } from "./shell";
 import {
   AIBadge, AIRationale, ActivityTimeline, ApplicationRow, Avatar, Badge, Banner, Button, CVVersionItem, CandidateHeader, Checkbox, CriterionResult,
-  EntityTabs, FileStatus, FileStatusRow, HiddenScoreNotice, Icon, IdentityTag, InterviewNoteEditor, KanbanCard, KanbanColumn, MatchBand,
+  EntityTabs, FileStatus, FileStatusRow, HiddenScoreNotice, Icon, IdentityTag, Input, InterviewNoteEditor, KanbanCard, KanbanColumn, MatchBand,
   MatchStatusInline, MoveToMenu, RestrictedValue, ScoreComposition, Table, Tabs, lsGet, lsSet, type BandKey, type Column, type CritResult,
   type FileStatusKey,
 } from "./ext";
@@ -18,7 +21,7 @@ export type CandHandlers = MoveHandlers & {
 };
 export type OpenCand = (id: number, ids: number[], label: string, review?: boolean) => void;
 export type NextStep = { mine: boolean } | null;
-export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[] };
+export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[]; q?: string };
 
 const ON: Style = { background: "var(--accent)", color: "#fff" };
 
@@ -133,7 +136,14 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   user: Role; cands: Candidate[]; h: CandHandlers; view: string; setView: (v: string) => void; isPool?: boolean; open: OpenCand;
   compact?: boolean; nextOf?: (c: Candidate) => NextStep; preset?: CandPreset; stages?: Stage[];
 }) {
-  const P0 = preset || {};
+  const P0 = React.useMemo<CandPreset>(() => {
+    if (preset) return preset;
+    if (typeof window === "undefined") return {};
+    const q = new URLSearchParams(window.location.search);
+    const L = (k: string) => (q.get(k) || "").split(",").filter(Boolean);
+    return { mine: q.get("mine") === "1", stage: L("stage"), band: L("band"), source: L("source"), scoring: L("scoring"), q: q.get("q") || "" };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [sel, setSel] = React.useState<number[]>([]);
   const [mineOnly, setMineOnly] = React.useState(!!P0.mine);
   const [fStage, setFStage] = React.useState<string[]>(P0.stage || []);
@@ -141,6 +151,16 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const [fBand, setFBand] = React.useState<string[]>(P0.band || []);
   const [fSrc, setFSrc] = React.useState<string[]>(P0.source || []);
   const [fScore, setFScore] = React.useState<string[]>(P0.scoring || []);
+  const [search, setSearch] = React.useState(P0.q || "");
+  React.useEffect(() => {
+    const u = new URL(window.location.href);
+    const put = (k: string, v: string[]) => (v.length ? u.searchParams.set(k, v.join(",")) : u.searchParams.delete(k));
+    put("stage", fStage); put("band", fBand); put("source", fSrc); put("scoring", fScore);
+    if (search.trim()) u.searchParams.set("q", search.trim()); else u.searchParams.delete("q");
+    if (mineOnly) u.searchParams.set("mine", "1"); else u.searchParams.delete("mine");
+    const next = u.pathname + u.search + u.hash;
+    if (next !== window.location.pathname + window.location.search + window.location.hash) window.history.replaceState(window.history.state, "", next);
+  }, [fStage, fBand, fSrc, fScore, mineOnly, search]);
   const S = stages;
   const isMine = (c: Candidate) => !!(nextOf && nextOf(c)?.mine);
   const scoreKey = (c: Candidate) => (c.st === "done" ? "done" : c.st || "none");
@@ -151,7 +171,8 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     (skip === "k" || !fScore.length || fScore.includes(scoreKey(c)));
   const base = cands;
   const mineCount = nextOf ? base.filter((c) => pass(c) && isMine(c)).length : 0;
-  const rows = base.filter((c) => pass(c) && (!mineOnly || isMine(c)));
+  const needle = search.trim().toLowerCase();
+  const rows = base.filter((c) => pass(c) && (!needle || c.name.toLowerCase().includes(needle)) && (!mineOnly || isMine(c)));
   const sources = [...new Set(cands.map((c) => c.source))].sort().map((x) => [x, x] as [string, string]);
   const optLabel = (opts: [string, string][], k: string) => opts.find((o) => o[0] === k)?.[1] ?? k;
   const active: [string, string, string][] = [
@@ -178,15 +199,9 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
     ...(user.salary ? [{ key: "salary", label: "Expected salary", align: "right", render: (c) => <span className="sh-num">{c.salary}</span> } as Column<Candidate>] : []),
     { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
-    {
-      key: "days", label: "Days in stage", align: "right", render: (c) => (
-        <span style={c.days > 7 ? { color: "var(--warning)", fontWeight: 600 } : undefined}>
-          {c.days > 7 && <Icon name="triangle-alert" size={12} style={{ marginRight: 4, verticalAlign: -1 }} />}{c.days}
-        </span>
-      ),
-    },
-    ...(user.key !== "iv" ? [{ key: "act", label: "", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
+    ...(user.key !== "iv" ? [{ key: "act", label: "", sticky: "right", align: "right", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
   ];
+  const canRemove = sel.length > 0 && S.length > 0 && sel.every((id) => cands.find((c) => c.id === id)?.stage === S[0].id);
   const scoring = cands.filter((c) => c.st === "scoring").length;
   const listLabel = active.length ? "Filtered list" : "All candidates";
   const hiddenCol = !user.salary && user.key !== "iv";
@@ -195,6 +210,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingBottom: sel.length ? 80 : 0 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Input icon="search" size="sm" placeholder="Search by name" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
         <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
@@ -280,10 +296,9 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         <div className="jb-bulkbar">
           <b style={{ fontWeight: 600 }}>{sel.length} selected</b>
           <span style={{ flex: 1 }} />
-          <Button size="sm" variant="secondary" icon="arrow-right-left" onClick={() => h.onBulk(sel, "move")}>Move stage</Button>
-          <Button size="sm" variant="secondary" icon="user">Assign owner</Button>
-          <Button size="sm" variant="danger-ghost" icon="x" onClick={() => h.onBulk(sel, "reject", () => setSel([]))}>{user.canDecide ? "Reject" : "Propose rejection"}</Button>
-          <Button size="sm" variant="ghost" onClick={() => setSel([])}>Clear</Button>
+          <Button size="sm" variant="secondary" icon="arrow-right-left" onClick={() => h.onBulk(sel, "move", () => setSel([]))}>Move stage</Button>
+          {canRemove && <Button size="sm" variant="danger" icon="user-minus" onClick={() => h.onBulk(sel, "remove", () => setSel([]))}>Remove</Button>}
+          <Button size="sm" variant="ghost" className="jb-bulkbar-clear" onClick={() => setSel([])}>Clear</Button>
         </div>
       )}
     </div>
@@ -339,13 +354,92 @@ export function AttentionTab({ h, items, resolve, admin }: { h: CandHandlers; it
 type CritRow = Criterion & { edited?: boolean; aiStatus?: CritResult | null };
 const ZOOMS = ["md", "full"] as const;
 type Zoom = (typeof ZOOMS)[number];
+const ddmm = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; };
 const readZoom = (): Zoom => { const z = lsGet<string>("jb-drawer-zoom", "md"); return z === "full" ? "full" : "md"; };
 
 export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSubmitNotes, nav, onOpen, stages = STAGES }: {
   c: Candidate | null; user: Role; h: MoveHandlers; onClose: () => void; nav?: { ids: number[]; label: string } | null; onOpen?: (id: number) => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void; stages?: Stage[];
 }) {
-  const [crit, setCrit] = React.useState<CritRow[]>(() => []);
   const [tab, setTab] = React.useState(user.key === "iv" ? "notes" : "match");
+  const [match, setMatch] = React.useState<CandidateMatch | null>(null);
+  const [matchErr, setMatchErr] = React.useState<string | null>(null);
+  const [apps, setApps] = React.useState<CandidateApplicationRow[] | null>(null);
+  const [cvVers, setCvVers] = React.useState<CvVer[] | null>(null);
+  const [acts, setActs] = React.useState<{ items: TimelineItem[]; next: string | null } | null>(null);
+  const [actErr, setActErr] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [scheds, setScheds] = React.useState<CandidateSchedule[] | null>(null);
+  const [notes, setNotes] = React.useState<InterviewNote[] | null>(null);
+  const [notesErr, setNotesErr] = React.useState<string | null>(null);
+  const [addNote, setAddNote] = React.useState(false);
+  const [quote, setQuote] = React.useState<{ text: string; n: number } | null>(null);
+  const [personOpen, setPersonOpen] = React.useState(true);
+  const [allApps, setAllApps] = React.useState(false);
+  const caId = c?.caId;
+  const loadMatch = React.useCallback((signal?: AbortSignal) => {
+    if (!caId) return Promise.resolve();
+    return fetchCandidateMatch(caId, signal).then((m) => { setMatch(m); setMatchErr(null); }).catch((e) => { if (!signal?.aborted) setMatchErr(e instanceof Error ? e.message : "Could not load the match."); });
+  }, [caId]);
+  React.useEffect(() => {
+    if (!caId) return;
+    const ac = new AbortController();
+    fetchApplications(caId, ac.signal).then(setApps).catch(() => setApps([]));
+    fetchCvHistory(caId, ac.signal).then(setCvVers).catch(() => setCvVers([]));
+    return () => ac.abort();
+  }, [caId]);
+  React.useEffect(() => {
+    if (!caId || tab !== "match" || (c && c.st !== "done")) return;
+    const ac = new AbortController();
+    void loadMatch(ac.signal);
+    return () => ac.abort();
+  }, [caId, tab, c?.st, c?.score, loadMatch]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    if (!caId || tab !== "history") return;
+    const ac = new AbortController();
+    setActErr(null);
+    fetchActivity(caId, null, ac.signal).then((r) => setActs({ items: r.items, next: r.nextCursor })).catch((e) => { if (!ac.signal.aborted) setActErr(e instanceof Error ? e.message : "Could not load activity."); });
+    return () => ac.abort();
+  }, [caId, tab]);
+  React.useEffect(() => {
+    if (!caId || tab !== "notes") return;
+    const ac = new AbortController();
+    setNotesErr(null);
+    fetchSchedules(caId, ac.signal).then(setScheds).catch(() => setScheds([]));
+    fetchInterviewNotes(caId, ac.signal).then(setNotes).catch((e) => { if (!ac.signal.aborted) { setNotes([]); setNotesErr(e instanceof Error ? e.message : "Could not load notes."); } });
+    return () => ac.abort();
+  }, [caId, tab]);
+  const submitNote = async (v: string) => {
+    if (!c) return;
+    if (caId) {
+      try { const n = await saveInterviewNote(caId, v); setNotes((p) => [n, ...(p ?? [])]); setNotesErr(null); } catch (e) { setNotesErr(e instanceof Error ? e.message : "Could not save the note."); return; }
+    }
+    setAddNote(false);
+    onSubmitNotes(c, v);
+  };
+  const crit: CritRow[] = (match?.criteria ?? []).map((r) => ({
+    id: r.id, req: r.req, imp: r.imp, origin: r.origin === "HR" ? "HR" : "AI", status: r.status, evidence: r.evidence,
+    edited: !!r.override, aiStatus: r.override?.original ?? null,
+  }));
+  const reasonOf = (id: string) => match?.criteria.find((x) => x.id === id)?.override?.reason ?? null;
+  const VERDICT = { meets: "met", partial: "partial", not_met: "missing", unknown: "unclear" } as const;
+  const [pendingOv, setPendingOv] = React.useState<{ id: string; v: CritResult } | null>(null);
+  const [ovReason, setOvReason] = React.useState("");
+  const doOverride = async (id: string, v: CritResult, reason: string) => {
+    if (!caId) return;
+    setPendingOv(null); setOvReason("");
+    setBusy(id);
+    try { await overrideCriterion(caId, id, VERDICT[v], reason.trim() || null); await loadMatch(); } catch (e) { setMatchErr(e instanceof Error ? e.message : "Could not save the override."); } finally { setBusy(null); }
+  };
+  const doRevert = async (id: string) => {
+    if (!caId) return;
+    setBusy(id);
+    try { await revertCriterion(caId, id); await loadMatch(); } catch (e) { setMatchErr(e instanceof Error ? e.message : "Could not revert."); } finally { setBusy(null); }
+  };
+  const doRescore = async () => {
+    if (!c) return;
+    if (caId) { try { await rescoreCandidate(caId); } catch (e) { setMatchErr(e instanceof Error ? e.message : "Could not rescore."); return; } }
+    onRescore(c);
+  };
   const [zoom, setZoom] = React.useState<Zoom>(readZoom);
   const setZ = (z: Zoom) => { setZoom(z); lsSet("jb-drawer-zoom", z); };
   React.useEffect(() => {
@@ -369,13 +463,34 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
   const s = stageOf(c.stage, stages);
   const prev = (c.flags || []).includes("prev");
   const hidden = !!user.hideScore && !c.ivDone;
+  const kind = stageKind(s, stages.indexOf(s));
+  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null });
+  const runAct = (a: Act) => {
+    if (a.t === "rescore") return void doRescore();
+    if (a.t === "interview") return setTab("notes");
+    if (a.t === "fail" || a.t === "decline") return h.onReject(c);
+    if (a.sub && !a.to) return h.onSub(c, a.sub);
+    if (a.to) return h.onMove(c, a.to);
+  };
   const tabs = [
     { id: "match", label: "Match" },
-    ...(s.schedule ? [{ id: "notes", label: "Interviews & notes", count: c.noNote ? 1 : null, warn: true }] : []),
+    ...(kind === "offer" ? [{ id: "offer", label: "Offer" }] : []),
+    ...(kind === "prob" ? [{ id: "probation", label: "Probation" }] : []),
+    { id: "notes", label: "Interviews & notes", count: c.noNote ? 1 : null, warn: true },
     { id: "history", label: "Activity" },
   ];
   const idx = nav ? nav.ids.indexOf(c.id) : -1;
   const go = (d: number) => { const n = nav?.ids[idx + d]; if (n != null && onOpen) onOpen(n); };
+  const [jumpOpen, setJumpOpen] = React.useState(false);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+      if (e.key === "j") go(1); else if (e.key === "k") go(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const full = zoom === "full";
   return (
     <>
@@ -388,9 +503,23 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           <span className="ad-sp" />
           {nav && idx >= 0 && (
             <div className="ad-pager">
-              <button type="button" className="sh-iconbtn" aria-label="Previous candidate" disabled={idx <= 0} onClick={() => go(-1)}><Icon name="chevron-up" /></button>
-              <span className="ad-pager__n">{idx + 1} / {nav.ids.length}</span>
-              <button type="button" className="sh-iconbtn" aria-label="Next candidate" disabled={idx >= nav.ids.length - 1} onClick={() => go(1)}><Icon name="chevron-down" /></button>
+              <Button variant="ghost" size="sm" icon="chevron-left" disabled={idx <= 0} onClick={() => go(-1)} title={idx <= 0 ? "This is the first application in this group" : "Previous (K)"}>Previous</Button>
+              <button type="button" className="ad-pager__n" aria-haspopup="menu" aria-expanded={jumpOpen} title="Jump to…" onClick={() => setJumpOpen((v) => !v)}>{idx + 1} / {nav.ids.length}</button>
+              <Button variant="ghost" size="sm" iconRight="chevron-right" disabled={idx >= nav.ids.length - 1} onClick={() => go(1)} title={idx >= nav.ids.length - 1 ? "This is the last application in this group" : "Next (J)"}>Next</Button>
+              {jumpOpen && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 4 }} onClick={() => setJumpOpen(false)} />
+                  <div className="ad-pop ad-pop--down ad-menu" role="menu" style={{ padding: 4, width: 200, maxHeight: 320, overflow: "auto" }}>
+                    {nav.ids.map((id, i) => (
+                      <button key={id} type="button" role="menuitemradio" aria-checked={i === idx} onClick={() => { setJumpOpen(false); if (id !== c.id && onOpen) onOpen(id); }}>
+                        <span style={{ color: "var(--muted)", width: 24 }}>{i + 1}</span>
+                        <span>{i === idx ? c.name : `Application ${i + 1}`}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <span className="ad-pager__scope" style={{ cursor: "default" }}>in <em>{nav.label}</em></span>
             </div>
           )}
           <span className="ad-vr" />
@@ -415,43 +544,14 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
             )}
           </div>
           <StagePath c={c} stages={stages} />
+          <NextStepPanel ns={ns} render={(a) => (
+            <Button key={a.t + a.label} size="sm" variant={a.primary ? "primary" : "secondary"} icon={a.icon} onClick={() => runAct(a)}>{a.label}</Button>
+          )} />
         </header>
         <div className="ad-body">
-          <div className="ad-left"><div className="ad-pane" style={{ overflow: "auto" }}>
-            <section className="ad-card"><div className="ad-card__h">Application</div><div className="ad-card__b">
-              <dl className="ad-kv">
-                <dt>Stage</dt><dd><StageChip stage={c.stage} sub={c.sub} stages={stages} /></dd>
-                <dt>Source</dt><dd>{c.source}</dd>
-                <dt>Applied</dt><dd>{c.applied}</dd>
-                <dt>Days in stage</dt><dd>{c.days}</dd>
-                <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
-              </dl>
-            </div></section>
-            <section className="ad-sec">
-              <div className="ad-ov">Applications</div>
-              <ApplicationRow
-                job={"This position"} date={c.applied} stage={<StageChip stage={c.stage} sub={c.sub} stages={stages} />} band={!hidden && c.st === "done" ? c.band : undefined}
-                score={c.score} status={c.stage === "hired" ? "hired" : "open"} salaryRestricted={!user.salary}
-              />
-              {prev && (
-                <>
-                  <ApplicationRow job="Talent pool" date="11/2025" note="kept after position closed" status="pool" />
-                  <ApplicationRow job="Web Developer #97" date="03/2025" stage="stopped at Interview 2" status="ended" />
-                </>
-              )}
-            </section>
-            <section className="ad-sec">
-              <div className="ad-ov">CV versions</div>
-              {prev ? (
-                <>
-                  <CVVersionItem version={2} active date="24/09/2026" change="added 1 year at FinPay, added React Native" />
-                  <CVVersionItem version={1} date="12/03/2025" />
-                </>
-              ) : (
-                <CVVersionItem version={1} active date={c.applied} />
-              )}
-            </section>
-          </div></div>
+          <div className="ad-left">
+            <CVSideBySide c={c} user={user} onRescore={() => onRescore(c)} onQuote={(t) => { setTab("notes"); setAddNote(true); setQuote({ text: t, n: Date.now() }); }} />
+          </div>
           <div className="ad-right">
             <div className="ad-right__tabs"><EntityTabs tabs={tabs} value={tab} onChange={setTab} /></div>
             <div className="ad-pane">
@@ -459,37 +559,136 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                 (hidden ? (
                   <HiddenScoreNotice />
                 ) : c.st === "error" ? (
-                  <Banner tone="danger" title="AI scoring failed" action={<Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => onRescore(c)}>Rescore</Button>}>
+                  <Banner tone="danger" title="AI scoring failed" action={<Button size="sm" variant="secondary" icon="rotate-ccw" onClick={() => void doRescore()}>Rescore</Button>}>
                     {c.err}. Rule checks completed; the AI part is missing so no band is shown.
                   </Banner>
                 ) : c.st === "scoring" ? (
-                  <Banner tone="info" icon="loader-circle">Reading CV and scoring against 5 criteria. You can keep working; the row updates when done.</Banner>
+                  <Banner tone="info" icon="loader-circle">Reading CV and scoring against the job criteria. You can keep working; the row updates when done.</Banner>
                 ) : (
                   <>
-                    <div className="shx-row"><MatchBand band={c.band} score={c.score} /><AIBadge meta={{ Model: "gpt-4.1", Provider: "Azure OpenAI", At: "24/09 14:22" }} /></div>
-                    {c.band !== "review" && <ScoreComposition ai={c.ai} rule={c.formula ?? 0} at="24/09 14:22" />}
+                    <div className="shx-row"><MatchBand band={c.band} score={c.score} />{match?.composition && <AIBadge meta={{ ...(match.composition.model ? { Model: match.composition.model } : {}), ...(match.composition.provider ? { Provider: match.composition.provider } : {}) }} />}</div>
+                    {c.band !== "review" && <ScoreComposition ai={match?.composition?.ai ?? c.ai} aiWeight={match?.composition?.aiWeight} rule={match?.composition?.formula ?? c.formula ?? 0} model={match?.composition?.model} provider={match?.composition?.provider} />}
+                    {matchErr && <Banner tone="danger" title="Match unavailable">{matchErr}</Banner>}
+                    {match?.stale && <Banner tone="info" title="Criteria changed since the last score">Rescore to apply the updated criteria.</Banner>}
                     <div className="ad-sec">
                       <div className="ad-ov">By criterion</div>
+                      {!match && !matchErr && <div className="shx-small">Loading…</div>}
+                      {pendingOv && (
+                        <div className="shx-note">
+                          <label className="sh-field__label" htmlFor="ovreason">Reason for changing “{crit.find((x) => x.id === pendingOv.id)?.req}” (optional)</label>
+                          <textarea id="ovreason" autoFocus value={ovReason} onChange={(e) => setOvReason(e.target.value)} placeholder="Why does the AI result need changing?" />
+                          <div className="shx-row"><span className="shx-sp" />
+                            <Button size="sm" variant="secondary" onClick={() => setPendingOv(null)}>Cancel</Button>
+                            <Button size="sm" onClick={() => void doOverride(pendingOv.id, pendingOv.v, ovReason)}>Save change</Button>
+                          </div>
+                        </div>
+                      )}
                       <div className="shx-list">
                         {crit.map((r) => (
                           <CriterionResult
                             key={r.id} name={r.req} importance={r.imp} result={r.status} evidence={r.evidence} src={r.src}
-                            edited={r.edited && r.aiStatus ? { by: user.name, reason: "Confirmed in phone screen", ai: r.aiStatus } : null}
-                            onOverride={user.canDecide ? (v) => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, aiStatus: x.aiStatus || x.status, status: v, edited: true } : x))) : undefined}
-                            onRevert={r.edited ? () => setCrit((cs) => cs.map((x) => (x.id === r.id ? { ...x, status: x.aiStatus || x.status, edited: false, aiStatus: null } : x))) : undefined}
+                            edited={r.edited && r.aiStatus ? { by: user.name, reason: reasonOf(r.id) ?? "", ai: r.aiStatus } : null}
+                            onOverride={user.canDecide && busy !== r.id ? (v) => { if (v !== r.status) { setPendingOv({ id: r.id, v }); setOvReason(""); } } : undefined}
+                            onRevert={r.edited && busy !== r.id ? () => void doRevert(r.id) : undefined}
                           />
                         ))}
                       </div>
                     </div>
-                    <AIRationale text="Solid frontend experience on payment systems; strong React and TypeScript across two companies. REST integrations are well described, GraphQL is not mentioned. English level is not stated anywhere in the CV, so the language criterion could not be assessed and should be checked in the phone screen." />
+                    {match?.summary && <AIRationale text={match.summary} model={match.composition?.model} provider={match.composition?.provider} />}
                   </>
                 ))}
-              {tab === "history" && <ActivityTimeline items={[]} />}
+              {tab === "history" && (
+                actErr ? <Banner tone="danger" title="Activity unavailable">{actErr}</Banner>
+                : !acts ? <div className="shx-small">Loading…</div>
+                : <>
+                    {acts.items.length === 0 ? <div className="shx-small">No activity recorded yet.</div> : <ActivityTimeline items={acts.items} />}
+                    {acts.next && caId && <Button size="sm" variant="secondary" onClick={() => { const cur = acts.next; void fetchActivity(caId, cur).then((r) => setActs((p) => ({ items: [...(p?.items ?? []), ...r.items], next: r.nextCursor }))).catch((e) => setActErr(e instanceof Error ? e.message : "Could not load more.")); }}>Load more</Button>}
+                  </>
+              )}
+              {tab === "offer" && (
+                <section className="ad-card"><div className="ad-card__h">Offer</div><div className="ad-card__b">
+                  <dl className="ad-kv">
+                    <dt>Status</dt><dd>{c.sub}</dd>
+                    <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
+                    <dt>Owner</dt><dd>{c.owner}</dd>
+                    <dt>Days in stage</dt><dd>{c.days}</dd>
+                  </dl>
+                  <div className="shx-small">Offer details are not available from the API yet.</div>
+                </div></section>
+              )}
+              {tab === "probation" && (
+                <section className="ad-card"><div className="ad-card__h">Probation</div><div className="ad-card__b">
+                  <dl className="ad-kv">
+                    <dt>Status</dt><dd>{c.sub}</dd>
+                    <dt>Owner</dt><dd>{c.owner}</dd>
+                    <dt>Days in stage</dt><dd>{c.days}</dd>
+                  </dl>
+                  <div className="shx-small">Probation plan, timeline and mentor review are not available from the API yet.</div>
+                </div></section>
+              )}
               {tab === "notes" && (
                 <>
                   {hidden && <HiddenScoreNotice />}
-                  <InterviewNoteEditor round={s.label} submitted={c.ivDone} initial={c.ivNote || ""} onSubmit={(v) => onSubmitNotes(c, v)} />
-                  <div className="shx-small">Notes are independent: other interviewers&apos; notes appear after you submit yours.</div>
+                  <section className="ad-card">
+                    <div className="ad-card__h">Interviews</div>
+                    <div className="ad-card__b">
+                      {scheds == null ? <div className="shx-small">Loading…</div> : scheds.length === 0 ? <div className="shx-small">No interviews scheduled.</div> : scheds.map((sc) => {
+                        const at = new Date(String(sc.scheduled_at ?? "")); const ok = !Number.isNaN(at.getTime());
+                        const end = ok ? new Date(at.getTime() + Number(sc.duration_minutes ?? 0) * 60000) : null;
+                        const hm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+                        return (
+                          <div key={String(sc.id)} className="ad-papp">
+                            <b>{String(sc.round_label ?? "Interview")}{ok && end ? ` · ${hm(at)}–${hm(end)}` : ""}</b>
+                            <span className="shx-small">{String(sc.status ?? "")}</span>
+                            <small>{[ok ? ddmm(at.toISOString()) : "", sc.location ? String(sc.location) : ""].filter(Boolean).join(" · ")}</small>
+                            {sc.interviewers.length > 0 && <small>Interviewers: {sc.interviewers.join(", ")}</small>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                  <section className="ad-sec">
+                    <div className="shx-row" style={{ justifyContent: "space-between" }}>
+                      <div className="ad-ov">Notes &amp; evaluations</div>
+                      {!addNote && <Button size="sm" variant="ghost" icon="plus" onClick={() => setAddNote(true)}>Add note</Button>}
+                    </div>
+                    {notesErr && <Banner tone="danger" title="Notes">{notesErr}</Banner>}
+                    {addNote && <InterviewNoteEditor round={s.label} submitted={c.ivDone} initial={c.ivNote || ""} onSubmit={(v) => void submitNote(v)} quote={quote} />}
+                    {notes == null ? <div className="shx-small">Loading…</div> : notes.length === 0 && !addNote ? <div className="shx-small">No notes yet.</div> : notes.map((n) => (
+                      <div key={n.id} className="ad-note">
+                        <header><b>{n.author_username ?? "Unknown"}</b><span>{ddmm(n.created_at)}</span></header>
+                        <div style={{ whiteSpace: "pre-wrap" }}>{n.body}</div>
+                      </div>
+                    ))}
+                    <div className="shx-small">Notes are independent: other interviewers&apos; notes appear after you submit yours.</div>
+                  </section>
+                  <section className="ad-card">
+                    <button type="button" className="ad-card__h" style={{ width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between" }} aria-expanded={personOpen} onClick={() => setPersonOpen((o) => !o)}>
+                      <span>Person</span><Icon name={personOpen ? "chevron-up" : "chevron-down"} />
+                    </button>
+                    {personOpen && (
+                      <div className="ad-card__b">
+                        <dl className="ad-kv">
+                          <dt>Stage</dt><dd><StageChip stage={c.stage} sub={c.sub} stages={stages} /></dd>
+                          <dt>Source</dt><dd>{c.source}</dd>
+                          <dt>Applied</dt><dd>{c.applied}</dd>
+                          <dt>Days in stage</dt><dd>{c.days}</dd>
+                          <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
+                        </dl>
+                        {user.key !== "iv" && (
+                          <div className="ad-hist">
+                            <div className="ad-ov">History with Zen8labs</div>
+                            <div className="ad-ov">Previous applications · {apps?.length ?? 0}</div>
+                            {apps == null ? <div className="shx-small">Loading…</div> : (allApps ? apps : apps.slice(0, 3)).map((ap) => (
+                              <div key={ap.id} className="ad-papp"><b>{ap.jobTitle}</b><span className="shx-small">{ddmm(ap.appliedAt)}</span></div>
+                            ))}
+                            {apps != null && apps.length > 3 && <button type="button" className="ad-link" onClick={() => setAllApps((o) => !o)}>{allApps ? "Show fewer" : `View all ${apps.length}`}</button>}
+                            <div className="shx-small">History never auto-rejects, blocks or lowers the AI score. Interview notes from earlier applications stay on those applications.</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </section>
                 </>
               )}
             </div>

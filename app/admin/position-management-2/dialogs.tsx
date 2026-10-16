@@ -1,25 +1,27 @@
 "use client";
 
 import * as React from "react";
-import type { Job } from "./data";
+import type { Candidate, Job, Role, Stage } from "./data";
 import { MAX_BATCH_FILES, MAX_CV_BYTES, isAllowedCvFilename } from "@/lib/candidates/upload-constants";
 import { fetchCandidateApplications, uploadPositionCvs, type CandidateApplication, type CvFileState, type CvUploadResult } from "./api";
 import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/positions/create-position";
 import { Banner, Button, Checkbox, Dialog, DuplicateCompareCard, FileStatusRow, HireConfirmDialog, Icon, Input, Select, UploadQueuePanel, type FileStatusKey } from "./ext";
 
-export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number };
+export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number; pipelineId: string };
 export type ChapterChoice = { id: string; name: string };
 
 const FLOW: [string, string, string][] = [["upload", "Upload JD", "You · now"], ["cpu", "System extracts", "Document + AI · < 1 min"], ["pencil", "Review on position page", "Edit fields & criteria"]];
 
-export function CreateJobDialog({ onClose, onSubmit, chapters, defaultChapterId, lockChapter, busy, error }: {
-  onClose: () => void; onSubmit: (o: CreateJobInput) => void; chapters: ChapterChoice[]; defaultChapterId?: string; lockChapter?: boolean; busy?: boolean; error?: string | null;
+export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaultChapterId, lockChapter, busy, error }: {
+  onClose: () => void; onSubmit: (o: CreateJobInput) => void; chapters: ChapterChoice[]; pipelines: { id: string; name: string }[]; defaultChapterId?: string; lockChapter?: boolean; busy?: boolean; error?: string | null;
 }) {
   const [file, setFile] = React.useState<File | null>(null);
   const [fileErr, setFileErr] = React.useState<string | null>(null);
   const [chapterId, setChapterId] = React.useState(defaultChapterId ?? chapters[0]?.id ?? "");
   const [type, setType] = React.useState<string>(HIRE_TYPES[0]);
   const [hc, setHc] = React.useState("1");
+  const [pipelineId, setPipelineId] = React.useState("");
+  const [tried, setTried] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const hcErr = validateHeadcount(hc).error ?? undefined;
   const hcN = validateHeadcount(hc).value ?? 1;
@@ -30,14 +32,16 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, defaultChapterId,
     setFile(err ? null : f);
   };
   const ready = !!chapterId && !hcErr && !busy;
+  const pipelineErr = tried && !pipelineId ? "Select a pipeline to continue." : undefined;
+  const guard = (go: () => void) => { setTried(true); if (pipelineId) go(); };
   return (
     <Dialog
       title="Open new position" width={620} onClose={onClose}
       description="Upload the JD. SmartHire extracts the text and uses AI to fill position fields and scoring criteria. You review and edit everything on the position page before it opens."
       footer={<>
-        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => onSubmit({ blank: true, chapterId, type, headcount: hcN })}>No JD file? Start from a blank form</button>
+        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => guard(() => onSubmit({ blank: true, chapterId, type, headcount: hcN, pipelineId }))}>No JD file? Start from a blank form</button>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && onSubmit({ file, chapterId, type, headcount: hcN })}>{busy ? "Creating…" : "Upload & extract"}</Button>
+        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && guard(() => onSubmit({ file, chapterId, type, headcount: hcN, pipelineId }))}>{busy ? "Creating…" : "Upload & extract"}</Button>
       </>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -66,6 +70,7 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, defaultChapterId,
         <div className="jb-form" style={{ paddingTop: 0 }}>
           <Select label="Chapter" value={chapterId} onChange={(e) => setChapterId(e.target.value)} disabled={lockChapter} options={chapters.map((c) => ({ value: c.id, label: c.name }))} hint={lockChapter ? "Positions you create belong to your chapter" : "Decides who can see the position"} />
           <Select label="Hire type" value={type} onChange={(e) => setType(e.target.value)} options={[...HIRE_TYPES]} />
+          <div><Select label="Pipeline (required)" value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} options={[{ value: "", label: "Choose a pipeline" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))]} hint={pipelines.length === 0 ? "No pipelines available yet — ask HR to create one first" : "Hiring stages for this position. It can’t be changed after the position is created."} />{pipelineErr && <div className="sh-field__error" role="alert"><Icon name="circle-alert" size={14} />{pipelineErr}</div>}</div>
           <Input label="Headcount" type="number" min={1} max={50} step={1} value={hc} onChange={(e) => setHc(e.target.value)} suffix="people" error={hcErr} hint={hcErr ? undefined : "How many hires this position needs. You can change it later."} />
         </div>
         <div className="shx-small">The position is saved as a draft right away. Extraction takes under a minute; you can leave the page and get a notification when it&apos;s ready.</div>
@@ -315,6 +320,71 @@ export function DeadlineDialog({ job, onClose, onSave, title = "Edit deadline", 
       footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!!err || v === initial || busy} onClick={() => onSave(v)}>{confirmLabel}</Button></>}
     >
       <Input label="Hiring deadline" type="date" value={v} onChange={(e) => setV(e.target.value)} error={err} autoFocus />
+    </Dialog>
+  );
+}
+
+export type BulkMovePlan = { kind: "sub" | "stage"; value: string; ids: number[] };
+
+type BulkTarget = { key: string; kind: "sub" | "stage"; value: string; label: string; group: string; ok: (c: Candidate) => string | null };
+
+/** Bulk move for candidates that share one stage; each target lists who is eligible and why others are skipped. */
+export function BulkMoveDialog({ cands, stages, user, onClose, onOk }: { cands: Candidate[]; stages: Stage[]; user: Role; onClose: () => void; onOk: (p: BulkMovePlan) => void }) {
+  const cur = stages.find((s) => s.id === cands[0]?.stage);
+  const i = cur ? stages.indexOf(cur) : -1;
+  const base = (c: Candidate) => (c.st === "scoring" ? "still scoring" : c.st === "error" ? "scoring failed" : null);
+  const targets: BulkTarget[] = [];
+  if (cur) {
+    cur.subs.forEach((sub) => targets.push({ key: "sub:" + sub, kind: "sub", value: sub, label: sub, group: "Result in " + cur.label, ok: (c) => (c.sub === sub ? "already " + sub : null) }));
+    stages.forEach((s, j) => {
+      if (j === i) return;
+      const locked = s.id === "probation" || s.id === "hired" || !!s.probation;
+      targets.push({
+        key: "stage:" + s.id, kind: "stage", value: s.id, label: s.label, group: "Move to",
+        ok: (c) => base(c) ?? (locked ? "hiring is done one at a time" : j < i ? (c.sub === cur.def ? null : `not at "${cur.def}"`) : j === i + 1 ? (c.sub === cur.pass ? null : `not "${cur.pass}" yet`) : `needs ${stages[j - 1].label} first`),
+      });
+    });
+  }
+  const [key, setKey] = React.useState("");
+  const t = targets.find((x) => x.key === key);
+  const rows = t ? cands.map((c) => ({ c, why: t.kind === "sub" ? (c.sub === t.value ? "already " + t.value : null) : t.ok(c) })) : [];
+  const ok = rows.filter((r) => !r.why), skipped = rows.filter((r) => r.why);
+  const fwd = !!t && t.kind === "stage" && stages.findIndex((s) => s.id === t.value) > i;
+  const proposal = fwd && !user.canDecide;
+  return (
+    <Dialog
+      title={`Move ${cands.length} candidates`}
+      description={cur ? `All selected are in ${cur.label}. Only candidates valid for the chosen target move.` : undefined}
+      onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!t || ok.length === 0} onClick={() => t && onOk({ kind: t.kind, value: t.value, ids: ok.map((r) => r.c.id) })}>{proposal ? `Propose for ${ok.length}` : t ? `Move ${ok.length}` : "Move"}</Button></>}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Select label="Move to stage" value={key} onChange={(e) => setKey(e.target.value)}
+          options={[{ value: "", label: "Choose a stage" }, ...targets.map((x) => ({ value: x.key, label: x.group + " · " + x.label }))]} />
+        {t && <>
+          <div style={{ fontSize: 13 }}>
+            {ok.length} of {cands.length} will {proposal ? "be proposed to the Chapter Head" : t.kind === "sub" ? `be set to “${t.value}”` : `move to ${t.label}`}
+            {t.kind === "stage" && !proposal && ok.length > 0 && ` and start at “${stages.find((s) => s.id === t.value)?.def}”`}.
+          </div>
+          {ok.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>{ok.map((r) => r.c.name).join(", ")}</div>}
+          {skipped.length > 0 && <Banner tone="warning" icon="triangle-alert" title={`${skipped.length} skipped`}>
+            {skipped.map((r) => <div key={r.c.id}>{r.c.name} — {r.why}</div>)}
+          </Banner>}
+        </>}
+      </div>
+    </Dialog>
+  );
+}
+
+export function RemoveDialog({ names, onClose, onOk }: { names: string[]; onClose: () => void; onOk: () => void }) {
+  return (
+    <Dialog
+      title={"Remove " + (names.length > 1 ? names.length + " candidates" : names[0]) + " from this position?"}
+      description="They are taken off this position's pipeline. Their CVs stay in the system and can be added to a position again."
+      onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" onClick={onOk}>Remove</Button></>}
+    >
+      <div style={{ fontSize: 13 }}>{names.join(", ")}</div>
     </Dialog>
   );
 }

@@ -6,7 +6,10 @@ import {
 import type { CampaignAppliedAdminRow } from "@/lib/db/campaign-applied-list";
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
-import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
+import {
+  fetchJobPipelineConfig,
+  resolveCandidatePipelineIds,
+} from "@/lib/pipelines/transition-validator";
 
 export type MatchBand = "strong" | "good" | "partial" | "limited" | "review";
 /** done = scored, scoring = queued/in progress, error = failed, none = never scored. */
@@ -150,7 +153,22 @@ export async function listPositionCandidates(
     }));
 
   return {
-    candidates: list.candidates.map((r) => rowToPositionCandidate(r, { viewSalary, now })),
+    candidates: list.candidates.map((r) => {
+      const c = rowToPositionCandidate(r, { viewSalary, now });
+      // The job-scoped list query skips the stage joins, and applications that
+      // were never moved have NULL stage ids: resolve against the job's pipeline
+      // (first stage + its entry step) so every candidate shows a stage.
+      const ids = resolveCandidatePipelineIds(r, config.stageMappings, config.subStages);
+      const stage = stages.find((s) => s.id === ids.stageMappingId);
+      const sub = stage?.subs.find((x) => x.id === ids.subStateId);
+      return {
+        ...c,
+        stageMappingId: ids.stageMappingId,
+        subStateId: ids.subStateId,
+        stageLabel: stage?.label ?? c.stageLabel,
+        subStageLabel: sub?.label ?? c.subStageLabel,
+      };
+    }),
     pagination: list.pagination,
     pipeline: { stages },
   };

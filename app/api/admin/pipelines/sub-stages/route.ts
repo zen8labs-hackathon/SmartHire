@@ -40,7 +40,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const { pipeline_stage_id, code, label, sequence_number, is_default, is_passed } = parsed.data;
+  const {
+    pipeline_stage_id,
+    code,
+    label,
+    sequence_number,
+    is_default,
+    is_passed,
+    is_terminal,
+    requires_reason,
+    requires_decision,
+    is_withdraw,
+  } = parsed.data;
 
   try {
     const subStage = await createPipelineSubStage(getPool(), {
@@ -50,6 +61,10 @@ export async function POST(request: Request) {
       sequenceNumber: sequence_number,
       isDefault: is_default,
       isPassed: is_passed,
+      isTerminal: is_terminal,
+      requiresReason: requires_reason,
+      requiresDecision: requires_decision,
+      isWithdraw: is_withdraw,
     });
     return Response.json({ subStage }, { status: 201 });
   } catch (err) {

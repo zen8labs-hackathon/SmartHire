@@ -8,6 +8,7 @@ import {
   createCandidateSchedule,
   getCandidateScheduleById,
   listCandidateSchedulesByCampaignApplied,
+  listScheduleInterviewers,
   updateCandidateSchedule,
   type CandidateScheduleRow,
 } from "@/lib/db/candidate-schedules";
@@ -68,9 +69,18 @@ export async function GET(request: Request, { params }: RouteContext) {
   );
   if (!appAccess.ok) return appAccess.response;
 
-  const schedules = await listCandidateSchedulesByCampaignApplied(
-    getPool(),
+  const db = getPool();
+  const rows = await listCandidateSchedulesByCampaignApplied(
+    db,
     campaignAppliedId,
+  );
+  const schedules = await Promise.all(
+    rows.map(async (r) => ({
+      ...r,
+      interviewers: (await listScheduleInterviewers(db, String(r.id))).map(
+        (i) => i.profile_id,
+      ),
+    })),
   );
   return Response.json({ schedules });
 }

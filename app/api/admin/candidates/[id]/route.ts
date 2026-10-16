@@ -12,6 +12,7 @@ import {
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
 import { softDeleteCandidate } from "@/lib/db/candidates";
+import { insertStageHistory } from "@/lib/db/candidate-stage-history";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import {
   fetchJobPipelineConfig,
@@ -24,6 +25,7 @@ const UUID_RE =
 const patchBodySchema = z.object({
   current_job_stage_mapping_id: z.string().uuid(),
   current_sub_state_id: z.string().uuid(),
+  reason: z.string().trim().max(1000).optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -89,7 +91,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       { status: 400 },
     );
   }
-  const { current_job_stage_mapping_id, current_sub_state_id } = parsed.data;
+  const { current_job_stage_mapping_id, current_sub_state_id, reason } =
+    parsed.data;
 
   const db = getPool();
 
@@ -117,10 +120,35 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: result.error }, { status: 400 });
   }
 
-  await updateCampaignApplied(db, candidateId, {
-    currentJobStageMappingId: result.patch.currentJobStageMappingId,
-    currentSubStateId: result.patch.currentSubStateId,
-    hiredAt: result.patch.hiredAt,
+  const stageChanged =
+    existing.current_job_stage_mapping_id !==
+    result.patch.currentJobStageMappingId;
+  const subChanged =
+    existing.current_sub_state_id !== result.patch.currentSubStateId;
+
+  await withTransaction(async (tx) => {
+    await updateCampaignApplied(tx, candidateId, {
+      currentJobStageMappingId: result.patch.currentJobStageMappingId,
+      currentSubStateId: result.patch.currentSubStateId,
+      hiredAt: result.patch.hiredAt,
+    });
+    if (stageChanged || subChanged) {
+      await insertStageHistory(tx, {
+        campaignAppliedId: candidateId,
+        fromStageMappingId: existing.current_job_stage_mapping_id,
+        toStageMappingId: result.patch.currentJobStageMappingId,
+        fromSubStateId: existing.current_sub_state_id,
+        toSubStateId: result.patch.currentSubStateId,
+        reason: reason ?? null,
+        byUserId: auth.userId,
+      });
+    }
+    if (stageChanged) {
+      await tx.query(
+        `UPDATE campaign_applied SET entered_stage_at = now() WHERE id = $1`,
+        [candidateId],
+      );
+    }
   });
 
   const row = await getCampaignAppliedAdminRowById(db, candidateId);

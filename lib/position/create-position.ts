@@ -1,10 +1,7 @@
 import { replaceJobDescriptionViewerChapters } from "@/lib/admin/jd-viewer-sync";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { createJob, hardDeleteJob, updateJob, type JobRow } from "@/lib/db/jobs";
-import {
-  listPipelineStages,
-  reconcileJobStageMappings,
-} from "@/lib/db/pipeline-stages";
+import { PipelineApplyError, applyPipelineToJob } from "@/lib/db/pipelines";
 import { buildFinalJdStoragePath, isJdTempKey } from "@/lib/jd/upload-constants";
 import {
   BLANK_POSITION_TITLE,
@@ -14,12 +11,12 @@ import {
 import { draftNote } from "@/lib/position/jd-state";
 import { deleteObject, moveObject } from "@/lib/storage/s3";
 
-const DEFAULT_PIPELINE_STAGE_CODES = ["cv_scan", "interview", "offer"];
-
 export type CreatePositionInput = {
   chapterId: string;
   type: PositionHireType;
   headcount: number;
+  /** Required: every new position is created with a pipeline from the `pipelines` table. */
+  pipelineId: string;
   createdBy: string;
   jd: { storagePath: string; filename: string | null; mimeType: string | null } | null;
 };
@@ -44,8 +41,8 @@ export function draftTitle(filename: string | null): string {
 export class CreatePositionError extends Error {}
 
 /**
- * Creates a Draft position (owner = creator), grants its chapter, maps default
- * stages, and moves the JD to its final key. The caller starts JD processing.
+ * Creates a Draft position (owner = creator), grants its chapter, applies the chosen
+ * pipeline, and moves the JD to its final key. The caller starts JD processing.
  */
 export async function createDraftPosition(
   input: CreatePositionInput,
@@ -64,12 +61,13 @@ export async function createDraftPosition(
       jdMimeType: jd?.mimeType ?? null,
       createdBy: input.createdBy,
     });
-    const stages = await listPipelineStages(client);
-    const stageIds = DEFAULT_PIPELINE_STAGE_CODES.map(
-      (code) => stages.find((s) => s.code === code)?.id,
-    ).filter((id): id is string => Boolean(id));
-    if (stageIds.length > 0) {
-      await reconcileJobStageMappings(client, created.id, stageIds);
+    try {
+      await applyPipelineToJob(client, created.id, input.pipelineId, input.createdBy);
+    } catch (e) {
+      if (e instanceof PipelineApplyError && e.code === "PIPELINE_NOT_FOUND") {
+        throw new CreatePositionError("Selected pipeline was not found.");
+      }
+      throw e;
     }
     await replaceJobDescriptionViewerChapters(client, {
       jobId: created.id,

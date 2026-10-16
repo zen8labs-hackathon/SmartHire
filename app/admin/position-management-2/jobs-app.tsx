@@ -6,21 +6,21 @@ import { STAGES, stageOf, type AttentionItem, type Batch, type BatchFile, type C
 import { Badge, Banner, Button, Dialog, EntityTabs, Icon, Menu, ShareEvaluationDialog, lsGet, lsSet, type EntityTab } from "./ext";
 import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
-import { createPosition, duplicatePosition, fetchChapters, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, toCandidate, toStages, positionToJob, reprocessPosition, requestReview, rescorePosition, saveCriteria, transitionPosition, updatePosition, type ChapterInfo, type PositionTransitionKind } from "./api";
+import { createPosition, duplicatePosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, toCandidate, toStages, positionToJob, reprocessPosition, rescorePosition, saveCriteria, transitionPosition, updatePosition, type ChapterInfo, type PositionTransitionKind } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
-import { OverviewTab, UploadsTab } from "./overview";
+import { UploadsTab } from "./overview";
 import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import type { FileUploadRow } from "@/lib/db/upload-history";
 import { DescriptionTab, PipelineTab, AccessTab } from "./tabs";
 import {
-  ApplicationsDialog, CloseJobDialog, CreateJobDialog, DuplicateDialog, DeadlineDialog, HeadcountDialog, HireDialog, RejectDialog, UploadDialog, UploadTray,
+  ApplicationsDialog, BulkMoveDialog, CloseJobDialog, CreateJobDialog, DuplicateDialog, DeadlineDialog, HeadcountDialog, HireDialog, RejectDialog, RemoveDialog, UploadDialog, UploadTray,
   type CreateJobInput, type UploadBatch,
 } from "./dialogs";
 
 type Route = { page: "jobs" | "job"; id?: number | "pool"; tab?: string | null; upView?: string };
 type Dlg =
   | { k: "create" } | { k: "upload"; dest?: number | "pool" | null } | { k: "dup" } | { k: "apps"; target: string; fileId: string; file: string } | { k: "manual"; f: BatchFile; target: string } | { k: "hire"; c: Candidate }
-  | { k: "reject"; ids: number[]; clear?: () => void } | { k: "close"; job: Job } | { k: "hc" } | { k: "deadline" } | { k: "open"; job: Job } | { k: "jd" } | { k: "jdfile" } | { k: "pipeline" } | { k: "access" } | null;
+  | { k: "reject"; ids: number[]; clear?: () => void } | { k: "remove"; ids: number[]; clear?: () => void } | { k: "bulkmove"; ids: number[]; clear?: () => void } | { k: "close"; job: Job } | { k: "hc" } | { k: "deadline" } | { k: "open"; job: Job } | { k: "jd" } | { k: "jdfile" } | { k: "pipeline" } | { k: "access" } | null;
 type NavCtx = { ids: number[]; label: string; review?: boolean; done?: boolean } | null;
 
 const CH_LABEL = "the Chapter Head";
@@ -38,11 +38,13 @@ function roleFromInfo(info: ChapterInfo | null): Role {
 
 export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [chInfo, setChInfo] = React.useState<ChapterInfo | null>(null);
+  const [pipelineChoices, setPipelineChoices] = React.useState<PipelineChoice[]>([]);
   const user = React.useMemo(() => roleFromInfo(chInfo), [chInfo]);
   const router = useRouter();
   const pathname = usePathname();
   const BASE = "/admin/position-management-2";
   const seg = pathname.startsWith(BASE + "/") ? decodeURIComponent(pathname.slice(BASE.length + 1).split("/")[0]) : "";
+  const candSeg = pathname.startsWith(BASE + "/") ? decodeURIComponent(pathname.slice(BASE.length + 1).split("/")[1] ?? "") : "";
   const [routeState, setRoute] = React.useState<Route>({ page: "jobs" });
   const [cands, setCands] = React.useState<Candidate[]>([]);
   const [candsFor, setCandsFor] = React.useState<number | null>(null);
@@ -52,7 +54,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [jobs, setJobs] = React.useState<Job[]>([]);
   const [pool, setPool] = React.useState<{ candidates: number; attention: number } | null>(null);
   const [loaded, setLoaded] = React.useState(false);
-  const [drawer, setDrawer] = React.useState<number | null>(null);
   const [navCtx, setNavCtx] = React.useState<NavCtx>(null);
   const [preset, setPreset] = React.useState<(CandPreset & { k: number }) | null>(null);
   const [dlg, setDlg] = React.useState<Dlg>(null);
@@ -72,6 +73,14 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     return id;
   }, []);
   const candIdMap = React.useRef(new Map<string, number>());
+  const candUuidMap = React.useRef(new Map<number, string>());
+  // The open candidate lives in the URL: /admin/position-management-2/<position>/<candidate>.
+  const drawer: number | null = candSeg ? candIdMap.current.get(candSeg) ?? null : null;
+  const setDrawer = (id: number | null, jobSeg: string = seg) => {
+    const u = id != null ? candUuidMap.current.get(id) : undefined;
+    const url = !jobSeg ? BASE : u ? `${BASE}/${jobSeg}/${u}` : `${BASE}/${jobSeg}`;
+    if (drawer != null && id != null) router.replace(url); else router.push(url);
+  };
   const [stages, setStages] = React.useState<Stage[]>(STAGES);
   const [creating, setCreating] = React.useState(false);
   const [createErr, setCreateErr] = React.useState<string | null>(null);
@@ -85,6 +94,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     const ac = new AbortController();
     void reload(ac.signal);
     fetchChapters(ac.signal).then(setChInfo).catch((e) => { if (!ac.signal.aborted) console.error(e); });
+    fetchPipelineChoices(ac.signal).then(setPipelineChoices).catch((e) => { if (!ac.signal.aborted) console.error(e); });
     return () => ac.abort();
   }, [reload]);
 
@@ -201,7 +211,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         setStages(toStages(r.pipeline.stages));
         setCands(r.candidates.map((pc) => {
           let id = candIdMap.current.get(pc.id);
-          if (id == null) { id = candIdMap.current.size + 1; candIdMap.current.set(pc.id, id); }
+          if (id == null) { id = candIdMap.current.size + 1; candIdMap.current.set(pc.id, id); candUuidMap.current.set(id, pc.id); }
           return toCandidate(pc, id);
         }));
       })
@@ -225,7 +235,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     setCreating(true);
     setCreateErr(null);
     try {
-      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, file: v.blank ? null : v.file });
+      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, pipelineId: v.pipelineId, file: v.blank ? null : v.file });
       const id = idFor(row.id);
       setJobs((js) => [positionToJob(row, id), ...js.filter((j) => j.id !== id)]);
       setDlg(null);
@@ -299,7 +309,9 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     onReject: (c) => setDlg({ k: "reject", ids: [c.id] }),
     onBulk: (ids, kind, clear) => {
       if (kind === "reject") setDlg({ k: "reject", ids, clear });
-      else say("Choose a stage", "Only stages valid for every selected candidate are offered.");
+      else if (kind === "remove") setDlg({ k: "remove", ids, clear });
+      else if (new Set(cands.filter((c) => ids.includes(c.id)).map((c) => c.stage)).size > 1) say("Select one stage", "Bulk move works on candidates in the same stage. Filter by stage first.", undefined, "info");
+      else setDlg({ k: "bulkmove", ids, clear });
     },
     onAttention: (a, x) => {
       const f = bs.flatMap((b) => b.files).find((y) => y.id === a.id);
@@ -329,7 +341,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       {user.key !== "iv" && <Button variant="secondary" icon="upload" onClick={() => setDlg({ k: "upload", dest: null })}>Upload CVs</Button>}
       {user.canCreate && <Button icon="plus" onClick={() => setDlg({ k: "create" })}>Open new position</Button>}
     </>;
-    body = <JobsList user={user} pool={pool} go={(id, tab, cand) => { go(id as number | "pool", tab ?? undefined); if (cand != null) setDrawer(cand); }}
+    body = <JobsList user={user} pool={pool} go={(id, tab, cand) => { go(id as number | "pool", tab ?? undefined); if (cand != null) setDrawer(cand, id === "pool" ? "pool" : uuidMap.current.get(id as number) ?? seg); }}
       onCreate={() => setDlg({ k: "create" })} onUpload={(id) => setDlg({ k: "upload", dest: id as number | "pool" })} onCloseJob={(j) => setDlg({ k: "close", job: j })} onRetry={(j) => void retryJd(j)} onHold={(j) => void transition(j, "hold").then((ok) => ok && say(`${j.title} is on hold`, undefined, undefined, "pause"))} onReopen={(j) => void transition(j, "reopen").then((ok) => ok && say(`${j.title} reopened`, undefined, undefined, "rotate-ccw"))} jobs={visible} chapters={chInfo?.chapters.map((c) => c.name)} onDuplicate={(j) => void duplicate(j)} />;
   } else {
     const tabs: EntityTab[] = isPool
@@ -341,7 +353,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           { id: "candidates", label: "Candidates", count: liveCount },
           { id: "uploads", label: "Uploads & processing", count: job.attention, warn: job.attention > 0 },
         ];
-    const tab = tabs.some((t) => t.id === route.tab) ? route.tab! : tabs[0].id;
+    const tab = tabs.some((t) => t.id === route.tab) ? route.tab! : (tabs.find((t) => t.id === "candidates") || tabs[0]).id;
     const upAtt = att;
     const upView = route.upView || (upAtt.length ? "attention" : "history");
     const f = (fn: () => void) => () => { setSettingsOpen(false); fn(); };
@@ -362,9 +374,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     </>;
     actions = <>
       {user.key !== "iv" && <Button variant="secondary" icon="upload" onClick={() => setDlg({ k: "upload", dest: isPool ? "pool" : job.id })}>Upload CVs</Button>}
-      {!isPool && job.status === "Draft" && user.canCreate && <>
-        <Button variant="secondary" icon="send" disabled={!!job.processing} onClick={() => { const uuid = uuidMap.current.get(job.id); if (!uuid) return; requestReview(uuid).then(() => { updJob(job.id, { reviewRequested: true }); say("Review requested", `Chapter Head ${job.chapter} was asked to check the criteria.`, undefined, "send"); }).catch((e) => fail("Could not request review", e)); }}>Request review</Button>
-      </>}
       {!isPool && user.key !== "iv" && <span style={{ position: "relative" }}>
         <Button variant="secondary" icon="settings" iconRight="chevron-down" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</Button>
         <Pop open={settingsOpen} onClose={() => setSettingsOpen(false)} top={40} width={220}>
@@ -410,9 +419,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
         )}
         {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} open={openCand} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
-        {tab === "overview" && <OverviewTab job={job} cands={cands} att={att} user={user}
-          onFilter={(p) => { setPreset({ ...p, k: Date.now() }); nav({ ...route, tab: "candidates", upView: undefined }); }}
-          onTab={(t, sub) => nav({ ...route, tab: t, upView: sub })} />}
+        {tab === "overview" && <div style={{ padding: "64px 0", textAlign: "center", color: "var(--fg-muted, #6b7280)", fontSize: 14 }}>This tab in development process, please wait</div>}
         {tab === "uploads" && <UploadsTab key={job.id} bs={bs} histErr={histErr} h={h} att={upAtt} resolve={resolveUp} admin={user.key === "hr"}
           view={upView} setView={(v) => { setUpViewS(v); nav({ ...route, upView: v }); }} isPool={isPool}
           onOpenCand={(f) => { if (f.candId != null) setDrawer(f.candId); else say(f.file, f.did); }} />}
@@ -464,7 +471,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           say("Headcount updated", `${job.title} now needs ${n} hire${n === 1 ? "" : "s"} · ${n - job.hired} open.`, undefined, "users");
         }).catch((e) => fail("Could not update headcount", e));
       }} />}
-      {dlg?.k === "create" && <CreateJobDialog onClose={() => { setDlg(null); setCreateErr(null); }} onSubmit={(v) => void createJob(v)} chapters={chInfo?.chapters ?? []} defaultChapterId={chInfo && !chInfo.isHr ? chInfo.headedChapterIds[0] : undefined} lockChapter={!!chInfo && !chInfo.isHr && chInfo.headedChapterIds.length > 0} busy={creating} error={createErr} />}
+      {dlg?.k === "create" && <CreateJobDialog onClose={() => { setDlg(null); setCreateErr(null); }} onSubmit={(v) => void createJob(v)} chapters={chInfo?.chapters ?? []} pipelines={pipelineChoices} defaultChapterId={chInfo && !chInfo.isHr ? chInfo.headedChapterIds[0] : undefined} lockChapter={!!chInfo && !chInfo.isHr && chInfo.headedChapterIds.length > 0} busy={creating} error={createErr} />}
       {dlg?.k === "upload" && <UploadDialog dest={dlg.dest} lockDest={!!job} jobs={visible} resolveTarget={(to) => (to === "pool" ? "pool" : uuidMap.current.get(Number(to)))} onClose={() => setDlg(null)} onStart={(b) => { setDlg(null); setBatch({ ...b, key: Date.now() }); }} />}
       {batch && <UploadTray key={batch.key} batch={batch} onClose={() => setBatch(null)}
         onOpen={() => go(batch.to === "pool" ? "pool" : Number(batch.to), "candidates")}
@@ -487,6 +494,23 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         upd(dlg.c.id, { stage: "probation", sub: "Awaiting start" }); setDlg(null);
         say(`${dlg.c.name} hired`, undefined, undefined, "badge-check");
       }} />}
+      {dlg?.k === "bulkmove" && <BulkMoveDialog cands={cands.filter((c) => dlg.ids.includes(c.id))} stages={stages} user={user} onClose={() => setDlg(null)} onOk={(p) => {
+        const n = p.ids.length, olds = cands.filter((c) => p.ids.includes(c.id)).map((c) => ({ id: c.id, stage: c.stage, sub: c.sub, days: c.days }));
+        const to = p.kind === "stage" ? stageOf(p.value, stages) : null;
+        const fwd = !!to && stages.findIndex((x) => x.id === p.value) > stages.findIndex((x) => x.id === olds[0]?.stage);
+        dlg.clear?.(); setDlg(null);
+        if (to && fwd && !user.canDecide) { say(`Proposal sent to ${CH_LABEL}`, `${n} candidate${n > 1 ? "s" : ""} → ${to.label}`, undefined, "send"); return; }
+        if (to) p.ids.forEach((id) => upd(id, { stage: to.id, sub: to.def, days: 0 }));
+        else p.ids.forEach((id) => upd(id, { sub: p.value }));
+        say(to ? `${n} moved to ${to.label}` : `${n} set to ${p.value}`, to ? `Each starts at step “${to.def}”.` : undefined, { label: "Undo", fn: () => olds.forEach(({ id, ...o }) => upd(id, o)) }, "arrow-right");
+      }} />}
+      {dlg?.k === "remove" && <RemoveDialog names={cands.filter((c) => dlg.ids.includes(c.id)).map((c) => c.name)}
+        onClose={() => setDlg(null)} onOk={() => {
+          const gone = cands.filter((c) => dlg.ids.includes(c.id));
+          setCands((cs) => cs.filter((c) => !dlg.ids.includes(c.id)));
+          dlg.clear?.(); setDlg(null);
+          say(`${gone.length} removed from position`, undefined, { label: "Undo", fn: () => setCands((cs) => [...cs, ...gone]) }, "x");
+        }} />}
       {dlg?.k === "reject" && <RejectDialog names={cands.filter((c) => rejectIds.includes(c.id)).map((c) => c.name)}
         unreviewed={cands.filter((c) => rejectIds.includes(c.id) && !c.notes).length}
         onClose={() => setDlg(null)} onOk={() => {

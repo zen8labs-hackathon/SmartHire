@@ -13,6 +13,7 @@ import {
   Inbox, Layers, Link, ListChecks, LoaderCircle, Lock, Mail, Maximize2, Minimize2, MessageSquare, Pause, Pencil, Plus,
   RefreshCw, RotateCcw, Route, Search, Send, Shield, Sparkles, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck,
   UserPlus, UserRound, Users, X, Cpu, Download, FileCheck, LayoutGrid, List, LogIn, LogOut, Merge, Move, Save, School, UserCog, UserX, Settings,
+  GripVertical, ArrowUp, ArrowDown, ClipboardList, Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ const ICONS: Record<string, LucideIcon> = {
   "user-check": UserCheck, "user-plus": UserPlus, "user-round": UserRound, users: Users, x: X,
   cpu: Cpu, download: Download, "file-check": FileCheck, grid: LayoutGrid, list: List, "log-in": LogIn, "log-out": LogOut,
   merge: Merge, move: Move, save: Save, school: School, "user-cog": UserCog, "user-x": UserX, settings: Settings,
+  "grip-vertical": GripVertical, "arrow-up": ArrowUp, "arrow-down": ArrowDown, "clipboard-list": ClipboardList, workflow: Workflow,
 };
 
 type Style = React.CSSProperties | null | undefined;
@@ -238,7 +240,7 @@ export function Menu({ items }: { items: MenuItem[] }) {
   );
 }
 
-export type Column<R> = { key: string; label: React.ReactNode; render?: (r: R) => React.ReactNode; align?: "left" | "right" | "center"; width?: number | string };
+export type Column<R> = { key: string; label: React.ReactNode; render?: (r: R) => React.ReactNode; align?: "left" | "right" | "center"; width?: number | string; sticky?: "right" };
 export function Table<R extends { id: string | number }>({ columns, rows, onRowClick, compact, selectable, selected = [], onSelect }: {
   columns: Column<R>[]; rows: R[]; onRowClick?: (r: R) => void; compact?: boolean; selectable?: boolean; selected?: (string | number)[]; onSelect?: (ids: (string | number)[]) => void;
 }) {
@@ -250,7 +252,7 @@ export function Table<R extends { id: string | number }>({ columns, rows, onRowC
         <thead>
           <tr>
             {selectable && <th style={{ width: 36 }}><Checkbox checked={all} onChange={() => onSelect && onSelect(all ? [] : rows.map((r) => r.id))} /></th>}
-            {columns.map((c) => <th key={c.key} className={c.align === "right" ? "sh-num" : undefined} style={{ width: c.width, textAlign: c.align }}>{c.label}</th>)}
+            {columns.map((c) => <th key={c.key} className={(c.align === "right" ? "sh-num" : "") + (c.sticky ? " sh-stick-r" : "") || undefined} style={{ width: c.width, textAlign: c.align }}>{c.label}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -258,7 +260,7 @@ export function Table<R extends { id: string | number }>({ columns, rows, onRowC
             <tr key={r.id} aria-selected={selected.includes(r.id) || undefined} onClick={onRowClick ? () => onRowClick(r) : undefined} style={onRowClick ? { cursor: "pointer" } : undefined}>
               {selectable && <td onClick={(e) => e.stopPropagation()}><Checkbox checked={selected.includes(r.id)} onChange={() => toggle(r.id)} /></td>}
               {columns.map((c) => (
-                <td key={c.key} className={c.align === "right" ? "sh-num" : undefined} style={{ textAlign: c.align }}>
+                <td key={c.key} className={(c.align === "right" ? "sh-num" : "") + (c.sticky ? " sh-stick-r" : "") || undefined} style={{ textAlign: c.align }}>
                   {c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? "")}
                 </td>
               ))}
@@ -412,10 +414,12 @@ export function ActivityTimeline({ items = [] }: { items?: TimelineEntry[] }) {
   return <ol className="shx-tl">{items.map((it, i) => <li key={i} data-human={!!it.human}>{it.text}<small>{it.by} · <time>{it.at}</time>{it.reason ? " · reason: " + it.reason : ""}</small></li>)}</ol>;
 }
 
-export function ScoreComposition({ ai, aiWeight = 60, rule, at, model = "gpt-4.1", provider = "Azure OpenAI", configured = "HR on 12/09" }: {
-  ai?: number | null; aiWeight?: number; rule: number; at?: string; model?: string; provider?: string; configured?: string;
+export function ScoreComposition({ ai, aiWeight: aiWeightIn, rule, at, model, provider, configured }: {
+  ai?: number | null; aiWeight?: number | null; rule: number; at?: string; model?: string | null; provider?: string | null; configured?: string;
 }) {
+  const aiWeight = aiWeightIn ?? 60;
   const rw = 100 - aiWeight;
+  const metaBits = [configured && "Weights configured by " + configured, model && (provider ? model + " via " + provider : model), at && "scored " + at].filter(Boolean) as string[];
   if (ai == null) return <div className="shx-card"><div className="shx-row"><span>Rule checks only</span><span className="shx-sp" /><b className="shx-mono">{rule}</b></div><span className="shx-small">AI part missing · band not shown until rescored</span></div>;
   return (
     <div className="shx-card">
@@ -423,7 +427,7 @@ export function ScoreComposition({ ai, aiWeight = 60, rule, at, model = "gpt-4.1
         <span>AI assessment</span><span className="bar"><i style={{ width: ai + "%" }} /></span><b className="shx-mono">{ai} × {aiWeight}%</b>
         <span>Rule checks</span><span className="bar"><i style={{ width: rule + "%" }} /></span><b className="shx-mono">{rule} × {rw}%</b>
       </div>
-      <span className="shx-small">Weights configured by {configured} · {model} via {provider} · scored {at} against the current criteria</span>
+      <span className="shx-small">{[...metaBits, "against the current criteria"].join(" · ")}</span>
     </div>
   );
 }
@@ -474,11 +478,15 @@ export function MatchStatusInline({ status, name, onRescore }: { status?: string
   return <Badge tone="outline" icon="circle-dashed">Not scored</Badge>;
 }
 
-export function AIRationale({ text, lines = 3 }: { text: string; lines?: number }) {
+export function AIRationale({ text, lines = 3, model, provider, at }: { text: string; lines?: number; model?: string | null; provider?: string | null; at?: string }) {
   const [more, setMore] = React.useState(false);
+  const meta: Record<string, string> = {};
+  if (model) meta.Model = model;
+  if (provider) meta.Provider = provider;
+  if (at) meta.At = at;
   return (
     <div className="shx-rat">
-      <div><AIBadge label="AI summary" title="Summary written by the model" meta={{ Model: "gpt-4.1", Provider: "Azure OpenAI", At: "24/09 14:22" }} /></div>
+      <div><AIBadge label="AI summary" title="Summary written by the model" meta={meta} /></div>
       <span style={more ? undefined : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{text}</span>
       <div className="shx-row">
         <span className="shx-small">May be wrong. Check against the original CV.</span><span className="shx-sp" />
@@ -761,8 +769,14 @@ export function ShareEvaluationDialog({ name, onClose }: { name: string; onClose
   );
 }
 
-export function InterviewNoteEditor({ round = "Interview 1", initial = "", submitted, onSubmit }: { round?: string; initial?: string; submitted?: boolean; onSubmit?: (v: string) => void }) {
+export function InterviewNoteEditor({ round = "Interview 1", initial = "", submitted, onSubmit, quote }: { round?: string; initial?: string; submitted?: boolean; onSubmit?: (v: string) => void; quote?: { text: string; n: number } | null }) {
   const [v, setV] = React.useState(initial);
+  const lastQ = React.useRef(0);
+  React.useEffect(() => {
+    if (!quote || quote.n === lastQ.current) return;
+    lastQ.current = quote.n;
+    setV((cur) => (cur ? cur + "\n" : "") + "> " + quote.text + "\n");
+  }, [quote]);
   const [saved, setSaved] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!v || submitted) return;

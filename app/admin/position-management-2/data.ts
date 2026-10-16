@@ -73,6 +73,8 @@ export type Stage = {
 export type Band = "strong" | "good" | "partial" | "limited" | "review";
 export type Candidate = {
   id: number;
+  /** campaign_applied uuid; keys the /api/admin/candidates/[id]/* routes. */
+  caId?: string;
   name: string;
   headline: string;
   /** Static stage id, or a pipeline stage-mapping uuid for real positions. */

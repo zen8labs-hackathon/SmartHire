@@ -33,7 +33,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const { code, label, desc, color, allow_schedule } = parsed.data;
+  const { code, label, desc, color, allow_schedule, stage_type } = parsed.data;
 
   try {
     const stage = await updatePipelineStage(getPool(), id, {
@@ -42,6 +42,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       desc,
       color,
       allowSchedule: allow_schedule,
+      stageType: stage_type,
     });
     if (!stage) {
       return Response.json({ error: "Stage not found or already deleted." }, { status: 404 });

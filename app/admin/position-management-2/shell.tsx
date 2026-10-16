@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useSetBreadcrumbs } from "@/components/admin/shell/page-title";
 import { Button, Icon, MoveToMenu, type MoveItem } from "./ext";
 import { STAGES, stageColor, stageOf, type Candidate, type Role, type Stage } from "./data";
@@ -32,11 +33,24 @@ function initials(n: string) {
 export function Pop({ open, onClose, children, align = "right", top = 34, width }: {
   open: boolean; onClose: () => void; children: React.ReactNode; align?: "left" | "right"; top?: number; width?: number;
 }) {
-  if (!open) return null;
+  const anchor = React.useRef<HTMLSpanElement>(null);
+  const [rect, setRect] = React.useState<DOMRect | null>(null);
+  React.useLayoutEffect(() => {
+    if (open) setRect(anchor.current?.parentElement?.getBoundingClientRect() ?? null);
+  }, [open]);
   return (
     <>
-      <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={(e) => { e.stopPropagation(); onClose(); }} />
-      <div style={{ position: "absolute", [align]: 0, top, zIndex: 41, minWidth: width || 220 }} onClick={(e) => e.stopPropagation()}>{children}</div>
+      <span ref={anchor} style={{ display: "none" }} />
+      {open && rect && createPortal(
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 1000 }} onClick={(e) => { e.stopPropagation(); onClose(); }} />
+          <div
+            style={{ position: "fixed", top: rect.top + top, ...(align === "right" ? { right: Math.max(8, window.innerWidth - rect.right) } : { left: rect.left }), zIndex: 1001, minWidth: width || 220, maxWidth: "calc(100vw - 16px)" }}
+            onClick={(e) => e.stopPropagation()}
+          >{children}</div>
+        </>,
+        document.body,
+      )}
     </>
   );
 }

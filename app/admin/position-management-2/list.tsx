@@ -125,11 +125,6 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
     { key: "hc", label: "Headcount", render: (j) => <Headcount j={j} /> },
     { key: "deadline", label: "Hiring deadline", render: (j) => <Deadline j={j} /> },
     { key: "candidates", label: "Candidates", align: "right", render: (j) => <span className="sh-num">{j.candidates}</span> },
-    {
-      key: "attention", label: "Needs attention", render: (j) => j.attention
-        ? <button type="button" className="jb-linkchip" onClick={(e) => { e.stopPropagation(); go(j.id, "attention"); }}><Badge tone="warning" icon="file-warning">{j.attention} to resolve</Badge></button>
-        : <span style={{ color: "var(--muted)", fontSize: 12 }}>None</span>,
-    },
     { key: "owner", label: "Owner", render: (j) => <Avatar name={j.owner} size={24} /> },
     { key: "m", label: "", width: 44, render: (j) => <RowMenu j={j} user={user} go={go} onClose={onCloseJob} onHold={onHold} onReopen={onReopen} onDuplicate={onDuplicate} /> },
   ];

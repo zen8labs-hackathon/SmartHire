@@ -13,6 +13,8 @@ export type JobStatus = "Done" | "Hiring" | "Pending" | "Closed";
 /** Merged job_openings + job_descriptions (DB7X2K item 1). Always created with every field in one step — no Draft status. */
 export type JobRow = {
   id: string;
+  /** Null for legacy jobs created before pipelines existed. */
+  pipeline_id?: string | null;
   position: string;
   status: JobStatus;
   department: string | null;

@@ -89,7 +89,7 @@ describe("pipeline_stages", () => {
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE($4, 'zinc')");
     expect(sql).toContain("COALESCE($5, false)");
-    expect(values).toEqual(["screening", "Screening", null, null, null]);
+    expect(values).toEqual(["screening", "Screening", null, null, null, null]);
   });
 
   it("updatePipelineStage quotes the desc column in the SET clause", async () => {
@@ -104,12 +104,13 @@ describe("pipeline_stages", () => {
   });
 
   it("updatePipelineStage includes allow_schedule = false (not treated as omitted)", async () => {
-    const row = { id: "s1", allow_schedule: false };
+    const row = { id: "s1", allow_schedule: false, stage_type: "none" };
     const db = fakeDb([row]);
 
     await updatePipelineStage(db, "s1", { allowSchedule: false });
 
-    const [sql, values] = db.query.mock.calls[0];
+    // First call reads the current stage_type; the last one is the UPDATE.
+    const [sql, values] = db.query.mock.calls[db.query.mock.calls.length - 1];
     expect(sql).toContain("allow_schedule = $2");
     expect(values).toEqual(["s1", false]);
   });
@@ -154,7 +155,7 @@ describe("pipeline_sub_stages", () => {
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE($5, false), COALESCE($6, false)");
-    expect(values).toEqual(["s1", "cv_review", "CV Review", 1, null, null]);
+    expect(values).toEqual(["s1", "cv_review", "CV Review", 1, null, null, null, null, null, null]);
   });
 
   it("updatePipelineSubStage never sets updated_at (table has no such column)", async () => {

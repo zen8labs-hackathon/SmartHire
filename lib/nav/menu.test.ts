@@ -14,6 +14,7 @@ describe("buildMenu", () => {
         "work:positions2",
         "work:candidates",
         "work:pipelines",
+        "work:pipelines2",
         "setup:users",
         "setup:chapters",
         "setup:templates",

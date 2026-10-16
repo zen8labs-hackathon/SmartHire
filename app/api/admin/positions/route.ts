@@ -11,6 +11,7 @@ import { processPositionJd } from "@/lib/position/process-jd";
 import { isHireType, validateHeadcount } from "@/lib/positions/create-position";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
+import { isPipelineUsable } from "@/lib/db/pipelines";
 import {
   isPositionStatus,
   isPositionType,
@@ -85,6 +86,10 @@ export async function POST(request: Request) {
   if (!chapterId) {
     return Response.json({ error: "chapterId is required." }, { status: 400 });
   }
+  const pipelineId = typeof body.pipelineId === "string" ? body.pipelineId : "";
+  if (!pipelineId) {
+    return Response.json({ error: "pipelineId is required." }, { status: 400 });
+  }
   if (!isHireType(body.type)) {
     return Response.json({ error: "Invalid type." }, { status: 400 });
   }
@@ -143,12 +148,19 @@ export async function POST(request: Request) {
   if (!exists.ok) {
     return Response.json({ error: "Unknown chapter." }, { status: 400 });
   }
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pipelineId) ||
+    !(await isPipelineUsable(db, pipelineId))
+  ) {
+    return Response.json({ error: "Unknown pipeline." }, { status: 400 });
+  }
 
   try {
     const job = await createDraftPosition({
       chapterId,
       type: body.type,
       headcount: headcount.value,
+      pipelineId,
       createdBy: auth.userId,
       jd,
     });

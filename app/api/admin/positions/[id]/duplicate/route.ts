@@ -5,6 +5,7 @@ import {
 } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById, updateJob } from "@/lib/db/jobs";
+import { isPipelineUsable } from "@/lib/db/pipelines";
 import { listAllowedChaptersForJob } from "@/lib/db/job-permissions";
 import {
   CreatePositionError,
@@ -61,11 +62,25 @@ export async function POST(request: Request, ctx: Ctx) {
       ? "Internship"
       : "Full-time";
 
+  // A copy keeps the source's pipeline. Legacy sources have none, so the caller must pick one.
+  let pipelineId = source.pipeline_id ?? null;
+  if (!pipelineId) {
+    const body = (await request.json().catch(() => ({}))) as { pipelineId?: unknown };
+    pipelineId = typeof body.pipelineId === "string" ? body.pipelineId : null;
+  }
+  if (!pipelineId || !(await isPipelineUsable(db, pipelineId))) {
+    return Response.json(
+      { error: "Select a pipeline for the duplicated position." },
+      { status: 400 },
+    );
+  }
+
   try {
     const draft = await createDraftPosition({
       chapterId,
       type,
       headcount: source.headcount ?? 1,
+      pipelineId,
       createdBy: auth.userId,
       jd: null,
     });
