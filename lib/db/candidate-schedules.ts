@@ -9,6 +9,16 @@ export type CandidateScheduleStatus =
   | "Completed"
   | "NoShow";
 
+export type CandidateScheduleMode = "online" | "office";
+
+/** Statuses the Calendar shows; `Rescheduled` / `Canceled` rows are hidden. */
+export const ACTIVE_SCHEDULE_STATUSES: CandidateScheduleStatus[] = [
+  "Scheduled",
+  "Confirmed",
+  "Completed",
+  "NoShow",
+];
+
 /** No `deleted_at` on this table — canceling a schedule is a status change (`Canceled`), not a soft-delete, and a reschedule creates a new row linked back via `rescheduled_from_id`. */
 export type CandidateScheduleRow = {
   id: string;
@@ -21,6 +31,18 @@ export type CandidateScheduleRow = {
   status: CandidateScheduleStatus;
   rescheduled_from_id: string | null;
   created_by: string | null;
+  mode: CandidateScheduleMode;
+  meeting_link: string | null;
+  note: string | null;
+  cancel_reason: string | null;
+  reschedule_reason: string | null;
+  canceled_by: string | null;
+  canceled_at: Date | null;
+  /** End of the interview + 24h; maintained by create/update below. */
+  evaluation_due_at: Date | null;
+  /** Every assigned interviewer has declined. */
+  no_interviewer_flag: boolean;
+  soft_conflicts_acknowledged: boolean;
   created_at: Date;
   updated_at: Date;
 };
@@ -35,6 +57,11 @@ export type CreateCandidateScheduleInput = {
   status?: CandidateScheduleStatus;
   rescheduledFromId?: string | null;
   createdBy?: string | null;
+  mode?: CandidateScheduleMode;
+  meetingLink?: string | null;
+  note?: string | null;
+  rescheduleReason?: string | null;
+  softConflictsAcknowledged?: boolean;
 };
 
 export type UpdateCandidateScheduleInput = {
@@ -44,6 +71,15 @@ export type UpdateCandidateScheduleInput = {
   durationMinutes?: number | null;
   location?: string | null;
   status?: CandidateScheduleStatus;
+  mode?: CandidateScheduleMode;
+  meetingLink?: string | null;
+  note?: string | null;
+  cancelReason?: string | null;
+  rescheduleReason?: string | null;
+  canceledBy?: string | null;
+  canceledAt?: string | Date | null;
+  noInterviewerFlag?: boolean;
+  softConflictsAcknowledged?: boolean;
 };
 
 export async function getCandidateScheduleById(
@@ -70,6 +106,37 @@ export async function listCandidateSchedulesByCampaignApplied(
   return rows;
 }
 
+/**
+ * Active sessions starting in `[from, to)`. With `profileIds`, only sessions
+ * where one of them is an assigned interviewer (declined or not -- callers
+ * decide how to show a declined seat).
+ */
+export async function listSchedulesInRange(
+  db: QueryExecutor,
+  from: string | Date,
+  to: string | Date,
+  profileIds?: string[],
+): Promise<CandidateScheduleRow[]> {
+  if (profileIds && profileIds.length === 0) return [];
+  const byProfile = profileIds
+    ? `AND EXISTS (
+         SELECT 1 FROM candidate_schedule_interviewers csi
+         WHERE csi.schedule_id = cs.id AND csi.profile_id = ANY($4::uuid[])
+       )`
+    : "";
+  const { rows } = await db.query<CandidateScheduleRow>(
+    `SELECT cs.* FROM candidate_schedules cs
+     WHERE cs.scheduled_at >= $1 AND cs.scheduled_at < $2
+       AND cs.status = ANY($3::text[])
+       ${byProfile}
+     ORDER BY cs.scheduled_at ASC`,
+    profileIds
+      ? [from, to, ACTIVE_SCHEDULE_STATUSES, profileIds]
+      : [from, to, ACTIVE_SCHEDULE_STATUSES],
+  );
+  return rows;
+}
+
 export async function createCandidateSchedule(
   db: QueryExecutor,
   input: CreateCandidateScheduleInput,
@@ -77,9 +144,15 @@ export async function createCandidateSchedule(
   const { rows } = await db.query<CandidateScheduleRow>(
     `INSERT INTO candidate_schedules (
        campaign_applied_id, job_stage_mapping_id, round_label, scheduled_at,
-       duration_minutes, location, status, rescheduled_from_id, created_by
+       duration_minutes, location, status, rescheduled_from_id, created_by,
+       mode, meeting_link, note, reschedule_reason, soft_conflicts_acknowledged,
+       evaluation_due_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'Scheduled'), $8, $9)
+     VALUES (
+       $1, $2, $3, $4, $5, $6, COALESCE($7, 'Scheduled'), $8, $9,
+       COALESCE($10, 'online'), $11, $12, $13, COALESCE($14, false),
+       $4::timestamptz + make_interval(mins => COALESCE($5::int, 60)) + interval '24 hours'
+     )
      RETURNING *`,
     [
       input.campaignAppliedId,
@@ -91,6 +164,11 @@ export async function createCandidateSchedule(
       input.status ?? null,
       input.rescheduledFromId ?? null,
       input.createdBy ?? null,
+      input.mode ?? null,
+      input.meetingLink ?? null,
+      input.note ?? null,
+      input.rescheduleReason ?? null,
+      input.softConflictsAcknowledged ?? null,
     ],
   );
   return rows[0];
@@ -109,14 +187,38 @@ export async function updateCandidateSchedule(
       duration_minutes: patch.durationMinutes,
       location: patch.location,
       status: patch.status,
+      mode: patch.mode,
+      meeting_link: patch.meetingLink,
+      note: patch.note,
+      cancel_reason: patch.cancelReason,
+      reschedule_reason: patch.rescheduleReason,
+      canceled_by: patch.canceledBy,
+      canceled_at: patch.canceledAt,
+      no_interviewer_flag: patch.noInterviewerFlag,
+      soft_conflicts_acknowledged: patch.softConflictsAcknowledged,
     },
     2,
   );
   if (!clause) return getCandidateScheduleById(db, id);
 
+  // Keep the evaluation deadline (end + 24h) in step with a time change.
+  // SET expressions see the pre-update row, so new values come in as params.
+  let dueClause = "";
+  if (patch.scheduledAt !== undefined || patch.durationMinutes !== undefined) {
+    const at = values.length + 2;
+    const start =
+      patch.scheduledAt !== undefined ? `$${at}::timestamptz` : "scheduled_at";
+    const mins =
+      patch.durationMinutes !== undefined
+        ? `COALESCE($${at + 1}::int, 60)`
+        : "COALESCE(duration_minutes, 60)";
+    dueClause = `, evaluation_due_at = ${start} + make_interval(mins => ${mins}) + interval '24 hours'`;
+    values.push(patch.scheduledAt ?? null, patch.durationMinutes ?? null);
+  }
+
   const { rows } = await db.query<CandidateScheduleRow>(
     `UPDATE candidate_schedules
-     SET ${clause}, updated_at = now()
+     SET ${clause}${dueClause}, updated_at = now()
      WHERE id = $1
      RETURNING *`,
     [id, ...values],
@@ -128,6 +230,10 @@ export type CandidateScheduleInterviewerRow = {
   schedule_id: string;
   profile_id: string;
   created_at: Date;
+  declined_at: Date | null;
+  decline_reason: string | null;
+  evaluation_submitted_at: Date | null;
+  overdue_notified_at: Date | null;
 };
 
 export async function listScheduleInterviewers(
@@ -137,6 +243,20 @@ export async function listScheduleInterviewers(
   const { rows } = await db.query<CandidateScheduleInterviewerRow>(
     `SELECT * FROM candidate_schedule_interviewers WHERE schedule_id = $1`,
     [scheduleId],
+  );
+  return rows;
+}
+
+export async function listInterviewersForSchedules(
+  db: QueryExecutor,
+  scheduleIds: string[],
+): Promise<CandidateScheduleInterviewerRow[]> {
+  if (scheduleIds.length === 0) return [];
+  const { rows } = await db.query<CandidateScheduleInterviewerRow>(
+    `SELECT * FROM candidate_schedule_interviewers
+     WHERE schedule_id = ANY($1::bigint[])
+     ORDER BY schedule_id, created_at`,
+    [scheduleIds],
   );
   return rows;
 }
@@ -164,4 +284,83 @@ export async function removeScheduleInterviewer(
      WHERE schedule_id = $1 AND profile_id = $2`,
     [scheduleId, profileId],
   );
+}
+
+/** Records a decline; re-declining keeps the first `declined_at`. */
+export async function declineScheduleInterviewer(
+  db: QueryExecutor,
+  scheduleId: string,
+  profileId: string,
+  reason: string | null,
+): Promise<CandidateScheduleInterviewerRow | null> {
+  const { rows } = await db.query<CandidateScheduleInterviewerRow>(
+    `UPDATE candidate_schedule_interviewers
+     SET declined_at = COALESCE(declined_at, now()), decline_reason = $3
+     WHERE schedule_id = $1 AND profile_id = $2
+     RETURNING *`,
+    [scheduleId, profileId, reason],
+  );
+  return rows[0] ?? null;
+}
+
+export async function withdrawScheduleInterviewerDecline(
+  db: QueryExecutor,
+  scheduleId: string,
+  profileId: string,
+): Promise<CandidateScheduleInterviewerRow | null> {
+  const { rows } = await db.query<CandidateScheduleInterviewerRow>(
+    `UPDATE candidate_schedule_interviewers
+     SET declined_at = NULL, decline_reason = NULL
+     WHERE schedule_id = $1 AND profile_id = $2
+     RETURNING *`,
+    [scheduleId, profileId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function setNoInterviewerFlag(
+  db: QueryExecutor,
+  scheduleId: string,
+  flag: boolean,
+): Promise<void> {
+  await db.query(
+    `UPDATE candidate_schedules
+     SET no_interviewer_flag = $2, updated_at = now()
+     WHERE id = $1`,
+    [scheduleId, flag],
+  );
+}
+
+/** Idempotent: keeps the first submission time. */
+export async function markEvaluationSubmitted(
+  db: QueryExecutor,
+  scheduleId: string,
+  profileId: string,
+): Promise<void> {
+  await db.query(
+    `UPDATE candidate_schedule_interviewers
+     SET evaluation_submitted_at = COALESCE(evaluation_submitted_at, now())
+     WHERE schedule_id = $1 AND profile_id = $2`,
+    [scheduleId, profileId],
+  );
+}
+
+/**
+ * Claims the overdue reminder for one interviewer seat. Returns `false` when
+ * it was already sent, so concurrent sweeps notify at most once.
+ */
+export async function markOverdueNotified(
+  db: QueryExecutor,
+  scheduleId: string,
+  profileId: string,
+): Promise<boolean> {
+  const { rows } = await db.query<{ schedule_id: string }>(
+    `UPDATE candidate_schedule_interviewers
+     SET overdue_notified_at = now()
+     WHERE schedule_id = $1 AND profile_id = $2
+       AND overdue_notified_at IS NULL
+     RETURNING schedule_id`,
+    [scheduleId, profileId],
+  );
+  return rows.length > 0;
 }

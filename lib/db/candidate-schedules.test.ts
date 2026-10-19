@@ -3,11 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
   addScheduleInterviewer,
   createCandidateSchedule,
+  declineScheduleInterviewer,
   getCandidateScheduleById,
   listCandidateSchedulesByCampaignApplied,
+  listInterviewersForSchedules,
   listScheduleInterviewers,
+  listSchedulesInRange,
+  markEvaluationSubmitted,
+  markOverdueNotified,
   removeScheduleInterviewer,
+  setNoInterviewerFlag,
   updateCandidateSchedule,
+  withdrawScheduleInterviewerDecline,
 } from "@/lib/db/candidate-schedules";
 
 function fakeDb(rows: unknown[] = []) {
@@ -53,6 +60,11 @@ describe("createCandidateSchedule", () => {
 
     const [sql, values] = db.query.mock.calls[0];
     expect(sql).toContain("COALESCE($7, 'Scheduled')");
+    expect(sql).toContain("COALESCE($10, 'online')");
+    expect(sql).toContain("COALESCE($14, false)");
+    expect(sql).toContain(
+      "$4::timestamptz + make_interval(mins => COALESCE($5::int, 60)) + interval '24 hours'",
+    );
     expect(values).toEqual([
       "app-1",
       null,
@@ -63,7 +75,38 @@ describe("createCandidateSchedule", () => {
       null,
       null,
       null,
+      null,
+      null,
+      null,
+      null,
+      null,
     ]);
+  });
+});
+
+describe("listSchedulesInRange", () => {
+  it("returns [] without querying for an empty people filter", async () => {
+    const db = fakeDb([]);
+    expect(await listSchedulesInRange(db, "a", "b", [])).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("filters by active statuses without people", async () => {
+    const db = fakeDb([]);
+    await listSchedulesInRange(db, "a", "b");
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("cs.status = ANY($3::text[])");
+    expect(sql).not.toContain("$4");
+    expect(values).toHaveLength(3);
+    expect(values.slice(0, 2)).toEqual(["a", "b"]);
+  });
+
+  it("adds the interviewer filter when people are given", async () => {
+    const db = fakeDb([]);
+    await listSchedulesInRange(db, "a", "b", ["p1"]);
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain("csi.profile_id = ANY($4::uuid[])");
+    expect(values[3]).toEqual(["p1"]);
   });
 });
 
@@ -84,6 +127,82 @@ describe("updateCandidateSchedule", () => {
      RETURNING *`,
       ["sch-1", "Confirmed"],
     );
+  });
+
+  it("recomputes evaluation_due_at from the new start", async () => {
+    const db = fakeDb([{ id: "sch-1" }]);
+    await updateCandidateSchedule(db, "sch-1", { scheduledAt: "X" });
+    const [sql, values] = db.query.mock.calls[0];
+    expect(sql).toContain(
+      "scheduled_at = $2, evaluation_due_at = $3::timestamptz + make_interval(mins => COALESCE(duration_minutes, 60)) + interval '24 hours'",
+    );
+    expect(values).toEqual(["sch-1", "X", "X", null]);
+  });
+});
+
+describe("interviewer decline and evaluation", () => {
+  it("listInterviewersForSchedules skips the query for no ids", async () => {
+    const db = fakeDb([]);
+    expect(await listInterviewersForSchedules(db, [])).toEqual([]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it("listInterviewersForSchedules filters by bigint ids", async () => {
+    const db = fakeDb([]);
+    await listInterviewersForSchedules(db, ["1", "2"]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("schedule_id = ANY($1::bigint[])"),
+      [["1", "2"]],
+    );
+  });
+
+  it("declineScheduleInterviewer keeps the first decline time", async () => {
+    const db = fakeDb([]);
+    const result = await declineScheduleInterviewer(db, "1", "p1", "sick");
+    expect(result).toBeNull();
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "declined_at = COALESCE(declined_at, now()), decline_reason = $3",
+      ),
+      ["1", "p1", "sick"],
+    );
+  });
+
+  it("withdrawScheduleInterviewerDecline clears decline fields", async () => {
+    const db = fakeDb([]);
+    await withdrawScheduleInterviewerDecline(db, "1", "p1");
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("SET declined_at = NULL, decline_reason = NULL"),
+      ["1", "p1"],
+    );
+  });
+
+  it("setNoInterviewerFlag sets the flag", async () => {
+    const db = fakeDb([]);
+    await setNoInterviewerFlag(db, "1", true);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("no_interviewer_flag = $2"),
+      ["1", true],
+    );
+  });
+
+  it("markEvaluationSubmitted keeps the first submit time", async () => {
+    const db = fakeDb([]);
+    await markEvaluationSubmitted(db, "1", "p1");
+    expect(db.query.mock.calls[0][0]).toContain(
+      "COALESCE(evaluation_submitted_at, now())",
+    );
+  });
+
+  it("markOverdueNotified reports whether it claimed the reminder", async () => {
+    const claimed = fakeDb([{ schedule_id: "1" }]);
+    expect(await markOverdueNotified(claimed, "1", "p1")).toBe(true);
+    expect(claimed.query.mock.calls[0][0]).toContain(
+      "overdue_notified_at IS NULL",
+    );
+
+    const already = fakeDb([]);
+    expect(await markOverdueNotified(already, "1", "p1")).toBe(false);
   });
 });
 
