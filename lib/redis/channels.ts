@@ -14,6 +14,13 @@ export const NOTIFICATION_TYPE = {
   JdProcessed: "JD_PROCESSED",
   JdProcessFailed: "JD_PROCESS_FAILED",
   ReviewRequested: "REVIEW_REQUESTED",
+  InterviewScheduled: "INTERVIEW_SCHEDULED",
+  InterviewRescheduled: "INTERVIEW_RESCHEDULED",
+  InterviewCanceled: "INTERVIEW_CANCELED",
+  InterviewDeclined: "INTERVIEW_DECLINED",
+  InterviewNoInterviewer: "INTERVIEW_NO_INTERVIEWER",
+  BusyConflict: "BUSY_CONFLICT",
+  EvaluationOverdue: "EVALUATION_OVERDUE",
 } as const;
 
 export type NotificationType =

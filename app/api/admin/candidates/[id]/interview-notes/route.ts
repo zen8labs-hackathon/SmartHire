@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
+import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import {
   createCandidateNote,
   getCandidateNoteById,
@@ -51,8 +51,9 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const appAccess = await requireJobViewForApplication(
+  const appAccess = await requireApplicationViewOrSeat(
     auth.access,
+    auth.userId,
     campaignAppliedId,
   );
   if (!appAccess.ok) return appAccess.response;
@@ -72,8 +73,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const appAccess = await requireJobViewForApplication(
+  const appAccess = await requireApplicationViewOrSeat(
     auth.access,
+    auth.userId,
     campaignAppliedId,
   );
   if (!appAccess.ok) return appAccess.response;
@@ -103,8 +105,9 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const appAccess = await requireJobViewForApplication(
+  const appAccess = await requireApplicationViewOrSeat(
     auth.access,
+    auth.userId,
     campaignAppliedId,
   );
   if (!appAccess.ok) return appAccess.response;

@@ -1,5 +1,7 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
+import { cancelUpcomingSessions } from "@/lib/calendar/cascade";
+import { listUpcomingActiveSchedulesForJob } from "@/lib/db/candidate-schedules";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById, updateJob } from "@/lib/db/jobs";
 import { queryPositionsWithEnrichment } from "@/lib/position/list-with-enrichment";
@@ -44,6 +46,19 @@ export async function POST(request: Request, ctx: Ctx) {
 
   try {
     await updateJob(db, id, plan.patch);
+    // Closing or pausing the position cancels its upcoming interviews.
+    if (body.to === "close" || body.to === "hold") {
+      try {
+        const upcoming = await listUpcomingActiveSchedulesForJob(db, id);
+        await cancelUpcomingSessions(db, upcoming, {
+          reason: body.to === "close" ? "The position was closed." : "The position was put on hold.",
+          actorId: auth.userId,
+          notify: body.notifyInterviewers !== false,
+        });
+      } catch (e) {
+        console.error("[positions/transition] interview cascade failed", id, e);
+      }
+    }
     const { positions } = await queryPositionsWithEnrichment(db, {
       q: id,
       limit: 1,

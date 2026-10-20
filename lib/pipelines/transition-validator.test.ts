@@ -61,6 +61,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-cv-passed",
@@ -70,6 +72,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
   // Interview sub-stages
   {
@@ -80,6 +84,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-int-passed",
@@ -89,6 +95,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
   // Offer sub-stages
   {
@@ -99,6 +107,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-offer-passed",
@@ -108,6 +118,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
 ];
 
@@ -246,6 +258,8 @@ describe("wasCandidateStageOrphaned", () => {
         sequence_number: 1,
         is_default: false,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ];
     const application = {
@@ -498,6 +512,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         is_default: true,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ];
     const db = fakeDb([allStages, jobMappings, subStageRows]);
@@ -521,6 +537,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         is_default: true,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ]);
   });

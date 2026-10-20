@@ -322,7 +322,8 @@ export function InterviewScheduleModal({
   const handleCancel = useCallback(
     async (scheduleId: string) => {
       if (!row) return;
-      if (!confirm("Cancel this scheduled interview?")) return;
+      const reason = prompt("Why are you canceling this interview?")?.trim();
+      if (!reason) return;
       setCancelingId(scheduleId);
       setError(null);
       try {
@@ -330,7 +331,7 @@ export function InterviewScheduleModal({
           method: "DELETE",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scheduleId }),
+          body: JSON.stringify({ scheduleId, reason }),
         });
         const json = (await res.json()) as { error?: string };
         if (!res.ok)

@@ -5,6 +5,7 @@ import { canViewSalary } from "@/lib/authz/can";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
 import { requireJobViewAccess } from "@/lib/authz/require-job-view";
+import { cancelUpcomingSessions } from "@/lib/calendar/cascade";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
 import {
   softDeleteAllCampaignAppliedForCandidate,
@@ -12,6 +13,7 @@ import {
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
 import { softDeleteCandidate } from "@/lib/db/candidates";
+import { listUpcomingActiveSchedulesForApplications } from "@/lib/db/candidate-schedules";
 import { insertStageHistory } from "@/lib/db/candidate-stage-history";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import {
@@ -151,6 +153,20 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
   });
 
+  // Rejecting or withdrawing the candidate cancels their upcoming interviews.
+  const target = subStages.find((s) => s.id === result.patch.currentSubStateId);
+  if (subChanged && (target?.is_terminal || target?.is_withdraw)) {
+    try {
+      const upcoming = await listUpcomingActiveSchedulesForApplications(db, [candidateId]);
+      await cancelUpcomingSessions(db, upcoming, {
+        reason: target.is_withdraw ? "The candidate withdrew." : "The candidate was rejected.",
+        actorId: auth.userId,
+      });
+    } catch (e) {
+      console.error("[candidates/patch] interview cascade failed", candidateId, e);
+    }
+  }
+
   const row = await getCampaignAppliedAdminRowById(db, candidateId);
   if (!row) {
     return Response.json(
@@ -207,6 +223,26 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   });
   if (!deleted) {
     return Response.json({ error: "Not found." }, { status: 404 });
+  }
+
+  // Deleting the application (or the whole person) cancels upcoming interviews.
+  try {
+    const db = getPool();
+    let applicationIds = [candidateId];
+    if (deletePersonScope) {
+      const { rows } = await db.query<{ id: string }>(
+        `SELECT id FROM campaign_applied WHERE candidate_id = $1`,
+        [deleted.candidate_id],
+      );
+      applicationIds = rows.map((r) => r.id);
+    }
+    const upcoming = await listUpcomingActiveSchedulesForApplications(db, applicationIds);
+    await cancelUpcomingSessions(db, upcoming, {
+      reason: "The candidate was removed.",
+      actorId: auth.userId,
+    });
+  } catch (e) {
+    console.error("[candidates/delete] interview cascade failed", candidateId, e);
   }
 
   return new Response(null, { status: 204 });

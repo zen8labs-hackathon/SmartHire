@@ -1,5 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
+import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { buildCvView } from "@/lib/candidates/cv-view";
 import { getPool } from "@/lib/db/config/client";
 import {
@@ -27,7 +27,7 @@ export async function GET(request: Request, ctx: Ctx) {
     return Response.json({ error: "Invalid version." }, { status: 400 });
   }
   try {
-    const view = await requireJobViewForApplication(auth.access, id);
+    const view = await requireApplicationViewOrSeat(auth.access, auth.userId, id);
     if (!view.ok) return view.response;
     const db = getPool();
 

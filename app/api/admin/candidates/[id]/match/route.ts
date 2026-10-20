@@ -1,5 +1,5 @@
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
+import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { parseJdMatchRationale } from "@/lib/candidates/jd-match-rationale";
 import { buildMatchView } from "@/lib/candidates/match-view";
 import { listCriterionOverrides } from "@/lib/db/candidate-criterion-overrides";
@@ -22,8 +22,14 @@ export async function GET(request: Request, ctx: Ctx) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
   try {
-    const view = await requireJobViewForApplication(auth.access, id);
+    const view = await requireApplicationViewOrSeat(auth.access, auth.userId, id);
     if (!view.ok) return view.response;
+    if (view.limited && !view.submitted) {
+      return Response.json({
+        hidden: true,
+        reason: "Submit your evaluation to see the AI match.",
+      });
+    }
     const app = view.application;
     const db = getPool();
 

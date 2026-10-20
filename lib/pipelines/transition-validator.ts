@@ -27,6 +27,8 @@ export interface SubStage {
   sequence_number: number;
   is_default: boolean;
   is_passed: boolean;
+  is_terminal: boolean;
+  is_withdraw: boolean;
 }
 
 /**
@@ -77,6 +79,8 @@ export async function fetchJobPipelineConfig(
     sequence_number: s.sequence_number,
     is_default: s.is_default,
     is_passed: s.is_passed,
+    is_terminal: s.is_terminal,
+    is_withdraw: s.is_withdraw,
   }));
 
   return { stageMappings, subStages };
