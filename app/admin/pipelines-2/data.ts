@@ -22,10 +22,12 @@ export type Stage = {
   schedule: boolean;
   type?: StageType;
   subs: Sub[];
+  /** Soft-deleted but still used by a pipeline: shown read-only, never selectable. */
+  deleted?: boolean;
 };
 
 export type PipeRow = { sid: string; sla: number; sch: boolean };
-export type Pipeline = { id: string; name: string; stages: PipeRow[]; by: string; at: string };
+export type Pipeline = { id: string; name: string; stages: PipeRow[]; by: string; at: string; usedBy?: number };
 
 /** The signed-in staff member; `canEdit` mirrors the server's HR-only write rule. */
 export type Viewer = { name: string; role: string; canEdit: boolean };

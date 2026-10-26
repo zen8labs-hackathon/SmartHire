@@ -9,6 +9,7 @@ import {
   renderFilledEvaluationPdf,
 } from "@/lib/ai/fill-candidate-evaluation";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { recordEvaluationSubmission } from "@/lib/calendar/evaluation";
 import { createCandidateNote } from "@/lib/db/candidate-notes";
 import {
   createCandidateEvaluationReview,
@@ -149,6 +150,12 @@ export async function POST(request: Request, { params }: RouteContext) {
       body: newNote,
       authorId: auth.userId,
     });
+    // BR-INT-07: same bookkeeping as the interview-notes POST.
+    try {
+      await recordEvaluationSubmission(db, campaignAppliedId, auth.userId);
+    } catch (e) {
+      logApiError("Evaluation POST: evaluation bookkeeping failed", e, { userId: auth.userId, campaignAppliedId });
+    }
   }
 
   const reviewerNotes = await loadCombinedReviewerNotesForEvaluation(

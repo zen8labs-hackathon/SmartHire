@@ -1,6 +1,6 @@
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { listPipelines, listPipelineRowsForPipelines } from "@/lib/db/pipelines";
-import { listPipelineStages, listPipelineSubStagesForStages } from "@/lib/db/pipeline-stages";
+import { listDeletedStagesInUse, listPipelineStages, listPipelineSubStagesForStages } from "@/lib/db/pipeline-stages";
 
 export type PipelineSub = {
   id: string;
@@ -20,6 +20,8 @@ export type PipelineLibraryStage = {
   schedule: boolean;
   type: string;
   subs: PipelineSub[];
+  /** Soft-deleted but still referenced by a pipeline: display-only, not selectable. */
+  deleted?: boolean;
 };
 export type PipelineView = {
   id: string;
@@ -27,6 +29,8 @@ export type PipelineView = {
   stages: { sid: string; sla: number; sch: boolean }[];
   by: string;
   at: string;
+  /** Positions created from this pipeline (they keep their own stage copy). */
+  usedBy: number;
 };
 
 const DEFAULT_COLOR = "var(--neutral-400)";
@@ -36,9 +40,15 @@ function formatDate(d: Date): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
-/** Stage library in the shape the pipelines UI expects (stage id = stage code). */
+/**
+ * Stage library in the shape the pipelines UI expects (stage id = stage code). Live stages first,
+ * then soft-deleted stages that live pipelines still use, flagged `deleted` (read-only, so the
+ * pipeline chain can still name them).
+ */
 export async function getPipelineLibrary(db: QueryExecutor): Promise<PipelineLibraryStage[]> {
-  const stages = await listPipelineStages(db);
+  const live = await listPipelineStages(db);
+  const gone = await listDeletedStagesInUse(db);
+  const stages = [...live, ...gone];
   const subs = await listPipelineSubStagesForStages(db, stages.map((s) => s.id));
   return stages.map((s) => ({
     id: s.code,
@@ -47,6 +57,7 @@ export async function getPipelineLibrary(db: QueryExecutor): Promise<PipelineLib
     desc: s.desc ?? "",
     schedule: s.allow_schedule,
     type: s.stage_type,
+    ...(s.deleted_at ? { deleted: true } : {}),
     subs: subs
       .filter((x) => x.pipeline_stage_id === s.id)
       .sort((a, b) => a.sequence_number - b.sequence_number)
@@ -74,5 +85,6 @@ export async function getPipelines(db: QueryExecutor): Promise<PipelineView[]> {
       .map((r) => ({ sid: r.stage_code, sla: r.sla_days, sch: r.schedule })),
     by: p.by ?? "",
     at: formatDate(p.updated_at),
+    usedBy: p.used_by ?? 0,
   }));
 }

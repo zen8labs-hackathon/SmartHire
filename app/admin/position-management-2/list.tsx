@@ -38,7 +38,7 @@ function Deadline({ j }: { j: Job }) {
   );
 }
 
-function RowMenu({ j, user, go, onClose, onHold, onReopen, onDuplicate }: { j: Job; user: Role; go: Go; onClose: (j: Job) => void; onHold?: (j: Job) => void; onReopen?: (j: Job) => void; onDuplicate?: (j: Job) => void }) {
+function RowMenu({ j, user, go, onClose, onHold, onReopen }: { j: Job; user: Role; go: Go; onClose: (j: Job) => void; onHold?: (j: Job) => void; onReopen?: (j: Job) => void }) {
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
   const f = (fn: () => void) => () => { setOpen(false); fn(); };
@@ -56,12 +56,8 @@ function RowMenu({ j, user, go, onClose, onHold, onReopen, onDuplicate }: { j: J
     { label: "Description & criteria", icon: "file-text", onClick: f(() => go(j.id, "jd")) },
   ];
   if (user.key !== "rc") items.push({ label: "Access", icon: "shield", onClick: f(() => go(j.id, "access")) });
-  if (user.key === "hr")
-    items.push(
-      { label: "Duplicate position", icon: "copy", onClick: f(() => onDuplicate?.(j)) },
-      "-",
-    );
   if (user.key === "hr") {
+    items.push("-");
     if (j.status === "Open") items.push({ label: "Put on hold", icon: "pause", onClick: f(() => onHold?.(j)) });
     if (j.status === "On hold" || j.status === "Closed") items.push({ label: "Reopen", icon: "rotate-ccw", onClick: f(() => onReopen?.(j)) });
     if (j.status === "Open" || j.status === "On hold") items.push({ label: "Close position…", icon: "archive", danger: true, onClick: f(() => onClose(j)) });
@@ -79,19 +75,19 @@ function RowMenu({ j, user, go, onClose, onHold, onReopen, onDuplicate }: { j: J
   );
 }
 
-export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, onHold, onReopen, onDuplicate, chapters, jobs, pool }: {
-  user: Role; go: Go; onCreate: () => void; onUpload: (id: JobId) => void; onCloseJob: (j: Job) => void; onRetry?: (j: Job) => void; onHold?: (j: Job) => void; onReopen?: (j: Job) => void; onDuplicate?: (j: Job) => void; chapters?: string[]; jobs: Job[]; pool?: { candidates: number; attention: number } | null;
+export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, onHold, onReopen, chapters, jobs, pool }: {
+  user: Role; go: Go; onCreate: () => void; onUpload: (id: JobId) => void; onCloseJob: (j: Job) => void; onRetry?: (j: Job) => void; onHold?: (j: Job) => void; onReopen?: (j: Job) => void; chapters?: string[]; jobs: Job[]; pool?: { candidates: number; attention: number } | null;
 }) {
   const [tab, setTab] = React.useState("Open");
   const [q, setQ] = React.useState("");
   const [type, setType] = React.useState("All types");
   const [chap, setChap] = React.useState("All chapters");
   const [layout, setLayout] = React.useState("table");
+  const [flow, setFlow] = React.useState("All structures");
   const all = visibleJobs(user, jobs);
   const count = (s: string) => all.filter((j) => j.status === s).length;
-  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
+  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (flow === "All structures" || (flow === "Old structure" ? !!j.legacy : !j.legacy)) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
   const P = pool ?? null;
-  const showPool = !!P && user.key === "hr" && (tab === "Open" || tab === "All") && !q;
   const scope = user.allJobs
     ? null
     : user.chapter
@@ -114,6 +110,7 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
                 {onRetry && user.canCreate && <button type="button" className="jb-linkchip" onClick={(e) => { e.stopPropagation(); onRetry(j); }}>Retry</button>}
               </span>
             )}
+            {j.legacy && <span title="This position still uses the old pipeline structure"><Badge tone="warning" icon="history">Cấu trúc cũ</Badge></span>}
             {j.fresh && !j.processing && <AIBadge unconfirmed title="Fields filled from JD by AI" note="Review on the position page before opening." />}
           </span>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>#{j.id} · {j.chapter} · {j.level}{j.draftNote ? " · " + j.draftNote : ""}</span>
@@ -126,7 +123,7 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
     { key: "deadline", label: "Hiring deadline", render: (j) => <Deadline j={j} /> },
     { key: "candidates", label: "Candidates", align: "right", render: (j) => <span className="sh-num">{j.candidates}</span> },
     { key: "owner", label: "Owner", render: (j) => <Avatar name={j.owner} size={24} /> },
-    { key: "m", label: "", width: 44, render: (j) => <RowMenu j={j} user={user} go={go} onClose={onCloseJob} onHold={onHold} onReopen={onReopen} onDuplicate={onDuplicate} /> },
+    { key: "m", label: "", width: 44, render: (j) => <RowMenu j={j} user={user} go={go} onClose={onCloseJob} onHold={onHold} onReopen={onReopen} /> },
   ];
 
   return (
@@ -135,24 +132,13 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <Input icon="search" size="sm" placeholder="Search by title or #ID" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
         <Select size="sm" aria-label="Type" value={type} onChange={(e) => setType(e.target.value)} options={["All types", "Full-time", "Internship"]} style={{ width: 150 }} />
+        {all.some((j) => j.legacy) && <Select size="sm" aria-label="Structure" value={flow} onChange={(e) => setFlow(e.target.value)} options={["All structures", "Old structure", "New structure"]} style={{ width: 160 }} />}
         {user.allJobs && <Select size="sm" aria-label="Chapter" value={chap} onChange={(e) => setChap(e.target.value)} options={["All chapters", ...(chapters ?? [...new Set(all.map((j) => j.chapter))])]} style={{ width: 160 }} />}
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: "var(--muted)" }}>Sorted by deadline</span>
         <Tabs variant="segmented" value={layout} onChange={setLayout} tabs={[{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }]} />
       </div>
       {scope && <Banner tone="neutral" icon={user.chapter ? "users" : "lock"}>{scope}</Banner>}
-      {showPool && P && (
-        <div
-          role="button" tabIndex={0} className="jb-pool" onClick={() => go("pool", "candidates")}
-          onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go("pool", "candidates"); } }}
-        >
-          <span className="jb-pool__icon"><Icon name="archive" size={18} /></span>
-          <span style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0, textAlign: "left" }}><b style={{ fontWeight: 600 }}>Talent pool</b><span style={{ fontSize: 12, color: "var(--muted)" }}>CVs kept without a position · reusable in later hiring rounds</span></span>
-          <span className="sh-num" style={{ fontSize: 13 }}><b style={{ fontWeight: 600 }}>{P.candidates}</b> <span style={{ color: "var(--muted)" }}>candidates</span></span>
-          <Badge tone="warning" icon="file-warning">{P.attention} to resolve</Badge>
-          <Button size="sm" variant="ghost" icon="upload" onClick={(e) => { e.stopPropagation(); onUpload("pool"); }}>Upload to pool</Button>
-        </div>
-      )}
       {rows.length ? (
         layout === "cards" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 12 }}>

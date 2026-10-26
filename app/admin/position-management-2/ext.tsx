@@ -13,7 +13,8 @@ import {
   Inbox, Layers, Link, ListChecks, LoaderCircle, Lock, Mail, Maximize2, Minimize2, MessageSquare, Pause, Pencil, Plus,
   RefreshCw, RotateCcw, Route, Search, Send, Shield, Sparkles, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck,
   UserPlus, UserRound, Users, X, Cpu, Download, FileCheck, LayoutGrid, List, LogIn, LogOut, Merge, Move, Save, School, UserCog, UserX, Settings,
-  GripVertical, ArrowUp, ArrowDown, ClipboardList, Workflow,
+  ChevronLeft, Scale, GripVertical, ArrowUp, ArrowDown, ClipboardList, Workflow,
+  CalendarOff, CalendarX, Info, MapPin, Video,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,7 +22,7 @@ const ICONS: Record<string, LucideIcon> = {
   archive: Archive, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
   "arrow-up-right": ArrowUpRight, "badge-check": BadgeCheck, bell: Bell, briefcase: Briefcase, "building-2": Building2,
   calendar: Calendar, "calendar-check": CalendarCheck, "calendar-clock": CalendarClock, "calendar-plus": CalendarPlus,
-  check: Check, "chevron-down": ChevronDown, "chevron-right": ChevronRight, "chevron-up": ChevronUp,
+  check: Check, "chevron-down": ChevronDown, "chevron-left": ChevronLeft, scale: Scale, "chevron-right": ChevronRight, "chevron-up": ChevronUp,
   "circle-alert": CircleAlert, "circle-check": CircleCheck, "circle-dashed": CircleDashed, "circle-dot": CircleDot,
   "circle-x": CircleX, clock: Clock, contact: Contact, copy: Copy, ellipsis: Ellipsis, eye: Eye, "eye-off": EyeOff,
   "file-text": FileText, "file-up": FileUp, "file-warning": FileWarning, "file-x": FileX, "filter-x": FilterX, flag: Flag,
@@ -34,6 +35,7 @@ const ICONS: Record<string, LucideIcon> = {
   "user-check": UserCheck, "user-plus": UserPlus, "user-round": UserRound, users: Users, x: X,
   cpu: Cpu, download: Download, "file-check": FileCheck, grid: LayoutGrid, list: List, "log-in": LogIn, "log-out": LogOut,
   merge: Merge, move: Move, save: Save, school: School, "user-cog": UserCog, "user-x": UserX, settings: Settings,
+  "calendar-off": CalendarOff, "calendar-x": CalendarX, info: Info, "map-pin": MapPin, video: Video,
   "grip-vertical": GripVertical, "arrow-up": ArrowUp, "arrow-down": ArrowDown, "clipboard-list": ClipboardList, workflow: Workflow,
 };
 
@@ -114,10 +116,10 @@ export function Input({ label, icon, size, ai, suffix, error, hint, style, readO
   );
 }
 
-export function Checkbox({ checked, onChange, label, className }: { checked?: boolean; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; label?: React.ReactNode; className?: string }) {
+export function Checkbox({ checked, onChange, label, className, disabled }: { checked?: boolean; onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void; label?: React.ReactNode; className?: string; disabled?: boolean }) {
   return (
-    <label className={`sh-check${checked ? " sh-check--on" : ""}${className ? ` ${className}` : ""}`}>
-      <input type="checkbox" checked={!!checked} onChange={onChange ?? (() => {})} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+    <label className={`sh-check${checked ? " sh-check--on" : ""}${className ? ` ${className}` : ""}`} style={disabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
+      <input type="checkbox" checked={!!checked} disabled={disabled} onChange={onChange ?? (() => {})} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
       <span className="sh-check__box">{checked && <Icon name="check" size={12} />}</span>
       {label}
     </label>
@@ -437,6 +439,37 @@ const CR: Record<CritResult, [string, string, string, string]> = {
   meets: ["✓", "var(--success)", "success", "Meets"], partial: ["◐", "var(--warning)", "warning", "Partial"],
   not_met: ["–", "var(--fg-2)", "neutral", "Not met"], unknown: ["?", "var(--muted)", "dashed", "Unknown"],
 };
+function ResultPicker({ name, result, onChange }: { name: string; result: CritResult; onChange: (v: CritResult) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLSpanElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", down); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
+  }, [open]);
+  const [, , tone, label] = CR[result];
+  return (
+    <span ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+      <button type="button" aria-haspopup="listbox" aria-expanded={open} aria-label={"Change result for " + name + ", currently " + label} title="Override result"
+        onClick={() => setOpen(!open)} style={{ border: 0, background: "none", padding: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 2 }}>
+        <Badge tone={tone}>{label}<Icon name="chevron-down" size={12} /></Badge>
+      </button>
+      {open && (
+        <div className="shx-menu" role="listbox" aria-label={"Result for " + name} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 60, width: 160 }}>
+          {(Object.keys(CR) as CritResult[]).map((k) => (
+            <button key={k} type="button" role="option" aria-selected={k === result} className="shx-menu__o"
+              onClick={() => { setOpen(false); if (k !== result) onChange(k); }}>
+              <span aria-hidden="true" style={{ color: CR[k][1] }}>{CR[k][0]}</span><span>{CR[k][3]}</span>{k === result ? <Icon name="check" size={12} /> : <span />}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function CriterionResult({ name, importance, result = "unknown", evidence, src, edited, onOverride, onRevert }: {
   name: string; importance?: string; result?: CritResult; evidence?: string; src?: string;
   edited?: { by: string; reason: string; ai: CritResult } | null; onOverride?: (v: CritResult) => void; onRevert?: () => void;
@@ -454,15 +487,7 @@ export function CriterionResult({ name, importance, result = "unknown", evidence
           </span>
         )}
       </div>
-      <span className="shx-row" style={{ gap: 4 }}>
-        <Badge tone={tone}>{label}</Badge>
-        {onOverride && (
-          <select aria-label={"Change result for " + name} value={result} onChange={(e) => onOverride(e.target.value as CritResult)} title="Override"
-            style={{ font: "inherit", fontSize: 12, border: "1px solid var(--border-field)", borderRadius: 6, height: 24, background: "#fff", color: "var(--fg-2)", width: 24, padding: 0 }}>
-            {(Object.keys(CR) as CritResult[]).map((k) => <option key={k} value={k}>{CR[k][3]}</option>)}
-          </select>
-        )}
-      </span>
+      {onOverride ? <ResultPicker name={name} result={result} onChange={onOverride} /> : <Badge tone={tone}>{label}</Badge>}
     </div>
   );
 }
@@ -712,7 +737,7 @@ export function MoveToMenu({ items = [] }: { items?: MoveItem[] }) {
   );
 }
 
-export function HireConfirmDialog({ name, detail, onClose, onConfirm, children }: { name: string; detail?: string; onClose: () => void; onConfirm: () => void; children?: React.ReactNode }) {
+export function HireConfirmDialog({ name, detail, onClose, onConfirm, disabled, children }: { name: string; detail?: string; onClose: () => void; onConfirm: () => void; disabled?: boolean; children?: React.ReactNode }) {
   const ref = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const b = ref.current?.querySelector(".sh-dialog");
@@ -721,7 +746,7 @@ export function HireConfirmDialog({ name, detail, onClose, onConfirm, children }
   return (
     <div className="shx-dlg-accent" ref={ref}>
       <Dialog title={"Confirm " + name + " as hired?"} description={"The hired date is recorded once and cannot be changed. " + (detail || "")} onClose={onClose}
-        footer={<><Button variant="secondary" data-cancel onClick={onClose}>Cancel</Button><Button icon="check" onClick={onConfirm}>Confirm hire</Button></>}>
+        footer={<><Button variant="secondary" data-cancel onClick={onClose}>Cancel</Button><Button icon="check" disabled={disabled} onClick={onConfirm}>Confirm hire</Button></>}>
         {children}
       </Dialog>
     </div>

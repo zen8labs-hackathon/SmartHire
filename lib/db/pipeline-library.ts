@@ -96,24 +96,15 @@ export async function saveLibraryStage(input: LibraryStageInput, isNew: boolean)
   });
 }
 
-/** Soft-deletes a library stage unless a pipeline or a job still uses it. */
+/**
+ * Soft-deletes a library stage. A stage that is still in use is allowed: pipeline rows and
+ * job stage mappings keep pointing at it, so jobs/candidates keep showing it, while it
+ * disappears from the library and from pickers for new jobs/pipelines.
+ */
 export async function deleteLibraryStage(code: string): Promise<void> {
   await withTransaction(async (db) => {
     const id = await stageIdByCode(db, code);
     if (!id) throw new LibraryError("NOT_FOUND", "Stage not found.");
-    const { rows } = await db.query<{ name: string | null }>(
-      `SELECT p.name FROM pipeline_rows r JOIN pipelines p ON p.id = r.pipeline_id
-       WHERE r.pipeline_stage_id = $1 AND p.deleted_at IS NULL LIMIT 1`,
-      [id],
-    );
-    if (rows[0]) {
-      throw new LibraryError("IN_USE", `Used by pipeline “${rows[0].name}”. Remove it there first.`);
-    }
-    const jobs = await db.query(
-      `SELECT 1 FROM job_stage_mappings WHERE pipeline_stage_id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [id],
-    );
-    if (jobs.rows[0]) throw new LibraryError("IN_USE", "Used by existing positions.");
     await softDeletePipelineStage(db, id);
   });
 }

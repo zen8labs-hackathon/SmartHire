@@ -10,7 +10,7 @@ import {
   type CandidateScheduleRow,
 } from "@/lib/db/candidate-schedules";
 import type { QueryExecutor } from "@/lib/db/config/client";
-import { notifyUsers } from "@/lib/calendar/notify";
+import { calendarHref, notifyUsers } from "@/lib/calendar/notify";
 import { NOTIFICATION_TYPE } from "@/lib/redis/channels";
 
 export type CascadeOptions = {
@@ -52,7 +52,11 @@ export async function cancelUpcomingSessions(
         type: NOTIFICATION_TYPE.InterviewCanceled,
         title: `${row.round_label ?? "Interview"} was canceled`,
         body: reason,
-        data: { scheduleId, campaignAppliedId: row.campaign_applied_id },
+        data: {
+          scheduleId,
+          campaignAppliedId: row.campaign_applied_id,
+          href: calendarHref(scheduleId, row.scheduled_at),
+        },
       });
     } catch (err) {
       console.error("[calendar/cascade] failed to cancel", scheduleId, err);

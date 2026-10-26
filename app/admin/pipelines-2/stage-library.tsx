@@ -102,7 +102,7 @@ function StageEditor({ stage, lib, edit, busy, onClose, onSave, onDelete }: {
             <Select label="Stage type" value={s.type ?? "none"} disabled={!edit}
               onChange={(e) => { const t = e.target.value as StageType; set({ type: t, schedule: t === "schedule" }); }}
               options={STYPES.map(([v, l]) => ({ value: v, label: l }))}
-              hint={STYPE_HINT[s.type ?? "none"] + (stage.schedule && s.type !== "schedule" ? " Interviews already scheduled are kept." : "")} />
+              hint={STYPE_HINT[s.type ?? "none"] + (stage.schedule && s.type !== "schedule" ? " Not allowed while interviews are still upcoming in this stage — cancel or finish them first." : "")} />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -227,6 +227,7 @@ export function StageLibrary({ viewer, lib, setLib, say }: {
       isNew ? "Positions can now add it to their pipeline." : "Recorded in the audit log.", "check");
   };
 
+  const [ask, setAsk] = React.useState<Stage | null>(null);
   const tryDelete = async (s: Stage) => {
     const out = await request("/api/admin/pipelines/library/" + encodeURIComponent(s.id), { method: "DELETE" });
     if (!out) return;
@@ -244,7 +245,7 @@ export function StageLibrary({ viewer, lib, setLib, say }: {
       </div>
       <section className="pl-card" style={{ overflowX: "auto" }}>
         <div className="pl-lib pl-lib--head"><span /><span>Stage</span><span>Steps</span><span>Type</span><span /></div>
-        {lib.map((s) => (
+        {lib.filter((s) => !s.deleted).map((s) => (
           <div key={s.id} className="pl-lib">
             <span className="pl-dot" style={{ background: s.color, width: 12, height: 12 }} />
             <span style={{ display: "flex", flexDirection: "column", gap: 2 }}><b style={{ fontWeight: 600 }}>{s.label}</b><span className="pl-small">{s.desc}</span></span>
@@ -256,7 +257,20 @@ export function StageLibrary({ viewer, lib, setLib, say }: {
           </div>
         ))}
       </section>
-      {ed && <StageEditor key={ed.id} stage={ed} lib={lib} edit={edit} onClose={() => setEd(null)} busy={busy} onSave={save} onDelete={() => tryDelete(ed)} />}
+      {ed && <StageEditor key={ed.id} stage={ed} lib={lib} edit={edit} onClose={() => setEd(null)} busy={busy} onSave={save} onDelete={() => setAsk(ed)} />}
+      {ask && (
+        <Dialog
+          width={440} title={"Delete " + ask.label + "?"}
+          description="The stage leaves the library and can’t be picked for new positions or pipelines. Where it is already used (pipelines, positions, candidates) it stays visible, marked as deleted, and can no longer be edited."
+          onClose={() => setAsk(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsk(null)}>Cancel</Button>
+              <Button variant="danger" disabled={busy} onClick={async () => { const s = ask; setAsk(null); await tryDelete(s); }}>Delete stage</Button>
+            </>
+          }
+        >{null}</Dialog>
+      )}
     </div>
   );
 }

@@ -12,9 +12,11 @@ describe("buildMenu", () => {
         "work:stats",
         "work:positions",
         "work:positions2",
+        "work:calendar2",
         "work:candidates",
         "work:pipelines",
         "work:pipelines2",
+        "work:migration",
         "setup:users",
         "setup:chapters",
         "setup:templates",
@@ -27,6 +29,7 @@ describe("buildMenu", () => {
         "work:dashboard",
         "work:positions",
         "work:positions2",
+        "work:calendar2",
       ]
     `);
   });
@@ -36,6 +39,7 @@ describe("buildMenu", () => {
         "work:dashboard",
         "work:positions",
         "work:positions2",
+        "work:calendar2",
       ]
     `);
   });

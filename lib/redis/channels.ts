@@ -18,7 +18,9 @@ export const NOTIFICATION_TYPE = {
   InterviewRescheduled: "INTERVIEW_RESCHEDULED",
   InterviewCanceled: "INTERVIEW_CANCELED",
   InterviewDeclined: "INTERVIEW_DECLINED",
+  InterviewDeclineWithdrawn: "INTERVIEW_DECLINE_WITHDRAWN",
   InterviewNoInterviewer: "INTERVIEW_NO_INTERVIEWER",
+  InterviewNoShow: "INTERVIEW_NO_SHOW",
   BusyConflict: "BUSY_CONFLICT",
   EvaluationOverdue: "EVALUATION_OVERDUE",
 } as const;

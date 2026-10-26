@@ -10,7 +10,7 @@ import {
   createPositionState,
   validateHeadcount,
   validateJdFile,
-} from "@/lib/positions/create-position";
+} from "@/lib/position/position-rules";
 import { useOpenPosition } from "./use-open-position";
 
 export type OpenPositionDialogProps = {

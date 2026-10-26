@@ -8,9 +8,11 @@ import {
   isTempJdKey,
 } from "@/lib/position/create-position";
 import { processPositionJd } from "@/lib/position/process-jd";
-import { isHireType, validateHeadcount } from "@/lib/positions/create-position";
+import { isHireType, validateHeadcount } from "@/lib/position/position-rules";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
+import type { JobProfileRole } from "@/lib/db/job-permissions";
+import { getUsersByIds } from "@/lib/db/users";
 import { isPipelineUsable } from "@/lib/db/pipelines";
 import {
   isPositionStatus,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/position/list-with-enrichment";
 
 const POSITION_LIST_MAX_LIMIT = 100;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(request: Request) {
   const auth = await requireStaffForRequest(request);
@@ -105,6 +108,28 @@ export async function POST(request: Request) {
     );
   }
 
+  const people: { profileId: string; role: JobProfileRole }[] = [];
+  if (body.people != null) {
+    if (!Array.isArray(body.people) || body.people.length > 100) {
+      return Response.json({ error: "Invalid people." }, { status: 400 });
+    }
+    const seen = new Set<string>();
+    for (const raw of body.people as unknown[]) {
+      const r = raw as { profileId?: unknown; role?: unknown } | null;
+      if (
+        !r ||
+        typeof r.profileId !== "string" ||
+        !UUID_RE.test(r.profileId) ||
+        (r.role !== "recruiter" && r.role !== "interviewer")
+      ) {
+        return Response.json({ error: "Invalid people." }, { status: 400 });
+      }
+      if (seen.has(r.profileId)) continue;
+      seen.add(r.profileId);
+      people.push({ profileId: r.profileId, role: r.role });
+    }
+  }
+
   const blank = body.blank === true;
   const path = body.jdStoragePath;
   if (blank === (path != null)) {
@@ -155,8 +180,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unknown pipeline." }, { status: 400 });
   }
 
+  if (people.length) {
+    const known = new Set((await getUsersByIds(db, people.map((p) => p.profileId))).map((u) => u.id));
+    if (people.some((p) => !known.has(p.profileId))) {
+      return Response.json({ error: "Unknown user in people." }, { status: 400 });
+    }
+  }
+
   try {
     const job = await createDraftPosition({
+      people,
       chapterId,
       type: body.type,
       headcount: headcount.value,

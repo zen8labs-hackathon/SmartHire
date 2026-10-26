@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { STAGES, type Job, type Role, type Stage } from "./data";
+import { createPortal } from "react-dom";
+import { type Job, type Role, type Stage } from "./data";
 import { StageChip } from "./shell";
 import { changeAccess, fetchAccess, type AccessDirectoryPerson, type AccessGrantDto, type PositionAccess } from "./api";
 import { AccessGrantList, AIFilledField, Badge, Banner, Button, Card, Checkbox, Dialog, FileStatus, Icon, Input, Radio, RequirementRow, Select, Switch, type Grant } from "./ext";
@@ -205,30 +206,32 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
   );
 }
 
-export function PipelineTab({ user }: { user: Role }) {
-  const [stages, setStages] = React.useState<Stage[]>(() => STAGES.map((s) => ({ ...s })));
-  const edit = user.key === "hr";
+/** Read-only view of the position's own stage snapshot (job_stage_mappings), as loaded by the candidates list. */
+export function PipelineTab({ stages }: { stages: Stage[] }) {
+  const hire = stages.find((s) => s.probation);
+  const beforeHire = hire ? stages[stages.indexOf(hire) - 1] : undefined;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980 }}>
       <Banner tone="info" icon="route">A candidate moves forward only when the current step is marked with its passing result. New stages start at their default step. Going back is allowed only from the default step.</Banner>
       <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflowX: "auto" }}>
-        <div className="jb-pipe jb-pipe--head"><span>#</span><span>Stage</span><span>Steps</span><span>Scheduling</span><span>Evaluation template</span></div>
+        <div className="jb-pipe jb-pipe--head"><span>#</span><span>Stage</span><span>Steps</span><span>Scheduling</span><span>SLA</span></div>
         {stages.map((s, i) => (
           <div key={s.id} className="jb-pipe">
             <span className="sh-num" style={{ textAlign: "left", color: "var(--muted)" }}>{i + 1}</span>
-            <span><StageChip stage={s.id} /></span>
+            <span><StageChip stage={s.id} stages={stages} /></span>
             <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {s.subs.map((x) => <Badge key={x} tone={x === s.pass ? "success" : x === s.def ? "outline" : "neutral"} icon={x === s.pass ? "check" : x === s.def ? "flag" : undefined}>{x}</Badge>)}
             </span>
-            <span><Switch checked={!!s.schedule} disabled={!edit} onChange={(v) => setStages((ss) => ss.map((x) => (x.id === s.id ? { ...x, schedule: v } : x)))} label={s.schedule ? "Allowed" : "Off"} /></span>
-            <span style={{ fontSize: 13, color: s.template ? "var(--foreground)" : "var(--muted)" }}>{s.template || "None"}</span>
+            <span>{/* BR-INT-13: the Schedule flag is owned by Pipelines 2 -> Stage Library (which blocks turning it off while interviews are upcoming); read-only here. */}
+              <Switch checked={!!s.schedule} disabled onChange={() => {}} label={s.schedule ? "Allowed" : "Off"} /></span>
+            <span className="sh-num" style={{ fontSize: 13, textAlign: "left", color: s.sla ? "var(--foreground)" : "var(--muted)" }}>{s.sla ? `${s.sla} day${s.sla === 1 ? "" : "s"}` : "None"}</span>
           </div>
         ))}
       </div>
       <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--muted)" }}>
         <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><Icon name="flag" size={12} />Default step</span>
         <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><Icon name="check" size={12} />Passing step (unlocks next stage)</span>
-        <span>Moving Offer → Probation records the hire and needs both confirmations (candidate accepted + company approved). Probation steps follow start date and the Chapter Head decision; Passed unlocks Official.</span>
+        {hire && <span>Moving {beforeHire ? `${beforeHire.label} → ` : "into "}{hire.label} records the hire and its start date.</span>}
       </div>
     </div>
   );
@@ -241,24 +244,77 @@ function fmtDate(iso: string): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
-function AddPersonDialog({ directory, busy, onClose, onAdd }: { directory: AccessDirectoryPerson[]; busy: boolean; onClose: () => void; onAdd: (p: AccessDirectoryPerson) => void }) {
+function PersonCombobox({ people, value, onChange }: { people: AccessDirectoryPerson[]; value: string; onChange: (id: string) => void }) {
+  const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
-  const avail = directory.filter((p) => !q || (p.name + " " + p.email).toLowerCase().includes(q.toLowerCase()));
+  const [box, setBox] = React.useState<{ top: number; left: number; width: number } | null>(null);
+  const ref = React.useRef<HTMLDivElement>(null);
+  const pop = React.useRef<HTMLDivElement>(null);
+  const place = React.useCallback(() => {
+    const r = ref.current?.querySelector("button")?.getBoundingClientRect();
+    if (r) setBox({ top: r.bottom + 4, left: r.left, width: r.width });
+  }, []);
+  React.useEffect(() => {
+    if (!open) return;
+    place();
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      document.removeEventListener("mousedown", h);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, place]);
+  const sel = people.find((p) => p.id === value);
+  const list = people.filter((p) => !q || (p.name + " " + p.email).toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="sh-field" ref={ref}>
+      <span className="sh-field__label">Person</span>
+      <button type="button" className="sh-input" aria-haspopup="listbox" aria-expanded={open} onClick={() => { setOpen((o) => !o); setQ(""); }} style={{ cursor: "pointer", textAlign: "left", justifyContent: "space-between" }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: sel ? "var(--foreground)" : "var(--muted)" }}>{sel ? sel.name + " · " + sel.email : "Select a person"}</span>
+        <Icon name="chevron-down" size={14} style={{ color: "var(--muted)" }} />
+      </button>
+      {open && box && createPortal(
+        <div ref={pop} style={{ position: "fixed", top: box.top, left: box.left, width: box.width, zIndex: 1000, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-raised)", padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          <Input icon="search" size="sm" autoFocus placeholder="Search by name or email" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div role="listbox" style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {list.length ? list.map((p) => (
+              <button key={p.id} type="button" role="option" aria-selected={p.id === value} onClick={() => { onChange(p.id); setOpen(false); }}
+                style={{ textAlign: "left", padding: "6px 8px", border: 0, borderRadius: 6, cursor: "pointer", background: p.id === value ? "var(--surface-subtle)" : "transparent", color: "var(--foreground)", font: "inherit", fontSize: 13 }}>
+                <div>{p.name}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.email}</div>
+              </button>
+            )) : <div style={{ padding: 8, fontSize: 13, color: "var(--muted)" }}>No one matches that search.</div>}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+function AddPersonDialog({ directory, busy, onClose, onAdd }: { directory: AccessDirectoryPerson[]; busy: boolean; onClose: () => void; onAdd: (p: AccessDirectoryPerson, role: "recruiter" | "interviewer") => void }) {
+  const [role, setRole] = React.useState<"recruiter" | "interviewer">("recruiter");
   const [who, setWho] = React.useState("");
-  const person = avail.find((p) => p.id === who) ?? avail[0];
+  const person = directory.find((p) => p.id === who);
   return (
     <Dialog
       title="Add person to this position" description="They see this position and its candidates. Expected salary stays hidden unless they manage recruitment."
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!person || busy} onClick={() => person && onAdd(person)}>Add person</Button></>}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!person || busy} onClick={() => person && onAdd(person, role)}>Add person</Button></>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <Input icon="search" size="sm" placeholder="Search by name or email" value={q} onChange={(e) => setQ(e.target.value)} />
-        {avail.length ? (
-          <Select label="Person" value={person?.id ?? ""} onChange={(e) => setWho(e.target.value)} options={avail.map((p) => ({ value: p.id, label: p.name + " · " + p.email }))} />
+        {directory.length ? (
+          <PersonCombobox people={directory} value={who} onChange={setWho} />
         ) : (
-          <Banner tone="neutral" icon="users">{q ? "No one matches that search." : "Everyone in the directory already has access."}</Banner>
+          <Banner tone="neutral" icon="users">Everyone in the directory already has access.</Banner>
         )}
+        <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as "recruiter" | "interviewer")} options={[{ value: "recruiter", label: "Recruiter" }, { value: "interviewer", label: "Interviewer" }]} />
       </div>
     </Dialog>
   );
@@ -304,18 +360,18 @@ export function AccessTab({ user, uuid }: { user: Role; uuid?: string }) {
     dto,
     name: dto.kind === "chapter" ? "Chapter " + dto.name : dto.name,
     kind: dto.kind === "chapter" ? "Chapter" : "Person",
-    role: dto.email,
+    role: (dto.role ? (dto.role === "interviewer" ? "Interviewer" : "Recruiter") + " · " : "") + (dto.email ?? ""),
     by: dto.grantedBy ?? "—",
     at: fmtDate(dto.grantedAt),
     revocable: true,
   }));
 
-  const mutate = async (method: "POST" | "DELETE", kind: "chapter" | "person", targetId: string) => {
+  const mutate = async (method: "POST" | "DELETE", kind: "chapter" | "person", targetId: string, role?: "recruiter" | "interviewer") => {
     if (!uuid) return;
     setBusy(true);
     setError(null);
     try {
-      setData(await changeAccess(uuid, method, kind, targetId));
+      setData(await changeAccess(uuid, method, kind, targetId, role));
       setAdd(null);
       setRm(null);
     } catch (e) {
@@ -335,7 +391,7 @@ export function AccessTab({ user, uuid }: { user: Role; uuid?: string }) {
       {error && <Banner tone="danger" icon="triangle-alert">{error}</Banner>}
       {!data && !error && <Banner tone="neutral" icon="loader-circle">Loading access…</Banner>}
       {data && <AccessGrantList grants={grants} editable={canEdit} onRevoke={(g) => setRm(g as AccessGrant)} footnote="Admin and HR can always see every position. Admin access shows a banner and is written to the audit log." />}
-      {add === "person" && data && <AddPersonDialog directory={data.directory} busy={busy} onClose={() => setAdd(null)} onAdd={(p) => void mutate("POST", "person", p.id)} />}
+      {add === "person" && data && <AddPersonDialog directory={data.directory} busy={busy} onClose={() => setAdd(null)} onAdd={(p, role) => void mutate("POST", "person", p.id, role)} />}
       {add === "chapter" && data && <AddChapterDialog chapters={data.chapters} busy={busy} onClose={() => setAdd(null)} onAdd={(id) => void mutate("POST", "chapter", id)} />}
       {rm && (
         <Dialog

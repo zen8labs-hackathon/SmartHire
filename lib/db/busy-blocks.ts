@@ -7,7 +7,8 @@ export type BusyBlockRepeat = "none" | "weekdays" | "weekly";
  * Personal busy time. `from_min`/`to_min` are minutes-of-day in GMT+7
  * (480..1140, step 30); both are NULL when `all_day`. `date` columns come
  * back from `pg` as local-midnight `Date`s -- format them with `dbDateToIso`.
- * A weekly repeat recurs on the weekday of `start_date`.
+ * `days` are the ISO weekdays (1=Mon..7=Sun) of a weekly repeat; an empty
+ * array (legacy rows) means the weekday of `start_date`.
  */
 export type BusyBlockRow = {
   id: string;
@@ -18,6 +19,7 @@ export type BusyBlockRow = {
   to_min: number | null;
   repeat: BusyBlockRepeat;
   until_date: Date | null;
+  days: number[];
   note: string | null;
   removed_dates: Date[];
   series_parent_id: string | null;
@@ -35,6 +37,7 @@ export type CreateBusyBlockInput = {
   toMin?: number | null;
   repeat?: BusyBlockRepeat;
   untilDate?: string | null;
+  days?: number[];
   note?: string | null;
   seriesParentId?: string | null;
 };
@@ -46,6 +49,7 @@ export type UpdateBusyBlockInput = {
   toMin?: number | null;
   repeat?: BusyBlockRepeat;
   untilDate?: string | null;
+  days?: number[];
   note?: string | null;
 };
 
@@ -92,9 +96,9 @@ export async function createBusyBlock(
   const { rows } = await db.query<BusyBlockRow>(
     `INSERT INTO busy_blocks (
        owner_id, start_date, all_day, from_min, to_min, repeat,
-       until_date, note, series_parent_id
+       until_date, note, series_parent_id, days
      )
-     VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'none'), $7, $8, $9)
+     VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'none'), $7, $8, $9, $10::smallint[])
      RETURNING *`,
     [
       input.ownerId,
@@ -106,6 +110,7 @@ export async function createBusyBlock(
       input.untilDate ?? null,
       input.note ?? null,
       input.seriesParentId ?? null,
+      input.days ?? [],
     ],
   );
   return rows[0];
@@ -124,6 +129,7 @@ export async function updateBusyBlock(
       to_min: patch.toMin,
       repeat: patch.repeat,
       until_date: patch.untilDate,
+      days: patch.days,
       note: patch.note,
     },
     2,

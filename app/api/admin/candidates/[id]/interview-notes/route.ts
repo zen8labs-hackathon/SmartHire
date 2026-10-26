@@ -11,6 +11,8 @@ import {
 } from "@/lib/db/candidate-notes";
 import { getPool } from "@/lib/db/config/client";
 import { getUsersByIds } from "@/lib/db/users";
+import { recordEvaluationSubmission } from "@/lib/calendar/evaluation";
+import { logApiError } from "@/lib/logger";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,12 +87,21 @@ export async function POST(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Enter a note with at least a couple of characters." }, { status: 400 });
   }
 
-  const note = await createCandidateNote(getPool(), {
+  const db = getPool();
+  const note = await createCandidateNote(db, {
     campaignAppliedId,
     type: "interview",
     body: parsed.data.body,
     authorId: auth.userId,
   });
+
+  // BR-INT-07: the note is the interviewer's evaluation for their latest
+  // started seat. Bookkeeping only -- never fail the note on it.
+  try {
+    await recordEvaluationSubmission(db, campaignAppliedId, auth.userId);
+  } catch (e) {
+    logApiError("Interview notes: evaluation bookkeeping failed", e, { userId: auth.userId, campaignAppliedId });
+  }
 
   const [serialized] = await serializeNotes([note]);
   return Response.json({ note: serialized }, { status: 201 });

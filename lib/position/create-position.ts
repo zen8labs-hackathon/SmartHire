@@ -1,13 +1,14 @@
 import { replaceJobDescriptionViewerChapters } from "@/lib/admin/jd-viewer-sync";
 import { getPool, withTransaction } from "@/lib/db/config/client";
 import { createJob, hardDeleteJob, updateJob, type JobRow } from "@/lib/db/jobs";
+import { grantJobToProfile, type JobProfileRole } from "@/lib/db/job-permissions";
 import { PipelineApplyError, applyPipelineToJob } from "@/lib/db/pipelines";
 import { buildFinalJdStoragePath, isJdTempKey } from "@/lib/jd/upload-constants";
 import {
   BLANK_POSITION_TITLE,
   positionTitleFromFile,
   type PositionHireType,
-} from "@/lib/positions/create-position";
+} from "@/lib/position/position-rules";
 import { draftNote } from "@/lib/position/jd-state";
 import { deleteObject, moveObject } from "@/lib/storage/s3";
 
@@ -18,6 +19,8 @@ export type CreatePositionInput = {
   /** Required: every new position is created with a pipeline from the `pipelines` table. */
   pipelineId: string;
   createdBy: string;
+  /** Optional recruiters/interviewers granted at creation (one role per person). */
+  people?: { profileId: string; role: JobProfileRole }[];
   jd: { storagePath: string; filename: string | null; mimeType: string | null } | null;
 };
 
@@ -52,6 +55,7 @@ export async function createDraftPosition(
     const created = await createJob(client, {
       position: draftTitle(jd?.filename ?? null),
       status: "Pending",
+      flowVersion: 2,
       employmentStatus: input.type,
       hireType: input.type,
       headcount: input.headcount,
@@ -74,6 +78,9 @@ export async function createDraftPosition(
       chapterIds: [input.chapterId],
       grantedBy: input.createdBy,
     });
+    for (const p of input.people ?? []) {
+      await grantJobToProfile(client, created.id, p.profileId, input.createdBy, p.role);
+    }
     return created;
   });
 

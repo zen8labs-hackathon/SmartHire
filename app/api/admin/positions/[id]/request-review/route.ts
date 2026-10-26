@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
@@ -22,6 +23,10 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const perm = await requirePermissionOnJob(auth.access, "job.manage", id);
   if (!perm.ok) return perm.response;
+  {
+    const legacy = await guardLegacyJob(id);
+    if (legacy) return legacy;
+  }
   if (!isDraft(job)) {
     return Response.json(
       { error: "Only Draft positions can be sent for review." },

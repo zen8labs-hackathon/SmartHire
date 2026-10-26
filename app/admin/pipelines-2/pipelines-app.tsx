@@ -31,7 +31,7 @@ export function PipelinesApp({ embedded = false, initialLibrary, initialPipeline
         embedded={embedded} onHome={() => {}} user={user} active="pipes" crumbs={["Setup"]} title="Pipelines"
         subtitle="Build hiring pipelines from the shared Stage library."
       >
-        <EntityTabs tabs={[{ id: "pipes", label: "Pipelines", count: list.length }, { id: "library", label: "Stage library", count: lib.length }]} value={tab} onChange={pick} />
+        <EntityTabs tabs={[{ id: "pipes", label: "Pipelines", count: list.length }, { id: "library", label: "Stage library", count: lib.filter((s) => !s.deleted).length }]} value={tab} onChange={pick} />
         <div style={{ paddingTop: 16 }}>
           {tab === "library"
             ? <StageLibrary viewer={viewer} lib={lib} setLib={setLib} say={say} />

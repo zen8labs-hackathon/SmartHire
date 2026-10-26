@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       toMin: shape.toMin,
       repeat: shape.repeat,
       untilDate: shape.untilDate,
+      days: shape.days,
       note: shape.note,
     });
     const overlaps = await overlapsForBlocks(db, auth.userId, [row]);

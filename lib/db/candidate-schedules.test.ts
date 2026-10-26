@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   addScheduleInterviewer,
+  countUpcomingActiveSchedulesForStage,
   createCandidateSchedule,
   declineScheduleInterviewer,
   getCandidateScheduleById,
@@ -10,10 +11,13 @@ import {
   listScheduleInterviewers,
   listSchedulesInRange,
   markEvaluationSubmitted,
+  listOverdueEvaluationSeats,
   markOverdueNotified,
+  OVERDUE_REMINDER_CUTOFF,
   removeScheduleInterviewer,
   setNoInterviewerFlag,
   updateCandidateSchedule,
+  upcomingInterviewsBlockMessage,
   withdrawScheduleInterviewerDecline,
 } from "@/lib/db/candidate-schedules";
 
@@ -156,25 +160,24 @@ describe("interviewer decline and evaluation", () => {
     );
   });
 
-  it("declineScheduleInterviewer keeps the first decline time", async () => {
+  it("declineScheduleInterviewer only declines a seat once", async () => {
     const db = fakeDb([]);
     const result = await declineScheduleInterviewer(db, "1", "p1", "sick");
     expect(result).toBeNull();
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "declined_at = COALESCE(declined_at, now()), decline_reason = $3",
-      ),
-      ["1", "p1", "sick"],
-    );
+    const sql = vi.mocked(db.query).mock.calls[0][0] as string;
+    expect(sql).toContain("SET declined_at = now(), decline_reason = $3");
+    expect(sql).toContain("AND declined_at IS NULL");
+    expect(vi.mocked(db.query).mock.calls[0][1]).toEqual(["1", "p1", "sick"]);
   });
 
-  it("withdrawScheduleInterviewerDecline clears decline fields", async () => {
+  it("withdrawScheduleInterviewerDecline skips seats with a replacement", async () => {
     const db = fakeDb([]);
     await withdrawScheduleInterviewerDecline(db, "1", "p1");
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("SET declined_at = NULL, decline_reason = NULL"),
-      ["1", "p1"],
-    );
+    const sql = vi.mocked(db.query).mock.calls[0][0] as string;
+    expect(sql).toContain("SET declined_at = NULL, decline_reason = NULL");
+    expect(sql).toContain("me.declined_at IS NOT NULL");
+    expect(sql).toContain("other.created_at > me.declined_at");
+    expect(vi.mocked(db.query).mock.calls[0][1]).toEqual(["1", "p1"]);
   });
 
   it("setNoInterviewerFlag sets the flag", async () => {
@@ -229,5 +232,49 @@ describe("interviewers join table", () => {
       expect.stringContaining("DELETE FROM candidate_schedule_interviewers"),
       ["sch-1", "p1"],
     );
+  });
+});
+
+describe("countUpcomingActiveSchedulesForStage (BR-INT-13)", () => {
+  const now = new Date("2026-10-22T00:00:00Z");
+
+  it("counts active future sessions by pipeline stage id", async () => {
+    const db = fakeDb([{ n: "3" }]);
+    await expect(countUpcomingActiveSchedulesForStage(db, { id: "st-1" }, now)).resolves.toBe(3);
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("ps.id = $1::uuid");
+    expect(sql).toContain("COALESCE(cs.job_stage_mapping_id, ca.current_job_stage_mapping_id)");
+    expect(params).toEqual(["st-1", ["Scheduled", "Confirmed"], now]);
+  });
+
+  it("counts by library stage code, ignoring deleted stages", async () => {
+    const db = fakeDb([]);
+    await expect(countUpcomingActiveSchedulesForStage(db, { code: "iv" }, now)).resolves.toBe(0);
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("ps.code = $1 AND ps.deleted_at IS NULL");
+    expect(params[0]).toBe("iv");
+  });
+
+  it("builds the block message", () => {
+    expect(upcomingInterviewsBlockMessage(1)).toBe("1 interview is still upcoming in this stage. Cancel or finish them first.");
+    expect(upcomingInterviewsBlockMessage(2)).toBe("2 interviews are still upcoming in this stage. Cancel or finish them first.");
+  });
+});
+
+describe("listOverdueEvaluationSeats", () => {
+  it("only selects deadlines on/after the cutoff", async () => {
+    const db = fakeDb([]);
+    const cutoff = new Date("2026-11-01T00:00:00Z");
+    const now = new Date("2026-11-05T00:00:00Z");
+    await listOverdueEvaluationSeats(db, cutoff, now, 10);
+    const [sql, params] = db.query.mock.calls[0];
+    expect(sql).toContain("cs.evaluation_due_at >= $4");
+    expect(params).toEqual([now, ["Scheduled", "Confirmed", "Completed"], 10, cutoff]);
+  });
+});
+
+describe("OVERDUE_REMINDER_CUTOFF", () => {
+  it("is a valid fixed instant", () => {
+    expect(OVERDUE_REMINDER_CUTOFF.toISOString()).toBe("2026-11-01T00:00:00.000Z");
   });
 });

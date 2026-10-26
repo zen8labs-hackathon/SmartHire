@@ -43,6 +43,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-cv-new",
@@ -52,6 +54,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-custom-review",
@@ -61,6 +65,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
 ];
 

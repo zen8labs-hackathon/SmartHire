@@ -1,6 +1,9 @@
 import type { QueryExecutor } from "@/lib/db/config/client";
 import { listCandidateNotesByCampaignApplied } from "@/lib/db/candidate-notes";
-import { listCandidateSchedulesByCampaignApplied } from "@/lib/db/candidate-schedules";
+import {
+  listCandidateSchedulesByCampaignApplied,
+  type CandidateScheduleRow,
+} from "@/lib/db/candidate-schedules";
 import { listStageHistory } from "@/lib/db/candidate-stage-history";
 import { listCvDetailVersionsByCampaignApplied } from "@/lib/db/cv-detail-versions";
 import { getUsersByIds } from "@/lib/db/users";
@@ -64,6 +67,45 @@ const SCHEDULE_TEXT: Record<string, string> = {
   NoShow: "marked no-show for",
 };
 
+type ScheduleActivityRow = Pick<
+  CandidateScheduleRow,
+  | "status" | "round_label" | "created_at" | "created_by" | "rescheduled_from_id"
+  | "reschedule_reason" | "cancel_reason" | "canceled_by" | "canceled_at"
+>;
+
+/**
+ * Pure: activity for one schedule row. A reschedule creates a new row linked
+ * by `rescheduled_from_id`, so that row carries the "rescheduled" event and
+ * its reason (BR-07-05); the old row keeps its original "scheduled" event.
+ * A cancellation is its own event at `canceled_at` with the cancel reason.
+ */
+export function scheduleEvents(s: ScheduleActivityRow): ActivityEvent[] {
+  const round = s.round_label ?? "interview";
+  const terminal = s.status === "Rescheduled" || s.status === "Canceled";
+  const verb = s.rescheduled_from_id
+    ? "rescheduled"
+    : terminal
+      ? "scheduled"
+      : (SCHEDULE_TEXT[s.status] ?? "updated");
+  const events: ActivityEvent[] = [
+    {
+      at: s.created_at,
+      text: `${verb} ${round}`,
+      userId: s.created_by,
+      reason: s.rescheduled_from_id ? s.reschedule_reason : null,
+    },
+  ];
+  if (s.status === "Canceled" && s.canceled_at) {
+    events.push({
+      at: s.canceled_at,
+      text: `canceled ${round}`,
+      userId: s.canceled_by,
+      reason: s.cancel_reason,
+    });
+  }
+  return events;
+}
+
 /** Gathers every activity source for one application and returns one page. */
 export async function getCandidateActivity(
   db: QueryExecutor,
@@ -89,11 +131,7 @@ export async function getCandidateActivity(
     });
   }
   for (const s of schedules) {
-    events.push({
-      at: s.created_at,
-      text: `${SCHEDULE_TEXT[s.status] ?? "updated"} ${s.round_label ?? "interview"}`,
-      userId: s.created_by,
-    });
+    events.push(...scheduleEvents(s));
   }
   for (const n of notes) {
     events.push({

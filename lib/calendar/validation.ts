@@ -46,6 +46,8 @@ export type BusyShape = {
   toMin: number | null;
   repeat: "none" | "weekdays" | "weekly";
   untilDate: string | null;
+  /** ISO weekdays (1=Mon..7=Sun); required for `weekly`, empty otherwise. */
+  days: number[];
 };
 
 function onGrid(m: number): boolean {
@@ -69,6 +71,12 @@ export function busyShapeError(b: BusyShape): string | null {
     }
     if (b.fromMin >= b.toMin) return "Start must be before end.";
   }
+  const validDays = b.days.every((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+  if (!validDays || new Set(b.days).size !== b.days.length) {
+    return "days must be distinct weekdays from 1 (Mon) to 7 (Sun).";
+  }
+  if (b.repeat === "weekly" && b.days.length === 0) return "Pick at least one weekday.";
+  if (b.repeat !== "weekly" && b.days.length > 0) return "Only a weekly block can pick weekdays.";
   if (b.repeat === "none") {
     if (b.untilDate !== null) return "Only a repeating block can have an end date.";
     return null;
@@ -80,5 +88,28 @@ export function busyShapeError(b: BusyShape): string | null {
     86_400_000;
   if (span < 0) return "The end date must be on or after the start date.";
   if (span > BUSY_MAX_REPEAT_DAYS) return "A repeating block can run at most 3 months.";
+  return null;
+}
+
+/**
+ * Required interview-round details. A new round needs at least one
+ * interviewer, as does an edit that replaces the interviewer list (an edit
+ * that omits it keeps the current seats). An in-office round needs a location.
+ * Pass the effective mode and location: the body's value, else the round's.
+ */
+export function roundDetailsError(input: {
+  isNew: boolean;
+  /** `undefined` when the body did not send interviewers. */
+  interviewerIds: readonly string[] | undefined;
+  mode: string | null | undefined;
+  location: string | null | undefined;
+}): string | null {
+  const sentInterviewers = input.isNew || input.interviewerIds !== undefined;
+  if (sentInterviewers && !input.interviewerIds?.length) {
+    return "Add at least one interviewer.";
+  }
+  if (input.mode === "office" && !input.location?.trim()) {
+    return "Enter a location for an in-office interview.";
+  }
   return null;
 }

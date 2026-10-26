@@ -174,6 +174,28 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # ─── Calendar scheduler: pings the overdue-evaluation job every 15 min ─────
+  # BR-05-07. The endpoint is idempotent (each seat is claimed before notifying)
+  # and guarded by INTERNAL_API_SECRET from .env.
+  calendar-cron:
+    image: curlimages/curl:8.10.1
+    container_name: smarthire_dev_calendar_cron
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      INTERNAL_APP_URL: http://app:3200
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          curl -fsS -m 60 -X POST -H "x-internal-secret: $$INTERNAL_API_SECRET" "$$INTERNAL_APP_URL/api/internal/calendar/overdue" || echo "overdue job failed"
+          echo
+          sleep 900
+        done
+    depends_on:
+      - app
+
   # ─── Logging stack (shared with prod — same Loki/Grafana instance) ──────────
   # Dev app logs go to the same Loki + Grafana as production.
   # Grafana is served at /log on both smart-hire.zen8labs.io and smart-hire-dev.zen8labs.io

@@ -40,6 +40,9 @@ export async function requireApplicationViewOrSeat(
   if (jobAccess.ok) {
     return { ok: true, application, limited: false, submitted: false };
   }
+  if (application.mentor_profile_id === userId) {
+    return { ok: true, application, limited: true, submitted: true };
+  }
   const seat = await getInterviewerSeatForApplication(db, campaignAppliedId, userId);
   if (!seat) return jobAccess;
   return { ok: true, application, limited: true, submitted: seat.submitted };

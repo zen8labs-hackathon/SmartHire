@@ -42,14 +42,12 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
   const atOffer = cands.filter((c) => c.stage === "offer" && c.sub !== "Rejected").length;
   const stale = cands.filter((c) => c.stage === "cv" && (c.sub === "New" || c.sub === "Consider") && c.days > 7);
   const noDecision = cands.filter((c) => c.stage === "iv" && c.sub !== "Passed" && c.sub !== "Failed" && (c.noNote || c.days > 7));
-  const props = cands.filter((c) => c.proposal);
   const scoreErr = cands.filter((c) => c.st === "error");
   const subsOf = (id: string) => (S.find((s) => s.id === id)?.subs || []).map((x) => id + ":" + x);
   const alerts = ([
     job.daysLeft != null && open > 0 && { tone: job.daysLeft <= 14 ? "warn" : "info", icon: "calendar-clock", text: <>Deadline in <b>{job.daysLeft} days</b> · {open} of {job.headcount} still open · {atOffer} at Offer</>, go: () => onFilter({ stage: subsOf("offer") }) },
     stale.length > 0 && { tone: "warn", icon: "clock", text: <><b>{stale.length}</b> in CV Scan for more than 7 days</>, go: () => onFilter({ stage: ["cv:New", "cv:Consider"] }) },
     noDecision.length > 0 && { tone: "warn", icon: "message-square", text: <><b>{noDecision.length}</b> interviewed without notes or a decision</>, go: () => onFilter({ stage: ["iv:New", "iv:Consider"] }) },
-    props.length > 0 && { tone: "info", icon: "send", text: <><b>{props.length}</b> move proposal waiting for approval</>, go: () => onFilter({ mine: true }) },
     scoreErr.length > 0 && { tone: "warn", icon: "sparkles", text: <><b>{scoreErr.length}</b> CV with AI scoring failed</>, go: () => onFilter({ scoring: ["error"] }) },
     att.length > 0 && { tone: "info", icon: "file-warning", text: <><b>{att.length}</b> upload and processing items need attention</>, go: () => onTab("uploads") },
   ] as (Alert | false)[]).filter((a): a is Alert => !!a);
@@ -85,7 +83,7 @@ export function OverviewTab({ job, cands, att, onFilter, onTab }: {
         </div>
         <div className="pf">
           {funnel.map(({ s, n, subs }, i) => {
-            const filledCol = s.id === "probation" || s.id === "hired";
+            const filledCol = !!s.probation || s.id === "hired";
             const prev = i > 0 ? R[rk[i - 1]] : 0;
             return (
               <React.Fragment key={s.id}>

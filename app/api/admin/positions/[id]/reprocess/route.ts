@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { after } from "next/server";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
@@ -24,6 +25,10 @@ export async function POST(request: Request, ctx: Ctx) {
   }
   const perm = await requirePermissionOnJob(auth.access, "job.manage", id);
   if (!perm.ok) return perm.response;
+  {
+    const legacy = await guardLegacyJob(id);
+    if (legacy) return legacy;
+  }
   if (deriveJdState(job).state === "processing") {
     return Response.json({ error: "Already processing." }, { status: 409 });
   }

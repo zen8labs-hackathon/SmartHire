@@ -7,9 +7,12 @@ import { buildSetClause } from "@/lib/db/query-helpers";
 // profile or a chapter, so a single branching function would just re-add the
 // type-dispatch this design removed.
 
+export type JobProfileRole = "recruiter" | "interviewer";
+
 export type JobAllowedProfileRow = {
   job_id: string;
   profile_id: string;
+  role: JobProfileRole;
   granted_by: string | null;
   created_at: Date;
 };
@@ -30,12 +33,14 @@ export async function grantJobToProfile(
   jobId: string,
   profileId: string,
   grantedBy?: string | null,
+  role: JobProfileRole = "recruiter",
 ): Promise<void> {
+  // Re-granting an existing person updates their role (keeps original granter).
   await db.query(
-    `INSERT INTO job_allowed_profiles (job_id, profile_id, granted_by)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (job_id, profile_id) DO NOTHING`,
-    [jobId, profileId, grantedBy ?? null],
+    `INSERT INTO job_allowed_profiles (job_id, profile_id, granted_by, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (job_id, profile_id) DO UPDATE SET role = EXCLUDED.role`,
+    [jobId, profileId, grantedBy ?? null, role],
   );
 }
 

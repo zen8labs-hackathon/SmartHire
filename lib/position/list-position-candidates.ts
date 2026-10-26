@@ -8,6 +8,7 @@ import type { QueryExecutor } from "@/lib/db/config/client";
 import { getJobById } from "@/lib/db/jobs";
 import {
   fetchJobPipelineConfig,
+  isSchedulingEnabled,
   resolveCandidatePipelineIds,
 } from "@/lib/pipelines/transition-validator";
 
@@ -21,8 +22,13 @@ export type PositionPipelineStage = {
   code: string;
   label: string;
   color: string | null;
+  /** Job-level flag when set, else the stage library default. */
   allowSchedule: boolean;
-  subs: { id: string; code: string; label: string; isDefault: boolean; isPassed: boolean }[];
+  /** Per-job SLA in days; null = none. */
+  slaDays: number | null;
+  /** `pipeline_stages.stage_type` (none | schedule | offer | probation). */
+  stageType: string;
+  subs: { id: string; code: string; label: string; isDefault: boolean; isPassed: boolean; isTerminal: boolean; isWithdraw: boolean }[];
 };
 
 export type PositionCandidate = {
@@ -45,6 +51,16 @@ export type PositionCandidate = {
   expectedSalary: string | null;
   appliedAt: string;
   daysInStage: number;
+  /** ISO time HR recorded the offer acceptance; null until then. */
+  offerAcceptedAt: string | null;
+  /** Probation Mentor (users.id / display name); null for legacy rows. */
+  mentorProfileId: string | null;
+  mentorName: string | null;
+  /** Latest Not-pass reason; staff-only, never sent to candidates. */
+  probationFailReason: string | null;
+  /** Latest probation end set by an extension (YYYY-MM-DD); null if never extended. */
+  probationExtendedUntil: string | null;
+  probationExtensionCount: number;
 };
 
 export type PositionCandidatesResult = {
@@ -112,6 +128,14 @@ export function rowToPositionCandidate(
     expectedSalary: opts.viewSalary ? row.expected_salary : null,
     appliedAt: row.created_at.toISOString(),
     daysInStage: Math.max(0, Math.floor((opts.now.getTime() - since.getTime()) / DAY_MS)),
+    offerAcceptedAt: row.offer_accepted_at ? row.offer_accepted_at.toISOString() : null,
+    mentorProfileId: row.mentor_profile_id ?? null,
+    mentorName: row.mentor_name ?? null,
+    probationFailReason: row.probation_fail_reason ?? null,
+    probationExtendedUntil: row.probation_extended_until
+      ? (row.probation_extended_until instanceof Date ? row.probation_extended_until.toISOString() : row.probation_extended_until).slice(0, 10)
+      : null,
+    probationExtensionCount: row.probation_extension_count ?? 0,
   };
 }
 
@@ -139,7 +163,9 @@ export async function listPositionCandidates(
       code: m.pipeline_stages!.code,
       label: m.pipeline_stages!.label,
       color: m.pipeline_stages!.color,
-      allowSchedule: m.pipeline_stages!.allow_schedule,
+      allowSchedule: isSchedulingEnabled(m, m.pipeline_stages),
+      slaDays: m.sla_days ?? null,
+      stageType: m.pipeline_stages!.stage_type ?? "none",
       subs: config.subStages
         .filter((s) => s.pipeline_stage_id === m.pipeline_stage_id)
         .sort((a, b) => a.sequence_number - b.sequence_number)
@@ -149,6 +175,8 @@ export async function listPositionCandidates(
           label: s.label,
           isDefault: s.is_default,
           isPassed: s.is_passed,
+          isTerminal: s.is_terminal,
+          isWithdraw: s.is_withdraw,
         })),
     }));
 

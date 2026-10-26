@@ -8,21 +8,21 @@ export type StepState = "done" | "now" | "todo" | "fail";
 export type Step = { label: string; state: StepState; owner?: Owner; note?: string };
 type Owner = { keys: string[]; name: string; role?: string };
 export type ActType =
-  | "move" | "propose" | "passPropose" | "consider" | "fail" | "rescore" | "sched" | "interview" | "resched"
-  | "remind" | "nextRound" | "sub" | "patch" | "prob" | "approve" | "decline" | "withdraw";
+  | "move" | "consider" | "fail" | "rescore" | "sched" | "interview" | "resched"
+  | "remind" | "nextRound" | "noShow" | "sub" | "patch" | "prob";
 export type Act = {
   t: ActType; label: string; icon: string; primary?: boolean; decision?: boolean;
   to?: string; sub?: string; patch?: Record<string, unknown>; msg?: string; who?: string; act?: string;
 };
 export type NextStep = {
   steps: Step[]; owner: Owner | null; acts: Act[]; title: string; ended: boolean; mine: boolean;
-  why: string | null; hold: { what: string; who: string } | null; prop: Candidate["proposal"] | null;
+  why: string | null; hold: { what: string; who: string } | null;
 };
 export type NextStepOpts = {
   /** Must-have criteria counts (met / total) for the CV step note. */
   mustHaves?: { met: number; total: number } | null;
   /** Current interview schedule, if any. */
-  sched?: { d: string; past?: boolean } | null;
+  sched?: { d: string; past?: boolean; noShow?: boolean; done?: boolean } | null;
   mentor?: string | null;
   probation?: { status: "awaiting" | "active" | "decision" | "passed" | "ended"; planned?: string; daysLeft?: number } | null;
   accepted?: boolean;
@@ -40,11 +40,13 @@ export function stageKind(s: Stage, idx: number): Kind {
 }
 
 const P = {
-  ch: { keys: ["ch", "hr"], name: "Trần Quang Huy", role: "Chapter Head" } as Owner,
-  hr: { keys: ["hr"], name: "Nguyễn Thị Hiền", role: "HR" } as Owner,
+  ch: { keys: ["ch", "hr"], name: "Chapter Head" } as Owner,
+  hr: { keys: ["hr"], name: "HR" } as Owner,
   sys: { keys: [], name: "System", role: "AI scoring" } as Owner,
   cand: { keys: [], name: "Candidate", role: "recorded by HR" } as Owner,
   ops: (c: Candidate): Owner => ({ keys: ["hr", "ch", "rc"], name: c.owner, role: "Recruiter / HR" }),
+  // BR-INT-01: only HR and Recruiters schedule interviews.
+  sch: (c: Candidate): Owner => ({ keys: ["hr", "rc"], name: c.owner, role: "Recruiter / HR" }),
   ivs: (who?: string): Owner => ({ keys: ["iv"], name: who || "Interviewers" }),
 };
 const st = (label: string, state: StepState, owner?: Owner, note?: string): Step => ({ label, state, owner, note });
@@ -57,33 +59,17 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
   const kind = stageKind(s, idx);
   const dec = k === "hr" || k === "ch";
   const op = dec || k === "rc";
-  const prop = c.proposal ?? null;
   const rc = k === "rc";
   const failed = c.sub === s.fail && !!s.fail;
   const passed = c.sub === s.pass;
   const nextLabel = next?.label ?? "next stage";
 
   const moveTo = (to: string, label: string): Act | null =>
-    dec ? { t: "move", to, label: "Move to " + label, icon: "arrow-right", primary: true }
-      : rc ? { t: "propose", to, label: "Propose move to " + label, icon: "send", primary: true } : null;
+    op ? { t: "move", to, label: "Move to " + label, icon: "arrow-right", primary: true } : null;
   const compact = (a: (Act | null | false)[]) => a.filter(Boolean) as Act[];
 
   let steps: Step[] = [], owner: Owner | null = null, acts: Act[] = [], title = "", ended = false;
 
-  const proposalFlow = () => {
-    const toLabel = prop && (prop.to === "reject" ? "Rejected" : stages.find((x) => x.id === prop.to)?.label ?? nextLabel);
-    owner = P.ch;
-    if (dec) {
-      title = "Approve move to " + toLabel;
-      acts = [
-        { t: "approve", label: "Approve · move to " + toLabel, icon: "check", primary: true, to: prop?.to },
-        { t: "decline", label: "Decline proposal", icon: "x" },
-      ];
-    } else if (rc && prop && c.owner === prop.by) {
-      title = "Proposed move to " + toLabel;
-      acts = [{ t: "remind", label: "Remind Huy", icon: "bell", who: "Huy" }, { t: "withdraw", label: "Withdraw", icon: "undo-2" }];
-    } else title = "Proposed move to " + toLabel;
-  };
 
   if (kind === "cv") {
     const mh = o.mustHaves;
@@ -93,20 +79,18 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
         err ? "Rescore or review manually" : scored ? (c.band === "review" ? "No band · manual review" : undefined) : "In progress"),
       st("Must-haves checked", scored ? "done" : "todo", P.sys, mh ? `${mh.met} of ${mh.total} met` : undefined),
       st(failed ? "Not passed" : passed ? "Passed" : "Pass, Consider or Not pass", failed ? "fail" : passed ? "done" : scored || err ? "now" : "todo", P.ops(c)),
-      st("Move to " + nextLabel, prop ? "now" : "todo", P.ch, prop ? "Proposed by " + prop.by : undefined),
+      st("Move to " + nextLabel, "todo", P.ops(c)),
     ];
     if (failed) { ended = true; title = "Did not pass " + s.label; }
-    else if (prop) proposalFlow();
     else if (passed) {
-      owner = P.ch; title = "Ready to move to " + nextLabel;
+      owner = P.ops(c); title = "Ready to move to " + nextLabel;
       if (next) acts = compact([moveTo(next.id, nextLabel)]);
     } else {
       owner = P.ops(c);
       title = c.hold ? "Take a second look, then decide" : "Decide on this CV";
       if (op && next) {
         acts = compact([
-          dec ? { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true }
-            : { t: "passPropose", to: next.id, label: "Pass & propose " + nextLabel, icon: "send", primary: true },
+          { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true },
           c.sub === s.def && s.subs.includes("Consider") ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
           s.fail ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
           c.st === "error" ? { t: "rescore", label: "Rescore", icon: "rotate-ccw" } : null,
@@ -118,41 +102,53 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     const ri = Math.max(0, rounds.indexOf(c.round ?? ""));
     const rnd = rounds[ri] ?? s.label;
     const nextRnd = rounds[ri + 1];
-    const cur = o.sched ?? null;
+    // BR-INT-10: a no-show session counts as not held; the round goes back to scheduling.
+    const noShow = !!o.sched?.noShow;
+    const cur = noShow ? null : o.sched ?? null;
+    const mgr = k === "hr" || k === "rc";
     const held = !!cur && (!!c.noNote || !!cur.past);
-    const notesIn = (held && !c.noNote) || !!c.ivDone;
+    // BR-INT-07: with a real session, notes are in once it is Completed (every seat submitted).
+    const notesIn = !!c.ivDone || (held && (cur?.done !== undefined ? cur.done : !c.noNote));
     steps = [
       ...rounds.slice(0, ri).map((r) => st(r, "done", P.ivs(), "Notes in")),
-      st("Schedule " + rnd, cur ? "done" : "now", P.ops(c), cur?.d),
+      st("Schedule " + rnd, cur ? "done" : "now", P.sch(c), noShow ? "No-show" : cur?.d),
       st(rnd + " notes", notesIn ? "done" : held ? "now" : "todo", P.ivs(o.ivName)),
       st(failed ? "Not passed" : passed ? "Passed" : "Pass, Consider or Not pass", failed ? "fail" : passed ? "done" : notesIn ? "now" : "todo", P.ch),
-      st("Move to " + nextLabel, prop ? "now" : "todo", P.ch),
+      st("Move to " + nextLabel, "todo", P.ops(c)),
     ];
     const decideActs = (): Act[] => compact([
       next && dec ? { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true } : null,
-      nextRnd && dec ? { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus" } : null,
       c.sub !== "Consider" && s.subs.includes("Consider") && dec ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
       s.fail && dec ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
     ]);
     if (failed) { ended = true; title = "Did not pass " + s.label; }
-    else if (prop) proposalFlow();
     else if (passed) {
-      owner = P.ch; title = "Ready to move to " + nextLabel;
+      owner = P.ops(c); title = "Ready to move to " + nextLabel;
       if (next) acts = compact([moveTo(next.id, nextLabel)]);
+      // BR-INT-03: after a Pass, HR/Recruiter may schedule the next round instead.
+      if (nextRnd && mgr) acts = [...acts, { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus" }];
     } else if (!cur && !notesIn) {
-      owner = P.ops(c); title = "Schedule " + rnd;
-      if (op) acts = compact([{ t: "sched", label: "Schedule " + rnd, icon: "calendar-plus", primary: true }, c.sub === "Consider" && dec ? decideActs()[0] : null]);
+      owner = P.sch(c); title = (noShow ? "No-show · Schedule " : "Schedule ") + rnd;
+      if (mgr) acts = compact([{ t: "sched", label: "Schedule " + rnd, icon: "calendar-plus", primary: true }, c.sub === "Consider" && dec ? decideActs()[0] : null]);
     } else if (!held && !notesIn) {
       owner = P.ivs(o.ivName); title = rnd + " · " + cur?.d;
       if (k === "iv") acts = [{ t: "interview", label: "Prepare in interview mode", icon: "clipboard-pen", primary: true }];
-      else if (op) acts = [{ t: "resched", label: "Reschedule", icon: "history" }];
+      else if (mgr) acts = [{ t: "resched", label: "Reschedule", icon: "history" }];
     } else if (!notesIn) {
       owner = P.ivs(o.ivName); title = "Waiting for " + rnd + " notes";
       if (k === "iv") acts = [{ t: "interview", label: "Write your notes", icon: "pen-line", primary: true }];
       else if (op) acts = [{ t: "remind", label: "Remind interviewer", icon: "bell", who: o.ivName }];
+      // BR-INT-09: HR, Recruiters and invited interviewers can record a no-show once the session has started.
+      if (cur?.past && (mgr || k === "iv")) acts = [...acts, { t: "noShow", label: "Mark no-show", icon: "user-x" }];
     } else {
       owner = P.ch; title = "Decide after " + rnd;
-      acts = dec ? decideActs() : rc ? [{ t: "remind", label: "Remind Huy", icon: "bell", who: "Huy" }] : [];
+      // BR-INT-03: the Chapter Head decides; HR/Recruiter schedules the next round once it is Pass or Consider.
+      const goOn = nextRnd && (c.sub === s.pass || c.sub === "Consider");
+      acts = k === "ch" ? decideActs()
+        : mgr ? compact([goOn ? { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus", primary: true } : null,
+            ...(k === "hr" ? decideActs() : []),
+            !goOn && rc ? { t: "remind", label: "Remind Chapter Head", icon: "bell", who: "Chapter Head" } : null])
+        : [];
     }
     if (k === "iv" && c.ivDone && !ended && !passed) { title = "Your notes are submitted"; owner = P.ch; acts = []; }
   } else if (kind === "offer") {
@@ -167,7 +163,6 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       st("Company approval", accepted ? "now" : "todo", P.ch, "Confirms the hire"),
     ];
     if (rejected) { ended = true; title = "Offer rejected by the candidate"; }
-    else if (prop) proposalFlow();
     else if (!matched && !offered) {
       owner = P.hr; title = "Agree terms with the candidate";
       if (k === "hr") acts = compact([
@@ -188,7 +183,15 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       if (dec && next) acts = [{ t: "move", to: next.id, label: "Approve & confirm hire", icon: "badge-check", primary: true, decision: true }];
     }
   } else if (kind === "prob") {
-    const p = o.probation ?? { status: "awaiting" as const };
+    const find = (re: RegExp) => s.subs.find((x) => re.test(x));
+    const fromSub = (): "awaiting" | "active" | "decision" | "passed" | "ended" => {
+      if (/not pass|ended|did not|fail|reject/i.test(c.sub)) return "ended";
+      if (/review/i.test(c.sub)) return "decision";
+      if (/pass/i.test(c.sub)) return "passed";
+      if (/progress|active|started/i.test(c.sub)) return "active";
+      return "awaiting";
+    };
+    const p = o.probation ?? { status: fromSub() };
     const order = ["awaiting", "active", "decision", "passed"];
     const pi = order.indexOf(p.status);
     const mentor = { keys: ["mentor"], name: o.mentor || "Mentor", role: "Mentor" };
@@ -200,16 +203,16 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     ];
     if (p.status === "awaiting") {
       owner = P.hr; title = "Confirm the first working day" + (p.planned ? " · planned " + p.planned : "");
-      if (k === "hr") acts = [{ t: "prob", act: "start", label: "Confirm start", icon: "log-in", primary: true }];
+      if (k === "hr") acts = [{ t: "prob", act: "start", sub: find(/progress|active|started/i) ?? s.pass, label: "Confirm start", icon: "log-in", primary: true }];
     } else if (p.status === "active") {
       owner = mentor; title = "Mentor review due" + (p.daysLeft != null ? ` · ${p.daysLeft} days left` : "");
       if (dec) acts = [{ t: "prob", act: "remind", label: "Remind mentor", icon: "bell" }];
     } else if (p.status === "decision") {
       owner = P.ch; title = "Review submitted · decide";
-      if (dec) acts = [{ t: "prob", act: "decide", label: "Decide", icon: "gavel", primary: true }];
+      if (dec) acts = [{ t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Mark passed", icon: "gavel", primary: true }];
     } else if (p.status === "passed") {
       owner = P.hr; title = "Passed probation";
-      if (k === "hr") acts = [{ t: "prob", act: "official", label: "Move to Official", icon: "badge-check", primary: true }];
+      if (k === "hr") acts = [{ t: "prob", act: "official", ...(next ? { to: next.id } : {}), label: "Move to Official", icon: "badge-check", primary: true }];
     } else { ended = true; title = "Probation ended"; }
   } else if (kind === "hired") {
     ended = true; title = "Official staff · read-only";
@@ -217,17 +220,16 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
   } else {
     owner = P.ops(c); title = "Decide on " + s.label;
     steps = [st(s.label, "now", owner)];
-    if (prop) proposalFlow();
-    else if (op && next) acts = compact([moveTo(next.id, nextLabel)]);
+    if (op && next) acts = compact([moveTo(next.id, nextLabel)]);
   }
 
   const mine = !ended && !!owner && (owner as Owner).keys.includes(k) && acts.length > 0;
   const ow = owner as Owner | null;
   const why = !ended && !mine && ow
-    ? (prop && rc ? "You proposed this · " : "") + "Waiting on " + ow.name + (ow.role ? " · " + ow.role : "")
+    ? "Waiting on " + ow.name + (ow.role ? " · " + ow.role : "")
     : null;
   const hold = c.sub === "Consider" ? c.hold ?? null : null;
-  return { steps, owner: ow, acts, title, ended, mine, why, hold, prop };
+  return { steps, owner: ow, acts, title, ended, mine, why, hold };
 }
 
 const STATE_IC: Record<StepState, [string, string]> = {
@@ -238,9 +240,9 @@ const STATE_IC: Record<StepState, [string, string]> = {
 };
 
 export function NextStepPanel({ ns, render, compact }: { ns: NextStep; render?: (a: Act) => React.ReactNode; compact?: boolean }) {
-  const tone = ns.ended ? "ended" : ns.prop && ns.mine ? "prop" : ns.mine ? "you" : "wait";
-  const label = { ended: "Closed", prop: "Needs your approval", you: "Your turn", wait: "Not your step" }[tone];
-  const icon = { ended: "lock", prop: "inbox", you: "arrow-right-circle", wait: "hourglass" }[tone];
+  const tone = ns.ended ? "ended" : ns.mine ? "you" : "wait";
+  const label = { ended: "Closed", you: "Your turn", wait: "Not your step" }[tone];
+  const icon = { ended: "lock", you: "arrow-right-circle", wait: "hourglass" }[tone];
   return (
     <section className={"ns ns--" + tone} aria-label="Next step">
       <div className="ns__head">
@@ -262,7 +264,7 @@ export function NextStepPanel({ ns, render, compact }: { ns: NextStep; render?: 
                 <Icon name={ic} size={16} style={{ color: col, flex: "none", marginTop: 1 }} />
                 <span className="ns__sl">
                   <span className="ns__sn">{x.label}</span>
-                  {(x.owner || x.note) && <small>{x.owner?.name}{x.note ? (x.owner ? " · " : "") + x.note : ""}</small>}
+                  {x.note && <small>{x.note}</small>}
                 </span>
               </li>
             );

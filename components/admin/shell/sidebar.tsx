@@ -17,6 +17,8 @@ import {
   BarChart2,
   Heart,
   UserCheck,
+  CalendarDays,
+  ArrowRightLeft,
   LogOut,
   Loader2,
   type LucideIcon,
@@ -59,6 +61,8 @@ export function Sidebar({
     users: Users,
     chapters: Compass,
     templates: FileSpreadsheet,
+    calendar: CalendarDays,
+    migration: ArrowRightLeft,
   };
   const menu = buildMenu({ isHr, isChapterHead });
 

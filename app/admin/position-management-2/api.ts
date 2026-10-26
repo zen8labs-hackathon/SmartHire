@@ -36,6 +36,7 @@ export function positionToJob(p: PositionListRow, id: number): Job {
     processing: p.processing === "processing" ? "extract" : null,
     procError: p.processing === "failed" ? (p.processingError ?? "JD processing failed") : null,
     fresh: p.fresh,
+    legacy: p.legacy,
   };
 }
 
@@ -109,11 +110,21 @@ export async function fetchPipelineChoices(signal?: AbortSignal): Promise<Pipeli
   return json.pipelines.map((p) => ({ id: p.id, name: p.name }));
 }
 
-export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; pipelineId: string; file?: File | null };
+export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; pipelineId: string; file?: File | null; people?: { profileId: string; role: "recruiter" | "interviewer" }[] };
+
+export type PersonChoice = { id: string; name: string; email: string };
+
+export async function fetchPeople(q: string, signal?: AbortSignal): Promise<PersonChoice[]> {
+  const res = await fetch(`/api/admin/calendar/people?all=1&q=${encodeURIComponent(q)}`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load people."));
+  const json = (await res.json()) as { people: PersonChoice[] };
+  return json.people.map((p) => ({ id: p.id, name: p.name, email: p.email }));
+}
 
 /** Uploads the JD (if any) then creates the Draft position. Returns the new row. */
 export async function createPosition(a: CreatePositionArgs): Promise<PositionListRow> {
   const body: Record<string, unknown> = { chapterId: a.chapterId, type: a.type, headcount: a.headcount, pipelineId: a.pipelineId };
+  if (a.people?.length) body.people = a.people;
   if (a.file) {
     const { path } = await uploadJd(a.file);
     body.jdStoragePath = path;
@@ -159,23 +170,40 @@ export async function updatePosition(uuid: string, patch: PositionPatch): Promis
 
 export type PositionTransitionKind = "open" | "hold" | "reopen" | "close";
 
-export async function transitionPosition(uuid: string, to: PositionTransitionKind): Promise<PositionListRow | null> {
-  const res = await fetch(`/api/admin/positions/${uuid}/transition`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ to }) });
+export type TransitionBlocker = { id: string; name: string; stage: string };
+
+/** Close refused (409) because candidates are still in an offer/probation stage. */
+export class TransitionBlockedError extends Error {
+  constructor(message: string, readonly blocking: TransitionBlocker[]) {
+    super(message);
+    this.name = "TransitionBlockedError";
+  }
+}
+
+export async function transitionPosition(
+  uuid: string,
+  to: PositionTransitionKind,
+  opts: { notifyInterviewers?: boolean; reason?: string } = {},
+): Promise<PositionListRow | null> {
+  const res = await fetch(`/api/admin/positions/${uuid}/transition`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ to, ...opts }) });
+  if (res.status === 409) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string; blocking?: TransitionBlocker[] };
+    if (Array.isArray(data.blocking)) throw new TransitionBlockedError(data.error ?? "Position cannot be closed yet.", data.blocking);
+    throw new Error(data.error ?? "Could not change the position status.");
+  }
   if (!res.ok) throw new Error(await readError(res, "Could not change the position status."));
   return ((await res.json()) as { position: PositionListRow | null }).position;
+}
+
+/** Removes an application from its position (DELETE /api/admin/candidates/[id]); upcoming interviews are canceled. */
+export async function removeCandidate(caId: string, notifyInterviewers: boolean): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}?notify=${notifyInterviewers ? 1 : 0}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await readError(res, "Could not remove the candidate."));
 }
 
 export async function requestReview(uuid: string): Promise<void> {
   const res = await fetch(`/api/admin/positions/${uuid}/request-review`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
   if (!res.ok) throw new Error(await readError(res, "Could not request review."));
-}
-
-export async function duplicatePosition(uuid: string): Promise<PositionListRow> {
-  const res = await fetch(`/api/admin/positions/${uuid}/duplicate`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
-  if (!res.ok) throw new Error(await readError(res, "Could not duplicate the position."));
-  const json = (await res.json()) as { position: PositionListRow | null };
-  if (!json.position) throw new Error("Position was duplicated but could not be loaded.");
-  return json.position;
 }
 
 export type { AccessGrantDto, AccessDirectoryPerson, PositionAccess } from "@/app/api/admin/positions/[id]/access/route";
@@ -187,8 +215,8 @@ export async function fetchAccess(uuid: string, signal?: AbortSignal): Promise<P
   return (await res.json()) as PositionAccess;
 }
 
-export async function changeAccess(uuid: string, method: "POST" | "DELETE", kind: "chapter" | "person", targetId: string): Promise<PositionAccess> {
-  const res = await fetch(`/api/admin/positions/${uuid}/access`, { method, headers: JSON_HEADERS, body: JSON.stringify({ kind, targetId }) });
+export async function changeAccess(uuid: string, method: "POST" | "DELETE", kind: "chapter" | "person", targetId: string, role?: "recruiter" | "interviewer"): Promise<PositionAccess> {
+  const res = await fetch(`/api/admin/positions/${uuid}/access`, { method, headers: JSON_HEADERS, body: JSON.stringify({ kind, targetId, role }) });
   if (!res.ok) throw new Error(await readError(res, method === "POST" ? "Could not grant access." : "Could not revoke access."));
   return (await res.json()) as PositionAccess;
 }
@@ -242,6 +270,12 @@ export function toCandidate(pc: PositionCandidate, id: number): Candidate {
     days: pc.daysInStage,
     salary: pc.expectedSalary ?? "",
     flags: [],
+    offerAccepted: !!pc.offerAcceptedAt,
+    mentorId: pc.mentorProfileId ?? undefined,
+    mentorName: pc.mentorName ?? undefined,
+    probationFailReason: pc.probationFailReason ?? undefined,
+    probationExtendedUntil: pc.probationExtendedUntil ?? undefined,
+    probationExtensionCount: pc.probationExtensionCount ?? 0,
   };
 }
 
@@ -251,10 +285,31 @@ export function toStages(p: PositionPipelineStage[]): Stage[] {
     label: st.label,
     color: st.color || "var(--neutral-500)",
     subs: st.subs.map((x) => x.label),
+    subIds: Object.fromEntries(st.subs.map((x) => [x.label, x.id])),
     def: (st.subs.find((x) => x.isDefault) ?? st.subs[0])?.label ?? "",
     pass: st.subs.find((x) => x.isPassed)?.label ?? "",
+    fail: st.subs.find((x) => x.isTerminal && !x.isWithdraw && !x.isPassed)?.label,
+    notPass: st.subs.filter((x) => x.isTerminal && !x.isWithdraw && !x.isPassed).map((x) => x.label),
     schedule: st.allowSchedule,
+    sla: st.slaDays ?? undefined,
+    probation: st.stageType === "probation",
   }));
+}
+
+/** Persists a stage / sub-stage change (PATCH /api/admin/candidates/[id]); writes stage history server-side. */
+export async function updateCandidateStage(caId: string, stageMappingId: string, subStateId: string, reason?: string, notifyInterviewers?: boolean, cancelUpcoming?: boolean, startDate?: string, mentorProfileId?: string): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_job_stage_mapping_id: stageMappingId, current_sub_state_id: subStateId, ...(reason ? { reason } : {}), notify_interviewers: notifyInterviewers ?? false, ...(cancelUpcoming ? { cancel_upcoming_sessions: true } : {}), ...(startDate ? { start_date: startDate } : {}), ...(mentorProfileId ? { mentor_profile_id: mentorProfileId } : {}) }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Could not update the candidate stage."));
+}
+
+/** Reverts a reject made in the last 10 minutes (POST /api/admin/candidates/[id]/reject/undo). */
+export async function undoReject(caId: string): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}/reject/undo`, { method: "POST" });
+  if (!res.ok) throw new Error(await readError(res, "Could not undo the reject."));
 }
 
 export type CvFileState = "pending" | "uploading" | "queued" | "error";
@@ -515,13 +570,38 @@ export async function saveInterviewNote(caId: string, body: string, noteId?: str
   return ((await res.json()) as { note: InterviewNote }).note;
 }
 
+export type ScheduleSeat = { id: string; name: string; declinedAt: string | null; declineReason: string | null; submitted: boolean };
 export type CandidateSchedule = {
-  id: string | number; interviewers: string[]; [k: string]: unknown;
+  id: string | number; interviewers: string[]; seats: ScheduleSeat[]; organizerName: string | null; canEdit: boolean; [k: string]: unknown;
 };
 export async function fetchSchedules(caId: string, signal?: AbortSignal): Promise<CandidateSchedule[]> {
   const res = await fetch(`${candBase(caId)}/timeline`, { signal });
   if (!res.ok) throw new Error(await readError(res, "Could not load interviews."));
   return ((await res.json()) as { schedules: CandidateSchedule[] }).schedules;
+}
+
+/** BR-INT-09: marks a started session as a no-show (whole session). */
+export async function markNoShow(caId: string, scheduleId: string): Promise<void> {
+  const res = await fetch(`${candBase(caId)}/timeline/no-show`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scheduleId }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Could not mark the no-show."));
+}
+
+export type MyInterview = {
+  id: string; start: string; end: string; durationMin: number; round: string | null; status: string;
+  mode: "online" | "office" | null; location: string | null; meetingLink: string | null;
+  campaignAppliedId: string; candidateId: string; candidateName: string | null; jobId: string | null;
+  organizerId: string | null; organizerName: string | null;
+  submitted: boolean; upcoming: boolean; pendingEvaluation: boolean; evaluationDueAt: string; overdue: boolean;
+};
+/** The viewer's own interviewer seats across positions. */
+export async function fetchMyInterviews(signal?: AbortSignal): Promise<MyInterview[]> {
+  const res = await fetch("/api/admin/calendar/mine", { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load your interviews."));
+  return ((await res.json()) as { interviews: MyInterview[] }).interviews;
 }
 
 export type ActivityPage = { items: TimelineItem[]; nextCursor: string | null };
@@ -540,4 +620,36 @@ export async function fetchApplications(caId: string, signal?: AbortSignal): Pro
   const res = await fetch(`${candBase(caId)}/applications`, { signal });
   if (!res.ok) throw new Error(await readError(res, "Could not load applications."));
   return ((await res.json()) as { applications: CandidateApplicationRow[] }).applications;
+}
+
+/** HR records (or clears) the candidate's acceptance of the offer (PUT /api/admin/candidates/[id]/offer-acceptance). */
+export async function setOfferAccepted(caId: string, accepted: boolean): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}/offer-acceptance`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accepted }),
+  });
+  if (!res.ok) throw new Error(await readError(res, "Could not record the offer acceptance."));
+}
+
+export type { PositionMember } from "@/app/api/admin/positions/[id]/members/route";
+import type { PositionMember } from "@/app/api/admin/positions/[id]/members/route";
+
+/** People already added to the position; the Mentor for a probation hire is picked from these. */
+export async function fetchPositionMembers(uuid: string, signal?: AbortSignal): Promise<PositionMember[]> {
+  const res = await fetch(`/api/admin/positions/${uuid}/members`, { signal });
+  if (!res.ok) throw new Error(await readError(res, "Could not load the people on this position."));
+  return ((await res.json()) as { members: PositionMember[] }).members;
+}
+
+/** RM / HR / Admin: assign or replace the probation Mentor. */
+export async function changeMentor(caId: string, mentorProfileId: string, reason?: string): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}/mentor`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ mentor_profile_id: mentorProfileId, ...(reason ? { reason } : {}) }) });
+  if (!res.ok) throw new Error(await readError(res, "Could not change the Mentor."));
+}
+
+/** Mentor / RM / HR: extend (gia hạn) the probation; a reason is required. */
+export async function extendProbation(caId: string, newEndDate: string, reason: string): Promise<void> {
+  const res = await fetch(`/api/admin/candidates/${caId}/probation-extend`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ new_end_date: newEndDate, reason }) });
+  if (!res.ok) throw new Error(await readError(res, "Could not extend the probation."));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { positionTitleFromFile } from "@/lib/positions/create-position";
+import { positionTitleFromFile } from "@/lib/position/position-rules";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 

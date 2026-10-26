@@ -1,6 +1,7 @@
 "use client";
 // Original CV ⇄ parsed data side-by-side, backed by the real CV file, versions and parsed payload.
 import { useCallback, useEffect, useRef, useState } from "react";
+// eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
 import { CvViewer } from "@/components/admin/candidates/cv-viewer";
 import { cvFileUrl, fetchCandidateCv, fetchCvHistory, saveCvEdits } from "./api";
 import type { CandidateCv, CvEdit, CvVersionItem } from "./api";

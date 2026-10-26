@@ -39,7 +39,7 @@ import {
   BLANK_POSITION_TITLE,
   DEFAULT_HIRE_TYPE,
   validateHeadcount,
-} from "@/lib/positions/create-position";
+} from "@/lib/position/position-rules";
 
 type CreateBody = Partial<JobDescriptionFormData> & {
   /** S3 key from a prior POST /api/admin/job-openings/sign-upload + direct PUT to the returned signedUrl. */

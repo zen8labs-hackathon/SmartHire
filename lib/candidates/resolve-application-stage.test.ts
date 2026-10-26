@@ -50,6 +50,8 @@ function subStage(
     sequence_number: 1,
     is_default: opts.isDefault ?? false,
     is_passed: opts.isPassed ?? false,
+    is_terminal: false,
+    is_withdraw: false,
   };
 }
 

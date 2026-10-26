@@ -1,4 +1,8 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
+import {
+  countUpcomingActiveSchedulesForStage,
+  upcomingInterviewsBlockMessage,
+} from "@/lib/db/candidate-schedules";
 import { getPool } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 import { deleteLibraryStage, LibraryError, saveLibraryStage } from "@/lib/db/pipeline-library";
@@ -35,6 +39,16 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Validation failed." }, { status: 400 });
   }
   try {
+    // BR-INT-13: the Schedule flag cannot be turned off while interviews are upcoming.
+    if (parsed.data.type !== "schedule") {
+      const current = (await getPipelineLibrary(getPool())).find((s) => s.id === code);
+      if (current?.type === "schedule") {
+        const upcoming = await countUpcomingActiveSchedulesForStage(getPool(), { code });
+        if (upcoming > 0) {
+          return Response.json({ error: upcomingInterviewsBlockMessage(upcoming) }, { status: 409 });
+        }
+      }
+    }
     await saveLibraryStage(toLibraryInput(parsed.data, code), false);
     const stage = (await getPipelineLibrary(getPool())).find((s) => s.id === code);
     return Response.json({ stage });

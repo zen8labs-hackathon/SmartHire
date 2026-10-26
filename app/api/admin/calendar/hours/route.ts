@@ -9,7 +9,13 @@ import { logApiError } from "@/lib/logger";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
-const minute = z.number().int().min(360).max(1260);
+/** 06:00–21:00 on a 30-minute grid (BR-08-03). */
+const minute = z
+  .number()
+  .int()
+  .min(360)
+  .max(1260)
+  .refine((m) => m % 30 === 0, "Times must be on a 30-minute step.");
 
 const hoursSchema = z
   .object({

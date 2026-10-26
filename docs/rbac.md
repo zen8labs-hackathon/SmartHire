@@ -47,6 +47,7 @@ Bảng `permissions` (seed trong migration `*_permissions-catalog.sql`):
 | `salary.view` | Xem `expected_salary` (role HR/admin; chapter head qua check resource) |
 | `users.manage` | Users & chapters |
 | `pipelines.manage` | Pipeline setup |
+| `migration.manage` | Chuyển job legacy sang luồng mới (Migration Center) |
 
 **Gán mặc định (`role_permissions`):**
 
@@ -65,6 +66,7 @@ Map TypeScript (phải khớp seed): [`lib/authz/permissions.ts`](../lib/authz/p
 | `admin` / `hr` | Full trên mọi job (bypass ACL) |
 | Là `head` của chapter trong `job_allowed_chapters` | Xem + edit JD/CV + lương; **tạo JD**; **xóa JD** và **thêm/sửa/xóa viewers** trên job đó |
 | Có trong `job_allowed_profiles` (email grant) | Xem + edit JD/CV trên job đó (**không** lương; **không** tạo/xóa JD / đổi viewers) |
+| Cột `role` trên `job_allowed_profiles` (`recruiter` mặc định \| `interviewer`) | Nhãn vai trò gán ở tab Access; hiện chưa đổi quyền hạn (cả hai như dòng trên) |
 | Chỉ là `member` của chapter được grant | **Không** (cần profile grant riêng) |
 | Không grant | List rỗng; deep-link → 403 / redirect `/admin/jd` |
 

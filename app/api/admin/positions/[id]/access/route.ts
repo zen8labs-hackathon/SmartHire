@@ -8,6 +8,7 @@ import {
   grantJobToProfile,
   listAllowedChaptersForJob,
   listAllowedProfilesForJob,
+  type JobProfileRole,
   revokeJobFromChapter,
   revokeJobFromProfile,
 } from "@/lib/db/job-permissions";
@@ -23,6 +24,7 @@ export type AccessGrantDto = {
   id: string;
   name: string;
   email?: string;
+  role?: JobProfileRole;
   grantedBy: string | null;
   grantedAt: string;
 };
@@ -82,6 +84,7 @@ async function load(jobId: string): Promise<PositionAccess> {
         id: g.profile_id,
         name: u?.username ?? "Unknown user",
         email: u?.email,
+        role: g.role,
         grantedBy: g.granted_by ? (granters.get(g.granted_by) ?? null) : null,
         grantedAt: g.created_at.toISOString(),
       };
@@ -105,7 +108,7 @@ export async function GET(request: Request, ctx: Ctx) {
   return Response.json(await load(g.id));
 }
 
-type Body = { kind?: unknown; targetId?: unknown };
+type Body = { kind?: unknown; targetId?: unknown; role?: unknown };
 
 function parseBody(raw: Body) {
   if (
@@ -115,7 +118,14 @@ function parseBody(raw: Body) {
   ) {
     return null;
   }
-  return { kind: raw.kind, targetId: raw.targetId };
+  const role: JobProfileRole | null =
+    raw.role === undefined || raw.role === "recruiter"
+      ? "recruiter"
+      : raw.role === "interviewer"
+        ? "interviewer"
+        : null;
+  if (!role) return null;
+  return { kind: raw.kind, targetId: raw.targetId, role };
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -130,9 +140,14 @@ export async function POST(request: Request, ctx: Ctx) {
     if (body.kind === "chapter") {
       await grantJobToChapter(db, g.id, body.targetId, g.userId);
     } else {
-      await grantJobToProfile(db, g.id, body.targetId, g.userId);
+      await grantJobToProfile(db, g.id, body.targetId, g.userId, body.role);
     }
-  } catch {
+  } catch (e) {
+    // 23503 = foreign-key violation: the user/chapter doesn't exist.
+    if ((e as { code?: string }).code !== "23503") {
+      console.error("Position access grant failed:", e);
+      return Response.json({ error: "Could not update access." }, { status: 500 });
+    }
     return Response.json({ error: "Target not found." }, { status: 404 });
   }
   return Response.json(await load(g.id), { status: 201 });

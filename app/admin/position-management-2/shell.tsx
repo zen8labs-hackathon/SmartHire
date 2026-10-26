@@ -81,8 +81,9 @@ export function Shell({ user, crumbs, title, subtitle, onBack, trail, meta, acti
   ];
   const setup: [NavKey, string, null][] = user.key === "hr" || user.key === "ch" ? [["pipes", "Pipelines", null], ["chap", "Chapters", null], ["tpl", "Templates", null]] : [];
   const item = ([k, l, ct]: [NavKey, string, number | null]) => (
-    <a key={k} className={k === active ? "on" : ""} aria-current={k === active ? "page" : undefined} href="#"
-      onClick={(e) => { e.preventDefault(); if (k === active) onHome(); }}>
+    <a key={k} className={k === active ? "on" : ""} aria-current={k === active ? "page" : undefined}
+      href={k === "cal" ? "/admin/calendar-2" : "#"}
+      onClick={(e) => { if (k === "cal" && k !== active) return; e.preventDefault(); if (k === active) onHome(); }}>
       <Svg n={k} />{l}{ct != null && <span className="ct">{ct}</span>}
     </a>
   );
@@ -170,13 +171,13 @@ export function moveItems(c: Candidate, { onMove, onSub, onReject }: MoveHandler
     }
     if (j === i + 1) {
       items.push(passed
-        ? { label: s.label, icon: "arrow-right", shortcut: "M", note: user && !user.canDecide ? "Sent to Chapter Head as a proposal" : `Starts at "${s.def}"`, onClick: () => onMove(c, s.id) }
+        ? { label: s.label, icon: "arrow-right", shortcut: "M", note: `Starts at "${s.def}"`, onClick: () => onMove(c, s.id) }
         : { label: s.label, icon: "lock", disabled: true, note: `Opens after ${cur.label} is ${(cur.pass || "passed").toLowerCase()}` });
       return;
     }
     items.push({ label: s.label, icon: "lock", disabled: true, note: `Opens after ${S[j - 1].label} is ${(S[j - 1].pass || "passed").toLowerCase()}` });
   });
-  items.push("-", { label: user && !user.canDecide ? "Propose rejection…" : "Reject…", icon: "x", danger: true, shortcut: "X", onClick: () => onReject(c) });
+  items.push("-", { label: "Reject…", icon: "x", danger: true, shortcut: "X", onClick: () => onReject(c) });
   return items;
 }
 

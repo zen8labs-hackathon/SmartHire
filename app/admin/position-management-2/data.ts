@@ -46,6 +46,7 @@ export type Job = {
   /** Set when background JD processing failed (BR-02-27); retry via the reprocess API. */
   procError?: string | null;
   fresh?: boolean;
+  legacy?: boolean;
   /** Free-text JD columns; null/empty when not extracted or entered. */
   /** All chapters of the position (loaded with details). */
   chapters?: string[];
@@ -62,10 +63,16 @@ export type Stage = {
   color: string;
   label: string;
   subs: string[];
+  /** sub-stage label → pipeline sub_state id (real data only). */
+  subIds?: Record<string, string>;
   def: string;
   pass: string;
   fail?: string;
+  /** Sub-stage labels that record Not pass (terminal, not passed, not withdrawn); real data only. */
+  notPass?: string[];
   schedule?: boolean;
+  /** Per-job SLA in days (real data only). */
+  sla?: number;
   probation?: boolean;
   template?: string;
   rounds?: { name: string; template: string }[];
@@ -96,10 +103,17 @@ export type Candidate = {
   flags?: string[];
   notes?: number;
   noNote?: boolean;
-  proposal?: { to: StageId | "reject"; by: string; at: string; reason?: string } | null;
-  ivDone?: boolean;
+   ivDone?: boolean;
   ivNote?: string;
   prob?: unknown;
+  /** HR has recorded that the candidate accepted the offer. */
+  offerAccepted?: boolean;
+  /** Probation Mentor (users.id / name); unset for legacy rows. */
+  mentorId?: string;
+  mentorName?: string;
+  probationFailReason?: string;
+  probationExtendedUntil?: string;
+  probationExtensionCount?: number;
 };
 export type Criterion = {
   id: string;

@@ -66,6 +66,7 @@ describe("createBusyBlock", () => {
       null,
       null,
       null,
+      [],
     ]);
   });
 
@@ -91,6 +92,7 @@ describe("createBusyBlock", () => {
       "2026-11-20",
       "Leave",
       null,
+      [],
     ]);
   });
 });

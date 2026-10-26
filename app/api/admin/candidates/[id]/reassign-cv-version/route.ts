@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { redactAdminRowSalaryForAccess } from "@/lib/authz/redact-salary";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
@@ -51,6 +52,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
     sourceCampaignAppliedId,
   );
   if (!sourceAccess.ok) return sourceAccess.response;
+  {
+    const legacy = await guardLegacyJob(sourceAccess.application.job_id);
+    if (legacy) return legacy;
+  }
 
   let rawBody: unknown;
   try {
@@ -74,6 +79,10 @@ export async function PUT(request: Request, { params }: RouteContext) {
     targetCampaignAppliedId,
   );
   if (!targetAccess.ok) return targetAccess.response;
+  {
+    const legacy = await guardLegacyJob(targetAccess.application.job_id);
+    if (legacy) return legacy;
+  }
 
   try {
     const result = await withTransaction((tx) =>

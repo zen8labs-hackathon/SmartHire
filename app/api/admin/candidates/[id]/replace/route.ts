@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { z } from "zod";
@@ -33,6 +34,10 @@ export async function POST(request: Request, { params }: RouteContext) {
     newCampaignAppliedId,
   );
   if (!manageAccess.ok) return manageAccess.response;
+  {
+    const legacy = await guardLegacyJob(manageAccess.application.job_id);
+    if (legacy) return legacy;
+  }
 
   let rawBody: unknown;
   try {

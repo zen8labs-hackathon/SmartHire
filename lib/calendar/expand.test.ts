@@ -20,6 +20,7 @@ function block(over: Partial<BusyBlockInput> = {}): BusyBlockInput {
     untilDate: null,
     note: null,
     removedDates: [],
+    days: [],
     ...over,
   };
 }
@@ -46,6 +47,11 @@ describe("expandBusyBlock", () => {
       "2026-10-26",
       "2026-10-27",
     ]);
+  });
+
+  it("expands weekly on the picked weekdays", () => {
+    const b = block({ repeat: "weekly", days: [1, 3], untilDate: "2026-11-02" });
+    expect(dates(b, "2026-10-19", "2026-11-08")).toEqual(["2026-10-21", "2026-10-26", "2026-10-28", "2026-11-02"]);
   });
 
   it("expands weekly on the start weekday", () => {
@@ -115,6 +121,7 @@ describe("busyBlockFromRow", () => {
       until_date: new Date(2026, 10, 10),
       note: "Gym",
       removed_dates: [new Date(2026, 9, 27)],
+      days: [],
       series_parent_id: null,
       created_at: new Date(),
       updated_at: new Date(),
@@ -131,6 +138,7 @@ describe("busyBlockFromRow", () => {
       untilDate: "2026-11-10",
       note: "Gym",
       removedDates: ["2026-10-27"],
+      days: [],
     });
   });
 });

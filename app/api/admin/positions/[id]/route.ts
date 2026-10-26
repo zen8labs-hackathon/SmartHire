@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
@@ -5,7 +6,7 @@ import { getJobById, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
 import { optionalDateToDb } from "@/lib/jd/normalize-text";
 import { getPositionDescription, POSITION_DETAIL_COLUMNS } from "@/lib/position/get-position-description";
 import { queryPositionsWithEnrichment } from "@/lib/position/list-with-enrichment";
-import { isHireType, validateHeadcount } from "@/lib/positions/create-position";
+import { isHireType, validateHeadcount } from "@/lib/position/position-rules";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -36,6 +37,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
   }
   const perm = await requirePermissionOnJob(auth.access, "job.manage", id);
   if (!perm.ok) return perm.response;
+  const legacy = await guardLegacyJob(id);
+  if (legacy) return legacy;
 
   let body: Record<string, unknown>;
   try {

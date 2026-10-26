@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { createBatchDone } from "@/lib/db/batch-done";
@@ -33,6 +34,8 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     const perm = await requirePermissionOnJob(auth.access, "candidate.manage", jobId);
     if (!perm.ok) return perm.response;
+    const legacy = await guardLegacyJob(jobId);
+    if (legacy) return legacy;
   }
 
   let body: CvUploadBody;

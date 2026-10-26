@@ -3,7 +3,7 @@ import {
   createPositionState,
   validateHeadcount,
   validateJdFile,
-} from "./create-position";
+} from "./position-rules";
 
 describe("D-02-4 decision table", () => {
   it("R1 file + valid headcount", () => {

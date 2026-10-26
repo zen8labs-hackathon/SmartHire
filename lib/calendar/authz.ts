@@ -2,8 +2,9 @@
  * Calendar authorization rules (BA v1.1):
  * - A session is visible to HR/Admin, anyone with view access to its job, and
  *   its assigned interviewers (who get a limited view without a job grant).
- * - Reschedule/cancel: the organizer, or HR/Admin/Recruiter. A Chapter Head
- *   without one of those roles may only change sessions they organized.
+ * - Create/cancel (BR-INT-01): HR, Admin or a Recruiter only.
+ * - Reschedule (BR-07-01): the same managers, plus the session's organizer --
+ *   so a Chapter Head may reschedule only sessions they organized.
  * - Company working hours are edited by HR only.
  */
 
@@ -15,7 +16,8 @@ export type SessionAccessInfo = {
   interviewerIds: string[];
 };
 
-export type CalendarViewer = Pick<StaffProfileAccess, "userId" | "role" | "isAdmin" | "isHr">;
+export type CalendarViewer = Pick<StaffProfileAccess, "userId" | "role" | "isAdmin" | "isHr"> &
+  Partial<Pick<StaffProfileAccess, "headedChapterIds">>;
 
 export function isOrganizer(viewer: CalendarViewer, session: SessionAccessInfo): boolean {
   return session.createdBy !== null && session.createdBy === viewer.userId;
@@ -39,15 +41,25 @@ export function canSeeSession(
   );
 }
 
-export function canReschedule(viewer: CalendarViewer, session: SessionAccessInfo): boolean {
-  return (
-    viewer.isAdmin || viewer.isHr || viewer.role === "recruiter" || isOrganizer(viewer, session)
-  );
+/**
+ * BR-INT-01: who may create, reschedule or cancel interview sessions. Mirrors
+ * the PM2 UI role mapping, where a non-HR chapter head acts as "CH" even when
+ * their account role is recruiter.
+ */
+export function canManageInterviews(viewer: CalendarViewer): boolean {
+  if (viewer.isAdmin || viewer.isHr) return true;
+  return viewer.role === "recruiter" && (viewer.headedChapterIds?.length ?? 0) === 0;
 }
 
-/** Cancel follows the same rule as reschedule. */
-export const canCancel = canReschedule;
+export function canReschedule(viewer: CalendarViewer, session?: SessionAccessInfo): boolean {
+  return canManageInterviews(viewer) || (session !== undefined && isOrganizer(viewer, session));
+}
+
+/** Cancel stays with interview managers (BR-INT-01); organizing grants nothing extra. */
+export function canCancel(viewer: CalendarViewer, _session?: SessionAccessInfo): boolean {
+  return canManageInterviews(viewer);
+}
 
 export function canEditHours(viewer: CalendarViewer): boolean {
-  return viewer.isHr;
+  return viewer.isAdmin || viewer.isHr;
 }

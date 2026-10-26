@@ -1,3 +1,4 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { logApiError } from "@/lib/logger";
@@ -22,6 +23,10 @@ export async function POST(request: Request, ctx: Ctx) {
     id,
   );
   if (!perm.ok) return perm.response;
+  {
+    const legacy = await guardLegacyJob(perm.application.job_id);
+    if (legacy) return legacy;
+  }
   const app = perm.application;
   if (!app.job_id || !app.active_cv_version_id) {
     return Response.json(

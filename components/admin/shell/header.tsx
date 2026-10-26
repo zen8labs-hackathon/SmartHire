@@ -11,6 +11,8 @@ import { ArrowLeft, ChevronRight, Search, PanelLeftClose, PanelLeftOpen } from "
 export type HeaderProps = {
   userEmail: string;
   isHr: boolean;
+  /** Notification feed is staff-only (`/api/admin/notifications/stream` 403s otherwise). */
+  showNotifications?: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 };
@@ -18,6 +20,7 @@ export type HeaderProps = {
 export function Header({
   userEmail,
   isHr,
+  showNotifications = true,
   sidebarCollapsed,
   onToggleSidebar,
 }: HeaderProps) {
@@ -66,7 +69,7 @@ export function Header({
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-4">
-        <NotificationBell />
+        {showNotifications && <NotificationBell />}
         <UserDropdown userEmail={userEmail} isHr={isHr} />
       </div>
     </header>

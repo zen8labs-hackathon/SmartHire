@@ -37,6 +37,13 @@ export type CampaignAppliedRow = {
   jd_match_error: string | null;
   jd_match_rationale: string | null;
   hired_at: Date | null;
+  /** Agreed start date set by the Hire dialog (`date` column, `YYYY-MM-DD`). */
+  start_date: string | Date | null;
+  /** Probation Mentor (profile id); set by the Hire dialog, NULL for legacy rows. */
+  mentor_profile_id: string | null;
+  /** Latest agreed probation end date after an extension (`YYYY-MM-DD`). */
+  probation_extended_until: string | Date | null;
+  probation_extension_count: number;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -62,6 +69,10 @@ export type UpdateCampaignAppliedInput = {
   jdMatchError?: string | null;
   jdMatchRationale?: string | null;
   hiredAt?: Date | string | null;
+  startDate?: string | null;
+  mentorProfileId?: string | null;
+  probationExtendedUntil?: string | null;
+  probationExtensionCount?: number;
 };
 
 export type ListCampaignAppliedByJobFilters = PaginationParams & {
@@ -306,6 +317,10 @@ export async function updateCampaignApplied(
       jd_match_error: patch.jdMatchError,
       jd_match_rationale: patch.jdMatchRationale,
       hired_at: patch.hiredAt,
+      start_date: patch.startDate,
+      mentor_profile_id: patch.mentorProfileId,
+      probation_extended_until: patch.probationExtendedUntil,
+      probation_extension_count: patch.probationExtensionCount,
     },
     2,
   );

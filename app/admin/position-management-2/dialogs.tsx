@@ -1,16 +1,66 @@
 "use client";
 
 import * as React from "react";
-import type { Candidate, Job, Role, Stage } from "./data";
+import type { Candidate, Job, Stage } from "./data";
 import { MAX_BATCH_FILES, MAX_CV_BYTES, isAllowedCvFilename } from "@/lib/candidates/upload-constants";
-import { fetchCandidateApplications, uploadPositionCvs, type CandidateApplication, type CvFileState, type CvUploadResult } from "./api";
-import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/positions/create-position";
-import { Banner, Button, Checkbox, Dialog, DuplicateCompareCard, FileStatusRow, HireConfirmDialog, Icon, Input, Select, UploadQueuePanel, type FileStatusKey } from "./ext";
+import { fetchPeople, fetchPositionMembers, type PositionMember, fetchCandidateApplications, type PersonChoice, uploadPositionCvs, type CandidateApplication, type CvFileState, type CvUploadResult } from "./api";
+import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/position/position-rules";
+import { Banner, Button, Checkbox, Dialog, FileStatusRow, HireConfirmDialog, Icon, Input, Radio, Select, UploadQueuePanel, type FileStatusKey } from "./ext";
 
-export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number; pipelineId: string };
+export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number; pipelineId: string; people?: Assignee[] };
+export type Assignee = PersonChoice & { role: "recruiter" | "interviewer" };
 export type ChapterChoice = { id: string; name: string };
 
 const FLOW: [string, string, string][] = [["upload", "Upload JD", "You · now"], ["cpu", "System extracts", "Document + AI · < 1 min"], ["pencil", "Review on position page", "Edit fields & criteria"]];
+
+const ROLE_LABEL: Record<Assignee["role"], string> = { recruiter: "Recruiter", interviewer: "Interviewer" };
+
+function PeoplePicker({ value, onChange }: { value: Assignee[]; onChange: (next: Assignee[]) => void }) {
+  const [q, setQ] = React.useState("");
+  const [results, setResults] = React.useState<PersonChoice[]>([]);
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    if (!q.trim()) { setResults([]); setFailed(false); return; }
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      fetchPeople(q.trim(), ac.signal).then((r) => { setResults(r); setFailed(false); }).catch((e) => { if (!ac.signal.aborted) { setResults([]); setFailed(true); } void e; });
+    }, 200);
+    return () => { clearTimeout(t); ac.abort(); };
+  }, [q]);
+  const taken = new Map(value.map((a) => [a.id, a.role]));
+  const add = (p: PersonChoice, role: Assignee["role"]) => { onChange([...value.filter((a) => a.id !== p.id), { ...p, role }]); setQ(""); setResults([]); };
+  return (
+    <div>
+      <Input label="People (optional)" icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or email" hint="Search once, then add each person as a recruiter or an interviewer. Add as many as needed." />
+      {failed && <div className="shx-small" style={{ color: "var(--danger)" }}>Could not load people.</div>}
+      {results.length > 0 && (
+        <div className="shx-list" style={{ maxHeight: 180, overflow: "auto", marginTop: 6 }}>
+          {results.map((p) => {
+            const cur = taken.get(p.id);
+            return (
+              <div key={p.id} className="shx-li">
+                <span style={{ flex: 1, minWidth: 0 }}><b style={{ fontWeight: 500 }}>{p.name}</b><div className="shx-small">{p.email}</div></span>
+                {(["recruiter", "interviewer"] as const).map((r) => (
+                  <Button key={r} size="sm" variant="secondary" disabled={cur === r} onClick={() => add(p, r)}>{cur === r ? ROLE_LABEL[r] + " ✓" : "+ " + ROLE_LABEL[r]}</Button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {value.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {value.map((a) => (
+            <span key={a.id} className="sh-chip sh-chip--neutral" title={a.email}>
+              {a.name} · {ROLE_LABEL[a.role]}
+              <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Remove " + a.name} onClick={() => onChange(value.filter((x) => x.id !== a.id))}><Icon name="x" size={12} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaultChapterId, lockChapter, busy, error }: {
   onClose: () => void; onSubmit: (o: CreateJobInput) => void; chapters: ChapterChoice[]; pipelines: { id: string; name: string }[]; defaultChapterId?: string; lockChapter?: boolean; busy?: boolean; error?: string | null;
@@ -22,6 +72,7 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
   const [hc, setHc] = React.useState("1");
   const [pipelineId, setPipelineId] = React.useState("");
   const [tried, setTried] = React.useState(false);
+  const [people, setPeople] = React.useState<Assignee[]>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const hcErr = validateHeadcount(hc).error ?? undefined;
   const hcN = validateHeadcount(hc).value ?? 1;
@@ -39,9 +90,9 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
       title="Open new position" width={620} onClose={onClose}
       description="Upload the JD. SmartHire extracts the text and uses AI to fill position fields and scoring criteria. You review and edit everything on the position page before it opens."
       footer={<>
-        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => guard(() => onSubmit({ blank: true, chapterId, type, headcount: hcN, pipelineId }))}>No JD file? Start from a blank form</button>
+        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => guard(() => onSubmit({ blank: true, chapterId, type, headcount: hcN, pipelineId, people }))}>No JD file? Start from a blank form</button>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && guard(() => onSubmit({ file, chapterId, type, headcount: hcN, pipelineId }))}>{busy ? "Creating…" : "Upload & extract"}</Button>
+        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && guard(() => onSubmit({ file, chapterId, type, headcount: hcN, pipelineId, people }))}>{busy ? "Creating…" : "Upload & extract"}</Button>
       </>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -73,6 +124,7 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
           <div><Select label="Pipeline (required)" value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} options={[{ value: "", label: "Choose a pipeline" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))]} hint={pipelines.length === 0 ? "No pipelines available yet — ask HR to create one first" : "Hiring stages for this position. It can’t be changed after the position is created."} />{pipelineErr && <div className="sh-field__error" role="alert"><Icon name="circle-alert" size={14} />{pipelineErr}</div>}</div>
           <Input label="Headcount" type="number" min={1} max={50} step={1} value={hc} onChange={(e) => setHc(e.target.value)} suffix="people" error={hcErr} hint={hcErr ? undefined : "How many hires this position needs. You can change it later."} />
         </div>
+        <PeoplePicker value={people} onChange={setPeople} />
         <div className="shx-small">The position is saved as a draft right away. Extraction takes under a minute; you can leave the page and get a notification when it&apos;s ready.</div>
       </div>
     </Dialog>
@@ -94,7 +146,7 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
   dest?: number | "pool" | null; lockDest?: boolean; jobs: Job[]; resolveTarget: (to: string) => string | undefined; onClose: () => void; onStart: (b: UploadBatch) => void;
 }) {
   const openJobs = jobs.filter((j) => j.status === "Open");
-  const destOpts = [...openJobs.map((j) => ({ value: String(j.id), label: j.title + " · #" + j.id })), { value: "pool", label: "Talent pool (no position)" }];
+  const destOpts = [...openJobs.map((j) => ({ value: String(j.id), label: j.title + " · #" + j.id }))];
   const [to, setTo] = React.useState(String(dest ?? destOpts[0].value));
   const [srcPick, setSrcPick] = React.useState("");
   const [srcOther, setSrcOther] = React.useState("");
@@ -132,7 +184,7 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <input ref={inputRef} type="file" hidden multiple accept={CV_ACCEPT} onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
         <div className="jb-form" style={{ paddingTop: 0 }}>
-          <Select label="Upload to" value={to} onChange={(e) => setTo(e.target.value)} disabled={lockDest} hint={lockDest ? "CVs are added to this position" : "Or keep CVs in the Talent pool without a position"} options={lockedOpts} />
+          <Select label="Upload to" value={to} onChange={(e) => setTo(e.target.value)} disabled={lockDest} hint={lockDest ? "CVs are added to this position" : undefined} options={lockedOpts} />
           <Input label="Recruiter (optional)" value={recruiter} maxLength={120} onChange={(e) => setRecruiter(e.target.value)} placeholder="Defaults to you" />
           <div>
             <Select label="CV source (required)" value={srcPick} onChange={(e) => setSrcPick(e.target.value)} options={[{ value: "", label: "Choose source" }, ...CV_SOURCES]} />
@@ -229,63 +281,142 @@ export function ApplicationsDialog({ target, fileId, file, onClose }: { target: 
   );
 }
 
-export function DuplicateDialog({ onClose, onResolve }: { onClose: () => void; onResolve: (how: "merge" | "new") => void }) {
-  const R: [string, string, string, boolean][] = [
-    ["Name", "Lê Minh Châu", "Lê Minh Châu", true],
-    ["Email", "chau.le@gmail.com", "chau.le@gmail.com", true],
-    ["Phone", "0912 345 678", "0987 111 222", false],
-    ["Current role", "Frontend Dev · Sapo", "Web Developer · Sapo", false],
-    ["Last application", "Web Developer #97 · 03/2025", "New CV", false],
-  ];
+/** Hire = move into the probation-type stage. `startDate` is YYYY-MM-DD (`campaign_applied.start_date`); the Mentor (required) is someone already added to the position. */
+export function HireDialog({ c, job, jobUuid, onClose, onOk }: { c: { name: string }; job: Job; jobUuid?: string; onClose: () => void; onOk: (o: { startDate: string; mentorId: string }) => void }) {
+  const [date, setDate] = React.useState("");
+  const [mentor, setMentor] = React.useState("");
+  const [members, setMembers] = React.useState<PositionMember[] | null>(null);
+  const [err, setErr] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!jobUuid) { setMembers([]); return; }
+    const ac = new AbortController();
+    fetchPositionMembers(jobUuid, ac.signal).then(setMembers).catch((e) => { if (!ac.signal.aborted) { setErr(e instanceof Error ? e.message : "Could not load people."); setMembers([]); } });
+    return () => ac.abort();
+  }, [jobUuid]);
+  const options = [{ value: "", label: members ? "Choose a Mentor" : "Loading…" }, ...(members ?? []).map((m) => ({ value: m.id, label: m.name + " · " + (m.role === "recruiter" ? "Recruiter" : "Interviewer") }))];
   return (
-    <Dialog title="Possible duplicate" description="Email matches an existing candidate but the phone number differs, so SmartHire did not merge them automatically." width={640} onClose={onClose}>
-      <DuplicateCompareCard rows={R} onMerge={() => onResolve("merge")} onNew={() => onResolve("new")} />
-      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12 }}>Merging keeps both CV versions and uses the newest phone number. Creating a new candidate asks for a reason.</div>
-    </Dialog>
-  );
-}
-
-export function HireDialog({ c, job, onClose, onOk }: { c: { name: string }; job: Job; onClose: () => void; onOk: () => void }) {
-  return (
-    <HireConfirmDialog name={c.name} detail={job.title + " will have " + (job.hired + 1) + " of " + job.headcount + " positions filled."} onClose={onClose} onConfirm={onOk}>
-      <div className="jb-form" style={{ paddingTop: 0 }}><Input label="Start date" defaultValue="15/10/2026" /><Input label="Probation ends" defaultValue="15/12/2026" hint="Mentor reminder 7 days before" /></div>
+    <HireConfirmDialog name={c.name} detail={job.title + " will have " + (job.hired + 1) + " of " + job.headcount + " positions filled."} onClose={onClose} disabled={!date || !mentor} onConfirm={() => date && mentor && onOk({ startDate: date, mentorId: mentor })}>
+      <div className="jb-form" style={{ paddingTop: 0 }}>
+        <Input label="Start date" type="date" value={date} onChange={(e) => setDate(e.target.value)} hint="The candidate's agreed first working day" />
+        <Select label="Mentor (required)" value={mentor} onChange={(e) => setMentor(e.target.value)} options={options} />
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>{err ?? (members && !members.length ? "No one has been added to this position yet. Add an interviewer or recruiter first." : "The Mentor reviews the probation and decides Pass or Not pass. Only people already on this position are listed.")}</div>
+      </div>
     </HireConfirmDialog>
   );
 }
 
-export function RejectDialog({ names, unreviewed, onClose, onOk }: { names: string[]; unreviewed?: number; onClose: () => void; onOk: () => void }) {
+export type RejectOptions = { reason: string; keepInPool: boolean; notifyInterviewers: boolean };
+
+export function RejectDialog({ names, unreviewed, onClose, onOk }: { names: string[]; unreviewed?: number; onClose: () => void; onOk: (o: RejectOptions) => void }) {
   const [r, setR] = React.useState("");
-  const [keep, setKeep] = React.useState(true);
+  const [notify, setNotify] = React.useState(false);
   return (
     <Dialog
       title={"Reject " + (names.length > 1 ? names.length + " candidates" : names[0]) + "?"}
       description={unreviewed ? unreviewed + " of these candidates have not been reviewed by a person. Their only negative signal is the AI match." : "Each rejection is written to the candidate history with your name."}
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" disabled={!r} onClick={onOk}>Reject</Button></>}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" disabled={!r} onClick={() => onOk({ reason: r, keepInPool: false, notifyInterviewers: notify })}>Reject</Button></>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Select label="Reason (required)" value={r} onChange={(e) => setR(e.target.value)} options={[{ value: "", label: "Choose a reason" }, "Skills do not match", "Experience level", "Salary expectation", "Candidate withdrew", "Position filled", "Other"]} />
-        <Checkbox checked={keep} onChange={(e) => setKeep(e.target.checked)} label="Keep in Talent pool for future positions" />
+        {/* Talent Pool is deferred: the option stays visible but can't be chosen yet. */}
+        <Checkbox checked={false} disabled label={<>Keep in Talent pool for future positions <span style={{ fontSize: 12, color: "var(--muted)" }}>(Coming soon)</span></>} />
+        <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers of canceled upcoming interviews" />
         <div style={{ fontSize: 12, color: "var(--muted)" }}>Rejection emails are not sent automatically. Undo is available for 10 minutes.</div>
       </div>
     </Dialog>
   );
 }
 
-export function CloseJobDialog({ job, onClose, onOk }: { job: Job; onClose: () => void; onOk: () => void }) {
-  const [revoke, setRevoke] = React.useState(true);
+/** BR-INT-12: moving a candidate who still has upcoming interviews asks what to do with them. */
+export function MoveWithSessionsDialog({ name, to, sessions, onClose, onOk }: { name: string; to: string; sessions: { when: string; round: string }[]; onClose: () => void; onOk: (o: { cancelUpcoming: boolean; notifyInterviewers: boolean }) => void }) {
+  const [cancel, setCancel] = React.useState(true);
   const [notify, setNotify] = React.useState(false);
   return (
     <Dialog
-      title={"Close " + job.title + "?"}
-      description={job.candidates + " candidates are still active. They will move to the Talent pool with their current stage recorded. " + job.hired + " of " + job.headcount + " positions are filled."}
+      title={"Move " + name + " to " + to + "?"}
+      description={name + " has " + sessions.length + " upcoming interview" + (sessions.length > 1 ? "s" : "") + ". Choose what happens to " + (sessions.length > 1 ? "them" : "it") + "."}
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" onClick={onOk}>Close position</Button></>}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => onOk({ cancelUpcoming: cancel, notifyInterviewers: cancel && notify })}>Move</Button></>}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{sessions.map((x, i) => <li key={i}>{x.round} · {x.when}</li>)}</ul>
+        <Radio name="mv-sessions" checked={!cancel} onChange={() => setCancel(false)} label="Keep the upcoming interviews" />
+        <Radio name="mv-sessions" checked={cancel} onChange={() => setCancel(true)} label="Cancel the upcoming interviews" />
+        {cancel && <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers" />}
+      </div>
+    </Dialog>
+  );
+}
+
+export type CloseBlocker = { id: string; name: string; stage: string };
+
+/**
+ * BR-06-13: close is refused while candidates are in an offer/probation stage;
+ * the server returns them and they are listed here. Link revoking and moving
+ * candidates to the Talent pool are not built yet, so they are not offered.
+ */
+export function CloseJobDialog({ job, blocking, busy, onClose, onOk }: { job: Job; blocking?: CloseBlocker[]; busy?: boolean; onClose: () => void; onOk: (o: { notifyInterviewers: boolean }) => void }) {
+  const [notify, setNotify] = React.useState(false);
+  const blocked = !!blocking && blocking.length > 0;
+  return (
+    <Dialog
+      title={"Close " + job.title + "?"}
+      description={job.candidates + " candidate" + (job.candidates === 1 ? " is" : "s are") + " in this position. Their current stage is recorded when it closes. " + job.hired + " of " + job.headcount + " positions are filled."}
+      onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" disabled={blocked || busy} onClick={() => onOk({ notifyInterviewers: notify })}>Close position</Button></>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <Checkbox checked={revoke} onChange={(e) => setRevoke(e.target.checked)} label="Revoke public evaluation links for this position (3 active)" />
-        <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers with upcoming schedules" />
+        {blocked && (
+          <Banner tone="warning" title="Resolve these candidates first">
+            <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>{blocking!.map((b) => <li key={b.id}>{b.name} · {b.stage}</li>)}</ul>
+            Move them to another stage or reject them, then close the position.
+          </Banner>
+        )}
+        <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers of canceled upcoming interviews" />
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>Upcoming interviews are canceled when the position closes. Moving candidates to the Talent pool is coming soon.</div>
       </div>
+    </Dialog>
+  );
+}
+
+/** AC-06-16: putting a position on hold or reopening it needs a reason. */
+export function StatusReasonDialog({ job, to, busy, onClose, onOk }: { job: Job; to: "hold" | "reopen"; busy?: boolean; onClose: () => void; onOk: (o: { reason: string; notifyInterviewers: boolean }) => void }) {
+  const [reason, setReason] = React.useState("");
+  const [notify, setNotify] = React.useState(false);
+  const trimmed = reason.trim();
+  const err = trimmed.length > 1000 ? "Keep the reason under 1000 characters" : undefined;
+  const hold = to === "hold";
+  return (
+    <Dialog
+      title={(hold ? "Put " : "Reopen ") + job.title + (hold ? " on hold?" : "?")}
+      description={hold ? "Upcoming interviews for this position are canceled. The reason is saved with the position." : "The position goes back to Open. The reason is saved with the position."}
+      width={480}
+      onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!trimmed || !!err || busy} onClick={() => onOk({ reason: trimmed, notifyInterviewers: hold && notify })}>{hold ? "Put on hold" : "Reopen position"}</Button></>}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Input label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} error={err} autoFocus />
+        {hold && <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers of canceled upcoming interviews" />}
+      </div>
+    </Dialog>
+  );
+}
+
+/** Recording Not pass on a probation needs a reason; it is saved to the candidate history and shown to the Mentor. */
+export function NotPassReasonDialog({ name, sub, busy, onClose, onOk }: { name: string; sub: string; busy?: boolean; onClose: () => void; onOk: (reason: string) => void }) {
+  const [reason, setReason] = React.useState("");
+  const trimmed = reason.trim();
+  const err = trimmed.length > 1000 ? "Keep the reason under 1000 characters" : undefined;
+  return (
+    <Dialog
+      title={"Mark " + name + " as " + sub + "?"}
+      description="The reason is saved to the candidate history. The Mentor can see it; the candidate cannot."
+      width={480}
+      onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" disabled={!trimmed || !!err || busy} onClick={() => onOk(trimmed)}>{sub}</Button></>}
+    >
+      <Input label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} error={err} autoFocus />
     </Dialog>
   );
 }
@@ -329,7 +460,7 @@ export type BulkMovePlan = { kind: "sub" | "stage"; value: string; ids: number[]
 type BulkTarget = { key: string; kind: "sub" | "stage"; value: string; label: string; group: string; ok: (c: Candidate) => string | null };
 
 /** Bulk move for candidates that share one stage; each target lists who is eligible and why others are skipped. */
-export function BulkMoveDialog({ cands, stages, user, onClose, onOk }: { cands: Candidate[]; stages: Stage[]; user: Role; onClose: () => void; onOk: (p: BulkMovePlan) => void }) {
+export function BulkMoveDialog({ cands, stages, onClose, onOk }: { cands: Candidate[]; stages: Stage[]; onClose: () => void; onOk: (p: BulkMovePlan) => void }) {
   const cur = stages.find((s) => s.id === cands[0]?.stage);
   const i = cur ? stages.indexOf(cur) : -1;
   const base = (c: Candidate) => (c.st === "scoring" ? "still scoring" : c.st === "error" ? "scoring failed" : null);
@@ -349,22 +480,20 @@ export function BulkMoveDialog({ cands, stages, user, onClose, onOk }: { cands: 
   const t = targets.find((x) => x.key === key);
   const rows = t ? cands.map((c) => ({ c, why: t.kind === "sub" ? (c.sub === t.value ? "already " + t.value : null) : t.ok(c) })) : [];
   const ok = rows.filter((r) => !r.why), skipped = rows.filter((r) => r.why);
-  const fwd = !!t && t.kind === "stage" && stages.findIndex((s) => s.id === t.value) > i;
-  const proposal = fwd && !user.canDecide;
   return (
     <Dialog
       title={`Move ${cands.length} candidates`}
       description={cur ? `All selected are in ${cur.label}. Only candidates valid for the chosen target move.` : undefined}
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!t || ok.length === 0} onClick={() => t && onOk({ kind: t.kind, value: t.value, ids: ok.map((r) => r.c.id) })}>{proposal ? `Propose for ${ok.length}` : t ? `Move ${ok.length}` : "Move"}</Button></>}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!t || ok.length === 0} onClick={() => t && onOk({ kind: t.kind, value: t.value, ids: ok.map((r) => r.c.id) })}>{t ? `Move ${ok.length}` : "Move"}</Button></>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Select label="Move to stage" value={key} onChange={(e) => setKey(e.target.value)}
           options={[{ value: "", label: "Choose a stage" }, ...targets.map((x) => ({ value: x.key, label: x.group + " · " + x.label }))]} />
         {t && <>
           <div style={{ fontSize: 13 }}>
-            {ok.length} of {cands.length} will {proposal ? "be proposed to the Chapter Head" : t.kind === "sub" ? `be set to “${t.value}”` : `move to ${t.label}`}
-            {t.kind === "stage" && !proposal && ok.length > 0 && ` and start at “${stages.find((s) => s.id === t.value)?.def}”`}.
+            {ok.length} of {cands.length} will {t.kind === "sub" ? `be set to “${t.value}”` : `move to ${t.label}`}
+            {t.kind === "stage" && ok.length > 0 && ` and start at “${stages.find((s) => s.id === t.value)?.def}”`}.
           </div>
           {ok.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>{ok.map((r) => r.c.name).join(", ")}</div>}
           {skipped.length > 0 && <Banner tone="warning" icon="triangle-alert" title={`${skipped.length} skipped`}>
@@ -376,15 +505,19 @@ export function BulkMoveDialog({ cands, stages, user, onClose, onOk }: { cands: 
   );
 }
 
-export function RemoveDialog({ names, onClose, onOk }: { names: string[]; onClose: () => void; onOk: () => void }) {
+export function RemoveDialog({ names, onClose, onOk }: { names: string[]; onClose: () => void; onOk: (o: { notifyInterviewers: boolean }) => void }) {
+  const [notify, setNotify] = React.useState(false);
   return (
     <Dialog
       title={"Remove " + (names.length > 1 ? names.length + " candidates" : names[0]) + " from this position?"}
       description="They are taken off this position's pipeline. Their CVs stay in the system and can be added to a position again."
       onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" onClick={onOk}>Remove</Button></>}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button variant="danger" onClick={() => onOk({ notifyInterviewers: notify })}>Remove</Button></>}
     >
-      <div style={{ fontSize: 13 }}>{names.join(", ")}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ fontSize: 13 }}>{names.join(", ")}</div>
+        <Checkbox checked={notify} onChange={(e) => setNotify(e.target.checked)} label="Notify interviewers of canceled upcoming interviews" />
+      </div>
     </Dialog>
   );
 }

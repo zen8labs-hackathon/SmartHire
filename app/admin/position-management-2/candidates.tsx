@@ -3,21 +3,31 @@
 import * as React from "react";
 import { STAGES, srcInfo, type AttentionItem, type Candidate, type Criterion, type Role, type Stage, type TimelineItem } from "./data";
 import { CVSideBySide } from "./cv-view";
-import { fetchActivity, fetchApplications, fetchCandidateMatch, fetchCvHistory, fetchInterviewNotes, fetchSchedules, saveInterviewNote, overrideCriterion, revertCriterion, rescoreCandidate, type CandidateApplicationRow, type CandidateMatch, type CandidateSchedule, type InterviewNote, type CvVersionItem as CvVer } from "./api";
+import { fetchActivity, fetchApplications, fetchCandidateMatch, fetchCvHistory, fetchInterviewNotes, fetchSchedules, markNoShow, saveInterviewNote, overrideCriterion, revertCriterion, rescoreCandidate, type CandidateApplicationRow, type PositionMember, type CandidateMatch, type CandidateSchedule, type InterviewNote, type CvVersionItem as CvVer } from "./api";
+import { ScheduleDialog } from "@/app/admin/calendar-2/schedule-dialog";
+import type { Session } from "../calendar-2/data";
+import { STATUS_LABEL, isoDateInTz, minuteOfDayInTz } from "../calendar-2/data";
+import { cancelSchedule } from "../calendar-2/api";
+import { STATUS_TONE } from "../calendar-2/event-dialog";
 import { NextStepPanel, nextStep, stageKind, type Act } from "./nextstep";
 import { MoveButton, Pop, StageChip, StagePath, moveItems, stageOf, type MoveHandlers } from "./shell";
 import {
-  AIBadge, AIRationale, ActivityTimeline, ApplicationRow, Avatar, Badge, Banner, Button, CVVersionItem, CandidateHeader, Checkbox, CriterionResult,
+  AIBadge, AIRationale, ActivityTimeline, ApplicationRow, Avatar, Badge, Banner, Button, CVVersionItem, CandidateHeader, Checkbox, CriterionResult, Dialog,
   EntityTabs, FileStatus, FileStatusRow, HiddenScoreNotice, Icon, IdentityTag, Input, InterviewNoteEditor, KanbanCard, KanbanColumn, MatchBand,
-  MatchStatusInline, MoveToMenu, RestrictedValue, ScoreComposition, Table, Tabs, lsGet, lsSet, type BandKey, type Column, type CritResult,
+  MatchStatusInline, MoveToMenu, RestrictedValue, ScoreComposition, Select, Table, Tabs, lsGet, lsSet, type BandKey, type Column, type CritResult,
   type FileStatusKey,
 } from "./ext";
 
 type Style = React.CSSProperties;
 
 export type CandHandlers = MoveHandlers & {
+  onOfferAccepted: (c: Candidate) => void;
   onBulk: (sel: number[], kind: string, done?: () => void) => void;
   onAttention: (a: Partial<AttentionItem>, action: string) => void;
+  /** Job members eligible as probation Mentor. */
+  loadMembers: () => Promise<PositionMember[]>;
+  onChangeMentor: (c: Candidate, mentor: PositionMember, reason?: string) => Promise<void>;
+  onExtend: (c: Candidate, until: string, reason: string) => Promise<void>;
 };
 export type OpenCand = (id: number, ids: number[], label: string, review?: boolean) => void;
 export type NextStep = { mine: boolean } | null;
@@ -357,8 +367,33 @@ type Zoom = (typeof ZOOMS)[number];
 const ddmm = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; };
 const readZoom = (): Zoom => { const z = lsGet<string>("jb-drawer-zoom", "md"); return z === "full" ? "full" : "md"; };
 
+function MentorPicker({ c, h }: { c: Candidate; h: CandHandlers }) {
+  const [members, setMembers] = React.useState<PositionMember[] | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { let on = true; h.loadMembers().then((m) => on && setMembers(m)).catch(() => on && setMembers([])); return () => { on = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const opts = [{ value: "", label: c.mentorId ? "Change Mentor…" : "Assign a Mentor…" }, ...(members ?? []).filter((m) => m.id !== c.mentorId).map((m) => ({ value: m.id, label: `${m.name} · ${m.role === "recruiter" ? "Recruiter" : "Interviewer"}` }))];
+  return <Select value="" disabled={busy || !members} options={opts} onChange={(e) => {
+    const m = members?.find((x) => x.id === e.target.value); if (!m) return;
+    setBusy(true); void h.onChangeMentor(c, m).finally(() => setBusy(false));
+  }} />;
+}
+
+function ExtendProbation({ c, h }: { c: Candidate; h: CandHandlers }) {
+  const [until, setUntil] = React.useState("");
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(until) && reason.trim().length > 0;
+  return (
+    <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+      <Input label="Extend until" type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
+      <Input label="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Button variant="secondary" size="sm" disabled={!ok || busy} onClick={() => { setBusy(true); void h.onExtend(c, until, reason.trim()).then(() => { setUntil(""); setReason(""); }).finally(() => setBusy(false)); }}>Extend probation</Button>
+    </div>
+  );
+}
+
 export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSubmitNotes, nav, onOpen, stages = STAGES }: {
-  c: Candidate | null; user: Role; h: MoveHandlers; onClose: () => void; nav?: { ids: number[]; label: string } | null; onOpen?: (id: number) => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void; stages?: Stage[];
+  c: Candidate | null; user: Role; h: CandHandlers; onClose: () => void; nav?: { ids: number[]; label: string } | null; onOpen?: (id: number) => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void; stages?: Stage[];
 }) {
   const [tab, setTab] = React.useState(user.key === "iv" ? "notes" : "match");
   const [match, setMatch] = React.useState<CandidateMatch | null>(null);
@@ -376,6 +411,9 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
   const [personOpen, setPersonOpen] = React.useState(true);
   const [allApps, setAllApps] = React.useState(false);
   const caId = c?.caId;
+  const [sd, setSd] = React.useState<{ roundLabel?: string; existing?: Session } | null>(null);
+  const [flash, setFlash] = React.useState<string | null>(null);
+  const [cancelFor, setCancelFor] = React.useState<CandidateSchedule | null>(null);
   const loadMatch = React.useCallback((signal?: AbortSignal) => {
     if (!caId) return Promise.resolve();
     return fetchCandidateMatch(caId, signal).then((m) => { setMatch(m); setMatchErr(null); }).catch((e) => { if (!signal?.aborted) setMatchErr(e instanceof Error ? e.message : "Could not load the match."); });
@@ -385,6 +423,8 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     const ac = new AbortController();
     fetchApplications(caId, ac.signal).then(setApps).catch(() => setApps([]));
     fetchCvHistory(caId, ac.signal).then(setCvVers).catch(() => setCvVers([]));
+    // The Next step panel needs the schedules on open, not only once the Interview tab is visited.
+    fetchSchedules(caId, ac.signal).then(setScheds).catch(() => setScheds([]));
     return () => ac.abort();
   }, [caId]);
   React.useEffect(() => {
@@ -404,14 +444,13 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     if (!caId || tab !== "notes") return;
     const ac = new AbortController();
     setNotesErr(null);
-    fetchSchedules(caId, ac.signal).then(setScheds).catch(() => setScheds([]));
     fetchInterviewNotes(caId, ac.signal).then(setNotes).catch((e) => { if (!ac.signal.aborted) { setNotes([]); setNotesErr(e instanceof Error ? e.message : "Could not load notes."); } });
     return () => ac.abort();
   }, [caId, tab]);
   const submitNote = async (v: string) => {
     if (!c) return;
     if (caId) {
-      try { const n = await saveInterviewNote(caId, v); setNotes((p) => [n, ...(p ?? [])]); setNotesErr(null); } catch (e) { setNotesErr(e instanceof Error ? e.message : "Could not save the note."); return; }
+      try { const n = await saveInterviewNote(caId, v); setNotes((p) => [n, ...(p ?? [])]); setNotesErr(null); reloadSchedules(); } catch (e) { setNotesErr(e instanceof Error ? e.message : "Could not save the note."); return; }
     }
     setAddNote(false);
     onSubmitNotes(c, v);
@@ -447,8 +486,10 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
       const t = e.target as HTMLElement | null;
       if (t && t.closest && t.closest("input,textarea,select,[contenteditable]")) return;
       if (e.key === "Escape") { onClose(); return; }
-      if ((e.key === "j" || e.key === "k") && nav && onOpen && c) {
-        const i = nav.ids.indexOf(c.id), n = nav.ids[i + (e.key === "j" ? 1 : -1)];
+      const fwd = e.key === "j" || e.key === "ArrowRight", back = e.key === "k" || e.key === "ArrowLeft";
+      if ((fwd || back) && !e.metaKey && !e.ctrlKey && !e.altKey && nav && onOpen && c) {
+        e.preventDefault();
+        const i = nav.ids.indexOf(c.id), n = nav.ids[i + (fwd ? 1 : -1)];
         if (i >= 0 && n != null) onOpen(n);
         return;
       }
@@ -459,16 +500,69 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     addEventListener("keydown", k);
     return () => removeEventListener("keydown", k);
   });
+  const [jumpOpen, setJumpOpen] = React.useState(false);
   if (!c) return null;
   const s = stageOf(c.stage, stages);
   const prev = (c.flags || []).includes("prev");
   const hidden = !!user.hideScore && !c.ivDone;
   const kind = stageKind(s, stages.indexOf(s));
-  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null });
+  // Latest live/held session drives the Schedule step (prefers the current round).
+  const latestSched = (() => {
+    const rows = (scheds ?? []).filter((x) => ["Scheduled", "Confirmed", "Completed", "NoShow"].includes(String(x.status)));
+    const pick = (rs: CandidateSchedule[]) => rs.sort((a, b) => new Date(String(b.scheduled_at)).getTime() - new Date(String(a.scheduled_at)).getTime())[0];
+    const r = pick(rows.filter((x) => c.round && x.round_label === c.round)) ?? pick(rows);
+    if (!r) return null;
+    const at = new Date(String(r.scheduled_at));
+    if (Number.isNaN(at.getTime())) return null;
+    const hm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+    return { d: `${ddmm(at.toISOString())} ${hm}`, past: at.getTime() <= Date.now(), noShow: r.status === "NoShow", done: r.status === "Completed" };
+  })();
+  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
+  // A started, still-active session can be marked as no-show (BR-INT-09).
+  const canNoShow = (r: CandidateSchedule) => (r.status === "Scheduled" || r.status === "Confirmed") && new Date(String(r.scheduled_at)).getTime() <= Date.now()
+    && (r.canEdit || (user.key === "iv" && r.seats.length > 0));
+  const doNoShow = (r: CandidateSchedule) => {
+    if (!caId) return;
+    markNoShow(caId, String(r.id)).then(() => { say("Marked as no-show."); reloadSchedules(); }).catch((e: unknown) => say(e instanceof Error ? e.message : "Could not mark the no-show."));
+  };
+  const toSession = (r: CandidateSchedule): Session | null => {
+    if (!caId) return null;
+    const start = new Date(String(r.scheduled_at)), dur = Number(r.duration_minutes ?? 60);
+    return {
+      id: String(r.id), start, end: new Date(start.getTime() + dur * 60_000), date: isoDateInTz(start), startMin: minuteOfDayInTz(start), durationMin: dur,
+      round: (r.round_label as string | null) ?? null, status: r.status as Session["status"], mode: (r.mode as Session["mode"]) ?? null,
+      location: (r.location as string | null) ?? null, meetingLink: (r.meeting_link as string | null) ?? null, note: (r.note as string | null) ?? null,
+      campaignAppliedId: caId, candidateId: null, candidateName: c.name, jobId: null, organizerId: String(r.created_by ?? ""),
+      interviewers: r.seats.map(({ id, declinedAt, declineReason, submitted }) => ({ id, declinedAt, declineReason, submitted })),
+      noInterviewer: Boolean(r.no_interviewer_flag), canEdit: r.canEdit, limited: false,
+    };
+  };
+  const upcomingSession = (): Session | null => {
+    const now = Date.now();
+    const r = (scheds ?? []).filter((x) => (x.status === "Scheduled" || x.status === "Confirmed") && new Date(String(x.scheduled_at)).getTime() > now)
+      .sort((a, b) => new Date(String(b.scheduled_at)).getTime() - new Date(String(a.scheduled_at)).getTime())[0];
+    return r ? toSession(r) : null;
+  };
+  const reloadSchedules = () => {
+    if (!caId) return;
+    void fetchSchedules(caId).then(setScheds).catch(() => {});
+    void fetchActivity(caId).then((r) => setActs({ items: r.items, next: r.nextCursor })).catch(() => {});
+  };
+  const say = (m: string) => { setFlash(m); setTimeout(() => setFlash(null), 5000); };
   const runAct = (a: Act) => {
+    if (a.t === "sched" || a.t === "nextRound") return setSd({ roundLabel: a.label.replace(/^Schedule /, "") });
+    if (a.t === "resched") {
+      const ex = upcomingSession();
+      return ex ? setSd({ existing: ex }) : setSd({ roundLabel: c.round ?? undefined });
+    }
+    if (a.t === "noShow") {
+      const r = (scheds ?? []).filter(canNoShow).sort((x, y) => new Date(String(y.scheduled_at)).getTime() - new Date(String(x.scheduled_at)).getTime())[0];
+      return r ? doNoShow(r) : say("No started session to mark as no-show.");
+    }
     if (a.t === "rescore") return void doRescore();
     if (a.t === "interview") return setTab("notes");
-    if (a.t === "fail" || a.t === "decline") return h.onReject(c);
+    if (a.t === "fail") return h.onReject(c);
+    if (a.t === "patch") return a.patch?.accepted ? h.onOfferAccepted(c) : undefined;
     if (a.sub && !a.to) return h.onSub(c, a.sub);
     if (a.to) return h.onMove(c, a.to);
   };
@@ -481,19 +575,22 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
   ];
   const idx = nav ? nav.ids.indexOf(c.id) : -1;
   const go = (d: number) => { const n = nav?.ids[idx + d]; if (n != null && onOpen) onOpen(n); };
-  const [jumpOpen, setJumpOpen] = React.useState(false);
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
-      if (e.key === "j") go(1); else if (e.key === "k") go(-1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
   const full = zoom === "full";
   return (
     <>
+      {sd && caId && (
+        <ScheduleDialog campaignAppliedId={caId} candidateName={c.name} roundLabel={sd.roundLabel} existing={sd.existing}
+          onClose={() => setSd(null)}
+          onDone={(m) => {
+            setSd(null); say(m); reloadSchedules();
+          }} />
+      )}
+      {cancelFor && caId && (
+        <CancelInterviewDialog name={c.name} round={String(cancelFor.round_label ?? "Interview")}
+          onClose={() => setCancelFor(null)}
+          onSubmit={(reason) => cancelSchedule(caId, String(cancelFor.id), reason).then(() => { setCancelFor(null); say("Interview canceled."); reloadSchedules(); })} />
+      )}
+      {flash && <div role="status" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 1000 }}><Banner tone="success" title={flash} /></div>}
       {!full && <div className="jb-scrim" onClick={onClose} />}
       <div className={full ? "ad-full" : "ad-quick"} role="dialog" aria-label={c.name}>
         <div className="ad-ctx">
@@ -503,9 +600,9 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           <span className="ad-sp" />
           {nav && idx >= 0 && (
             <div className="ad-pager">
-              <Button variant="ghost" size="sm" icon="chevron-left" disabled={idx <= 0} onClick={() => go(-1)} title={idx <= 0 ? "This is the first application in this group" : "Previous (K)"}>Previous</Button>
+              <Button variant="ghost" size="sm" icon="chevron-left" disabled={idx <= 0} onClick={() => go(-1)} title={idx <= 0 ? "This is the first application in this group" : "Previous (← / K)"}>Previous</Button>
               <button type="button" className="ad-pager__n" aria-haspopup="menu" aria-expanded={jumpOpen} title="Jump to…" onClick={() => setJumpOpen((v) => !v)}>{idx + 1} / {nav.ids.length}</button>
-              <Button variant="ghost" size="sm" iconRight="chevron-right" disabled={idx >= nav.ids.length - 1} onClick={() => go(1)} title={idx >= nav.ids.length - 1 ? "This is the last application in this group" : "Next (J)"}>Next</Button>
+              <Button variant="ghost" size="sm" iconRight="chevron-right" disabled={idx >= nav.ids.length - 1} onClick={() => go(1)} title={idx >= nav.ids.length - 1 ? "This is the last application in this group" : "Next (→ / J)"}>Next</Button>
               {jumpOpen && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 4 }} onClick={() => setJumpOpen(false)} />
@@ -544,9 +641,9 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
             )}
           </div>
           <StagePath c={c} stages={stages} />
-          <NextStepPanel ns={ns} render={(a) => (
+          {!(scheds == null && kind === "iv") && <NextStepPanel ns={ns} render={(a) => (
             <Button key={a.t + a.label} size="sm" variant={a.primary ? "primary" : "secondary"} icon={a.icon} onClick={() => runAct(a)}>{a.label}</Button>
-          )} />
+          )} />}
         </header>
         <div className="ad-body">
           <div className="ad-left">
@@ -603,6 +700,33 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                 : <>
                     {acts.items.length === 0 ? <div className="shx-small">No activity recorded yet.</div> : <ActivityTimeline items={acts.items} />}
                     {acts.next && caId && <Button size="sm" variant="secondary" onClick={() => { const cur = acts.next; void fetchActivity(caId, cur).then((r) => setActs((p) => ({ items: [...(p?.items ?? []), ...r.items], next: r.nextCursor }))).catch((e) => setActErr(e instanceof Error ? e.message : "Could not load more.")); }}>Load more</Button>}
+                <section className="ad-card">
+                  <button type="button" className="ad-card__h" style={{ width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between" }} aria-expanded={personOpen} onClick={() => setPersonOpen((o) => !o)}>
+                    <span>Person</span><Icon name={personOpen ? "chevron-up" : "chevron-down"} />
+                  </button>
+                  {personOpen && (
+                    <div className="ad-card__b">
+                      <dl className="ad-kv">
+                        <dt>Stage</dt><dd><StageChip stage={c.stage} sub={c.sub} stages={stages} /></dd>
+                        <dt>Source</dt><dd>{c.source}</dd>
+                        <dt>Applied</dt><dd>{c.applied}</dd>
+                        <dt>Days in stage</dt><dd>{c.days}</dd>
+                        <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
+                      </dl>
+                      {user.key !== "iv" && (
+                        <div className="ad-hist">
+                          <div className="ad-ov">History with Zen8labs</div>
+                          <div className="ad-ov">Previous applications · {apps?.length ?? 0}</div>
+                          {apps == null ? <div className="shx-small">Loading…</div> : (allApps ? apps : apps.slice(0, 3)).map((ap) => (
+                            <div key={ap.id} className="ad-papp"><b>{ap.jobTitle}</b><span className="shx-small">{ddmm(ap.appliedAt)}</span></div>
+                          ))}
+                          {apps != null && apps.length > 3 && <button type="button" className="ad-link" onClick={() => setAllApps((o) => !o)}>{allApps ? "Show fewer" : `View all ${apps.length}`}</button>}
+                          <div className="shx-small">History never auto-rejects, blocks or lowers the AI score. Interview notes from earlier applications stay on those applications.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
                   </>
               )}
               {tab === "offer" && (
@@ -620,10 +744,18 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                 <section className="ad-card"><div className="ad-card__h">Probation</div><div className="ad-card__b">
                   <dl className="ad-kv">
                     <dt>Status</dt><dd>{c.sub}</dd>
+                    <dt>Mentor</dt><dd>{c.mentorName ?? "Chưa có Mentor"}</dd>
                     <dt>Owner</dt><dd>{c.owner}</dd>
                     <dt>Days in stage</dt><dd>{c.days}</dd>
+                    {c.probationFailReason && (<><dt>Not pass reason</dt><dd>{c.probationFailReason}</dd></>)}
+                    {c.probationExtendedUntil && (<><dt>Extended</dt><dd>until {ddmm(c.probationExtendedUntil)} (×{c.probationExtensionCount ?? 1})</dd></>)}
                   </dl>
-                  <div className="shx-small">Probation plan, timeline and mentor review are not available from the API yet.</div>
+                  {(user.key === "hr" || user.key === "ch") && (
+                    <MentorPicker c={c} h={h} />
+                  )}
+                  {c.caId && !/passed|not passed|ended|did not start/i.test(c.sub) && (
+                    <ExtendProbation c={c} h={h} />
+                  )}
                 </div></section>
               )}
               {tab === "notes" && (
@@ -636,12 +768,37 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                         const at = new Date(String(sc.scheduled_at ?? "")); const ok = !Number.isNaN(at.getTime());
                         const end = ok ? new Date(at.getTime() + Number(sc.duration_minutes ?? 0) * 60000) : null;
                         const hm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+                        const st = sc.status as keyof typeof STATUS_LABEL;
+                        const live = (st === "Scheduled" || st === "Confirmed") && ok && at.getTime() > Date.now();
+                        const where = sc.mode === "online" ? "Online" : sc.location ? String(sc.location) : sc.mode === "office" ? "Office" : "";
+                        const link = sc.meeting_link ? String(sc.meeting_link) : null;
+                        const reason = st === "Canceled" ? sc.cancel_reason : st === "Rescheduled" ? sc.reschedule_reason : null;
+                        const declined = sc.seats.filter((x) => x.declinedAt);
                         return (
-                          <div key={String(sc.id)} className="ad-papp">
+                          <div key={String(sc.id)} className="ad-papp" style={st === "Rescheduled" || st === "Canceled" ? { opacity: 0.7 } : undefined}>
                             <b>{String(sc.round_label ?? "Interview")}{ok && end ? ` · ${hm(at)}–${hm(end)}` : ""}</b>
-                            <span className="shx-small">{String(sc.status ?? "")}</span>
-                            <small>{[ok ? ddmm(at.toISOString()) : "", sc.location ? String(sc.location) : ""].filter(Boolean).join(" · ")}</small>
-                            {sc.interviewers.length > 0 && <small>Interviewers: {sc.interviewers.join(", ")}</small>}
+                            <span><Badge tone={STATUS_TONE[st] ?? "neutral"}>{STATUS_LABEL[st] ?? String(sc.status ?? "")}</Badge></span>
+                            <small>{[ok ? ddmm(at.toISOString()) : "", where].filter(Boolean).join(" · ")}{link && <> · <a href={link} target="_blank" rel="noreferrer">Join meeting</a></>}</small>
+                            {sc.seats.length > 0 && (
+                              <small>Interviewers: {sc.seats.map((x, i) => (
+                                <React.Fragment key={x.id}>{i > 0 && ", "}<span style={x.declinedAt ? { textDecoration: "line-through" } : undefined}>{x.name}</span>{x.declinedAt ? " (declined)" : ""}</React.Fragment>
+                              ))}</small>
+                            )}
+                            {sc.organizerName && <small>Organized by {sc.organizerName}</small>}
+                            {live && Boolean(sc.no_interviewer_flag) && <Banner tone="danger" title="No interviewers left">Everyone declined. Reschedule or cancel this interview.</Banner>}
+                            {live && !sc.no_interviewer_flag && declined.map((x) => <small key={x.id}>{x.name} can’t attend{x.declineReason ? `: ${x.declineReason}` : ""}</small>)}
+                            {reason ? <small>Reason: {String(reason)}</small> : null}
+                            {canNoShow(sc) && (
+                              <span className="shx-row" style={{ gap: 6 }}>
+                                <Button size="sm" variant="secondary" icon="user-x" onClick={() => doNoShow(sc)}>Mark no-show</Button>
+                              </span>
+                            )}
+                            {live && sc.canEdit && (
+                              <span className="shx-row" style={{ gap: 6 }}>
+                                <Button size="sm" variant="secondary" icon="calendar-clock" onClick={() => { const ex = toSession(sc); if (ex) setSd({ existing: ex }); }}>Reschedule</Button>
+                                <Button size="sm" variant="danger-ghost" onClick={() => setCancelFor(sc)}>Cancel</Button>
+                              </span>
+                            )}
                           </div>
                         );
                       })}
@@ -662,33 +819,6 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                     ))}
                     <div className="shx-small">Notes are independent: other interviewers&apos; notes appear after you submit yours.</div>
                   </section>
-                  <section className="ad-card">
-                    <button type="button" className="ad-card__h" style={{ width: "100%", textAlign: "left", display: "flex", justifyContent: "space-between" }} aria-expanded={personOpen} onClick={() => setPersonOpen((o) => !o)}>
-                      <span>Person</span><Icon name={personOpen ? "chevron-up" : "chevron-down"} />
-                    </button>
-                    {personOpen && (
-                      <div className="ad-card__b">
-                        <dl className="ad-kv">
-                          <dt>Stage</dt><dd><StageChip stage={c.stage} sub={c.sub} stages={stages} /></dd>
-                          <dt>Source</dt><dd>{c.source}</dd>
-                          <dt>Applied</dt><dd>{c.applied}</dd>
-                          <dt>Days in stage</dt><dd>{c.days}</dd>
-                          <dt>Expected salary</dt><dd>{user.salary ? c.salary : <RestrictedValue />}</dd>
-                        </dl>
-                        {user.key !== "iv" && (
-                          <div className="ad-hist">
-                            <div className="ad-ov">History with Zen8labs</div>
-                            <div className="ad-ov">Previous applications · {apps?.length ?? 0}</div>
-                            {apps == null ? <div className="shx-small">Loading…</div> : (allApps ? apps : apps.slice(0, 3)).map((ap) => (
-                              <div key={ap.id} className="ad-papp"><b>{ap.jobTitle}</b><span className="shx-small">{ddmm(ap.appliedAt)}</span></div>
-                            ))}
-                            {apps != null && apps.length > 3 && <button type="button" className="ad-link" onClick={() => setAllApps((o) => !o)}>{allApps ? "Show fewer" : `View all ${apps.length}`}</button>}
-                            <div className="shx-small">History never auto-rejects, blocks or lowers the AI score. Interview notes from earlier applications stay on those applications.</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </section>
                 </>
               )}
             </div>
@@ -696,5 +826,26 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
         </div>
       </div>
     </>
+  );
+}
+
+function CancelInterviewDialog({ name, round, onClose, onSubmit }: { name: string; round: string; onClose: () => void; onSubmit: (reason: string) => Promise<void> }) {
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const r = reason.trim();
+  const go = () => { setBusy(true); setErr(null); onSubmit(r).catch((e: unknown) => { setBusy(false); setErr(e instanceof Error ? e.message : "Could not cancel."); }); };
+  return (
+    <Dialog title="Cancel interview?" description={`${name} · ${round}`} onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>Keep it</Button><Button variant="danger" disabled={busy || !r} onClick={go}>Cancel interview</Button></>}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {err && <Banner tone="danger" title={err} />}
+        <label className="sc-field">
+          <span className="sc-label">Reason</span>
+          <textarea className="sc-ta" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Candidate withdrew" autoFocus />
+        </label>
+        <span className="shx-small">Interviewers are notified. The reason is kept in the candidate’s activity.</span>
+      </div>
+    </Dialog>
   );
 }

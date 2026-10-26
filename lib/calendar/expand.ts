@@ -1,7 +1,7 @@
 /**
  * Busy-block recurrence expansion. A block repeats `none`, on `weekdays`
- * (ISO 1-5) or `weekly` (on the ISO weekday of `startDate`) until
- * `untilDate`; dates listed in `removedDates` are skipped.
+ * (ISO 1-5) or `weekly` (on `days`, or the ISO weekday of `startDate` when
+ * `days` is empty) until `untilDate`; dates listed in `removedDates` are skipped.
  */
 
 import type { BusyBlockRepeat, BusyBlockRow } from "@/lib/db/busy-blocks";
@@ -17,6 +17,8 @@ export type BusyBlockInput = {
   toMin: number | null;
   repeat: BusyBlockRepeat;
   untilDate: string | null;
+  /** ISO weekdays of a weekly repeat; empty falls back to the weekday of `startDate`. */
+  days: number[];
   note: string | null;
   removedDates: string[];
 };
@@ -41,6 +43,7 @@ export function busyBlockFromRow(row: BusyBlockRow): BusyBlockInput {
     toMin: row.to_min,
     repeat: row.repeat,
     untilDate: dbDateToIso(row.until_date),
+    days: row.days ?? [],
     note: row.note,
     removedDates: (row.removed_dates ?? [])
       .map((d) => dbDateToIso(d))
@@ -50,7 +53,11 @@ export function busyBlockFromRow(row: BusyBlockRow): BusyBlockInput {
 
 function matchesRepeat(block: BusyBlockInput, date: string): boolean {
   if (block.repeat === "weekdays") return isoWeekday(date) <= 5;
-  if (block.repeat === "weekly") return isoWeekday(date) === isoWeekday(block.startDate);
+  if (block.repeat === "weekly") {
+    return block.days.length > 0
+      ? block.days.includes(isoWeekday(date))
+      : isoWeekday(date) === isoWeekday(block.startDate);
+  }
   return date === block.startDate;
 }
 

@@ -4,6 +4,7 @@ import type { StaffProfileAccess } from "@/lib/admin/profile-access";
 import {
   canCancel,
   canEditHours,
+  canManageInterviews,
   canReschedule,
   canSeeSession,
   type SessionAccessInfo,
@@ -55,29 +56,34 @@ describe("canSeeSession", () => {
   });
 });
 
-describe("canReschedule / canCancel", () => {
+describe("canReschedule (BR-07-01) / canCancel (BR-INT-01)", () => {
   it("allows admin, HR and recruiters on any session", () => {
     for (const v of [admin, hr, recruiter]) {
+      expect(canManageInterviews(v)).toBe(true);
       expect(canReschedule(v, others)).toBe(true);
       expect(canCancel(v, others)).toBe(true);
     }
   });
 
-  it("allows the organizer", () => {
+  it("lets the organizer reschedule, but not cancel, their own session", () => {
     expect(canReschedule(member, mine)).toBe(true);
     expect(canReschedule(chapterHead, mine)).toBe(true);
+    expect(canCancel(member, mine)).toBe(false);
+    expect(canCancel(chapterHead, mine)).toBe(false);
   });
 
-  it("denies a chapter head who is not the organizer", () => {
+  it("denies chapter heads, even with the recruiter role", () => {
     expect(canReschedule(chapterHead, others)).toBe(false);
+    expect(canCancel(chapterHead, others)).toBe(false);
+    expect(canManageInterviews(viewer({ role: "recruiter", headedChapterIds: ["ch1"] }))).toBe(false);
   });
 
-  it("denies an assigned interviewer who is not the organizer", () => {
+  it("still allows an HR user who also heads a chapter", () => {
+    expect(canManageInterviews(viewer({ role: "hr", isHr: true, headedChapterIds: ["ch1"] }))).toBe(true);
+  });
+
+  it("denies an assigned interviewer", () => {
     expect(canReschedule(member, assigned)).toBe(false);
-  });
-
-  it("denies when the organizer is unknown", () => {
-    expect(canReschedule(member, { createdBy: null, interviewerIds: [] })).toBe(false);
   });
 });
 

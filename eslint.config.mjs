@@ -34,6 +34,24 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // Legacy/new boundary: the "-2" screens must not depend on legacy UI that is
+  // removed at cutover. Move shared pieces into the "-2" tree instead.
+  {
+    files: ["app/admin/*-2/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/components/admin/jd/*", "@/components/admin/candidates/*", "@/app/admin/jd/*", "@/app/admin/pipelines/*"],
+              message: "Legacy UI is removed at cutover; do not import it from the -2 screens.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

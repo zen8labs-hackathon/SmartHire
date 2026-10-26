@@ -42,6 +42,22 @@ function resolveStageType(input: {
   return { stageType: undefined, allowSchedule: input.allowSchedule };
 }
 
+/**
+ * Like {@link getPipelineStageById} but also returns a soft-deleted stage. For resolving a stage
+ * that a job mapping / candidate still points at; never for pickers.
+ */
+export async function getPipelineStageByIdIncludingDeleted(
+  db: QueryExecutor,
+  id: string,
+): Promise<PipelineStageRow | null> {
+  const { rows } = await db.query<PipelineStageRow>(
+    `SELECT id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at
+     FROM pipeline_stages WHERE id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
 export async function getPipelineStageById(
   db: QueryExecutor,
   id: string,
@@ -52,6 +68,23 @@ export async function getPipelineStageById(
     [id],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * Soft-deleted stages that live pipelines still reference. Display-only: never use for pickers.
+ */
+export async function listDeletedStagesInUse(db: QueryExecutor): Promise<PipelineStageRow[]> {
+  const { rows } = await db.query<PipelineStageRow>(
+    `SELECT s.id, s.code, s.label, s."desc", s.color, s.allow_schedule, s.stage_type, s.created_at, s.updated_at, s.deleted_at
+     FROM pipeline_stages s
+     WHERE s.deleted_at IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM pipeline_rows r JOIN pipelines p ON p.id = r.pipeline_id
+         WHERE r.pipeline_stage_id = s.id AND p.deleted_at IS NULL
+       )
+     ORDER BY s.label`,
+  );
+  return rows;
 }
 
 export async function listPipelineStages(
@@ -283,6 +316,11 @@ export type JobStageMappingRow = {
   job_id: string;
   pipeline_stage_id: string;
   sequence_number: number;
+  /** Per-job SLA snapshotted from the pipeline row; null = none. */
+  sla_days: number | null;
+  /** Per-job scheduling flag; null = fall back to `pipeline_stages.allow_schedule`. */
+  schedule: boolean | null;
+  pipeline_row_id: string | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;

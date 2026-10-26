@@ -100,6 +100,8 @@ export type PositionListRow = {
   /** JD was processed and the position is still an unreviewed Draft. */
   fresh: boolean;
   processingError: string | null;
+  /** `jobs.flow_version = 1`: old pipeline structure, read-only until converted. */
+  legacy: boolean;
 };
 
 export type PositionListPagination = {
@@ -279,6 +281,7 @@ export async function queryPositionsWithEnrichment(
         jd.state === "processing" || jd.state === "failed" ? jd.state : null,
       fresh: jd.state === "done",
       processingError: jd.error,
+      legacy: job.flow_version === 1,
     };
   });
 

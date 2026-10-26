@@ -49,7 +49,7 @@ function Chain({ lib, stages }: { lib: Stage[]; stages: PipeRow[] }) {
             {i > 0 && <span className="p2-flow__sep"><Icon name="chevron-right" size={12} /></span>}
             <span className="s">
               <span className="p2-dot" style={{ background: st.color }} />
-              {st.label}
+              {st.label}{st.deleted && <span className="p2-small"> (đã xoá)</span>}
             </span>
           </React.Fragment>
         );
@@ -122,12 +122,12 @@ function Sequence({ lib, rows, setRows, edit }: { lib: Stage[]; rows: PipeRow[];
     setRows(m);
   };
   const up = (sid: string, p: Partial<PipeRow>) => setRows(rows.map((r) => (r.sid === sid ? { ...r, ...p } : r)));
-  const unused = lib.filter((s) => !rows.some((r) => r.sid === s.id));
+  const unused = lib.filter((s) => !s.deleted && !rows.some((r) => r.sid === s.id));
 
   const renderRow = (r: PipeRow, mi: number) => {
     const st = stageById(lib, r.sid);
     const err = badSla(r.sla);
-    const draggable = edit;
+    const draggable = edit && !st.deleted;
     return (
       <div
         key={r.sid}
@@ -144,13 +144,14 @@ function Sequence({ lib, rows, setRows, edit }: { lib: Stage[]; rows: PipeRow[];
         <div className="p2-info">
           <div className="p2-name">
             <b><span className="p2-dot" style={{ background: st.color }} />{st.label}</b>
+            {st.deleted && <Badge tone="outline" icon="trash-2">đã xoá</Badge>}
           </div>
           <StepFlow st={st} />
         </div>
         <div className="p2-sla">
           <div className="p2-sla__f">
             <input
-              type="number" min={0} max={60} value={Number.isNaN(r.sla) ? "" : r.sla} disabled={!edit}
+              type="number" min={0} max={60} value={Number.isNaN(r.sla) ? "" : r.sla} disabled={!edit || !!st.deleted}
               aria-invalid={err} aria-label={st.label + " time limit in days"}
               onChange={(e) => up(r.sid, { sla: e.target.value === "" ? NaN : Number(e.target.value) })}
             />
@@ -161,8 +162,8 @@ function Sequence({ lib, rows, setRows, edit }: { lib: Stage[]; rows: PipeRow[];
         <div className="p2-acts">
           {edit && (
             <>
-              <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Move " + st.label + " up"} disabled={mi === 0} onClick={() => move(mi, mi - 1)}><Icon name="arrow-up" size={14} /></button>
-              <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Move " + st.label + " down"} disabled={mi === rows.length - 1} onClick={() => move(mi, mi + 1)}><Icon name="arrow-down" size={14} /></button>
+              <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Move " + st.label + " up"} disabled={mi === 0 || !!st.deleted} onClick={() => move(mi, mi - 1)}><Icon name="arrow-up" size={14} /></button>
+              <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Move " + st.label + " down"} disabled={mi === rows.length - 1 || !!st.deleted} onClick={() => move(mi, mi + 1)}><Icon name="arrow-down" size={14} /></button>
               <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Remove " + st.label} onClick={() => setRows(rows.filter((x) => x.sid !== r.sid))}><Icon name="trash-2" size={14} /></button>
             </>
           )}
@@ -360,7 +361,10 @@ export function PipelineList({ viewer, lib, list, setList, say }: {
       {del && (
         <Dialog
           width={440} title={"Delete " + del.name + "?"}
-          description="The pipeline is removed from the list. Stages and steps in the library don’t change."
+          description={
+            "The pipeline is removed from the list. Stages and steps in the library don’t change." +
+            (del.usedBy ? ` Used by ${del.usedBy} position${del.usedBy === 1 ? "" : "s"} — they keep their own copy of the stages.` : "")
+          }
           onClose={() => setDel(null)}
           footer={
             <>

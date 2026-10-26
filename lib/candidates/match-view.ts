@@ -86,7 +86,11 @@ export function buildMatchView(input: {
       ? {
           ai: cv.jd_match_ai_score,
           formula: cv.jd_match_formula_score,
-          aiWeight: cv.jd_match_ai_weight,
+          /** Stored as a 0-1 fraction (numeric(3,2)); the UI wants a percentage. */
+          aiWeight:
+            cv.jd_match_ai_weight != null
+              ? Math.round(parseFloat(cv.jd_match_ai_weight) * 100)
+              : null,
           breakdown: cv.jd_match_formula_breakdown,
           model: cv.jd_match_model,
           provider: cv.jd_match_provider,

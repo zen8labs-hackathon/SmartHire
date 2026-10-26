@@ -9,6 +9,7 @@ import {
   ownerDisplayName,
   type BusyShapeBody,
 } from "@/lib/calendar/busy";
+import { isoWeekday } from "@/lib/calendar/time";
 import { BUSY_NOTE_MAX, UUID_RE, badRequest, invalidJson, isIsoDate, readJson } from "@/lib/calendar/validation";
 import {
   addBusyBlockRemovedDate,
@@ -40,6 +41,7 @@ const patchSchema = z
     toMin: z.number().int().nullable().optional(),
     repeat: z.enum(["none", "weekdays", "weekly"]).optional(),
     untilDate: z.string().nullable().optional(),
+    days: z.array(z.number().int().min(1).max(7)).max(7).optional(),
     note: z
       .string()
       .trim()
@@ -91,9 +93,24 @@ function currentShape(row: BusyBlockRow): BusyShapeBody {
     toMin: row.to_min,
     repeat: row.repeat,
     untilDate: dbDateToIso(row.until_date),
+    days: row.days ?? [],
     note: row.note,
     onOverlap: "keep",
   };
+}
+
+/** The caller's own busy block, for editing its repeat and until date. */
+export async function GET(request: NextRequest, context: RouteContext) {
+  const auth = await requireStaffForRequest(request);
+  if (!auth.ok) return auth.response;
+  const { id } = await context.params;
+  try {
+    const row = await loadOwned(getPool(), id, auth.userId);
+    return row ? Response.json({ block: busyBlockJson(row) }) : notFound();
+  } catch (e) {
+    logApiError("Calendar busy: load failed", e, { userId: auth.userId, blockId: id });
+    return Response.json({ error: "Could not load busy time." }, { status: 500 });
+  }
 }
 
 /**
@@ -132,14 +149,18 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     let merged: BusyShapeBody;
     if (scope === "day") {
       // A single detached occurrence on `date`.
-      merged = { ...base, ...defined, startDate: date!, repeat: "none", untilDate: null };
+      merged = { ...base, ...defined, startDate: date!, repeat: "none", untilDate: null, days: [] };
     } else if (scope === "following") {
       merged = { ...base, untilDate: base.untilDate, ...defined, startDate: defined.startDate ?? date! };
     } else {
       merged = { ...base, ...defined };
     }
     if (merged.repeat === "none") merged.untilDate = null;
-    const { shape, error } = normalizeBusyShape(merged);
+    if (merged.repeat !== "weekly") merged.days = [];
+    else if (merged.days.length === 0) merged.days = [isoWeekday(base.startDate)]; // legacy weekly rows
+    const { shape, error } = normalizeBusyShape(merged, {
+      future: scope === "series" ? "any" : "first",
+    });
     if (error) return badRequest(error);
 
     const fields = {
@@ -149,6 +170,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       toMin: shape.toMin,
       repeat: shape.repeat,
       untilDate: shape.untilDate,
+      days: shape.days,
       note: shape.note,
     };
 

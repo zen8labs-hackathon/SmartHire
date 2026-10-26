@@ -4,26 +4,30 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { STAGES, stageOf, type AttentionItem, type Batch, type BatchFile, type Candidate, type Job, type Role, type Stage } from "./data";
 import { Badge, Banner, Button, Dialog, EntityTabs, Icon, Menu, ShareEvaluationDialog, lsGet, lsSet, type EntityTab } from "./ext";
+import { MigrateWizard } from "./migrate-wizard";
 import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
-import { createPosition, duplicatePosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, toCandidate, toStages, positionToJob, reprocessPosition, rescorePosition, saveCriteria, transitionPosition, updatePosition, type ChapterInfo, type PositionTransitionKind } from "./api";
+import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchMyInterviews, fetchSchedules, markNoShow, type MyInterview, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
 import { UploadsTab } from "./overview";
+import { InterviewsBanner, MyInterviewsTab } from "./my-interviews";
+// eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
 import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import type { FileUploadRow } from "@/lib/db/upload-history";
 import { DescriptionTab, PipelineTab, AccessTab } from "./tabs";
 import {
-  ApplicationsDialog, BulkMoveDialog, CloseJobDialog, CreateJobDialog, DuplicateDialog, DeadlineDialog, HeadcountDialog, HireDialog, RejectDialog, RemoveDialog, UploadDialog, UploadTray,
+  ApplicationsDialog, BulkMoveDialog, CloseJobDialog, CreateJobDialog, DeadlineDialog, HeadcountDialog, HireDialog, MoveWithSessionsDialog, NotPassReasonDialog, RejectDialog, RemoveDialog, StatusReasonDialog, UploadDialog, UploadTray, type CloseBlocker,
   type CreateJobInput, type UploadBatch,
 } from "./dialogs";
 
 type Route = { page: "jobs" | "job"; id?: number | "pool"; tab?: string | null; upView?: string };
+const LEGACY_TIP = "Vị trí này vẫn dùng cấu trúc cũ. Hãy chuyển sang cấu trúc mới trước khi thay đổi.";
+
 type Dlg =
-  | { k: "create" } | { k: "upload"; dest?: number | "pool" | null } | { k: "dup" } | { k: "apps"; target: string; fileId: string; file: string } | { k: "manual"; f: BatchFile; target: string } | { k: "hire"; c: Candidate }
-  | { k: "reject"; ids: number[]; clear?: () => void } | { k: "remove"; ids: number[]; clear?: () => void } | { k: "bulkmove"; ids: number[]; clear?: () => void } | { k: "close"; job: Job } | { k: "hc" } | { k: "deadline" } | { k: "open"; job: Job } | { k: "jd" } | { k: "jdfile" } | { k: "pipeline" } | { k: "access" } | null;
+  | { k: "create" } | { k: "upload"; dest?: number | "pool" | null } | { k: "apps"; target: string; fileId: string; file: string } | { k: "manual"; f: BatchFile; target: string } | { k: "hire"; c: Candidate; to: string } | { k: "movesess"; c: Candidate; to: string; sessions: { when: string; round: string }[] }
+  | { k: "notpass"; c: Candidate; sub: string } | { k: "reject"; ids: number[]; clear?: () => void } | { k: "remove"; ids: number[]; clear?: () => void } | { k: "bulkmove"; ids: number[]; clear?: () => void } | { k: "close"; job: Job; blocking?: CloseBlocker[]; busy?: boolean } | { k: "reason"; job: Job; to: "hold" | "reopen"; busy?: boolean } | { k: "hc" } | { k: "deadline" } | { k: "open"; job: Job } | { k: "jd" } | { k: "jdfile" } | { k: "pipeline" } | { k: "access" } | { k: "migrate" } | null;
 type NavCtx = { ids: number[]; label: string; review?: boolean; done?: boolean } | null;
 
-const CH_LABEL = "the Chapter Head";
 const IMP_LABEL: Record<string, string> = { must_have: "Must have", nice_to_have: "Nice to have", bonus: "Bonus" };
 
 /** Derives the viewer's role from the real session (chapter API). Non-creating placeholder until it loads. */
@@ -81,6 +85,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     const url = !jobSeg ? BASE : u ? `${BASE}/${jobSeg}/${u}` : `${BASE}/${jobSeg}`;
     if (drawer != null && id != null) router.replace(url); else router.push(url);
   };
+  const [mine, setMine] = React.useState<MyInterview[]>([]);
   const [stages, setStages] = React.useState<Stage[]>(STAGES);
   const [creating, setCreating] = React.useState(false);
   const [createErr, setCreateErr] = React.useState<string | null>(null);
@@ -95,8 +100,11 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     void reload(ac.signal);
     fetchChapters(ac.signal).then(setChInfo).catch((e) => { if (!ac.signal.aborted) console.error(e); });
     fetchPipelineChoices(ac.signal).then(setPipelineChoices).catch((e) => { if (!ac.signal.aborted) console.error(e); });
+    fetchMyInterviews(ac.signal).then(setMine).catch((e) => { if (!ac.signal.aborted) console.error(e); });
     return () => ac.abort();
   }, [reload]);
+  // Seat state (submitted / overdue / no-show) changes server-side after an action.
+  const reloadMine = React.useCallback(() => { fetchMyInterviews().then(setMine).catch((e) => console.error(e)); }, []);
 
   const anyProcessing = jobs.some((j) => j.processing);
   React.useEffect(() => {
@@ -130,6 +138,11 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     nav({ page: "job", id, tab: tab === "attention" ? "uploads" : tab || null, upView: tab === "attention" ? "attention" : undefined });
   };
   const home = () => nav({ page: "jobs" });
+  const legacyBlocked = (j: Job | undefined) => {
+    if (!j?.legacy) return false;
+    say("Cấu trúc cũ", LEGACY_TIP, undefined, "archive");
+    return true;
+  };
   const say = (title: React.ReactNode, body?: React.ReactNode, action?: { label: string; fn: () => void }, icon?: string) => {
     setToast({ title, body, action, icon });
     if (tRef.current) clearTimeout(tRef.current);
@@ -235,7 +248,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     setCreating(true);
     setCreateErr(null);
     try {
-      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, pipelineId: v.pipelineId, file: v.blank ? null : v.file });
+      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, pipelineId: v.pipelineId, people: v.people?.map((a) => ({ profileId: a.id, role: a.role })), file: v.blank ? null : v.file });
       const id = idFor(row.id);
       setJobs((js) => [positionToJob(row, id), ...js.filter((j) => j.id !== id)]);
       setDlg(null);
@@ -251,30 +264,21 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const fail = (title: string, e: unknown) => say(title, e instanceof Error ? e.message : undefined, undefined, "triangle-alert");
 
   /** Runs a status transition on the server, then refreshes the list. Returns true on success. */
-  const transition = async (j: Job, to: PositionTransitionKind): Promise<boolean> => {
+  const transition = async (j: Job, to: PositionTransitionKind, opts: { notifyInterviewers?: boolean; reason?: string } = {}): Promise<boolean> => {
     const uuid = uuidMap.current.get(j.id);
     if (!uuid) return false;
     try {
-      await transitionPosition(uuid, to);
+      await transitionPosition(uuid, to, opts);
       await reload();
       return true;
     } catch (e) {
+      // BR-06-13: keep the close dialog open and list who blocks it.
+      if (e instanceof TransitionBlockedError && to === "close") {
+        setDlg({ k: "close", job: j, blocking: e.blocking });
+        return false;
+      }
       fail("Could not update the position", e);
       return false;
-    }
-  };
-
-  const duplicate = async (j: Job) => {
-    const uuid = uuidMap.current.get(j.id);
-    if (!uuid) return;
-    try {
-      const row = await duplicatePosition(uuid);
-      const id = idFor(row.id);
-      setJobs((js) => [positionToJob(row, id), ...js.filter((x) => x.id !== id)]);
-      say("Position duplicated", "Review the copy before requesting approval.", undefined, "copy");
-      go(id, "jd");
-    } catch (e) {
-      fail("Could not duplicate the position", e);
     }
   };
 
@@ -290,21 +294,104 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     }
   };
 
+  /**
+   * Writes a stage/sub change to the API (throws on failure). The server only lets a
+   * candidate leave a stage from its "passed" sub-stage, so a cross-stage move marks the
+   * current stage passed first. Returns false for demo / unmapped data (local only).
+   */
+  const saveStage = async (c: Candidate, stageId: string, sub: string, cascade?: { cancelUpcoming: boolean; notifyInterviewers: boolean }, startDate?: string, mentorId?: string, reason?: string): Promise<boolean> => {
+    const subId = stageOf(stageId, stages).subIds?.[sub];
+    if (!c.caId || !subId) return false;
+    if (stageId !== c.stage) {
+      const cur = stageOf(c.stage, stages);
+      const passId = cur.pass ? cur.subIds?.[cur.pass] : undefined;
+      if (passId && c.sub !== cur.pass) await updateCandidateStage(c.caId, cur.id, passId);
+    }
+    await updateCandidateStage(c.caId, stageId, subId, reason, cascade?.cancelUpcoming ? cascade.notifyInterviewers : undefined, cascade?.cancelUpcoming, startDate, mentorId);
+    return true;
+  };
+
+  /** Reverts a candidate (locally and on the server) to a previous stage/sub. */
+  const revertStage = (c: Candidate, old: Partial<Candidate>) => {
+    upd(c.id, old);
+    const os = stageOf(old.stage ?? c.stage, stages);
+    const oid = os.subIds?.[old.sub ?? c.sub];
+    if (!c.caId || !oid) return;
+    const caId = c.caId;
+    // Stepping back a stage is only allowed onto its "passed" sub-stage; restore the exact sub after.
+    const passId = os.id !== c.stage && os.pass ? os.subIds?.[os.pass] : undefined;
+    void (async () => {
+      if (passId) await updateCandidateStage(caId, os.id, passId);
+      if (oid !== passId) await updateCandidateStage(caId, os.id, oid);
+    })().catch((e) => fail("Could not undo", e));
+  };
+
+  /** Saves a stage/sub change to the API; reverts the optimistic update on failure. */
+  const persistStage = async (c: Candidate, stageId: string, sub: string, old: Partial<Candidate>, msg: string, detail: string | undefined, icon: string, undoable = false, cascade?: { cancelUpcoming: boolean; notifyInterviewers: boolean }, startDate?: string, mentorId?: string, reason?: string) => {
+    try {
+      const saved = await saveStage(c, stageId, sub, cascade, startDate, mentorId, reason);
+      say(msg, detail, undoable && saved ? { label: "Undo", fn: () => revertStage({ ...c, stage: stageId, sub }, old) } : undefined, icon);
+    } catch (e) {
+      upd(c.id, old);
+      fail("Could not update the stage", e);
+    }
+  };
+
+  const moveTo = (c: Candidate, to: string, cascade?: { cancelUpcoming: boolean; notifyInterviewers: boolean }) => {
+    const s = stageOf(to, stages);
+    const old = { stage: c.stage, sub: c.sub, days: c.days };
+    upd(c.id, { stage: to, sub: s.def, days: 0 });
+    const detail = cascade?.cancelUpcoming ? "Upcoming interviews were canceled." : `Starts at step “${s.def}”.` + (s.schedule ? " Scheduling is available for this stage." : "");
+    void persistStage(c, to, s.def, old, `${c.name} moved to ${s.label}`, detail, "arrow-right", !cascade?.cancelUpcoming, cascade);
+  };
+
   const h: CandHandlers = {
     onSub: (c, sub) => {
-      upd(c.id, { sub });
       const s = stageOf(c.stage, stages);
-      say(`${c.name} · ${s.label} set to ${sub}`, sub === s.pass ? "Next stage is now unlocked." : undefined, undefined, "circle-check");
+      if (s.probation && s.notPass?.includes(sub)) { setDlg({ k: "notpass", c, sub }); return; }
+      const old = { sub: c.sub };
+      upd(c.id, { sub });
+      void persistStage(c, c.stage, sub, old, `${c.name} · ${s.label} set to ${sub}`, sub === s.pass ? "Next stage is now unlocked." : undefined, "circle-check");
+    },
+    loadMembers: async () => {
+      const u = uuidMap.current.get(job?.id as number);
+      return u ? await fetchPositionMembers(u) : [];
+    },
+    onChangeMentor: async (c, m, reason) => {
+      if (!c.caId) return;
+      try {
+        await changeMentor(c.caId, m.id, reason);
+        upd(c.id, { mentorId: m.id, mentorName: m.name });
+        say("Mentor changed", `${c.name} · Mentor is now ${m.name}.`, undefined, "circle-check");
+      } catch (e) { fail("Could not change the Mentor", e); }
+    },
+    onExtend: async (c, until, reason) => {
+      if (!c.caId) return;
+      try {
+        await extendProbation(c.caId, until, reason);
+        upd(c.id, { probationExtendedUntil: until, probationExtensionCount: (c.probationExtensionCount ?? 0) + 1 });
+        say("Probation extended", `${c.name} · until ${until.split("-").reverse().join("/")}.`, undefined, "circle-check");
+      } catch (e) { fail("Could not extend the probation", e); }
+    },
+    onOfferAccepted: (c) => {
+      if (!c.caId) return void say("Cannot record acceptance", "This candidate has no application.", undefined, "triangle-alert");
+      upd(c.id, { offerAccepted: true });
+      setOfferAccepted(c.caId, true)
+        .then(() => say("Acceptance recorded", `${c.name} accepted the offer.`, undefined, "circle-check"))
+        .catch((e) => { upd(c.id, { offerAccepted: false }); fail("Could not record the acceptance", e); });
     },
     onMove: (c, to: string) => {
       const s = stageOf(to, stages);
-      const fwd = stages.findIndex((x) => x.id === to) > stages.findIndex((x) => x.id === c.stage);
-      if (!user.canDecide && fwd) { say(`Proposal sent to ${CH_LABEL}`, `Recruiters propose moves; the Chapter Head decides. ${c.name} → ${s.label}`, undefined, "send"); return; }
-      if (to === "probation") { setDlg({ k: "hire", c }); return; }
-      if (to === "hired") { upd(c.id, { stage: "hired", sub: "Official", days: 0 }); say(`${c.name} moved to Official`, undefined, undefined, "badge-check"); return; }
-      const old = { stage: c.stage, sub: c.sub, days: c.days };
-      upd(c.id, { stage: to, sub: s.def, days: 0 });
-      say(`${c.name} moved to ${s.label}`, `Starts at step “${s.def}”.` + (s.schedule ? " Scheduling is available for this stage." : ""), { label: "Undo", fn: () => upd(c.id, old) }, "arrow-right");
+      if (s.probation) { setDlg({ k: "hire", c, to }); return; }
+      if (!c.caId) { moveTo(c, to); return; }
+      // BR-INT-12: a candidate with upcoming interviews gets a keep/cancel popup first.
+      void fetchSchedules(c.caId).then((rs) => {
+        const now = Date.now();
+        const up = rs.filter((r) => (r.status === "Scheduled" || r.status === "Confirmed") && new Date(String(r.scheduled_at)).getTime() > now)
+          .sort((a, b) => new Date(String(a.scheduled_at)).getTime() - new Date(String(b.scheduled_at)).getTime());
+        if (!up.length) { moveTo(c, to); return; }
+        setDlg({ k: "movesess", c, to, sessions: up.map((r) => ({ round: String(r.round_label ?? "Interview"), when: new Date(String(r.scheduled_at)).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) })) });
+      }).catch((e) => fail("Could not load interviews", e));
     },
     onReject: (c) => setDlg({ k: "reject", ids: [c.id] }),
     onBulk: (ids, kind, clear) => {
@@ -323,7 +410,14 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       }
       else if (f && upTarget && x === "Enter manually") setDlg({ k: "manual", f, target: upTarget });
       else if (f && upTarget && x === "View applications") setDlg({ k: "apps", target: upTarget, fileId: f.id!, file: f.file });
-      else if (x === "Compare") setDlg({ k: "dup" });
+      else if (x === "Rescore") {
+        const c = cands.find((y) => y.id === a.cand);
+        if (!c?.caId) return void say("Cannot rescore", "This candidate has no application to score.", undefined, "triangle-alert");
+        rescoreCandidate(c.caId).then(() => {
+          upd(c.id, { st: "scoring" });
+          say("Rescoring started", `${c.name} is being scored again. The match will update shortly.`, undefined, "rotate-ccw");
+        }).catch((e) => fail("Rescore failed", e));
+      }
       else if (x === "Open candidate") { if (a.cand != null) setDrawer(a.cand); }
       else say("Not available yet", "This action is not connected to real data yet.", undefined, "info");
     },
@@ -341,9 +435,18 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       {user.key !== "iv" && <Button variant="secondary" icon="upload" onClick={() => setDlg({ k: "upload", dest: null })}>Upload CVs</Button>}
       {user.canCreate && <Button icon="plus" onClick={() => setDlg({ k: "create" })}>Open new position</Button>}
     </>;
-    body = <JobsList user={user} pool={pool} go={(id, tab, cand) => { go(id as number | "pool", tab ?? undefined); if (cand != null) setDrawer(cand, id === "pool" ? "pool" : uuidMap.current.get(id as number) ?? seg); }}
-      onCreate={() => setDlg({ k: "create" })} onUpload={(id) => setDlg({ k: "upload", dest: id as number | "pool" })} onCloseJob={(j) => setDlg({ k: "close", job: j })} onRetry={(j) => void retryJd(j)} onHold={(j) => void transition(j, "hold").then((ok) => ok && say(`${j.title} is on hold`, undefined, undefined, "pause"))} onReopen={(j) => void transition(j, "reopen").then((ok) => ok && say(`${j.title} reopened`, undefined, undefined, "rotate-ccw"))} jobs={visible} chapters={chInfo?.chapters.map((c) => c.name)} onDuplicate={(j) => void duplicate(j)} />;
+    body = <>
+      {mine.some((m) => m.upcoming || m.pendingEvaluation) && (
+        <div style={{ padding: embedded ? "0 0 12px" : "0 24px 12px" }}>
+          <InterviewsBanner items={mine} onOpen={() => router.push("/admin/calendar-2")} />
+        </div>
+      )}
+      <JobsList user={user} pool={pool} go={(id, tab, cand) => { go(id as number | "pool", tab ?? undefined); if (cand != null) setDrawer(cand, id === "pool" ? "pool" : uuidMap.current.get(id as number) ?? seg); }}
+      onCreate={() => setDlg({ k: "create" })} onUpload={(id) => legacyBlocked(id === "pool" ? undefined : visible.find((x) => x.id === id)) || setDlg({ k: "upload", dest: id as number | "pool" })} onCloseJob={(j) => legacyBlocked(j) || setDlg({ k: "close", job: j })} onRetry={(j) => void retryJd(j)} onHold={(j) => legacyBlocked(j) || setDlg({ k: "reason", job: j, to: "hold" })} onReopen={(j) => legacyBlocked(j) || setDlg({ k: "reason", job: j, to: "reopen" })} jobs={visible} chapters={chInfo?.chapters.map((c) => c.name)} />
+    </>;
   } else {
+    const jobUuid = uuidMap.current.get(job.id);
+    const myHere = isPool || !jobUuid ? [] : mine.filter((m) => m.jobId === jobUuid);
     const tabs: EntityTab[] = isPool
       ? [{ id: "candidates", label: "Candidates", count: liveCount }, { id: "uploads", label: "Uploads & processing", count: job.attention, warn: true }]
       : user.key === "iv"
@@ -352,12 +455,14 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           { id: "overview", label: "Overview" },
           { id: "candidates", label: "Candidates", count: liveCount },
           { id: "uploads", label: "Uploads & processing", count: job.attention, warn: job.attention > 0 },
+          ...(myHere.length ? [{ id: "mine", label: "My interviews", count: myHere.length, warn: myHere.some((m) => m.pendingEvaluation) }] : []),
         ];
     const tab = tabs.some((t) => t.id === route.tab) ? route.tab! : (tabs.find((t) => t.id === "candidates") || tabs[0]).id;
     const upAtt = att;
     const upView = route.upView || (upAtt.length ? "attention" : "history");
     const f = (fn: () => void) => () => { setSettingsOpen(false); fn(); };
-    const canHc = (user.key === "hr" || user.key === "ch") && job.status !== "Closed";
+    const lg = !isPool && !!job.legacy;
+    const canHc = (user.key === "hr" || user.key === "ch") && job.status !== "Closed" && !lg;
     const [tone, icon] = ST_TONE[job.status] || ["neutral", "circle"];
 
     title = job.title;
@@ -373,14 +478,14 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       </span>
     </>;
     actions = <>
-      {user.key !== "iv" && <Button variant="secondary" icon="upload" onClick={() => setDlg({ k: "upload", dest: isPool ? "pool" : job.id })}>Upload CVs</Button>}
+      {user.key !== "iv" && <Button variant="secondary" icon="upload" disabled={lg} title={lg ? LEGACY_TIP : undefined} onClick={() => setDlg({ k: "upload", dest: isPool ? "pool" : job.id })}>Upload CVs</Button>}
       {!isPool && user.key !== "iv" && <span style={{ position: "relative" }}>
         <Button variant="secondary" icon="settings" iconRight="chevron-down" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</Button>
         <Pop open={settingsOpen} onClose={() => setSettingsOpen(false)} top={40} width={220}>
           <Menu items={[
-            ...(job.status === "Draft" && user.canCreate ? [{ label: "Open position", icon: "circle-check", disabled: !!job.processing, onClick: f(() => { if (!job.deadline) { setDlg({ k: "open", job }); return; } void transition(job, "open").then((ok) => ok && say(`${job.title} is open`, "You can now upload CVs.", undefined, "briefcase")); }) }] : []),
-            ...(user.key === "hr" && (job.status === "Open" || job.status === "On hold") ? [{ label: "Close position", icon: "archive", danger: true, onClick: f(() => setDlg({ k: "close", job })) }] : []),
-            ...(user.key === "hr" && (job.status === "Closed" || job.status === "On hold") ? [{ label: "Reopen position", icon: "rotate-ccw", onClick: f(() => { void transition(job, "reopen").then((ok) => ok && say(`${job.title} reopened`, undefined, undefined, "rotate-ccw")); }) }] : []),
+            ...(job.status === "Draft" && user.canCreate ? [{ label: "Open position", icon: "circle-check", disabled: !!job.processing || lg, onClick: f(() => { if (!job.deadline) { setDlg({ k: "open", job }); return; } void transition(job, "open").then((ok) => ok && say(`${job.title} is open`, "You can now upload CVs.", undefined, "briefcase")); }) }] : []),
+            ...(user.key === "hr" && (job.status === "Open" || job.status === "On hold") ? [{ label: "Close position", icon: "archive", danger: true, disabled: lg, onClick: f(() => setDlg({ k: "close", job })) }] : []),
+            ...(user.key === "hr" && (job.status === "Closed" || job.status === "On hold") ? [{ label: "Reopen position", icon: "rotate-ccw", disabled: lg, onClick: f(() => setDlg({ k: "reason", job, to: "reopen" })) }] : []),
             ...(canHc ? [{ label: "Edit headcount", icon: "users", onClick: f(() => setDlg({ k: "hc" })) }] : []),
             "-" as const,
             { label: "Description & criteria", icon: "file-text", onClick: f(() => setDlg({ k: "jd" })) },
@@ -415,10 +520,24 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     body = (
       <div style={{ padding: embedded ? "0 0 32px" : "0 24px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
         <EntityTabs tabs={tabs} value={tab} onChange={(v) => { setPreset(null); nav({ ...route, tab: v, upView: undefined }); }} />
+        {lg && (
+          <Banner tone="warning" icon="archive" title="Cấu trúc cũ"
+            action={user.key === "hr" && jobUuid ? <Button size="sm" icon="arrow-right-left" onClick={() => setDlg({ k: "migrate" })}>Chuyển sang cấu trúc mới</Button> : undefined}>
+            {LEGACY_TIP} Bạn vẫn xem được dữ liệu; chỉ HR mới chuyển đổi được.
+          </Banner>
+        )}
         {isPool && tab === "candidates" && (
           <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
         )}
         {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} open={openCand} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
+        {tab === "mine" && <MyInterviewsTab items={myHere} onOpenCandidate={(caId) => {
+          const id = candIdMap.current.get(caId);
+          if (id != null) openCand(id, [id], "My interviews"); else say("Candidate not loaded yet", "Open the Candidates tab and try again.", undefined, "info");
+        }} onNoShow={(m) => {
+          markNoShow(m.campaignAppliedId, m.id)
+            .then(() => { say("Marked as no-show", "HR and the organizer were notified.", undefined, "user-x"); reloadMine(); })
+            .catch((e: unknown) => say("Could not mark the no-show", e instanceof Error ? e.message : undefined, undefined, "info"));
+        }} />}
         {tab === "overview" && <div style={{ padding: "64px 0", textAlign: "center", color: "var(--fg-muted, #6b7280)", fontSize: 14 }}>This tab in development process, please wait</div>}
         {tab === "uploads" && <UploadsTab key={job.id} bs={bs} histErr={histErr} h={h} att={upAtt} resolve={resolveUp} admin={user.key === "hr"}
           view={upView} setView={(v) => { setUpViewS(v); nav({ ...route, upView: v }); }} isPool={isPool}
@@ -435,10 +554,11 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       {body}
 
       <CandidateDrawer key={dc?.id ?? "none"} stages={stages} c={dc} user={user} h={h} nav={navCtx && !navCtx.done ? { ids: navCtx.ids, label: navCtx.label } : null} onOpen={setDrawer} onClose={() => { setDrawer(null); setNavCtx(null); }}
-        onRescore={() => say("Not available yet", "Rescoring needs candidate data, which is not connected yet.", undefined, "info")}
+        onRescore={(c) => { upd(c.id, { st: "scoring" }); say("Rescoring started", `${c.name} is being scored again. The match will update shortly.`, undefined, "rotate-ccw"); }}
         onShare={() => dc && setShare(dc.name)}
         onSubmitNotes={(c, v) => {
           upd(c.id, { ivDone: true, ivNote: v, noNote: false });
+          reloadMine();
           say("Interview notes submitted", "The AI match and other interviewers' notes are now visible to you.", undefined, "circle-check");
         }} />
       {share && <ShareEvaluationDialog name={share} onClose={() => setShare(null)} />}
@@ -481,58 +601,122 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           if (r.failed) say(`${r.ok} of ${r.ok + r.failed} CVs queued`, `${r.failed} file(s) failed. See the upload panel.`, undefined, "triangle-alert");
           else say("CVs uploaded", `${r.ok} file(s) are being read and scored. They'll appear in Candidates shortly.`, { label: "View candidates", fn: () => go(batch.to === "pool" ? "pool" : Number(batch.to), "candidates") }, "bell");
         }} />}
-      {dlg?.k === "dup" && <DuplicateDialog onClose={() => setDlg(null)} onResolve={(m) => {
-        setDlg(null);
-        if (m === "merge") say("Merged into existing candidate", "New application added; previous application is linked.", undefined, "git-merge");
-        else say("New candidate created", undefined, undefined, "git-merge");
-      }} />}
       {dlg?.k === "apps" && <ApplicationsDialog target={dlg.target} fileId={dlg.fileId} file={dlg.file} onClose={() => setDlg(null)} />}
       {dlg?.k === "manual" && <ManualEntryFromUploadModal jobTitle={job?.title}
         row={{ id: dlg.f.id!, job_id: dlg.target === "pool" ? null : dlg.target, candidate_id: null, batch_id: "", file_name: dlg.f.file, storage_key: dlg.f.storageKey ?? "", file_hash: "", mime_type: dlg.f.mimeType ?? null, status: "failed", error_code: dlg.f.errorCode ?? null, error_message: null, error_stage: null, file_source: dlg.f.fileSource ?? null, recruiter: dlg.f.recruiter ?? null, uploaded_by: null, is_existed: false, created_at: new Date(), updated_at: new Date() } as FileUploadRow}
         onClose={() => setDlg(null)} onSaved={() => { setDlg(null); void reload(); void loadHist(); }} />}
-      {dlg?.k === "hire" && job && <HireDialog c={dlg.c} job={job} onClose={() => setDlg(null)} onOk={() => {
-        upd(dlg.c.id, { stage: "probation", sub: "Awaiting start" }); setDlg(null);
-        say(`${dlg.c.name} hired`, undefined, undefined, "badge-check");
+      {dlg?.k === "hire" && job && <HireDialog c={dlg.c} job={job} jobUuid={uuidMap.current.get(job.id)} onClose={() => setDlg(null)} onOk={({ startDate, mentorId }) => {
+        const c = dlg.c, s = stageOf(dlg.to, stages), old = { stage: c.stage, sub: c.sub, days: c.days };
+        upd(c.id, { stage: dlg.to, sub: s.def, days: 0 }); setDlg(null);
+        void persistStage(c, dlg.to, s.def, old, `${c.name} hired`, `Starts ${startDate.split("-").reverse().join("/")}.`, "badge-check", false, undefined, startDate, mentorId);
       }} />}
-      {dlg?.k === "bulkmove" && <BulkMoveDialog cands={cands.filter((c) => dlg.ids.includes(c.id))} stages={stages} user={user} onClose={() => setDlg(null)} onOk={(p) => {
-        const n = p.ids.length, olds = cands.filter((c) => p.ids.includes(c.id)).map((c) => ({ id: c.id, stage: c.stage, sub: c.sub, days: c.days }));
+      {dlg?.k === "bulkmove" && <BulkMoveDialog cands={cands.filter((c) => dlg.ids.includes(c.id))} stages={stages} onClose={() => setDlg(null)} onOk={(p) => {
+        const olds = cands.filter((c) => p.ids.includes(c.id)).map((c) => ({ id: c.id, stage: c.stage, sub: c.sub, days: c.days }));
         const to = p.kind === "stage" ? stageOf(p.value, stages) : null;
-        const fwd = !!to && stages.findIndex((x) => x.id === p.value) > stages.findIndex((x) => x.id === olds[0]?.stage);
+        const moving = cands.filter((c) => p.ids.includes(c.id));
         dlg.clear?.(); setDlg(null);
-        if (to && fwd && !user.canDecide) { say(`Proposal sent to ${CH_LABEL}`, `${n} candidate${n > 1 ? "s" : ""} → ${to.label}`, undefined, "send"); return; }
         if (to) p.ids.forEach((id) => upd(id, { stage: to.id, sub: to.def, days: 0 }));
         else p.ids.forEach((id) => upd(id, { sub: p.value }));
-        say(to ? `${n} moved to ${to.label}` : `${n} set to ${p.value}`, to ? `Each starts at step “${to.def}”.` : undefined, { label: "Undo", fn: () => olds.forEach(({ id, ...o }) => upd(id, o)) }, "arrow-right");
+        void Promise.allSettled(moving.map((c) => (to ? saveStage(c, to.id, to.def) : saveStage(c, c.stage, p.value)))).then((rs) => {
+          const failed = olds.filter((_, i) => rs[i].status === "rejected");
+          failed.forEach(({ id, ...o }) => upd(id, o));
+          if (failed.length) fail(`Could not move ${failed.length} candidate${failed.length > 1 ? "s" : ""}`, rs.find((r): r is PromiseRejectedResult => r.status === "rejected")?.reason);
+          const okC = moving.filter((_, i) => rs[i].status === "fulfilled"), ok = okC.length;
+          if (!ok) return;
+          const undo = () => okC.forEach((c) => {
+            const o = olds.find((x) => x.id === c.id)!;
+            revertStage({ ...c, stage: to ? to.id : c.stage, sub: to ? to.def : p.value }, { stage: o.stage, sub: o.sub, days: o.days });
+          });
+          say(to ? `${ok} moved to ${to.label}` : `${ok} set to ${p.value}`, to ? `Each starts at step “${to.def}”.` : undefined, { label: "Undo", fn: undo }, "arrow-right");
+        });
       }} />}
       {dlg?.k === "remove" && <RemoveDialog names={cands.filter((c) => dlg.ids.includes(c.id)).map((c) => c.name)}
-        onClose={() => setDlg(null)} onOk={() => {
+        onClose={() => setDlg(null)} onOk={({ notifyInterviewers }) => {
           const gone = cands.filter((c) => dlg.ids.includes(c.id));
           setCands((cs) => cs.filter((c) => !dlg.ids.includes(c.id)));
           dlg.clear?.(); setDlg(null);
-          say(`${gone.length} removed from position`, undefined, { label: "Undo", fn: () => setCands((cs) => [...cs, ...gone]) }, "x");
+          void Promise.allSettled(gone.map((c) => (c.caId ? removeCandidate(c.caId, notifyInterviewers) : Promise.resolve()))).then((rs) => {
+            const failed = gone.filter((_, i) => rs[i].status === "rejected");
+            if (failed.length) {
+              setCands((cs) => [...cs, ...failed]);
+              const first = rs.find((r): r is PromiseRejectedResult => r.status === "rejected");
+              fail(`Could not remove ${failed.length} candidate${failed.length > 1 ? "s" : ""}`, first?.reason);
+            }
+            const ok = gone.length - failed.length;
+            if (ok) say(`${ok} removed from position`, "Upcoming interviews were canceled.", undefined, "x");
+          });
         }} />}
+      {dlg?.k === "movesess" && <MoveWithSessionsDialog name={dlg.c.name} to={stageOf(dlg.to, stages).label} sessions={dlg.sessions}
+        onClose={() => setDlg(null)} onOk={(o) => { moveTo(dlg.c, dlg.to, o); setDlg(null); }} />}
+      {dlg?.k === "notpass" && <NotPassReasonDialog name={dlg.c.name} sub={dlg.sub} onClose={() => setDlg(null)} onOk={(reason) => {
+        const { c, sub } = dlg;
+        const s = stageOf(c.stage, stages);
+        const old = { sub: c.sub };
+        setDlg(null);
+        upd(c.id, { sub });
+        void persistStage(c, c.stage, sub, old, `${c.name} · ${s.label} set to ${sub}`, undefined, "circle-x", false, undefined, undefined, undefined, reason);
+      }} />}
       {dlg?.k === "reject" && <RejectDialog names={cands.filter((c) => rejectIds.includes(c.id)).map((c) => c.name)}
         unreviewed={cands.filter((c) => rejectIds.includes(c.id) && !c.notes).length}
-        onClose={() => setDlg(null)} onOk={() => {
+        onClose={() => setDlg(null)} onOk={({ reason, notifyInterviewers }) => {
+          const rejected = cands.filter((c) => rejectIds.includes(c.id));
           setCands((cs) => cs.filter((c) => !rejectIds.includes(c.id)));
+          void Promise.allSettled(rejected.map((c) => {
+            const st = stageOf(c.stage, stages);
+            const subId = st.fail ? st.subIds?.[st.fail] : undefined;
+            return c.caId && subId ? updateCandidateStage(c.caId, st.id, subId, reason, notifyInterviewers) : Promise.resolve();
+          })).then((rs) => {
+            const failed = rejected.filter((_, i) => rs[i].status === "rejected");
+            const done = rejected.filter((_, i) => rs[i].status === "fulfilled");
+            if (failed.length) {
+              setCands((cs) => [...cs, ...failed]);
+              const first = rs.find((r): r is PromiseRejectedResult => r.status === "rejected");
+              fail(`Could not reject ${failed.length} candidate${failed.length > 1 ? "s" : ""}`, first?.reason);
+            }
+            if (!done.length) return;
+            // Undo reverts server-side within 10 minutes; canceled interviews stay canceled.
+            say(`${done.length} rejected`, "Candidates rejected.", { label: "Undo", fn: () => {
+              void Promise.allSettled(done.map((c) => (c.caId ? undoReject(c.caId) : Promise.resolve()))).then((us) => {
+                const back = done.filter((_, i) => us[i].status === "fulfilled");
+                if (back.length) {
+                  const ids = new Set(back.map((c) => c.id));
+                  setCands((cs) => [...cs.filter((c) => !ids.has(c.id)), ...back]);
+                }
+                const firstErr = us.find((r): r is PromiseRejectedResult => r.status === "rejected");
+                if (firstErr) fail(`Could not undo ${done.length - back.length} reject${done.length - back.length > 1 ? "s" : ""}`, firstErr.reason);
+                else say(`${back.length} restored`, "Reject undone. Canceled interviews were not restored.", undefined, "rotate-ccw");
+              });
+            } }, "x");
+          });
           dlg.clear?.();
           if (navCtx?.review && drawer != null) {
             const rest = navCtx.ids.filter((id) => !rejectIds.includes(id) && id !== drawer);
             if (rest.length) setDrawer(rest[0]); else { setNavCtx({ ...navCtx, done: true }); setDrawer(null); }
           } else setDrawer(null);
           setDlg(null);
-          say(`${rejectIds.length} rejected`, "Kept in Talent pool.", undefined, "x");
         }} />}
       {dlg?.k === "jd" && job && !isPool && <Dialog title="Description & criteria" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{jdTab}</Dialog>}
       {dlg?.k === "jdfile" && job && !isPool && <Dialog title="JD file" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{uuidMap.current.get(job.id) ? <iframe src={`/api/admin/job-descriptions/${uuidMap.current.get(job.id)}/jd-download`} title="JD file preview" style={{ width: "100%", height: "70vh", border: 0 }} /> : null}</Dialog>}
-      {dlg?.k === "pipeline" && job && !isPool && <Dialog title="Pipeline" description={job.title} width={780} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}><PipelineTab user={user} /></Dialog>}
+      {dlg?.k === "pipeline" && job && !isPool && <Dialog title="Pipeline" description={job.title} width={780} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}><PipelineTab stages={stages} /></Dialog>}
+      {dlg?.k === "migrate" && job && !isPool && uuidMap.current.get(job.id) && <MigrateWizard jobUuid={uuidMap.current.get(job.id)!} jobTitle={job.title} onClose={() => setDlg(null)} onDone={() => { setDlg(null); void reload(); say("Đã chuyển sang cấu trúc mới", job.title, undefined, "circle-check"); }} />}
       {dlg?.k === "access" && job && !isPool && <Dialog title="Access" description={job.title} width={720} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}><AccessTab user={user} uuid={uuidMap.current.get(job.id)} /></Dialog>}
-      {dlg?.k === "close" && <CloseJobDialog job={dlg.job} onClose={() => setDlg(null)} onOk={() => {
+      {dlg?.k === "close" && <CloseJobDialog job={dlg.job} blocking={dlg.blocking} busy={dlg.busy} onClose={() => setDlg(null)} onOk={({ notifyInterviewers }) => {
         const j = dlg.job;
-        void transition(j, "close").then((ok) => {
-          if (!ok) return;
+        setDlg({ ...dlg, busy: true });
+        void transition(j, "close", { notifyInterviewers }).then((ok) => {
+          if (!ok) { setDlg((d) => (d?.k === "close" ? { ...d, busy: false } : d)); return; }
           setDlg(null); home();
-          say(`${j.title} closed`, `${j.candidates} candidates moved to Talent pool.`, undefined, "archive");
+          say(`${j.title} closed`, "Candidate stages were recorded with the position.", undefined, "archive");
+        });
+      }} />}
+      {dlg?.k === "reason" && <StatusReasonDialog job={dlg.job} to={dlg.to} busy={dlg.busy} onClose={() => setDlg(null)} onOk={({ reason, notifyInterviewers }) => {
+        const { job: j, to } = dlg;
+        setDlg({ ...dlg, busy: true });
+        void transition(j, to, { reason, notifyInterviewers }).then((ok) => {
+          if (!ok) { setDlg((d) => (d?.k === "reason" ? { ...d, busy: false } : d)); return; }
+          setDlg(null);
+          if (to === "hold") say(`${j.title} is on hold`, undefined, undefined, "pause");
+          else say(`${j.title} reopened`, undefined, undefined, "rotate-ccw");
         });
       }} />}
       <Toast t={toast} onClose={() => setToast(null)} />
