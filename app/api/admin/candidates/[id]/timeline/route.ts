@@ -1,7 +1,10 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import {
+  requireStaffForRequest,
+  requireUserForRequest,
+} from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import {
@@ -77,7 +80,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /** Schedule history for the row's "past rounds" list — most recent first (see `listCandidateSchedulesByCampaignApplied`'s ORDER BY). */
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;

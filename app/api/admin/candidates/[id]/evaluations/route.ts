@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
 import {
@@ -48,7 +48,7 @@ const postBodySchema = z
 /** Latest generated evaluation PDF for this application, if any. */
 export async function GET(request: Request, { params }: RouteContext) {
   const requestId = getRequestIdFromRequest(request);
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -112,7 +112,7 @@ export async function GET(request: Request, { params }: RouteContext) {
  */
 export async function POST(request: Request, { params }: RouteContext) {
   const requestId = getRequestIdFromRequest(request);
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;

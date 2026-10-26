@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { logApiError } from "@/lib/logger";
@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** Upload batches (with per-file outcome) for a position, or the talent pool when `id` is "pool". */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const jobId = id === POOL_ID ? null : id;

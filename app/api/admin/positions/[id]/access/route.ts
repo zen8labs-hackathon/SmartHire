@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { listChapters } from "@/lib/db/chapters";
@@ -36,7 +36,7 @@ export type PositionAccess = {
 };
 
 async function guard(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return { response: auth.response } as const;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id) || !(await getJobById(getPool(), id))) {

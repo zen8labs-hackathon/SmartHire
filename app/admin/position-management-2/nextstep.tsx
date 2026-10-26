@@ -21,6 +21,8 @@ export type NextStep = {
 export type NextStepOpts = {
   /** Must-have criteria counts (met / total) for the CV step note. */
   mustHaves?: { met: number; total: number } | null;
+  /** Viewer holds an interviewer seat on the current session. */
+  viewerIsIv?: boolean;
   /** Current interview schedule, if any. */
   sched?: { d: string; past?: boolean; noShow?: boolean; done?: boolean } | null;
   mentor?: string | null;
@@ -40,7 +42,7 @@ export function stageKind(s: Stage, idx: number): Kind {
 }
 
 const P = {
-  ch: { keys: ["ch", "hr"], name: "Chapter Head" } as Owner,
+  ch: { keys: ["ch", "hr", "iv"], name: "Chapter Head" } as Owner,
   hr: { keys: ["hr"], name: "HR" } as Owner,
   sys: { keys: [], name: "System", role: "AI scoring" } as Owner,
   cand: { keys: [], name: "Candidate", role: "recorded by HR" } as Owner,
@@ -58,7 +60,10 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
   const next = stages[idx + 1];
   const kind = stageKind(s, idx);
   const dec = k === "hr" || k === "ch";
-  const op = dec || k === "rc";
+  // Anyone assigned to the position (interviewer or recruiter), HR and Admin may move a candidate on.
+  // The session only resolves to hr/ch/rc, so "rc" covers position-assigned users; the API re-checks the grant.
+  const adv = dec || k === "iv" || k === "rc";
+  const op = adv;
   const rc = k === "rc";
   const failed = c.sub === s.fail && !!s.fail;
   const passed = c.sub === s.pass;
@@ -106,6 +111,7 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     const noShow = !!o.sched?.noShow;
     const cur = noShow ? null : o.sched ?? null;
     const mgr = k === "hr" || k === "rc";
+    const ivMe = k === "iv" || !!o.viewerIsIv;
     const held = !!cur && (!!c.noNote || !!cur.past);
     // BR-INT-07: with a real session, notes are in once it is Completed (every seat submitted).
     const notesIn = !!c.ivDone || (held && (cur?.done !== undefined ? cur.done : !c.noNote));
@@ -117,9 +123,9 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       st("Move to " + nextLabel, "todo", P.ops(c)),
     ];
     const decideActs = (): Act[] => compact([
-      next && dec ? { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true } : null,
-      c.sub !== "Consider" && s.subs.includes("Consider") && dec ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
-      s.fail && dec ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
+      next && adv ? { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true } : null,
+      c.sub !== "Consider" && s.subs.includes("Consider") && adv ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
+      s.fail && adv ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
     ]);
     if (failed) { ended = true; title = "Did not pass " + s.label; }
     else if (passed) {
@@ -132,25 +138,23 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       if (mgr) acts = compact([{ t: "sched", label: "Schedule " + rnd, icon: "calendar-plus", primary: true }, c.sub === "Consider" && dec ? decideActs()[0] : null]);
     } else if (!held && !notesIn) {
       owner = P.ivs(o.ivName); title = rnd + " · " + cur?.d;
-      if (k === "iv") acts = [{ t: "interview", label: "Prepare in interview mode", icon: "clipboard-pen", primary: true }];
+      if (ivMe) acts = [{ t: "interview", label: "Prepare in interview mode", icon: "clipboard-pen", primary: true }];
       else if (mgr) acts = [{ t: "resched", label: "Reschedule", icon: "history" }];
     } else if (!notesIn) {
       owner = P.ivs(o.ivName); title = "Waiting for " + rnd + " notes";
-      if (k === "iv") acts = [{ t: "interview", label: "Write your notes", icon: "pen-line", primary: true }];
+      if (ivMe) acts = [{ t: "interview", label: o.viewerIsIv ? "Create interview notes" : "Write your notes", icon: "pen-line", primary: true }];
       else if (op) acts = [{ t: "remind", label: "Remind interviewer", icon: "bell", who: o.ivName }];
       // BR-INT-09: HR, Recruiters and invited interviewers can record a no-show once the session has started.
-      if (cur?.past && (mgr || k === "iv")) acts = [...acts, { t: "noShow", label: "Mark no-show", icon: "user-x" }];
+      if (cur?.past && (mgr || ivMe)) acts = [...acts, { t: "noShow", label: "Mark no-show", icon: "user-x" }];
     } else {
       owner = P.ch; title = "Decide after " + rnd;
       // BR-INT-03: the Chapter Head decides; HR/Recruiter schedules the next round once it is Pass or Consider.
       const goOn = nextRnd && (c.sub === s.pass || c.sub === "Consider");
-      acts = k === "ch" ? decideActs()
-        : mgr ? compact([goOn ? { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus", primary: true } : null,
-            ...(k === "hr" ? decideActs() : []),
-            !goOn && rc ? { t: "remind", label: "Remind Chapter Head", icon: "bell", who: "Chapter Head" } : null])
-        : [];
+      acts = compact([
+        goOn && mgr ? { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus", primary: true } : null,
+        ...(adv ? decideActs() : []),
+      ]);
     }
-    if (k === "iv" && c.ivDone && !ended && !passed) { title = "Your notes are submitted"; owner = P.ch; acts = []; }
   } else if (kind === "offer") {
     const rejected = c.sub === s.fail && !!s.fail;
     const accepted = !!o.accepted;
@@ -223,7 +227,7 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     if (op && next) acts = compact([moveTo(next.id, nextLabel)]);
   }
 
-  const mine = !ended && !!owner && (owner as Owner).keys.includes(k) && acts.length > 0;
+  const mine = !ended && !!owner && ((owner as Owner).keys.includes(k) || (!!o.viewerIsIv && (owner as Owner).keys.includes("iv"))) && acts.length > 0;
   const ow = owner as Owner | null;
   const why = !ended && !mine && ow
     ? "Waiting on " + ow.name + (ow.role ? " · " + ow.role : "")

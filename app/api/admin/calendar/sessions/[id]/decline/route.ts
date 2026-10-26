@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { ownerDisplayName } from "@/lib/calendar/busy";
 import { calendarHref, notifyUsers } from "@/lib/calendar/notify";
 import { SCHEDULE_ID_RE, invalidJson, readJson } from "@/lib/calendar/validation";
@@ -57,7 +57,7 @@ function conflict(error: string) {
 
 /** Declines the caller's interviewer seat. */
 export async function POST(request: NextRequest, { params }: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
 
 /** Withdraws the caller's decline. */
 export async function DELETE(request: NextRequest, { params }: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await params;
 

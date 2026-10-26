@@ -7,10 +7,10 @@ import { Badge, Banner, Button, Dialog, EntityTabs, Icon, Menu, ShareEvaluationD
 import { MigrateWizard } from "./migrate-wizard";
 import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
-import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchMyInterviews, fetchSchedules, markNoShow, type MyInterview, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
+import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchMyInterviews, fetchSchedules, type MyInterview, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
 import { UploadsTab } from "./overview";
-import { InterviewsBanner, MyInterviewsTab } from "./my-interviews";
+import { InterviewsBanner } from "./my-interviews";
 // eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
 import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import type { FileUploadRow } from "@/lib/db/upload-history";
@@ -32,12 +32,12 @@ const IMP_LABEL: Record<string, string> = { must_have: "Must have", nice_to_have
 
 /** Derives the viewer's role from the real session (chapter API). Non-creating placeholder until it loads. */
 function roleFromInfo(info: ChapterInfo | null): Role {
-  if (info?.isHr) return { key: "hr", name: "You", role: "HR", allJobs: true, canCreate: true, canDecide: true, salary: true };
+  if (info?.isHr) return { key: "hr", id: info.userId, name: "You", role: "HR", allJobs: true, canCreate: true, canDecide: true, salary: true };
   if (info && info.headedChapterIds.length > 0) {
     const chapter = info.chapters.find((c) => c.id === info.headedChapterIds[0])?.name;
-    return { key: "ch", name: "You", role: "Chapter Head", chapter, canCreate: true, canDecide: true, salary: true };
+    return { key: "ch", id: info.userId, name: "You", role: "Chapter Head", chapter, canCreate: true, canDecide: true, salary: true };
   }
-  return { key: "rc", name: "You", role: "Recruiter", canCreate: false, canDecide: false, salary: false };
+  return { key: "rc", id: info?.userId, name: "You", role: "Recruiter", canCreate: false, canDecide: false, salary: false };
 }
 
 export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -446,7 +446,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     </>;
   } else {
     const jobUuid = uuidMap.current.get(job.id);
-    const myHere = isPool || !jobUuid ? [] : mine.filter((m) => m.jobId === jobUuid);
     const tabs: EntityTab[] = isPool
       ? [{ id: "candidates", label: "Candidates", count: liveCount }, { id: "uploads", label: "Uploads & processing", count: job.attention, warn: true }]
       : user.key === "iv"
@@ -455,7 +454,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           { id: "overview", label: "Overview" },
           { id: "candidates", label: "Candidates", count: liveCount },
           { id: "uploads", label: "Uploads & processing", count: job.attention, warn: job.attention > 0 },
-          ...(myHere.length ? [{ id: "mine", label: "My interviews", count: myHere.length, warn: myHere.some((m) => m.pendingEvaluation) }] : []),
         ];
     const tab = tabs.some((t) => t.id === route.tab) ? route.tab! : (tabs.find((t) => t.id === "candidates") || tabs[0]).id;
     const upAtt = att;
@@ -530,14 +528,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
         )}
         {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} open={openCand} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
-        {tab === "mine" && <MyInterviewsTab items={myHere} onOpenCandidate={(caId) => {
-          const id = candIdMap.current.get(caId);
-          if (id != null) openCand(id, [id], "My interviews"); else say("Candidate not loaded yet", "Open the Candidates tab and try again.", undefined, "info");
-        }} onNoShow={(m) => {
-          markNoShow(m.campaignAppliedId, m.id)
-            .then(() => { say("Marked as no-show", "HR and the organizer were notified.", undefined, "user-x"); reloadMine(); })
-            .catch((e: unknown) => say("Could not mark the no-show", e instanceof Error ? e.message : undefined, undefined, "info"));
-        }} />}
         {tab === "overview" && <div style={{ padding: "64px 0", textAlign: "center", color: "var(--fg-muted, #6b7280)", fontSize: 14 }}>This tab in development process, please wait</div>}
         {tab === "uploads" && <UploadsTab key={job.id} bs={bs} histErr={histErr} h={h} att={upAtt} resolve={resolveUp} admin={user.key === "hr"}
           view={upView} setView={(v) => { setUpViewS(v); nav({ ...route, upView: v }); }} isPool={isPool}

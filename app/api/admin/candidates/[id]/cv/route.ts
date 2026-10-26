@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { buildCvView } from "@/lib/candidates/cv-view";
 import { getPool } from "@/lib/db/config/client";
@@ -15,7 +15,7 @@ const UUID_RE =
 
 /** One CV version (default: active) with parsed payload and a diff vs the previous version. */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {

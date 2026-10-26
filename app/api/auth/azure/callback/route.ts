@@ -112,7 +112,8 @@ export async function GET(request: NextRequest) {
       // No pre-created account for this email -- first-time SSO signup. The tenant is already
       // restricted to the company's own Azure AD (see lib/auth/azure.ts), so the account
       // belongs to someone inside the org, but it starts with no access ('none'): an admin/HR
-      // grants a staff role afterwards. Until then the session works but /admin stays gated.
+      // grants positions/roles afterwards. Until then the user can sign in and use the
+      // baseline features (notifications, own calendar) but sees no positions or candidates.
       try {
         const username = await generateUniqueUsername(db, profile.email);
         user = await createSsoUser(db, {

@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { busyShapeSchema, normalizeBusyShape, overlapJson } from "@/lib/calendar/busy";
 import { expandBusyBlock } from "@/lib/calendar/expand";
 import { busyOverlaps } from "@/lib/calendar/server";
@@ -12,7 +12,7 @@ import { NextRequest } from "next/server";
  * repeat range (BR-03-09), without saving anything.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const json = await readJson(request);

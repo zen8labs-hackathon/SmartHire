@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { listAllowedProfilesForJob } from "@/lib/db/job-permissions";
@@ -14,7 +14,7 @@ export type PositionMember = { id: string; name: string; email: string; role: "r
 
 /** People already added to the position -- the pool a probation Mentor is chosen from. */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id) || !(await getJobById(getPool(), id))) {

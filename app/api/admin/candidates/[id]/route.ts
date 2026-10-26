@@ -2,7 +2,10 @@ import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { validateProbationFailReason } from "@/lib/probation/fail-reason";
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import {
+  requireStaffForRequest,
+  requireUserForRequest,
+} from "@/lib/admin/require-staff-request";
 import { canViewSalary } from "@/lib/authz/can";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
@@ -58,7 +61,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /** Full application row (candidate + active CV + pipeline position) for drawer / detail hydration. */
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;
@@ -87,7 +90,7 @@ export async function GET(request: Request, { params }: RouteContext) {
  * transition rules as PATCH /api/admin/candidates/pipeline.
  */
 export async function PATCH(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;

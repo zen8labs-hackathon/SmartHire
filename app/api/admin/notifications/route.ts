@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import {
   countUnreadNotifications,
@@ -10,7 +10,7 @@ import { logApiError } from "@/lib/logger";
 import { NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
  * Returns how many rows flipped and the resulting unread count (0).
  */
 export async function PATCH(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const db = getPool();

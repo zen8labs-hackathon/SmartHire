@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { displayName } from "@/lib/calendar/server";
 import { getPool } from "@/lib/db/config/client";
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
@@ -12,11 +12,11 @@ const MAX_RESULTS = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Staff people picker for the Calendar (compare lanes, interviewer pick).
+ * People picker for the Calendar (compare lanes, interviewer pick).
  * People sharing a chapter with the viewer come first.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);

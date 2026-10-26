@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { displayName, loadSessions, sessionDuration } from "@/lib/calendar/server";
 import { getPool } from "@/lib/db/config/client";
 import { getUsersByIds } from "@/lib/db/users";
@@ -17,7 +17,7 @@ const EVAL_WINDOW_MS = 24 * 3_600_000;
  * and ones that ended without an evaluation. Declined seats are excluded.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const me = auth.userId;

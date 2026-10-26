@@ -21,7 +21,6 @@ export default async function DashboardLayoutWrapper({
       userEmail={user.email ?? ""}
       isHr={access?.isHr === true}
       chapterIds={access?.chapterIds ?? []}
-      isStaff={access?.isStaff === true}
       isChapterHead={(access?.headedChapterIds ?? []).length > 0}
     >
       {children}

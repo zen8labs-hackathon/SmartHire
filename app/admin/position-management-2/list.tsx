@@ -10,9 +10,9 @@ export type Go = (id: JobId | null, tab?: string | null, cand?: number | null) =
 export const ST_TONE: Record<JobStatus, [string, string]> = { Open: ["success", "circle-dot"], Draft: ["dashed", "pencil"], "On hold": ["warning", "pause"], Closed: ["neutral", "archive"] };
 
 export function visibleJobs(user: Role, J: Job[]) {
-  if (user.allJobs) return J;
-  if (user.chapter) return J.filter((j) => j.chapter === user.chapter);
-  return J.filter((j) => (user.shared || []).includes(j.id));
+  // GET /api/admin/positions already scopes the list to the viewer's chapters and per-position grants.
+  void user;
+  return J;
 }
 
 function Headcount({ j }: { j: Job }) {
@@ -94,7 +94,7 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
       ? "Showing positions in chapter " + user.chapter + ". Positions from other chapters are not visible to you."
       : user.key === "iv"
         ? "Showing the position where you have interviews scheduled. You only see candidates assigned to you."
-        : "Showing " + (user.shared || []).length + " positions shared with you. Expected salary is hidden on your role.";
+        : "Showing positions shared with you. Expected salary is hidden on your role.";
   const openJob = (j: Job) => go(j.id, j.status === "Draft" ? "jd" : null);
 
   const cols: Column<Job>[] = [

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { ToastProvider } from "@/components/admin/toast-provider";
 import { getStaffProfileAccess } from "@/lib/admin/profile-access";
 import { verifyAccessToken } from "@/lib/auth/jwt";
@@ -18,6 +19,7 @@ export default async function Pipelines2Layout({ children }: { children: React.R
     getPipelineLibrary(db),
     getPipelines(db),
   ]);
+  if (!access?.isHr) redirect("/admin/jd");
   const viewer = {
     name: access?.username ?? "You",
     role: access?.isAdmin ? "Admin" : access?.isHr ? "HR" : "Recruiter",

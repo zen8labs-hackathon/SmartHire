@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import {
   deletePushSubscriptionForUser,
@@ -24,7 +24,7 @@ type PushSubscriptionBody = {
 };
 
 export async function POST(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: PushSubscriptionBody;
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: { endpoint?: unknown };

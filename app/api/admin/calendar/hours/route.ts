@@ -1,6 +1,6 @@
 import {
   requireHrForRequest,
-  requireStaffForRequest,
+  requireUserForRequest,
 } from "@/lib/admin/require-staff-request";
 import { invalidJson, readJson } from "@/lib/calendar/validation";
 import { getWorkingHours, setWorkingHours } from "@/lib/db/company-settings";
@@ -30,7 +30,7 @@ const hoursSchema = z
   .refine((h) => h.start < h.end, "Start must be before end.");
 
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   try {
     return Response.json({ hours: await getWorkingHours(getPool()) });

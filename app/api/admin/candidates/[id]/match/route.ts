@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { parseJdMatchRationale } from "@/lib/candidates/jd-match-rationale";
 import { buildMatchView } from "@/lib/candidates/match-view";
@@ -15,7 +15,7 @@ const UUID_RE =
 
 /** Score, composition, summary and per-criterion verdicts (overrides layered on). */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {

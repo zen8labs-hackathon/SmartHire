@@ -9,7 +9,10 @@ import {
 } from "@/lib/position/create-position";
 import { processPositionJd } from "@/lib/position/process-jd";
 import { isHireType, validateHeadcount } from "@/lib/position/position-rules";
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import {
+  requireStaffForRequest,
+  requireUserForRequest,
+} from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import type { JobProfileRole } from "@/lib/db/job-permissions";
 import { getUsersByIds } from "@/lib/db/users";
@@ -24,7 +27,7 @@ const POSITION_LIST_MAX_LIMIT = 100;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);

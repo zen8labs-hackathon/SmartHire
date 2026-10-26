@@ -498,7 +498,7 @@ export function CalendarApp({ embedded = false, viewer, initialPeople = [], init
   const loading = load?.key !== key;
   const error = load?.key === key ? load.error : undefined;
   const me = feed?.me ?? viewer.userId;
-  // Interviewers (no HR/Admin/Recruiter role) cannot compare calendars (BR-02-02).
+  // Only HR/Admin/Recruiter can organize interviews; everyone may compare busy lanes.
   const interviewerOnly = !(viewer.isAdmin || viewer.isHr || viewer.role === "recruiter");
   const hours = feed?.hours ?? FALLBACK_HOURS;
   const evs = React.useMemo(() => eventsByDate(feed), [feed]);
@@ -551,7 +551,7 @@ export function CalendarApp({ embedded = false, viewer, initialPeople = [], init
               </div>
             )}
             {view !== "week" && <b>{rangeLabel(view === "list" ? today : from, to)}</b>}
-            {view === "week" && !interviewerOnly && (
+            {view === "week" && (
               <PeoplePicker me={me} picked={people} nameOf={nameOf}
                 onAdd={(p) => { setNames((n) => ({ ...n, [p.id]: p.name })); setCompared([...people, p.id].slice(0, MAX_PEOPLE)); }}
                 onRemove={(id) => setCompared(people.filter((x) => x !== id))} />

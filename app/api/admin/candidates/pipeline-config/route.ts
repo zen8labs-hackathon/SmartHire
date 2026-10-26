@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getPool } from "@/lib/db/config/client";
 import { fetchJobPipelineConfig } from "@/lib/pipelines/transition-validator";
@@ -18,7 +18,7 @@ const MAX_JOB_IDS = 50;
  * trip instead of one request per row.
  */
 export async function GET(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const url = new URL(request.url);

@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { canViewSalary } from "@/lib/authz/can";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { parseCandidatesListQuery } from "@/lib/candidates/candidates-list-query";
@@ -9,7 +9,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** Candidates of a position (+ the position's pipeline stages) for the new Candidates tab. */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const perm = await requirePermissionOnJob(auth.access, "job.view", id);

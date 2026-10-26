@@ -10,7 +10,6 @@ export type DashboardLayoutProps = {
   isHr: boolean;
   chapterIds: string[];
   isChapterHead?: boolean;
-  isStaff?: boolean;
   children: React.ReactNode;
 };
 
@@ -19,7 +18,6 @@ export function DashboardLayout({
   isHr,
   chapterIds,
   isChapterHead = false,
-  isStaff = true,
   children,
 }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -42,7 +40,6 @@ export function DashboardLayout({
         <Header
           userEmail={userEmail}
           isHr={isHr}
-          showNotifications={isStaff}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
         />

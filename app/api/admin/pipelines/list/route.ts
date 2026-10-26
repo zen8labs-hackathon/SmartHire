@@ -1,6 +1,6 @@
 import {
   requireHrForRequest,
-  requireStaffForRequest,
+  requireUserForRequest,
 } from "@/lib/admin/require-staff-request";
 import { requireCanCreateJobs } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
@@ -11,7 +11,7 @@ import { createPipelineSchema } from "@/lib/pipelines/schemas";
 
 export async function GET(request: Request) {
   // HR and chapter heads (who pick a pipeline when opening a position).
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const perm = requireCanCreateJobs(auth.access);
   if (!perm.ok) return perm.response;

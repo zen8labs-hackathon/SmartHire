@@ -1,10 +1,10 @@
-import { requireHrForRequest, requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireHrForRequest, requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { createChapter, listChapters } from "@/lib/db/chapters";
 import { getPool } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
 
 export async function GET(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   try {
     const rows = await listChapters(getPool());
@@ -12,6 +12,7 @@ export async function GET(request: Request) {
       chapters: rows.map((c) => ({ id: c.id, name: c.name })),
       headedChapterIds: auth.access.headedChapterIds,
       isHr: auth.access.isHr,
+      userId: auth.userId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not load chapters.";

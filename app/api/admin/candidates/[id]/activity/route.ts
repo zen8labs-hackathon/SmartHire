@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { getCandidateActivity } from "@/lib/candidates/activity";
 import { getPool } from "@/lib/db/config/client";
@@ -11,7 +11,7 @@ const UUID_RE =
 
 /** Unified activity feed (newest first); `?cursor=<iso>` returns older items. */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {

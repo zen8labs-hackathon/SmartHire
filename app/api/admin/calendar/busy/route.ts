@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import {
   busyBlockJson,
   busyShapeSchema,
@@ -19,7 +19,7 @@ import { NextRequest } from "next/server";
  * overlaps; with `onOverlap: "ask"` their organizers are notified.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const json = await readJson(request);

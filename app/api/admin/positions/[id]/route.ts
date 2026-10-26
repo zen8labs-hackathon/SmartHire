@@ -1,5 +1,5 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireStaffForRequest, requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** Description & criteria data (details + chapters) for the new position UI. */
 export async function GET(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const perm = await requirePermissionOnJob(auth.access, "job.view", id);

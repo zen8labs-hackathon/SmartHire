@@ -15,7 +15,7 @@ export default async function Calendar2Page({
 }) {
   const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/calendar-2");
-  if (!access?.isStaff) redirect("/admin");
+  if (!access) redirect("/admin");
   const sp = await searchParams;
   const raw = typeof sp.people === "string" ? sp.people : "";
   const people = [...new Set(raw.split(",").map((s) => s.trim()))]

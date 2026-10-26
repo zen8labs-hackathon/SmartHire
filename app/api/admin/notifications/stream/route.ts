@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import {
   countUnreadNotifications,
@@ -27,7 +27,7 @@ const HEARTBEAT_MS = 15_000;
  * see `lib/notifications/registry.ts`.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const userId = auth.userId;
 

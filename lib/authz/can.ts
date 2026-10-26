@@ -75,10 +75,11 @@ export async function can(
     permission === "candidate.manage"
   ) {
     if (access.isHr) return true;
-    if (!hasRolePermission(access, permission)) return false;
+    // Job-scoped: an ACL grant is sufficient on its own, so users whose DB role
+    // is `none` can work on positions HR/admin assigned them to.
+    if (jobId) return canViewJobViaAcl(db, access.userId, jobId);
     // Listing with no jobId: caller must filter rows by ACL.
-    if (!jobId) return true;
-    return canViewJobViaAcl(db, access.userId, jobId);
+    return hasRolePermission(access, permission);
   }
 
   return hasRolePermission(access, permission);
@@ -105,7 +106,6 @@ export async function filterViewableJobIds(
 ): Promise<Set<string | null>> {
   const distinctIds = [...new Set(jobIds)];
   if (access.isHr) return new Set(distinctIds);
-  if (!hasRolePermission(access, "job.view")) return new Set();
   // A `null` job id (CJ4X9M: unassigned/pool application) has no job to
   // scope an ACL check against -- same "no jobId => viewable" rule `can()`
   // applies for job.view above.
@@ -116,7 +116,9 @@ export async function filterViewableJobIds(
     realIds,
   );
   const result = new Set<string | null>(viewable);
-  if (distinctIds.includes(null)) result.add(null);
+  if (distinctIds.includes(null) && hasRolePermission(access, "job.view")) {
+    result.add(null);
+  }
   return result;
 }
 

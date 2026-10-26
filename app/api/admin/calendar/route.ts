@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { filterViewableJobIds } from "@/lib/authz/can";
 import { canReschedule, canSeeSession, isAssignedInterviewer } from "@/lib/calendar/authz";
 import { busyRange, displayName, loadBusy, loadSessions, sessionDuration } from "@/lib/calendar/server";
@@ -25,7 +25,7 @@ type Lane = { kind: "busy" | "interview"; start: string; end: string };
  * other people being compared.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = new URL(request.url);
@@ -53,10 +53,6 @@ export async function GET(request: NextRequest) {
         .filter(Boolean),
     ),
   ].filter((id) => id !== auth.userId);
-  const access0 = auth.access;
-  if (people.length > 0 && !(access0.isAdmin || access0.isHr || access0.role === "recruiter")) {
-    return Response.json({ error: "You can't compare other people's calendars." }, { status: 403 });
-  }
   if (people.length > MAX_PEOPLE) {
     return badRequest(`Compare at most ${MAX_PEOPLE} people.`);
   }

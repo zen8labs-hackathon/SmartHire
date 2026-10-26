@@ -234,12 +234,18 @@ describe("policy: job visibility", () => {
     ).resolves.toBe(false);
   });
 
-  it("role=none cannot view the job (fails the role catalog before any ACL query)", async () => {
-    const db = fakeDb();
+  it("role=none can view a job they were granted via the ACL", async () => {
+    const db = fakeDb([[{ ok: 1 }]]);
+    await expect(
+      canViewJob(db, access({ role: "none" }), "job-1"),
+    ).resolves.toBe(true);
+  });
+
+  it("role=none cannot view a job they were not granted", async () => {
+    const db = fakeDb([[]]);
     await expect(
       canViewJob(db, access({ role: "none" }), "job-1"),
     ).resolves.toBe(false);
-    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("the ACL predicate grants chapter *heads* only, never plain members", () => {

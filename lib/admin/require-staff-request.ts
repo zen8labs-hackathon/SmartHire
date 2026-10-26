@@ -14,6 +14,33 @@ export type StaffRequestAuthResult =
   | { ok: false; response: Response };
 
 /**
+ * Any signed-in user, regardless of role or grants. Use for own-data endpoints
+ * (notifications, push subscriptions, ...). Authorization over shared resources
+ * is position-scoped and must be checked separately.
+ */
+export async function requireUserForRequest(
+  request: Request,
+): Promise<StaffRequestAuthResult> {
+  const claims = await resolveAccessClaims(request);
+  if (!claims) {
+    return {
+      ok: false,
+      response: Response.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+
+  const access = await getStaffProfileAccess(getPool(), claims.sub);
+  if (!access) {
+    return {
+      ok: false,
+      response: Response.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+
+  return { ok: true, userId: claims.sub, access };
+}
+
+/**
  * Authenticated user with recruiter access (HR, chapter memberships, or admin).
  */
 export async function requireStaffForRequest(

@@ -3,6 +3,8 @@
 export type RoleKey = "hr" | "ch" | "rc" | "iv";
 export type Role = {
   key: RoleKey;
+  /** Signed-in user's id (used to match interviewer seats). */
+  id?: string;
   name: string;
   role: string;
   salary: boolean;

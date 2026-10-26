@@ -1,7 +1,7 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import {
   listCampaignAppliedByIds,
@@ -32,7 +32,7 @@ const bodySchema = z.object({
  * transitioned and others not.
  */
 export async function POST(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: unknown;

@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import {
   busyBlockJson,
   busyShapeSchema,
@@ -101,7 +101,7 @@ function currentShape(row: BusyBlockRow): BusyShapeBody {
 
 /** The caller's own busy block, for editing its repeat and until date. */
 export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
   try {
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
  * `day` (only `date`), `following` (`date` onward) or `series` (all).
  */
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
 
@@ -211,7 +211,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
 /** Deletes the caller's busy block: `?scope=day|following|series&date=YYYY-MM-DD`. */
 export async function DELETE(request: NextRequest, context: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await context.params;
 

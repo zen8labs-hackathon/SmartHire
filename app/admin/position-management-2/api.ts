@@ -60,7 +60,7 @@ export async function fetchPositions(signal?: AbortSignal, idOf?: (uuid: string)
 }
 
 export type ChapterOption = { id: string; name: string };
-export type ChapterInfo = { chapters: ChapterOption[]; headedChapterIds: string[]; isHr: boolean };
+export type ChapterInfo = { chapters: ChapterOption[]; headedChapterIds: string[]; isHr: boolean; userId?: string };
 
 async function readError(res: Response, fallback: string): Promise<string> {
   try {

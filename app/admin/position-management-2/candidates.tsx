@@ -515,9 +515,10 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     const at = new Date(String(r.scheduled_at));
     if (Number.isNaN(at.getTime())) return null;
     const hm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-    return { d: `${ddmm(at.toISOString())} ${hm}`, past: at.getTime() <= Date.now(), noShow: r.status === "NoShow", done: r.status === "Completed" };
+    const viewerIsIv = !!user.id && r.seats.some((x) => x.id === user.id && !x.declinedAt);
+    return { viewerIsIv, d: `${ddmm(at.toISOString())} ${hm}`, past: at.getTime() <= Date.now(), noShow: r.status === "NoShow", done: r.status === "Completed" };
   })();
-  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
+  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, viewerIsIv: !!latestSched?.viewerIsIv, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
   // A started, still-active session can be marked as no-show (BR-INT-09).
   const canNoShow = (r: CandidateSchedule) => (r.status === "Scheduled" || r.status === "Confirmed") && new Date(String(r.scheduled_at)).getTime() <= Date.now()
     && (r.canEdit || (user.key === "iv" && r.seats.length > 0));
