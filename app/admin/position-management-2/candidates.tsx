@@ -182,7 +182,14 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const base = cands;
   const mineCount = nextOf ? base.filter((c) => pass(c) && isMine(c)).length : 0;
   const needle = search.trim().toLowerCase();
-  const rows = base.filter((c) => pass(c) && (!needle || c.name.toLowerCase().includes(needle)) && (!mineOnly || isMine(c)));
+  // Default order: Match score high → low. Unscored candidates, and ones whose score is hidden
+  // from this user, sink to the bottom in their original (newest-first) order.
+  const visibleScore = (c: Candidate) => (c.st === "done" && c.score != null && !(user.hideScore && !c.ivDone) ? c.score : null);
+  const rows = base
+    .filter((c) => pass(c) && (!needle || c.name.toLowerCase().includes(needle)) && (!mineOnly || isMine(c)))
+    .map((c, i) => ({ c, i, s: visibleScore(c) }))
+    .sort((a, b) => (a.s == null ? (b.s == null ? a.i - b.i : 1) : b.s == null ? -1 : b.s - a.s || a.i - b.i))
+    .map((x) => x.c);
   const sources = [...new Set(cands.map((c) => c.source))].sort().map((x) => [x, x] as [string, string]);
   const optLabel = (opts: [string, string][], k: string) => opts.find((o) => o[0] === k)?.[1] ?? k;
   const active: [string, string, string][] = [
@@ -259,7 +266,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         </div>
       )}
       <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: "var(--muted)", flexWrap: "wrap" }}>
-        <span>Sorted by newest · match is one signal, not a ranking</span>
+        <span>Sorted by match score, highest first · match is one signal, not a ranking</span>
         {scoring > 0 && <FileStatus status="processing" label={scoring + " still scoring"} />}
         {hiddenCol && <RestrictedValue inline label="Expected salary column hidden" reason="Only HR, Admin and the position's Chapter Head can see salary." />}
         {user.key === "iv" && <span>Showing the {cands.length} candidates you are scheduled to interview</span>}
