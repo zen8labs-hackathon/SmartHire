@@ -83,7 +83,7 @@ echo "==> Stop previous slot (${OLD_SERVICE})"
 "${COMPOSE[@]}" stop "${OLD_SERVICE}" || true
 
 echo "==> Recreate BullMQ worker with the new image (slot-independent)"
-"${COMPOSE[@]}" up -d --no-deps --force-recreate worker
+"${COMPOSE[@]}" up -d --no-deps --force-recreate worker calendar-cron
 
 echo "==> Status"
 "${COMPOSE[@]}" ps

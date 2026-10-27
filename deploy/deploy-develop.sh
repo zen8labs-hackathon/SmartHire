@@ -24,7 +24,7 @@ echo "==> Ensure Redis is up (BullMQ)"
 "${COMPOSE[@]}" up -d redis
 
 echo "==> Start / recreate app + worker"
-"${COMPOSE[@]}" up -d app worker --force-recreate
+"${COMPOSE[@]}" up -d app worker calendar-cron --force-recreate
 
 echo "==> Status"
 "${COMPOSE[@]}" ps
