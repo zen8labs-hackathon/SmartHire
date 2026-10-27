@@ -21,7 +21,7 @@ Nguồn: khảo sát code nhánh `feat/renewdesign` (git diff + migrations). M�
 | Tạo vị trí | `POST /api/admin/job-descriptions` (chấp nhận giá trị hire type tự do/legacy) | `POST /api/admin/positions` | Dùng chung `isHireType`, `validateHeadcount` |
 | Trạng thái vị trí | Hold/Reopen/Close không bắt buộc lý do ("Legacy rule: only HR…" trong `lib/position/transition.ts`) | Hold/Reopen **bắt buộc reason** (AC-06-16), Close bị chặn nếu còn ứng viên offer/probation + lưu `close_snapshot` (BR-06-13) | `positions/[id]/transition` chỉ PM2 gọi (xác nhận cần grep) |
 | Duplicate vị trí | — | Route `positions/[id]/duplicate` **đã xóa** (quyết định D3) | OK |
-| DB | `jobs`, `campaign_applied`, `job_stage_mappings` | thêm `jobs.status_reason`, `jobs.close_snapshot` (mig `1792600000000`), `campaign_applied.start_date` (`1792500000000`), `entered_stage_at`, `candidate_stage_history`, `candidate_criterion_overrides` (`1790200000000`) | Cột mới nullable → hàng cũ giữ NULL |
+| DB | `jobs`, `campaign_applied`, `job_stage_mappings` | thêm `jobs.status_reason`, `jobs.close_snapshot` (mig `1792600000000`), `campaign_applied.start_date` (`1792500000000`), `entered_stage_at`, `candidate_stage_history`, `candidate_criterion_overrides` (`1791100000000`) | Cột mới nullable → hàng cũ giữ NULL |
 | Thông báo interviewer khi hủy | Mặc định **bật** (không gửi flag) | Luôn gửi flag; mặc định **tắt** (D4) | `notify_interviewers` (PATCH) và `?notify=0|1` (DELETE) — cờ phân biệt client |
 | Hiring (hired_at) | "stage cuối theo sequence + sub-stage `is_passed`" | "bất kỳ sub-stage của stage `stage_type='probation'`" | **Quy tắc thay đổi cho cả pipeline cũ** (R1); mig `1792500000000` backfill |
 
@@ -30,7 +30,7 @@ Nguồn: khảo sát code nhánh `feat/renewdesign` (git diff + migrations). M�
 | Hạng mục | Cũ | Mới (Pipelines 2) | Dùng chung / Ghi chú |
 |---|---|---|---|
 | Route UI | `app/admin/pipelines/page.tsx` + `components/admin/pipeline-manager.tsx`, `components/admin/pipelines/` | `app/admin/pipelines-2/{pipeline-list,stage-library,pipelines-app}.tsx` | Nav `pipelines` vs `pipelines2` |
-| Mô hình | Stage + sub-stage gắn trực tiếp vào job qua `job_stage_mappings` | `pipelines` + `pipeline_rows` (template), job **snapshot** rows vào `job_stage_mappings` khi apply | Mig `1790100000000_pipelines.sql` |
+| Mô hình | Stage + sub-stage gắn trực tiếp vào job qua `job_stage_mappings` | `pipelines` + `pipeline_rows` (template), job **snapshot** rows vào `job_stage_mappings` khi apply | Mig `1791000000000_pipelines.sql` |
 | API | `/api/admin/pipelines/{route,[id],sub-stages,sub-stages/[subId],sub-stages/reorder}` | `/api/admin/pipelines/{list,list/[pipelineId],library,library/[code]}` | `pipelines/[id]` và `library/[code]` bị sửa thêm BR-INT-13 (không tắt Schedule khi còn lịch sắp tới) – áp dụng cho cả hai |
 | Lib | `lib/pipelines/*`, `lib/db/pipelines.ts`, `lib/db/pipeline-stages.ts` | `lib/db/pipeline-library.ts`, `lib/pipelines/reject-undo.ts`, `lib/candidates/resolve-application-stage.ts` | `transition-validator.ts` dùng chung và đã sửa (schedule/sla override, `isHiredStageMapping`, `isSchedulingEnabled`) |
 | Cột mới | `pipeline_stages.stage_type` (none/schedule/offer/probation; `allow_schedule` giữ đồng bộ), `pipeline_sub_stages.{is_terminal,requires_reason,requires_decision,is_withdraw}`, `job_stage_mappings.{sla_days,schedule,pipeline_row_id}`, `jobs.pipeline_id` | | Backfill `stage_type` từ `allow_schedule`/code `offer` |
@@ -68,12 +68,12 @@ Nguồn: khảo sát code nhánh `feat/renewdesign` (git diff + migrations). M�
 
 | Dữ liệu legacy | Cách bản mới xử lý | Nơi |
 |---|---|---|
-| Job không có pipeline (`jobs.pipeline_id` NULL) | Nullable; `applyPipelineToJob` từ chối (JOB_HAS_STAGES) | `lib/db/pipelines.ts`, mig 1790100000000 |
+| Job không có pipeline (`jobs.pipeline_id` NULL) | Nullable; `applyPipelineToJob` từ chối (JOB_HAS_STAGES) | `lib/db/pipelines.ts`, mig 1791000000000 |
 | `job_stage_mappings` không có `schedule/sla_days` | NULL = dùng mặc định của stage (`isSchedulingEnabled`) | `transition-validator.ts` |
-| `pipeline_stages` cũ chưa có `stage_type` | Default `'none'` + backfill từ `allow_schedule`/`offer` | mig 1790100000000 |
-| Sub-stage cũ chưa có flag | Default false | mig 1790100000000 |
+| `pipeline_stages` cũ chưa có `stage_type` | Default `'none'` + backfill từ `allow_schedule`/`offer` | mig 1791000000000 |
+| Sub-stage cũ chưa có flag | Default false | mig 1791000000000 |
 | Application chưa từng move (stage id NULL) | `resolveCandidatePipelineIds` suy ra vị trí khi ghi history | `candidates/[id]/route.ts`, `resolve-application-stage.ts` |
-| `candidate_stage_history` | Bắt đầu từ thời điểm deploy (không backfill) | mig 1790200000000 |
+| `candidate_stage_history` | Bắt đầu từ thời điểm deploy (không backfill) | mig 1791100000000 |
 | Rationale AI dạng text cũ | `requirement_key` = text yêu cầu; đọc cả 2 wire format | `jd-match-rationale.ts` |
 | Lịch cũ thiếu mode/evaluation_due_at | Default `online`; backfill due = start + duration + 24h | mig 1792397373091 |
 | Busy block weekly cũ (`days=''{}''`) | Fallback thứ của `start_date` | `lib/db/busy-blocks.ts`, `busy/[id]/route.ts` |
