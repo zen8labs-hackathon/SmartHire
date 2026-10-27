@@ -14,7 +14,7 @@ import {
   RefreshCw, RotateCcw, Route, Search, Send, Shield, Sparkles, Trash2, TriangleAlert, Undo2, Upload, User, UserCheck,
   UserPlus, UserRound, Users, X, Cpu, Download, FileCheck, LayoutGrid, List, LogIn, LogOut, Merge, Move, Save, School, UserCog, UserX, Settings,
   ChevronLeft, Scale, GripVertical, ArrowUp, ArrowDown, ClipboardList, Workflow,
-  CalendarOff, CalendarX, Info, MapPin, Video,
+  CalendarOff, CalendarX, Info, MapPin, Video, ExternalLink, UserMinus,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +36,7 @@ const ICONS: Record<string, LucideIcon> = {
   cpu: Cpu, download: Download, "file-check": FileCheck, grid: LayoutGrid, list: List, "log-in": LogIn, "log-out": LogOut,
   merge: Merge, move: Move, save: Save, school: School, "user-cog": UserCog, "user-x": UserX, settings: Settings,
   "calendar-off": CalendarOff, "calendar-x": CalendarX, info: Info, "map-pin": MapPin, video: Video,
+  "alert-triangle": TriangleAlert, "external-link": ExternalLink, "circle-arrow-right": CircleArrowRight, "user-minus": UserMinus,
   "grip-vertical": GripVertical, "arrow-up": ArrowUp, "arrow-down": ArrowDown, "clipboard-list": ClipboardList, workflow: Workflow,
 };
 
