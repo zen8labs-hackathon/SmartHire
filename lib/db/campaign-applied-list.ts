@@ -30,6 +30,14 @@ export type CampaignAppliedAdminRow = {
   jd_match_error: string | null;
   jd_match_rationale: string | null;
   hired_at: Date | null;
+  offer_accepted_at: Date | null;
+  /** Probation Mentor (NULL for non-probation / legacy rows) and a display label. */
+  mentor_profile_id: string | null;
+  mentor_name: string | null;
+  /** Reason recorded with the latest Not pass while the application sits in that sub-stage (staff-only). */
+  probation_fail_reason?: string | null;
+  probation_extended_until: string | Date | null;
+  probation_extension_count: number;
   created_at: Date;
   updated_at: Date;
   candidate_name: string | null;
@@ -119,7 +127,15 @@ const ADMIN_ROW_SELECT = `
   ca.source, ca.source_other, ca.expected_salary,
   cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
   cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
-  ca.hired_at, ca.created_at, ca.updated_at,
+  ca.hired_at, ca.offer_accepted_at, ca.mentor_profile_id,
+  ca.probation_extended_until, ca.probation_extension_count,
+  (SELECT u.username FROM users u WHERE u.id = ca.mentor_profile_id) AS mentor_name,
+  (SELECT h.reason FROM candidate_stage_history h
+     WHERE h.campaign_applied_id = ca.id AND h.to_sub_state_id = ca.current_sub_state_id
+       AND pss.is_terminal AND NOT pss.is_passed AND NOT pss.is_withdraw
+       AND h.reason IS NOT NULL
+     ORDER BY h.at DESC LIMIT 1) AS probation_fail_reason,
+  ca.created_at, ca.updated_at,
   c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
   c.degree AS candidate_degree, c.education AS candidate_education, c.role AS candidate_role,
   c.experience_years AS candidate_experience_years, c.skills AS candidate_skills,
@@ -164,7 +180,10 @@ const JOB_PIPELINE_ROW_SELECT = `
   ca.source, ca.source_other, ca.expected_salary,
   cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
   cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
-  ca.hired_at, ca.created_at, ca.updated_at,
+  ca.hired_at, ca.offer_accepted_at, ca.mentor_profile_id,
+  ca.probation_extended_until, ca.probation_extension_count,
+  (SELECT u.username FROM users u WHERE u.id = ca.mentor_profile_id) AS mentor_name,
+  ca.created_at, ca.updated_at,
   c.name AS candidate_name, c.email AS candidate_email, c.phone AS candidate_phone,
   cv.degree AS candidate_degree, cv.education AS candidate_education, cv.role AS candidate_role,
   cv.experience_years AS candidate_experience_years, cv.skills AS candidate_skills,
@@ -327,6 +346,8 @@ export async function listApplicationsForCandidate(
 export type CampaignAppliedStageCountRow = {
   stage_code: string;
   stage_label: string;
+  /** True when the stage is soft-deleted but still in use by this job. */
+  stage_deleted?: boolean;
   sub_stage_code: string;
   sub_stage_label: string;
   count: number;
@@ -357,10 +378,11 @@ export async function countCampaignAppliedByStageForJob(
     CampaignAppliedStageCountRow & { count: string }
   >(
     `SELECT ps.code AS stage_code, ps.label AS stage_label,
+            (ps.deleted_at IS NOT NULL) AS stage_deleted,
             pss.code AS sub_stage_code, pss.label AS sub_stage_label,
             count(ca.id) AS count
      FROM job_stage_mappings jsm
-     JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id AND ps.deleted_at IS NULL
+     JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
      JOIN pipeline_sub_stages pss ON pss.pipeline_stage_id = ps.id AND pss.deleted_at IS NULL
      LEFT JOIN campaign_applied ca
        ON ca.job_id = jsm.job_id
@@ -378,7 +400,7 @@ export async function countCampaignAppliedByStageForJob(
          )
        )
      WHERE jsm.job_id = $1 AND jsm.deleted_at IS NULL
-     GROUP BY ps.code, ps.label, jsm.sequence_number, pss.code, pss.label, pss.sequence_number
+     GROUP BY ps.code, ps.label, ps.deleted_at, jsm.sequence_number, pss.code, pss.label, pss.sequence_number
      ORDER BY jsm.sequence_number, pss.sequence_number`,
     [jobId],
   );

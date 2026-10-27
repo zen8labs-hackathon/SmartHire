@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewAccess } from "@/lib/authz/require-job-view";
 import { getPool } from "@/lib/db/config/client";
 import { listJobRequirements } from "@/lib/db/job-requirements";
@@ -14,7 +14,7 @@ const UUID_RE =
  * `re-extract` route -- there is no per-row create/update/delete endpoint.
  */
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: jobId } = await params;

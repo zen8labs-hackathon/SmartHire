@@ -3,10 +3,10 @@ import type { QueryExecutor } from "@/lib/db/config/client";
 /**
  * Per-job requirement checklist (see `migrations/1788930234004_job-requirements.sql`).
  *
- * Read-only from the app's point of view: rows are produced by the AI extractor
- * at JD-save time (or a manual re-extract) and only ever displayed. There is no
- * per-row edit/delete -- correcting the checklist means correcting the JD or the
- * evaluation criteria it was extracted from.
+ * Rows are produced by the AI extractor at JD-save time (or a manual
+ * re-extract) and can be corrected by HR / Chapter Head from the new position
+ * UI, which saves the whole checklist at once (`lib/position/save-criteria.ts`);
+ * rows HR adds carry `origin = 'manual'`.
  *
  * Two independent axes, deliberately not one enum: `importance` is how hard
  * the requirement is, `origin` is where the row came from. The older
@@ -16,8 +16,7 @@ import type { QueryExecutor } from "@/lib/db/config/client";
 export type JobRequirementImportance = "must_have" | "nice_to_have" | "bonus";
 
 /**
- * `manual` is retained for reading only: nothing writes it any more, but rows
- * created while the recruiter-editing flow existed still carry it.
+ * `manual` marks rows added by HR / Chapter Head in the position UI.
  */
 export type JobRequirementOrigin =
   | "jd"

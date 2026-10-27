@@ -2,7 +2,6 @@ import type { HybridJdMatchResult } from "@/lib/ai/jd-cv-match";
 import { canonicalizeCandidateName } from "@/lib/candidates/candidate-display";
 import { parsedContactFromPayload } from "@/lib/candidates/duplicate-detection";
 import { aiWeightFromEnv } from "@/lib/candidates/jd-match-formula";
-import { getCachedJobPipelineConfig } from "@/lib/candidates/resolve-application-stage";
 import {
   getOrCreateCampaignApplied,
   updateCampaignApplied,
@@ -21,7 +20,10 @@ import {
   getNextCvVersionNumber,
 } from "@/lib/db/cv-detail-versions";
 import { getGlobalLlmModelId, parseLlmProviderId } from "@/lib/llm/config";
-import { resolveCandidatePipelineIds } from "@/lib/pipelines/transition-validator";
+import {
+  fetchJobPipelineConfig,
+  resolveCandidatePipelineIds,
+} from "@/lib/pipelines/transition-validator";
 
 /** Candidate/CV fields shared by both write paths -- AI-parsed resume output
  * on the auto-upload path, recruiter-typed input on the manual-entry path. */
@@ -180,8 +182,19 @@ export async function insertCandidateCvVersion(
 
     let initialStageMappingId: string | null = null;
     let initialSubStateId: string | null = null;
-    if (created && jobId) {
-      const { stageMappings, subStages } = await getCachedJobPipelineConfig(
+    // Assign on creation, and also heal existing applications that never got a
+    // stage (e.g. created before the job had its pipeline snapshot).
+    let needsStage = created;
+    if (!created && jobId) {
+      const { rows: cur } = await tx.query(
+        `SELECT current_job_stage_mapping_id FROM campaign_applied WHERE id = $1`,
+        [application.id],
+      );
+      needsStage = cur[0]?.current_job_stage_mapping_id == null;
+    }
+    if (needsStage && jobId) {
+      // Uncached: a stale 60s config could miss a just-applied pipeline.
+      const { stageMappings, subStages } = await fetchJobPipelineConfig(
         tx,
         jobId,
       );
@@ -190,8 +203,18 @@ export async function insertCandidateCvVersion(
         stageMappings,
         subStages,
       );
-      initialStageMappingId = resolved.stageMappingId;
-      initialSubStateId = resolved.subStateId;
+      // A job with no own `job_stage_mappings` rows gets the global stages as a
+      // display-only fallback (ids are pipeline_stages ids), which would violate
+      // the current_job_stage_mapping_id FK. Only persist real mapping ids.
+      const { rows: realMapping } = await tx.query(
+        `SELECT 1 FROM job_stage_mappings
+         WHERE id = $1 AND job_id = $2 AND deleted_at IS NULL`,
+        [resolved.stageMappingId, jobId],
+      );
+      if (resolved.stageMappingId && realMapping.length > 0) {
+        initialStageMappingId = resolved.stageMappingId;
+        initialSubStateId = resolved.subStateId;
+      }
     }
 
     const versionNumber = await getNextCvVersionNumber(tx, application.id);

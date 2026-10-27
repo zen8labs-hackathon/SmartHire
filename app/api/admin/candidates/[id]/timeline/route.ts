@@ -1,21 +1,20 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import {
+  requireStaffForRequest,
+  requireUserForRequest,
+} from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
-import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
 import {
-  createCandidateSchedule,
-  getCandidateScheduleById,
-  listCandidateSchedulesByCampaignApplied,
-  updateCandidateSchedule,
-  type CandidateScheduleRow,
-} from "@/lib/db/candidate-schedules";
-import { getPool, withTransaction } from "@/lib/db/config/client";
-import {
-  getJobStageMappingById,
-  getPipelineStageById,
-} from "@/lib/db/pipeline-stages";
+  cancelRound,
+  listRoundsForApplication,
+  saveRound,
+} from "@/lib/calendar/application-rounds";
+import { canManageInterviews } from "@/lib/calendar/authz";
+import { invalidJson, readJson } from "@/lib/calendar/validation";
+
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,13 +30,32 @@ const bodySchema = z
   .object({
     scheduledAt: isoDateTime,
     roundLabel: z.string().max(200).optional(),
-    durationMinutes: z.number().int().positive().optional(),
+    durationMinutes: z.number().int().positive().max(480).optional(),
     location: z.string().max(500).optional(),
     // Present -> reschedule/update exactly this round (whatever stage it
     // belongs to). Omitted -> always create a brand-new, independent round
     // on the application's current stage. See the PATCH handler's docstring
     // for why this can't be inferred server-side.
     scheduleId: z.string().regex(/^\d+$/, "Invalid schedule ID").optional(),
+    // Omitted on an edit -> keep the round's current interviewers.
+    interviewerIds: z
+      .array(z.string().regex(UUID_RE, "Invalid interviewer ID"))
+      .max(10, "Assign at most 10 interviewers.")
+      .optional(),
+    mode: z.enum(["online", "office"]).optional(),
+    meetingLink: z.string().trim().max(1000).optional(),
+    note: z.string().max(2000).optional(),
+    // Required when the time of an existing round changes.
+    reason: z
+      .string()
+      .max(500, "Keep the reason under 500 characters.")
+      .optional(),
+    acknowledgeSoft: z.boolean().optional(),
+    // Sent by the shared ScheduleDialog (Position Management 2, Calendar-2).
+    // Opts into the newer rules -- required interviewers/office location and
+    // the reschedule email. The legacy /admin/jd/[jobId]/pipeline page omits
+    // it and keeps its old behavior.
+    strict: z.boolean().optional(),
   })
   .strict();
 
@@ -47,14 +65,22 @@ const bodySchema = z
 const deleteBodySchema = z
   .object({
     scheduleId: z.string().regex(/^\d+$/, "Invalid schedule ID"),
+    reason: z
+      .string()
+      .trim()
+      .min(1, "Give a reason for canceling.")
+      .max(500, "Keep the reason under 500 characters."),
   })
   .strict();
+
+const toResponse = (r: { status: number; body: unknown }) =>
+  Response.json(r.body, { status: r.status });
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Schedule history for the row's "past rounds" list — most recent first (see `listCandidateSchedulesByCampaignApplied`'s ORDER BY). */
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -68,11 +94,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   );
   if (!appAccess.ok) return appAccess.response;
 
-  const schedules = await listCandidateSchedulesByCampaignApplied(
-    getPool(),
-    campaignAppliedId,
-  );
-  return Response.json({ schedules });
+  return toResponse(await listRoundsForApplication(auth, campaignAppliedId));
 }
 
 /**
@@ -131,118 +153,19 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     campaignAppliedId,
   );
   if (!manageAccess.ok) return manageAccess.response;
+  const legacy = await guardLegacyJob(manageAccess.application.job_id);
+  if (legacy) return legacy;
 
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
-
-  const parsed = bodySchema.safeParse(rawBody);
+  const json = await readJson(request);
+  if (json === undefined) return invalidJson();
+  const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
     return Response.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid body." },
       { status: 400 },
     );
   }
-  const { scheduledAt, roundLabel, durationMinutes, location, scheduleId } =
-    parsed.data;
-
-  const db = getPool();
-
-  const campaignApplied = await getCampaignAppliedById(db, campaignAppliedId);
-  if (!campaignApplied) {
-    return Response.json({ error: "Application not found." }, { status: 404 });
-  }
-
-  let result: CandidateScheduleRow;
-  try {
-    if (scheduleId) {
-      // "Edit": reschedule/update the exact round the caller named, on
-      // whatever stage it originally belonged to.
-      const existing = await getCandidateScheduleById(db, scheduleId);
-      if (!existing || existing.campaign_applied_id !== campaignAppliedId) {
-        return Response.json({ error: "Schedule not found." }, { status: 404 });
-      }
-      if (existing.status !== "Scheduled" && existing.status !== "Confirmed") {
-        return Response.json(
-          { error: "Only an active round can be edited." },
-          { status: 400 },
-        );
-      }
-
-      const scheduledAtChanged =
-        existing.scheduled_at.toISOString() !==
-        new Date(scheduledAt).toISOString();
-
-      if (!scheduledAtChanged) {
-        result =
-          (await updateCandidateSchedule(db, existing.id, {
-            roundLabel,
-            durationMinutes,
-            location,
-          })) ?? existing;
-      } else {
-        result = await withTransaction(async (tx) => {
-          await updateCandidateSchedule(tx, existing.id, {
-            status: "Rescheduled",
-          });
-          return createCandidateSchedule(tx, {
-            campaignAppliedId,
-            jobStageMappingId: existing.job_stage_mapping_id,
-            roundLabel,
-            scheduledAt,
-            durationMinutes,
-            location,
-            rescheduledFromId: existing.id,
-            createdBy: auth.userId,
-          });
-        });
-      }
-    } else {
-      // "Add new": always an independent round on the current stage.
-      if (!campaignApplied.current_job_stage_mapping_id) {
-        return Response.json(
-          { error: "Application has no pipeline stage assigned." },
-          { status: 400 },
-        );
-      }
-
-      const stageMapping = await getJobStageMappingById(
-        db,
-        campaignApplied.current_job_stage_mapping_id,
-      );
-      const stage = stageMapping
-        ? await getPipelineStageById(db, stageMapping.pipeline_stage_id)
-        : null;
-      if (!stage?.allow_schedule) {
-        return Response.json(
-          {
-            error:
-              "Scheduling is not enabled for the application's current stage.",
-          },
-          { status: 400 },
-        );
-      }
-
-      result = await createCandidateSchedule(db, {
-        campaignAppliedId,
-        jobStageMappingId: campaignApplied.current_job_stage_mapping_id,
-        roundLabel,
-        scheduledAt,
-        durationMinutes,
-        location,
-        createdBy: auth.userId,
-      });
-    }
-  } catch (err) {
-    const msg =
-      err instanceof Error ? err.message : "Failed to save interview schedule.";
-    return Response.json({ error: msg }, { status: 500 });
-  }
-
-  return Response.json({ schedule: result });
+  return toResponse(await saveRound(auth, campaignAppliedId, parsed.data));
 }
 
 /**
@@ -269,36 +192,27 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     campaignAppliedId,
   );
   if (!manageAccess.ok) return manageAccess.response;
-
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  const legacy = await guardLegacyJob(manageAccess.application.job_id);
+  if (legacy) return legacy;
+  // BR-INT-01: only HR, Admin and Recruiters manage interview sessions.
+  if (!canManageInterviews(auth.access)) {
+    return Response.json(
+      { error: "Only HR or a recruiter can manage interview schedules." },
+      { status: 403 },
+    );
   }
 
-  const parsed = deleteBodySchema.safeParse(rawBody);
+  const json = await readJson(request);
+  if (json === undefined) return invalidJson();
+  const parsed = deleteBodySchema.safeParse(json);
   if (!parsed.success) {
     return Response.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid body." },
       { status: 400 },
     );
   }
-
-  const db = getPool();
-  const schedule = await getCandidateScheduleById(db, parsed.data.scheduleId);
-  if (!schedule || schedule.campaign_applied_id !== campaignAppliedId) {
-    return Response.json({ error: "Schedule not found." }, { status: 404 });
-  }
-  if (schedule.status !== "Scheduled" && schedule.status !== "Confirmed") {
-    return Response.json(
-      { error: "Only the active schedule can be canceled." },
-      { status: 400 },
-    );
-  }
-
-  const result = await updateCandidateSchedule(db, schedule.id, {
-    status: "Canceled",
-  });
-  return Response.json({ schedule: result });
+  const { scheduleId, reason } = parsed.data;
+  return toResponse(
+    await cancelRound(auth, campaignAppliedId, scheduleId, reason),
+  );
 }

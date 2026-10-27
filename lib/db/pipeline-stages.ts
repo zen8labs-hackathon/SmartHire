@@ -12,6 +12,8 @@ export type PipelineStageRow = {
   desc: string | null;
   color: string | null;
   allow_schedule: boolean;
+  /** none | schedule | offer | probation (free text, extensible). */
+  stage_type: string;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -23,27 +25,73 @@ export type CreatePipelineStageInput = {
   desc?: string | null;
   color?: string | null;
   allowSchedule?: boolean;
+  stageType?: string;
 };
 
 export type UpdatePipelineStageInput = Partial<CreatePipelineStageInput>;
+
+/** Keeps `allow_schedule` and `stage_type = 'schedule'` in sync; stageType wins when both are given. */
+function resolveStageType(input: {
+  stageType?: string;
+  allowSchedule?: boolean;
+}): { stageType: string | undefined; allowSchedule: boolean | undefined } {
+  if (input.stageType !== undefined) {
+    return { stageType: input.stageType, allowSchedule: input.stageType === "schedule" };
+  }
+  if (input.allowSchedule === true) return { stageType: "schedule", allowSchedule: true };
+  return { stageType: undefined, allowSchedule: input.allowSchedule };
+}
+
+/**
+ * Like {@link getPipelineStageById} but also returns a soft-deleted stage. For resolving a stage
+ * that a job mapping / candidate still points at; never for pickers.
+ */
+export async function getPipelineStageByIdIncludingDeleted(
+  db: QueryExecutor,
+  id: string,
+): Promise<PipelineStageRow | null> {
+  const { rows } = await db.query<PipelineStageRow>(
+    `SELECT id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at
+     FROM pipeline_stages WHERE id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
 
 export async function getPipelineStageById(
   db: QueryExecutor,
   id: string,
 ): Promise<PipelineStageRow | null> {
   const { rows } = await db.query<PipelineStageRow>(
-    `SELECT id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at
+    `SELECT id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at
      FROM pipeline_stages WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
   return rows[0] ?? null;
 }
 
+/**
+ * Soft-deleted stages that live pipelines still reference. Display-only: never use for pickers.
+ */
+export async function listDeletedStagesInUse(db: QueryExecutor): Promise<PipelineStageRow[]> {
+  const { rows } = await db.query<PipelineStageRow>(
+    `SELECT s.id, s.code, s.label, s."desc", s.color, s.allow_schedule, s.stage_type, s.created_at, s.updated_at, s.deleted_at
+     FROM pipeline_stages s
+     WHERE s.deleted_at IS NOT NULL
+       AND EXISTS (
+         SELECT 1 FROM pipeline_rows r JOIN pipelines p ON p.id = r.pipeline_id
+         WHERE r.pipeline_stage_id = s.id AND p.deleted_at IS NULL
+       )
+     ORDER BY s.label`,
+  );
+  return rows;
+}
+
 export async function listPipelineStages(
   db: QueryExecutor,
 ): Promise<PipelineStageRow[]> {
   const { rows } = await db.query<PipelineStageRow>(
-    `SELECT id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at
+    `SELECT id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at
      FROM pipeline_stages WHERE deleted_at IS NULL ORDER BY label`,
   );
   return rows;
@@ -53,16 +101,18 @@ export async function createPipelineStage(
   db: QueryExecutor,
   input: CreatePipelineStageInput,
 ): Promise<PipelineStageRow> {
+  const resolved = resolveStageType(input);
   const { rows } = await db.query<PipelineStageRow>(
-    `INSERT INTO pipeline_stages (code, label, "desc", color, allow_schedule)
-     VALUES ($1, $2, $3, COALESCE($4, 'zinc'), COALESCE($5, false))
-     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
+    `INSERT INTO pipeline_stages (code, label, "desc", color, allow_schedule, stage_type)
+     VALUES ($1, $2, $3, COALESCE($4, 'zinc'), COALESCE($5, false), COALESCE($6, 'none'))
+     RETURNING id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at`,
     [
       input.code,
       input.label,
       input.desc ?? null,
       input.color ?? null,
-      input.allowSchedule ?? null,
+      resolved.allowSchedule ?? null,
+      resolved.stageType ?? null,
     ],
   );
   return rows[0];
@@ -73,13 +123,21 @@ export async function updatePipelineStage(
   id: string,
   patch: UpdatePipelineStageInput,
 ): Promise<PipelineStageRow | null> {
+  const resolved = resolveStageType(patch);
+  let stageType = resolved.stageType;
+  if (stageType === undefined && resolved.allowSchedule === false) {
+    // Turning scheduling off only resets the type if it was 'schedule'.
+    const current = await getPipelineStageById(db, id);
+    if (current?.stage_type === "schedule") stageType = "none";
+  }
   const { clause, values } = buildSetClause(
     {
       code: patch.code,
       label: patch.label,
       '"desc"': patch.desc,
       color: patch.color,
-      allow_schedule: patch.allowSchedule,
+      allow_schedule: resolved.allowSchedule,
+      stage_type: stageType,
     },
     2,
   );
@@ -89,7 +147,7 @@ export async function updatePipelineStage(
     `UPDATE pipeline_stages
      SET ${clause}, updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
+     RETURNING id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at`,
     [id, ...values],
   );
   return rows[0] ?? null;
@@ -103,7 +161,7 @@ export async function softDeletePipelineStage(
     `UPDATE pipeline_stages
      SET deleted_at = now(), updated_at = now()
      WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, code, label, "desc", color, allow_schedule, created_at, updated_at, deleted_at`,
+     RETURNING id, code, label, "desc", color, allow_schedule, stage_type, created_at, updated_at, deleted_at`,
     [id],
   );
   return rows[0] ?? null;
@@ -117,6 +175,10 @@ export type PipelineSubStageRow = {
   sequence_number: number;
   is_default: boolean;
   is_passed: boolean;
+  is_terminal: boolean;
+  requires_reason: boolean;
+  requires_decision: boolean;
+  is_withdraw: boolean;
   created_at: Date;
   deleted_at: Date | null;
 };
@@ -128,6 +190,10 @@ export type CreatePipelineSubStageInput = {
   sequenceNumber: number;
   isDefault?: boolean;
   isPassed?: boolean;
+  isTerminal?: boolean;
+  requiresReason?: boolean;
+  requiresDecision?: boolean;
+  isWithdraw?: boolean;
 };
 
 export type UpdatePipelineSubStageInput = Partial<
@@ -179,8 +245,10 @@ export async function createPipelineSubStage(
 ): Promise<PipelineSubStageRow> {
   const { rows } = await db.query<PipelineSubStageRow>(
     `INSERT INTO pipeline_sub_stages
-       (pipeline_stage_id, code, label, sequence_number, is_default, is_passed)
-     VALUES ($1, $2, $3, $4, COALESCE($5, false), COALESCE($6, false))
+       (pipeline_stage_id, code, label, sequence_number, is_default, is_passed,
+        is_terminal, requires_reason, requires_decision, is_withdraw)
+     VALUES ($1, $2, $3, $4, COALESCE($5, false), COALESCE($6, false),
+             COALESCE($7, false), COALESCE($8, false), COALESCE($9, false), COALESCE($10, false))
      RETURNING *`,
     [
       input.pipelineStageId,
@@ -189,6 +257,10 @@ export async function createPipelineSubStage(
       input.sequenceNumber,
       input.isDefault ?? null,
       input.isPassed ?? null,
+      input.isTerminal ?? null,
+      input.requiresReason ?? null,
+      input.requiresDecision ?? null,
+      input.isWithdraw ?? null,
     ],
   );
   return rows[0];
@@ -206,6 +278,10 @@ export async function updatePipelineSubStage(
       sequence_number: patch.sequenceNumber,
       is_default: patch.isDefault,
       is_passed: patch.isPassed,
+      is_terminal: patch.isTerminal,
+      requires_reason: patch.requiresReason,
+      requires_decision: patch.requiresDecision,
+      is_withdraw: patch.isWithdraw,
     },
     2,
   );
@@ -240,6 +316,11 @@ export type JobStageMappingRow = {
   job_id: string;
   pipeline_stage_id: string;
   sequence_number: number;
+  /** Per-job SLA snapshotted from the pipeline row; null = none. */
+  sla_days: number | null;
+  /** Per-job scheduling flag; null = fall back to `pipeline_stages.allow_schedule`. */
+  schedule: boolean | null;
+  pipeline_row_id: string | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;

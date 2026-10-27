@@ -85,7 +85,7 @@ function CvPreviewCard({ model }: { model: GroupedCandidateRow }) {
     <Card className="overflow-hidden rounded-2xl border border-divider bg-background shadow-md">
       <Card.Header className="flex flex-col gap-1 border-0 px-5 pb-3 pt-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-6 sm:pb-3 sm:pt-5">
         <div className="min-w-0">
-          <Card.Title className="truncate text-xl font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
+          <Card.Title className="truncate text-xl font-bold tracking-tight text-heading">
             {name}
           </Card.Title>
           <p className="mt-0.5 truncate text-sm font-semibold italic text-accent">
@@ -378,7 +378,7 @@ export function CvVersionComparisonDrawer({
             <Drawer.Header className="shrink-0 border-b border-divider bg-background px-5 py-3.5 sm:px-6">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <Drawer.Heading className="truncate text-lg font-bold tracking-tight text-[#0c1e33] dark:text-foreground">
+                  <Drawer.Heading className="truncate text-lg font-bold tracking-tight text-heading">
                     {tableRow.name}
                   </Drawer.Heading>
                   <p className="mt-0.5 truncate text-sm text-muted">

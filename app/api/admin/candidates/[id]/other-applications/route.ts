@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { filterViewableJobIds } from "@/lib/authz/can";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import { listApplicationsForCandidate } from "@/lib/db/campaign-applied-list";
@@ -11,7 +11,7 @@ const UUID_RE =
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;

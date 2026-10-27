@@ -108,6 +108,17 @@ describe("createJob", () => {
     expect(values[0]).toBe("Backend Engineer");
     expect(values[1]).toBeNull();
   });
+  it("writes flow_version 1 by default and the given value otherwise", async () => {
+    const db = fakeDb([{ id: "job-1" }]);
+    await createJob(db, { position: "A" });
+    await createJob(db, { position: "B", flowVersion: 2 });
+
+    const [sql, first] = db.query.mock.calls[0];
+    expect(sql).toContain("flow_version");
+    expect(first[first.length - 1]).toBe(1);
+    const second = db.query.mock.calls[1][1];
+    expect(second[second.length - 1]).toBe(2);
+  });
   it("passes updateNote and jd file fields through to the insert", async () => {
     const row = { id: "job-1" };
     const db = fakeDb([row]);

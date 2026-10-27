@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   fetchJobPipelineConfig,
   isCustomTransitionAllowed,
+  isSchedulingEnabled,
   resolveCandidatePipelineIds,
   validateAndBuildPipelineTransition,
   wasCandidateStageOrphaned,
@@ -61,6 +62,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-cv-passed",
@@ -70,6 +73,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
   // Interview sub-stages
   {
@@ -80,6 +85,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-int-passed",
@@ -89,6 +96,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
   // Offer sub-stages
   {
@@ -99,6 +108,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 1,
     is_default: true,
     is_passed: false,
+    is_terminal: false,
+    is_withdraw: false,
   },
   {
     id: "sub-offer-passed",
@@ -108,6 +119,8 @@ const mockSubStages: SubStage[] = [
     sequence_number: 2,
     is_default: false,
     is_passed: true,
+    is_terminal: false,
+    is_withdraw: false,
   },
 ];
 
@@ -246,6 +259,8 @@ describe("wasCandidateStageOrphaned", () => {
         sequence_number: 1,
         is_default: false,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ];
     const application = {
@@ -397,17 +412,50 @@ describe("validateAndBuildPipelineTransition", () => {
   });
 
   describe("hired_at rule", () => {
-    it("sets hiredAt when entering the is_passed sub-stage of the pipeline's last stage", () => {
-      const current = {
-        current_job_stage_mapping_id: "mapping-offer",
-        current_sub_state_id: "sub-offer-default",
-        hired_at: null,
-      };
+    // Probation is identified by stage_type, not by code/label: the stage is
+    // deliberately named "Onboarding" here.
+    const probationMappings: StageMapping[] = [
+      ...mockStageMappings,
+      {
+        id: "mapping-onboard",
+        sequence_number: 4,
+        pipeline_stage_id: "stage-onboard",
+        pipeline_stages: {
+          id: "stage-onboard",
+          code: "onboarding",
+          label: "Onboarding",
+          desc: null,
+          color: "green",
+          allow_schedule: false,
+          stage_type: "probation",
+        },
+      },
+    ];
+    const probationSubStages: SubStage[] = [
+      ...mockSubStages,
+      {
+        id: "sub-onboard-awaiting",
+        pipeline_stage_id: "stage-onboard",
+        code: "awaiting_start",
+        label: "Awaiting start",
+        sequence_number: 1,
+        is_default: true,
+        is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
+      },
+    ];
+    const fromOfferPassed = {
+      current_job_stage_mapping_id: "mapping-offer",
+      current_sub_state_id: "sub-offer-passed",
+    };
+
+    it("sets hiredAt when entering a probation-type stage (any sub-stage)", () => {
       const result = validateAndBuildPipelineTransition(
-        current,
-        { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
-        mockStageMappings,
-        mockSubStages,
+        { ...fromOfferPassed, hired_at: null },
+        { toStageMappingId: "mapping-onboard", toSubStateId: "sub-onboard-awaiting" },
+        probationMappings,
+        probationSubStages,
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -417,13 +465,25 @@ describe("validateAndBuildPipelineTransition", () => {
     });
 
     it("does not set hiredAt when hired_at is already set (no overwrite)", () => {
-      const current = {
-        current_job_stage_mapping_id: "mapping-offer",
-        current_sub_state_id: "sub-offer-default",
-        hired_at: "2026-01-01T00:00:00Z",
-      };
       const result = validateAndBuildPipelineTransition(
-        current,
+        { ...fromOfferPassed, hired_at: "2026-01-01T00:00:00Z" },
+        { toStageMappingId: "mapping-onboard", toSubStateId: "sub-onboard-awaiting" },
+        probationMappings,
+        probationSubStages,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.patch.hiredAt).toBeUndefined();
+      }
+    });
+
+    it("does not set hiredAt on the passed sub-stage of a non-probation last stage", () => {
+      const result = validateAndBuildPipelineTransition(
+        {
+          current_job_stage_mapping_id: "mapping-offer",
+          current_sub_state_id: "sub-offer-default",
+          hired_at: null,
+        },
         { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
         mockStageMappings,
         mockSubStages,
@@ -434,17 +494,25 @@ describe("validateAndBuildPipelineTransition", () => {
       }
     });
 
-    it("does not set hiredAt when the target sub-stage is not is_passed", () => {
-      const current = {
-        current_job_stage_mapping_id: "mapping-interview",
-        current_sub_state_id: "sub-int-passed",
-        hired_at: null,
-      };
+    it("does not treat a stage named/coded 'probation' without the type as hired", () => {
+      const namedOnly = probationMappings.map((m) =>
+        m.id === "mapping-onboard"
+          ? {
+              ...m,
+              pipeline_stages: {
+                ...m.pipeline_stages!,
+                code: "probation",
+                label: "Probation",
+                stage_type: "none",
+              },
+            }
+          : m,
+      );
       const result = validateAndBuildPipelineTransition(
-        current,
-        { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-default" },
-        mockStageMappings,
-        mockSubStages,
+        { ...fromOfferPassed, hired_at: null },
+        { toStageMappingId: "mapping-onboard", toSubStateId: "sub-onboard-awaiting" },
+        namedOnly,
+        probationSubStages,
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -452,22 +520,46 @@ describe("validateAndBuildPipelineTransition", () => {
       }
     });
 
-    it("does not set hiredAt when the target stage is not the pipeline's last stage, even if is_passed", () => {
-      const current = {
-        current_job_stage_mapping_id: "mapping-cv-scan",
-        current_sub_state_id: "sub-cv-new",
+    describe("legacyFlow (job.pipeline_id IS NULL)", () => {
+      const fromOfferDefault = {
+        current_job_stage_mapping_id: "mapping-offer",
+        current_sub_state_id: "sub-offer-default",
         hired_at: null,
       };
-      const result = validateAndBuildPipelineTransition(
-        current,
-        { toStageMappingId: "mapping-cv-scan", toSubStateId: "sub-cv-passed" },
-        mockStageMappings,
-        mockSubStages,
-      );
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.patch.hiredAt).toBeUndefined();
-      }
+      it("sets hiredAt on the passed sub-stage of the last stage", () => {
+        const result = validateAndBuildPipelineTransition(
+          fromOfferDefault,
+          { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
+          mockStageMappings,
+          mockSubStages,
+          { legacyFlow: true },
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.patch.hiredAt).toEqual(expect.any(String));
+      });
+
+      it("does not set hiredAt for a probation-type stage that is not last-passed", () => {
+        const result = validateAndBuildPipelineTransition(
+          { ...fromOfferPassed, hired_at: null },
+          { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-default" },
+          probationMappings.map((m) => ({ ...m, sequence_number: m.id === "mapping-onboard" ? 0 : m.sequence_number })),
+          probationSubStages,
+          { legacyFlow: true },
+        );
+        if (result.ok) expect(result.patch.hiredAt).toBeUndefined();
+      });
+
+      it("does not overwrite an existing hired_at", () => {
+        const result = validateAndBuildPipelineTransition(
+          { ...fromOfferDefault, hired_at: "2026-01-01T00:00:00Z" },
+          { toStageMappingId: "mapping-offer", toSubStateId: "sub-offer-passed" },
+          mockStageMappings,
+          mockSubStages,
+          { legacyFlow: true },
+        );
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.patch.hiredAt).toBeUndefined();
+      });
     });
   });
 });
@@ -498,6 +590,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         is_default: true,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ];
     const db = fakeDb([allStages, jobMappings, subStageRows]);
@@ -510,6 +604,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         pipeline_stage_id: "stage-cv-scan",
         pipeline_stages: allStages[0],
+        schedule: null,
+        sla_days: null,
       },
     ]);
     expect(subStages).toEqual([
@@ -521,6 +617,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         is_default: true,
         is_passed: false,
+        is_terminal: false,
+        is_withdraw: false,
       },
     ]);
   });
@@ -539,6 +637,8 @@ describe("fetchJobPipelineConfig", () => {
         sequence_number: 1,
         pipeline_stage_id: "stage-cv-scan",
         pipeline_stages: allStages[0],
+        schedule: null,
+        sla_days: null,
       },
     ]);
   });
@@ -553,5 +653,22 @@ describe("fetchJobPipelineConfig", () => {
 
     expect(db.query).toHaveBeenCalledTimes(2);
     expect(stageMappings[0].pipeline_stage_id).toBe("stage-cv-scan");
+  });
+});
+
+describe("isSchedulingEnabled", () => {
+  it("uses the job-level flag when set", () => {
+    expect(isSchedulingEnabled({ schedule: false }, { allow_schedule: true })).toBe(false);
+    expect(isSchedulingEnabled({ schedule: true }, { allow_schedule: false })).toBe(true);
+  });
+
+  it("falls back to the stage default when the job flag is null", () => {
+    expect(isSchedulingEnabled({ schedule: null }, { allow_schedule: true })).toBe(true);
+    expect(isSchedulingEnabled({}, { allow_schedule: false })).toBe(false);
+  });
+
+  it("is off without a mapping or any flag", () => {
+    expect(isSchedulingEnabled(null, { allow_schedule: true })).toBe(false);
+    expect(isSchedulingEnabled({ schedule: null }, null)).toBe(false);
   });
 });

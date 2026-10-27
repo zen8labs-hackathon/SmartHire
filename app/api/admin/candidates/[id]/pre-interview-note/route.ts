@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 import {
   createCandidateNote,
@@ -34,7 +34,7 @@ async function getExistingNote(campaignAppliedId: string) {
 }
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -53,7 +53,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;

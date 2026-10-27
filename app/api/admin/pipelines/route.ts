@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { code, label, desc, color, allow_schedule } = parsed.data;
+  const { code, label, desc, color, allow_schedule, stage_type } = parsed.data;
 
   try {
     const stage = await createPipelineStage(getPool(), {
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       desc,
       color,
       allowSchedule: allow_schedule,
+      stageType: stage_type,
     });
     return Response.json({ stage }, { status: 201 });
   } catch (err) {

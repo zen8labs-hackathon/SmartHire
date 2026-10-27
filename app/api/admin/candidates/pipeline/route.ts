@@ -1,11 +1,13 @@
+import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import {
   listCampaignAppliedByIds,
   updateCampaignApplied,
 } from "@/lib/db/campaign-applied";
+import { getJobById } from "@/lib/db/jobs";
 import { withTransaction } from "@/lib/db/config/client";
 import {
   fetchJobPipelineConfig,
@@ -30,7 +32,7 @@ const bodySchema = z.object({
  * transitioned and others not.
  */
 export async function POST(request: Request) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   let body: unknown;
@@ -55,6 +57,8 @@ export async function POST(request: Request) {
     jobId,
   );
   if (!manageAccess.ok) return manageAccess.response;
+  const legacy = await guardLegacyJob(jobId);
+  if (legacy) return legacy;
 
   try {
     await withTransaction(async (db) => {
@@ -87,6 +91,9 @@ export async function POST(request: Request) {
         );
       }
 
+      const job = await getJobById(db, jobId);
+      const legacyFlow = !job?.pipeline_id;
+
       for (const u of updates) {
         const prev = byId.get(u.id);
         if (!prev) {
@@ -101,6 +108,7 @@ export async function POST(request: Request) {
           },
           stageMappings,
           subStages,
+          { legacyFlow },
         );
         if (!result.ok) {
           throw new RouteError(result.error, 400);

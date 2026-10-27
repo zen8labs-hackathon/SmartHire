@@ -11,6 +11,7 @@ export const PERMISSIONS = [
   "salary.view",
   "users.manage",
   "pipelines.manage",
+  "migration.manage",
 ] as const;
 
 export type PermissionId = (typeof PERMISSIONS)[number];

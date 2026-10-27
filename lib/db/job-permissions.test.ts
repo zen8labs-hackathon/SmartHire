@@ -36,8 +36,8 @@ describe("job_allowed_profiles", () => {
     const db = fakeDb([]);
     await grantJobToProfile(db, "job-1", "p1", "granter-1");
     expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("ON CONFLICT (job_id, profile_id) DO NOTHING"),
-      ["job-1", "p1", "granter-1"],
+      expect.stringContaining("ON CONFLICT (job_id, profile_id) DO UPDATE SET role"),
+      ["job-1", "p1", "granter-1", "recruiter"],
     );
   });
 

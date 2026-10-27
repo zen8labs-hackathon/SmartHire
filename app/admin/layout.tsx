@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardLayout } from "@/components/admin/shell/dashboard-layout";
 import { getRequestAuth } from "@/lib/admin/request-auth";
-import { hasAdminAccess, hasRolePermission } from "@/lib/authz/can";
+import { hasRolePermission } from "@/lib/authz/can";
 
 export default async function AdminLayout({
   children,
@@ -17,7 +17,9 @@ export default async function AdminLayout({
   if (!user) {
     redirect("/login?next=/admin");
   }
-  if (!access || !hasAdminAccess(access)) {
+  // Signed-in is enough to enter /admin; what a user can see inside is scoped
+  // by their position grants (and HR-only pages guard themselves).
+  if (!access) {
     redirect("/dashboard");
   }
 
@@ -29,6 +31,7 @@ export default async function AdminLayout({
       userEmail={user.email ?? ""}
       isHr={canManage}
       chapterIds={access.chapterIds}
+      isChapterHead={access.headedChapterIds.length > 0}
     >
       {children}
     </DashboardLayout>

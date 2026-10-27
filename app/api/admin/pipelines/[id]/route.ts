@@ -1,7 +1,15 @@
 import { requireHrForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import { isUniqueViolation } from "@/lib/db/query-helpers";
-import { softDeletePipelineStage, updatePipelineStage } from "@/lib/db/pipeline-stages";
+import {
+  countUpcomingActiveSchedulesForStage,
+  upcomingInterviewsBlockMessage,
+} from "@/lib/db/candidate-schedules";
+import {
+  getPipelineStageById,
+  softDeletePipelineStage,
+  updatePipelineStage,
+} from "@/lib/db/pipeline-stages";
 import { pipelineStageSchema } from "@/lib/pipelines/schemas";
 
 const UUID_RE =
@@ -33,15 +41,27 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const { code, label, desc, color, allow_schedule } = parsed.data;
+  const { code, label, desc, color, allow_schedule, stage_type } = parsed.data;
 
   try {
+    // BR-INT-13: the Schedule flag cannot be turned off while interviews are upcoming.
+    const willSchedule = stage_type !== undefined ? stage_type === "schedule" : allow_schedule;
+    if (!willSchedule) {
+      const current = await getPipelineStageById(getPool(), id);
+      if (current?.allow_schedule) {
+        const upcoming = await countUpcomingActiveSchedulesForStage(getPool(), { id });
+        if (upcoming > 0) {
+          return Response.json({ error: upcomingInterviewsBlockMessage(upcoming) }, { status: 409 });
+        }
+      }
+    }
     const stage = await updatePipelineStage(getPool(), id, {
       code,
       label,
       desc,
       color,
       allowSchedule: allow_schedule,
+      stageType: stage_type,
     });
     if (!stage) {
       return Response.json({ error: "Stage not found or already deleted." }, { status: 404 });

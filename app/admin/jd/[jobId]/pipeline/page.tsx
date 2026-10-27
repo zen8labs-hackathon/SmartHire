@@ -65,7 +65,7 @@ export default async function JobPipelinePage({ params }: PageProps) {
 
   const { user, access } = await getRequestAuth();
   if (!user) redirect("/login?next=/admin/jd");
-  if (!access?.isStaff) redirect("/dashboard");
+  if (!access) redirect("/dashboard");
 
   const db = getPool();
   const allowed = await canViewJob(db, access, jobId);

@@ -13,6 +13,10 @@ export type JobStatus = "Done" | "Hiring" | "Pending" | "Closed";
 /** Merged job_openings + job_descriptions (DB7X2K item 1). Always created with every field in one step — no Draft status. */
 export type JobRow = {
   id: string;
+  /** Null for legacy jobs created before pipelines existed. */
+  pipeline_id?: string | null;
+  /** 1 = legacy flow, 2 = new flow (Position Management 2). */
+  flow_version: 1 | 2;
   position: string;
   status: JobStatus;
   department: string | null;
@@ -42,6 +46,10 @@ export type JobRow = {
   jd_original_filename: string | null;
   jd_mime_type: string | null;
   update_note: string | null;
+  /** Reason given for the last Hold / Reopen (AC-06-16). */
+  status_reason: string | null;
+  /** Per-stage candidate counts captured on Close, see `CloseSnapshot`. */
+  close_snapshot: unknown | null;
   created_at: Date;
   created_by: string | null;
   updated_at: Date;
@@ -51,6 +59,8 @@ export type JobRow = {
 
 export type CreateJobInput = {
   position: string;
+  /** Defaults to 1 (legacy); Position Management 2 passes 2. */
+  flowVersion?: 1 | 2;
   status?: JobStatus;
   department?: string | null;
   employmentStatus?: string | null;
@@ -82,8 +92,11 @@ export type CreateJobInput = {
   createdBy?: string | null;
 };
 
-export type UpdateJobInput = Partial<Omit<CreateJobInput, "createdBy">> & {
+export type UpdateJobInput = Partial<Omit<CreateJobInput, "createdBy" | "flowVersion">> & {
   updateNote?: string | null;
+  statusReason?: string | null;
+  /** Serialized to jsonb; null clears it. */
+  closeSnapshot?: unknown | null;
   updatedBy?: string | null;
 };
 
@@ -229,11 +242,11 @@ export async function createJob(
        experience_requirements_nice_to_have, what_we_offer, level, headcount, hire_type,
        project_info, team_size, language_requirements, career_development, other_requirements,
        salary_range, project_allowances, interview_process, start_date, end_date,
-       hiring_deadline, jd_storage_path, jd_original_filename, jd_mime_type, update_note, created_by
+       hiring_deadline, jd_storage_path, jd_original_filename, jd_mime_type, update_note, created_by, flow_version
      )
      VALUES (
         $1, COALESCE($2, 'Pending'), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
      )
      RETURNING *`,
     [
@@ -267,6 +280,7 @@ export async function createJob(
       input.jdMimeType ?? null,
       input.updateNote ?? null,
       input.createdBy ?? null,
+      input.flowVersion ?? 1,
     ],
   );
   return rows[0];
@@ -309,6 +323,13 @@ export async function updateJob(
       jd_original_filename: patch.jdOriginalFilename,
       jd_mime_type: patch.jdMimeType,
       update_note: patch.updateNote,
+      status_reason: patch.statusReason,
+      close_snapshot:
+        patch.closeSnapshot === undefined
+          ? undefined
+          : patch.closeSnapshot === null
+            ? null
+            : JSON.stringify(patch.closeSnapshot),
       updated_by: patch.updatedBy,
     },
     2,

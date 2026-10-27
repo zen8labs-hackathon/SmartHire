@@ -41,29 +41,28 @@ export default async function DevLoginPage({ searchParams }: Props) {
   const nextPath = safeNextPath(typeof next === "string" ? next : "/dashboard");
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-brand-green-dark bg-grid-pattern p-6">
-      <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-brand-gold/15 blur-[120px] animate-pulse-glow" />
+    <div className="flex min-h-screen flex-col items-center justify-center bg-surface-subtle p-6">
 
-      <div className="relative z-10 w-full max-w-[420px]">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center">
-            <img src="/logo.svg" alt="SmartHire Logo" className="h-14 w-14" />
+      <div className="w-full max-w-[400px]">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="flex h-12 w-12 items-center justify-center">
+            <img src="/logo.svg" alt="SmartHire Logo" className="h-12 w-12" />
           </div>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight text-white">
+          <h1 className="mt-4 text-page font-semibold text-heading">
             Dev sign-in
           </h1>
-          <p className="mt-2 text-sm text-white/65">
+          <p className="mt-1 text-body text-muted">
             Email &amp; password login for development only
           </p>
         </div>
 
-        <Card className="glass-panel w-full border border-divider shadow-2xl rounded-2xl p-6">
+        <Card className="w-full rounded-lg border border-divider bg-surface p-6 shadow-none">
           <Card.Content className="flex flex-col gap-4 p-0">
             <LoginForm nextPath={nextPath} />
           </Card.Content>
         </Card>
 
-        <p className="mt-8 text-center text-xs text-white/55 leading-relaxed">
+        <p className="mt-6 text-center text-caption leading-relaxed text-muted">
           This page is hidden and not indexed. Production uses Microsoft SSO at{" "}
           <span className="font-medium">/login</span>.
         </p>

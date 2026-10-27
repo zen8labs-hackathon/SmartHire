@@ -28,6 +28,10 @@ const patchSubStageSchema = z.object({
     .min(1, "Sequence number must be at least 1"),
   is_default: z.boolean().optional(),
   is_passed: z.boolean().optional(),
+  is_terminal: z.boolean().optional(),
+  requires_reason: z.boolean().optional(),
+  requires_decision: z.boolean().optional(),
+  is_withdraw: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request, { params }: RouteContext) {
@@ -54,7 +58,17 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     );
   }
 
-  const { code, label, sequence_number, is_default, is_passed } = parsed.data;
+  const {
+    code,
+    label,
+    sequence_number,
+    is_default,
+    is_passed,
+    is_terminal,
+    requires_reason,
+    requires_decision,
+    is_withdraw,
+  } = parsed.data;
 
   try {
     const subStage = await updatePipelineSubStage(getPool(), subId, {
@@ -63,6 +77,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       sequenceNumber: sequence_number,
       isDefault: is_default,
       isPassed: is_passed,
+      isTerminal: is_terminal,
+      requiresReason: requires_reason,
+      requiresDecision: requires_decision,
+      isWithdraw: is_withdraw,
     });
     if (!subStage) {
       return Response.json(

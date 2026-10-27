@@ -7,9 +7,12 @@ import { buildSetClause } from "@/lib/db/query-helpers";
 // profile or a chapter, so a single branching function would just re-add the
 // type-dispatch this design removed.
 
+export type JobProfileRole = "recruiter" | "interviewer";
+
 export type JobAllowedProfileRow = {
   job_id: string;
   profile_id: string;
+  role: JobProfileRole;
   granted_by: string | null;
   created_at: Date;
 };
@@ -30,12 +33,14 @@ export async function grantJobToProfile(
   jobId: string,
   profileId: string,
   grantedBy?: string | null,
+  role: JobProfileRole = "recruiter",
 ): Promise<void> {
+  // Re-granting an existing person updates their role (keeps original granter).
   await db.query(
-    `INSERT INTO job_allowed_profiles (job_id, profile_id, granted_by)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (job_id, profile_id) DO NOTHING`,
-    [jobId, profileId, grantedBy ?? null],
+    `INSERT INTO job_allowed_profiles (job_id, profile_id, granted_by, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (job_id, profile_id) DO UPDATE SET role = EXCLUDED.role`,
+    [jobId, profileId, grantedBy ?? null, role],
   );
 }
 
@@ -94,6 +99,31 @@ export async function listAllowedChaptersForJob(
     [jobId],
   );
   return rows;
+}
+
+export type JobChapterRef = { id: string; name: string };
+
+/** Chapters granted to each job (`job_allowed_chapters` joined to `chapters`), keyed by job id, in one round trip. */
+export async function listAllowedChaptersForJobs(
+  db: QueryExecutor,
+  jobIds: string[],
+): Promise<Map<string, JobChapterRef[]>> {
+  const map = new Map<string, JobChapterRef[]>();
+  if (jobIds.length === 0) return map;
+  const { rows } = await db.query<{ job_id: string; id: string; name: string }>(
+    `SELECT jac.job_id, c.id, c.name
+     FROM job_allowed_chapters jac
+     JOIN chapters c ON c.id = jac.chapter_id
+     WHERE jac.job_id = ANY($1::uuid[])
+     ORDER BY c.name`,
+    [jobIds],
+  );
+  for (const r of rows) {
+    const list = map.get(r.job_id) ?? [];
+    list.push({ id: r.id, name: r.name });
+    map.set(r.job_id, list);
+  }
+  return map;
 }
 
 export async function grantJobToChapter(

@@ -60,14 +60,14 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
           return null;
         }}
       >
-        <Label className="text-xs font-semibold text-foreground/80 tracking-wide mb-1.5">
+        <Label className="mb-1.5 text-caption font-medium text-fg-2">
           Email address
         </Label>
         <Input 
           placeholder="you@gmail.com" 
-          className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground placeholder:text-muted outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background shadow-sm"
+          className="h-9 w-full rounded-md border border-border-field bg-surface px-3 text-body text-foreground outline-none transition-colors duration-[120ms] ease-standard placeholder:text-field-placeholder hover:border-neutral-500 focus:border-accent focus:shadow-[0_0_0_1px_var(--accent)]"
         />
-        <FieldError className="text-xs font-medium text-danger mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150" />
+        <FieldError className="mt-1.5 text-caption text-danger" />
       </TextField>
 
       <TextField
@@ -78,19 +78,19 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
         className="flex flex-col"
         minLength={8}
       >
-        <Label className="text-xs font-semibold text-foreground/80 tracking-wide mb-1.5">
+        <Label className="mb-1.5 text-caption font-medium text-fg-2">
           Password
         </Label>
         <Input 
           placeholder="••••••••" 
-          className="w-full px-3.5 py-2.5 rounded-xl border border-divider bg-surface-secondary/40 text-sm text-foreground placeholder:text-muted outline-none transition-all duration-200 hover:border-accent/40 focus:border-accent focus:ring-2 focus:ring-accent/20 focus:bg-background shadow-sm"
+          className="h-9 w-full rounded-md border border-border-field bg-surface px-3 text-body text-foreground outline-none transition-colors duration-[120ms] ease-standard placeholder:text-field-placeholder hover:border-neutral-500 focus:border-accent focus:shadow-[0_0_0_1px_var(--accent)]"
         />
-        <FieldError className="text-xs font-medium text-danger mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150" />
+        <FieldError className="mt-1.5 text-caption text-danger" />
       </TextField>
 
       <Button
         type="submit"
-        className="w-full mt-2 py-2.5 px-4 bg-brand-gold hover:bg-brand-gold-hover text-brand-gold-foreground rounded-xl text-sm font-semibold tracking-wide shadow-md shadow-black/15 transition-[background-color,transform] duration-200 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-body font-semibold text-accent-foreground hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         isDisabled={isPending}
       >
         {isPending ? (

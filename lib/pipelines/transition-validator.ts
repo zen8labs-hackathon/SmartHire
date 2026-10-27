@@ -9,6 +9,10 @@ export interface StageMapping {
   id: string;
   sequence_number: number;
   pipeline_stage_id: string;
+  /** Per-job scheduling override (`job_stage_mappings.schedule`); null/absent = stage default. */
+  schedule?: boolean | null;
+  /** Per-job SLA in days (`job_stage_mappings.sla_days`). */
+  sla_days?: number | null;
   pipeline_stages: {
     id: string;
     code: string;
@@ -16,6 +20,8 @@ export interface StageMapping {
     desc: string | null;
     color: string | null;
     allow_schedule: boolean;
+    /** none | schedule | offer | probation -- see `PipelineStageRow.stage_type`. */
+    stage_type?: string;
   } | null;
 }
 
@@ -27,6 +33,8 @@ export interface SubStage {
   sequence_number: number;
   is_default: boolean;
   is_passed: boolean;
+  is_terminal: boolean;
+  is_withdraw: boolean;
 }
 
 /**
@@ -44,14 +52,21 @@ export async function fetchJobPipelineConfig(
   const allStages = await listPipelineStages(db);
   const stagesById = new Map(allStages.map((s) => [s.id, s]));
 
-  let rawMappings: { id: string; sequence_number: number; pipeline_stage_id: string }[] =
-    jobId ? await listJobStageMappings(db, jobId) : [];
+  let rawMappings: {
+    id: string;
+    sequence_number: number;
+    pipeline_stage_id: string;
+    schedule: boolean | null;
+    sla_days: number | null;
+  }[] = jobId ? await listJobStageMappings(db, jobId) : [];
 
   if (rawMappings.length === 0) {
     rawMappings = allStages.map((stage, idx) => ({
       id: stage.id,
       sequence_number: idx + 1,
       pipeline_stage_id: stage.id,
+      schedule: null,
+      sla_days: null,
     }));
   }
 
@@ -61,6 +76,8 @@ export async function fetchJobPipelineConfig(
       id: m.id,
       sequence_number: m.sequence_number,
       pipeline_stage_id: m.pipeline_stage_id,
+      schedule: m.schedule ?? null,
+      sla_days: m.sla_days ?? null,
       pipeline_stages: stage,
     };
   });
@@ -77,6 +94,8 @@ export async function fetchJobPipelineConfig(
     sequence_number: s.sequence_number,
     is_default: s.is_default,
     is_passed: s.is_passed,
+    is_terminal: s.is_terminal,
+    is_withdraw: s.is_withdraw,
   }));
 
   return { stageMappings, subStages };
@@ -259,17 +278,40 @@ export type PipelineTransitionResult =
   | { ok: true; patch: PipelineTransitionPatch }
   | { ok: false; error: string };
 
+/** Stage type that marks an application as hired once entered (D2, 2026-10-23). */
+export const HIRED_STAGE_TYPE = "probation";
+
 /**
- * The stage with the highest `sequence_number` in this job's pipeline --
- * "last" by position, never by code/name (a job's final stage might be
- * called anything under a fully custom pipeline). Returns `null` for an
- * empty list.
+ * Whether a stage mapping counts as "hired" -- decided by the stage's
+ * `stage_type`, never by its code/label (a custom pipeline may name its
+ * probation stage anything).
+ */
+export function isHiredStageMapping(mapping: StageMapping | null | undefined): boolean {
+  return mapping?.pipeline_stages?.stage_type === HIRED_STAGE_TYPE;
+}
+
+/**
+ * Legacy `hired_at` rule (jobs with `pipeline_id IS NULL`): the stage with the
+ * highest `sequence_number`, by position never by code/label.
  */
 function lastStageMapping(stageMappings: StageMapping[]): StageMapping | null {
   return stageMappings.reduce<StageMapping | null>(
     (max, sm) => (!max || sm.sequence_number > max.sequence_number ? sm : max),
     null,
   );
+}
+
+/**
+ * Whether interviews can be scheduled on a job's stage: the job's own flag
+ * (`job_stage_mappings.schedule`, snapshotted from its pipeline) wins; when it
+ * is null the stage library's `allow_schedule` applies.
+ */
+export function isSchedulingEnabled(
+  mapping: { schedule?: boolean | null } | null | undefined,
+  stage: { allow_schedule: boolean } | null | undefined,
+): boolean {
+  if (!mapping) return false;
+  return mapping.schedule ?? stage?.allow_schedule ?? false;
 }
 
 /**
@@ -280,9 +322,10 @@ function lastStageMapping(stageMappings: StageMapping[]): StageMapping | null {
  * return the patch to persist via `updateCampaignApplied`. Pure function —
  * no DB access here, callers own the read/write.
  *
- * Also implements the `hired_at` cache-column rule from DB7X2K's original
- * planning: set once, the first time the application enters the `is_passed`
- * sub-stage of the pipeline's *last* stage (by position). Requires the
+ * Also implements the `hired_at` cache-column rule: set once, the first time
+ * the application enters any sub-stage of a stage whose `stage_type` is
+ * `probation` (see {@link isHiredStageMapping}); with `opts.legacyFlow`
+ * (job.pipeline_id IS NULL) the old rule applies instead. Requires the
  * caller to pass the application's current `hired_at` so this can stay a
  * pure function instead of re-fetching it -- omitted from the returned
  * patch (not just re-set to the same value) once it's already non-null, so
@@ -299,6 +342,7 @@ export function validateAndBuildPipelineTransition(
   update: { toStageMappingId: string; toSubStateId: string },
   stageMappings: StageMapping[],
   subStages: SubStage[],
+  opts: { legacyFlow?: boolean } = {},
 ): PipelineTransitionResult {
   const { stageMappingId: fromStageMappingId, subStateId: fromSubStateId } =
     resolveCandidatePipelineIds(current, stageMappings, subStages);
@@ -330,11 +374,14 @@ export function validateAndBuildPipelineTransition(
     currentSubStateId: update.toSubStateId,
   };
 
-  if (!current.hired_at) {
-    const lastStage = lastStageMapping(stageMappings);
-    if (lastStage && targetMapping.id === lastStage.id && targetSubStage.is_passed) {
-      patch.hiredAt = new Date().toISOString();
-    }
+  // Versioned rule: legacy jobs (no pipeline) keep "enter the passed sub-stage
+  // of the last stage"; pipeline jobs use the probation stage type.
+  const earnsHired = opts.legacyFlow
+    ? lastStageMapping(stageMappings)?.id === update.toStageMappingId &&
+      targetSubStage.is_passed
+    : isHiredStageMapping(targetMapping);
+  if (!current.hired_at && earnsHired) {
+    patch.hiredAt = new Date().toISOString();
   }
 
   return { ok: true, patch };

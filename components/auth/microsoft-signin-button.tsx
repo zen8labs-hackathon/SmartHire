@@ -3,9 +3,9 @@ export function MicrosoftSignInButton({ next }: { next: string }) {
   return (
     <a
       href={`/api/auth/azure/authorize?next=${encodeURIComponent(next)}`}
-      className="flex w-full items-center justify-center gap-3 rounded-xl bg-brand-gold px-4 py-3 text-sm font-semibold text-brand-gold-foreground shadow-md shadow-black/15 transition-all duration-200 hover:bg-brand-gold-hover hover:shadow-lg active:scale-[0.98]"
+      className="flex h-10 w-full items-center justify-center gap-2.5 rounded-lg bg-accent px-4 text-body font-semibold text-accent-foreground transition-colors duration-[120ms] ease-standard hover:bg-accent-hover active:bg-accent-pressed"
     >
-      <span className="flex h-6 w-6 items-center justify-center rounded-[3px] bg-white">
+      <span className="flex h-6 w-6 items-center justify-center rounded-sm bg-white">
         <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true">
           <rect x="1" y="1" width="9" height="9" fill="#f25022" />
           <rect x="11" y="1" width="9" height="9" fill="#7fba00" />

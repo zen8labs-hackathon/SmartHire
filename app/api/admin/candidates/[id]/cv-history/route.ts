@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
 
 import { getCampaignAppliedById } from "@/lib/db/campaign-applied";
@@ -15,7 +15,7 @@ const UUID_RE =
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -57,7 +57,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     return true;
   });
 
-  const versions: CvManagementVersionListItem[] = representativeRows.map((v, idx) => {
+  const versions: (CvManagementVersionListItem & { versionNumber: number })[] = representativeRows.map((v, idx) => {
     const isLatest = idx === 0;
     const isCurrentlyActive = v.id === campaignApplied.active_cv_version_id;
 
@@ -102,6 +102,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       sortAt: v.created_at.toISOString(),
       isLatest,
       versionEventId: String(v.id),
+      versionNumber: v.version_number,
       eventType:
         v.source_event === "manual_edit"
           ? "profile_edit"

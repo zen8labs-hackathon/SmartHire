@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
-import { requireJobViewForApplication } from "@/lib/authz/require-application-job-view";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
+import { requireApplicationViewOrSeat } from "@/lib/authz/require-application-view-or-seat";
 import { extractTextFromBuffer } from "@/lib/ai/extract-jd";
 import {
   buildEvaluationFillPayload,
@@ -9,6 +9,7 @@ import {
   renderFilledEvaluationPdf,
 } from "@/lib/ai/fill-candidate-evaluation";
 import { getCampaignAppliedAdminRowById } from "@/lib/db/campaign-applied-list";
+import { recordEvaluationSubmission } from "@/lib/calendar/evaluation";
 import { createCandidateNote } from "@/lib/db/candidate-notes";
 import {
   createCandidateEvaluationReview,
@@ -47,7 +48,7 @@ const postBodySchema = z
 /** Latest generated evaluation PDF for this application, if any. */
 export async function GET(request: Request, { params }: RouteContext) {
   const requestId = getRequestIdFromRequest(request);
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -55,8 +56,9 @@ export async function GET(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const appAccess = await requireJobViewForApplication(
+  const appAccess = await requireApplicationViewOrSeat(
     auth.access,
+    auth.userId,
     campaignAppliedId,
   );
   if (!appAccess.ok) return appAccess.response;
@@ -110,7 +112,7 @@ export async function GET(request: Request, { params }: RouteContext) {
  */
 export async function POST(request: Request, { params }: RouteContext) {
   const requestId = getRequestIdFromRequest(request);
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: campaignAppliedId } = await params;
@@ -118,8 +120,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     return Response.json({ error: "Not found." }, { status: 404 });
   }
 
-  const appAccess = await requireJobViewForApplication(
+  const appAccess = await requireApplicationViewOrSeat(
     auth.access,
+    auth.userId,
     campaignAppliedId,
   );
   if (!appAccess.ok) return appAccess.response;
@@ -147,6 +150,12 @@ export async function POST(request: Request, { params }: RouteContext) {
       body: newNote,
       authorId: auth.userId,
     });
+    // BR-INT-07: same bookkeeping as the interview-notes POST.
+    try {
+      await recordEvaluationSubmission(db, campaignAppliedId, auth.userId);
+    } catch (e) {
+      logApiError("Evaluation POST: evaluation bookkeeping failed", e, { userId: auth.userId, campaignAppliedId });
+    }
   }
 
   const reviewerNotes = await loadCombinedReviewerNotesForEvaluation(

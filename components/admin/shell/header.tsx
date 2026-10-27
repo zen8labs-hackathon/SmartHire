@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import React from "react";
 import { UserDropdown } from "./user-dropdown";
+import { useBreadcrumbs } from "./page-title";
 import { NotificationBell } from "./notification-bell";
-import { ArrowLeft, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, ChevronRight, Search, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 export type HeaderProps = {
   userEmail: string;
@@ -19,33 +22,50 @@ export function Header({
   onToggleSidebar,
 }: HeaderProps) {
   const router = useRouter();
+  const crumbs = useBreadcrumbs();
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-divider bg-surface-primary px-6 font-sans">
+    <header className="hd-top">
       {/* Left section: sidebar toggle + back navigation */}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         <button
           onClick={onToggleSidebar}
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-primary hover:bg-surface-secondary text-muted hover:text-foreground border border-divider/60 transition-all cursor-pointer"
+          className="sh-iconbtn"
           aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {sidebarCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
+          {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </button>
-        <button
-          onClick={() => router.back()}
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-primary hover:bg-surface-secondary text-muted hover:text-foreground border border-divider/60 transition-all cursor-pointer"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
+        {crumbs && crumbs.length > 0 ? (
+          <nav aria-label="Breadcrumb" className="ml-2 flex min-w-0 items-center gap-1.5 text-[14px]">
+            {crumbs.map((c, i) => {
+              const last = i === crumbs.length - 1;
+              return (
+                <React.Fragment key={i}>
+                  {i > 0 && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />}
+                  {c.href && !last ? (
+                    <Link href={c.href} className="shrink-0 text-muted hover:text-heading">{c.label}</Link>
+                  ) : (
+                    <span aria-current={last ? "page" : undefined} className={last ? "min-w-0 truncate font-semibold text-heading" : "text-muted"}>{c.label}</span>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </nav>
+        ) : (
+          <button onClick={() => router.back()} className="sh-iconbtn" aria-label="Go back">
+            <ArrowLeft />
+          </button>
+        )}
       </div>
 
-      {/* Right section: Notifications + UserDropdown */}
-      <div className="flex items-center gap-4">
+      {/* Search (⌘K hint) */}
+      <div className="hd-search max-md:hidden" role="search">
+        <Search aria-hidden />
+        <span>Search candidates, jobs, people…</span>
+        <kbd>⌘K</kbd>
+      </div>
+
+      <div className="flex flex-1 items-center justify-end gap-4">
         <NotificationBell />
         <UserDropdown userEmail={userEmail} isHr={isHr} />
       </div>

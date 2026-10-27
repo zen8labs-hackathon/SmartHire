@@ -1,4 +1,4 @@
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { getPool } from "@/lib/db/config/client";
 import {
   countUnreadNotifications,
@@ -19,7 +19,7 @@ const UUID_RE =
  * plus the caller's new unread count so the FE can refresh the badge in place.
  */
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
