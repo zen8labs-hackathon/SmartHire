@@ -561,6 +561,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
       return r ? doNoShow(r) : say("No started session to mark as no-show.");
     }
     if (a.t === "rescore") return void doRescore();
+    if (a.t === "remind" || (a.t === "prob" && a.act === "remind")) return say("Reminder sent" + (a.who ? " to " + a.who : ""));
     if (a.t === "interview") return setTab("notes");
     if (a.t === "fail") return h.onReject(c);
     if (a.t === "patch") return a.patch?.accepted ? h.onOfferAccepted(c) : undefined;
@@ -636,7 +637,6 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
             </div>
             {user.key !== "iv" && (
               <div className="ad-acts">
-                <MoveButton c={c} h={h} user={user} size="lg" stages={stages} />
                 <Button variant="secondary" icon="link" onClick={onShare}>Share evaluation</Button>
               </div>
             )}

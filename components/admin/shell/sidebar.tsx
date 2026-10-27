@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@heroui/react";
@@ -18,7 +18,6 @@ import {
   Heart,
   UserCheck,
   CalendarDays,
-  ArrowRightLeft,
   LogOut,
   Loader2,
   type LucideIcon,
@@ -44,6 +43,8 @@ export function Sidebar({
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [isPendingSignOut, startSignOutTransition] = useTransition();
 
+  const upcoming = useUpcomingInterviews();
+
   const handleSignOut = () => {
     startSignOutTransition(async () => {
       await signOut();
@@ -62,7 +63,6 @@ export function Sidebar({
     chapters: Compass,
     templates: FileSpreadsheet,
     calendar: CalendarDays,
-    migration: ArrowRightLeft,
   };
   const menu = buildMenu({ isHr, isChapterHead });
 
@@ -116,17 +116,29 @@ export function Sidebar({
             {group.items.map((item) => {
               const Icon = ICONS[item.icon];
               const active = isNavActive(item.href, pathname);
+              const count = item.id === "calendar2" ? upcoming : 0;
               return (
                 <Link
                   key={item.id}
                   href={item.href}
-                  className={cn("sh-nav-link", collapsed && "justify-center px-0")}
+                  className={cn("sh-nav-link relative", collapsed && "justify-center px-0")}
                   aria-current={active ? "page" : undefined}
                   title={collapsed ? item.label : undefined}
                   aria-label={collapsed ? item.label : undefined}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   {!collapsed && <span>{item.label}</span>}
+                  {count > 0 && (
+                    <span
+                      aria-label={`${count} upcoming interview${count === 1 ? "" : "s"}`}
+                      className={cn(
+                        "min-w-[18px] rounded-full bg-[var(--brand-green)] px-1.5 text-center text-[11px] font-semibold leading-[18px] text-white",
+                        collapsed ? "absolute right-1 top-0.5 min-w-[16px] px-1 text-[10px] leading-4" : "ml-auto",
+                      )}
+                    >
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -194,4 +206,25 @@ export function Sidebar({
       />
     </aside>
   );
+}
+
+/** Number of the viewer's upcoming interviews, refreshed on navigation and when a page signals a change. */
+function useUpcomingInterviews() {
+  const pathname = usePathname();
+  const [count, setCount] = useState(0);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    window.addEventListener("sh:interviews-changed", bump);
+    return () => window.removeEventListener("sh:interviews-changed", bump);
+  }, []);
+  useEffect(() => {
+    const ac = new AbortController();
+    fetch("/api/admin/calendar/mine", { signal: ac.signal })
+      .then((r) => (r.ok ? (r.json() as Promise<{ interviews: { upcoming: boolean }[] }>) : null))
+      .then((d) => { if (d) setCount(d.interviews.filter((m) => m.upcoming).length); })
+      .catch(() => {});
+    return () => ac.abort();
+  }, [pathname, tick]);
+  return count;
 }

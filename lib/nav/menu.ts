@@ -14,8 +14,7 @@ export type NavIcon =
   | "users"
   | "chapters"
   | "templates"
-  | "calendar"
-  | "migration";
+  | "calendar";
 
 export type NavItem = {
   id: string;
@@ -42,7 +41,6 @@ const ITEMS: Record<string, NavItem & { show: (v: NavViewer) => boolean }> = {
   talent: { id: "talent", label: "Talent pool", href: "/admin/talent-pool", icon: "talent", ready: false, show: (v) => v.isHr },
   pipelines: { id: "pipelines", label: "Pipelines", href: "/admin/pipelines", icon: "pipelines", ready: true, show: (v) => v.isHr },
   pipelines2: { id: "pipelines2", label: "Pipelines 2", href: "/admin/pipelines-2", icon: "pipelines", ready: true, show: (v) => v.isHr },
-  migration: { id: "migration", label: "Migration Center", href: "/admin/migration", icon: "migration", ready: true, show: (v) => v.isHr },
   probation: { id: "probation", label: "Probation", href: "/admin/probation", icon: "probation", ready: false, show: (v) => v.isHr || v.isChapterHead },
   users: { id: "users", label: "Users", href: "/admin/users", icon: "users", ready: true, show: (v) => v.isHr },
   chapters: { id: "chapters", label: "Chapters", href: "/admin/chapters", icon: "chapters", ready: true, show: (v) => v.isHr },
@@ -50,7 +48,7 @@ const ITEMS: Record<string, NavItem & { show: (v: NavViewer) => boolean }> = {
 };
 
 const GROUPS: { id: string; label: string; items: string[] }[] = [
-  { id: "work", label: "Work", items: ["dashboard", "stats", "positions", "positions2", "calendar2", "candidates", "talent", "pipelines", "pipelines2", "migration", "probation"] },
+  { id: "work", label: "Work", items: ["dashboard", "stats", "positions", "positions2", "calendar2", "candidates", "talent", "pipelines", "pipelines2", "probation"] },
   { id: "setup", label: "Setup", items: ["users", "chapters", "templates"] },
 ];
 

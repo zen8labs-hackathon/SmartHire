@@ -1,5 +1,5 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
-import { requireStaffForRequest, requireUserForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionOnJob } from "@/lib/authz/require-permission";
 import { getPool } from "@/lib/db/config/client";
 import { getJobById, updateJob, type UpdateJobInput } from "@/lib/db/jobs";
@@ -26,7 +26,7 @@ export async function GET(request: Request, ctx: Ctx) {
 
 /** Edit position fields (title, level, type, headcount, dates, JD detail text). Status is untouched. */
 export async function PATCH(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   const db = getPool();
@@ -37,14 +37,19 @@ export async function PATCH(request: Request, ctx: Ctx) {
   }
   const perm = await requirePermissionOnJob(auth.access, "job.manage", id);
   if (!perm.ok) return perm.response;
-  const legacy = await guardLegacyJob(id);
-  if (legacy) return legacy;
 
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  // A deadline-only edit doesn't touch the hiring flow, so legacy positions allow it.
+  const deadlineOnly = Object.keys(body).every((k) => k === "deadline");
+  if (!deadlineOnly) {
+    const legacy = await guardLegacyJob(id);
+    if (legacy) return legacy;
   }
 
   const patch: UpdateJobInput = { updatedBy: auth.userId };

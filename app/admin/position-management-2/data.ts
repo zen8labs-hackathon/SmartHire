@@ -185,5 +185,5 @@ export const stageColor = (k: string) => {
 
 export const stageOf = (id: string, stages: Stage[] = STAGES): Stage => stages.find((s) => s.id === id) ?? stages[0] ?? STAGES[0];
 
-const SRC: Record<string, [string, string]> = { LinkedIn: ['linkedin', 'linkedin'], Referral: ['referral', 'user-plus'], 'Career site': ['site', 'globe'], Email: ['email', 'mail'], 'Partner school': ['school', 'graduation-cap'] };
+const SRC: Record<string, [string, string]> = { LinkedIn: ['linkedin', 'linkedin'], TopCV: ['topcv', 'file-text'], ITViec: ['itviec', 'briefcase'], Facebook: ['facebook', 'users'], TopDev: ['topdev', 'cpu'], Referral: ['referral', 'user-plus'], 'Career site': ['site', 'globe'], Email: ['email', 'mail'], 'Partner school': ['school', 'graduation-cap'] };
 export const srcInfo = (s: string): [string, string] => SRC[s] || ['other', 'inbox'];

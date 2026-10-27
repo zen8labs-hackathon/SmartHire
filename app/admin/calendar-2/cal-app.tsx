@@ -521,6 +521,7 @@ export function CalendarApp({ embedded = false, viewer, initialPeople = [], init
       user={{ key: viewer.isHr ? "hr" : "rc", name: viewer.name, role: viewer.role, salary: false, allJobs: viewer.isHr, canCreate: false, canDecide: false } satisfies Role}
       crumbs={["Calendar"]}
       title="Calendar"
+      trail={[{ label: "Calendar" }]}
       subtitle="Interviews you attend or organize, and the time you’re busy."
       onHome={() => {}}
       meta={feed && (

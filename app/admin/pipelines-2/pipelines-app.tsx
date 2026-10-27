@@ -28,7 +28,7 @@ export function PipelinesApp({ embedded = false, initialLibrary, initialPipeline
   return (
     <>
       <Shell
-        embedded={embedded} onHome={() => {}} user={user} active="pipes" crumbs={["Setup"]} title="Pipelines"
+        embedded={embedded} onHome={() => {}} user={user} active="pipes" crumbs={["Setup"]} title="Pipelines" trail={[{ label: "Pipelines" }]}
         subtitle="Build hiring pipelines from the shared Stage library."
       >
         <EntityTabs tabs={[{ id: "pipes", label: "Pipelines", count: list.length }, { id: "library", label: "Stage library", count: lib.filter((s) => !s.deleted).length }]} value={tab} onChange={pick} />

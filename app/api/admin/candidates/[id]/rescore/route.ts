@@ -1,5 +1,5 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { logApiError } from "@/lib/logger";
 import { enqueueRescore } from "@/lib/position/enqueue-rescore";
@@ -11,7 +11,7 @@ const UUID_RE =
 
 /** Re-run AI JD-matching for one application against the current criteria. */
 export async function POST(request: Request, ctx: Ctx) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) {

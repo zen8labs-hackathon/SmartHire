@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Badge, Banner, Button, Icon } from "./ext";
+import { Badge, Button, Icon } from "./ext";
 import type { MyInterview } from "./api";
 import { dayLong, isoDateInTz, minuteOfDayInTz, timeRange } from "../calendar-2/data";
 
@@ -10,24 +10,6 @@ const when = (m: MyInterview) =>
 
 const dueLabel = (m: MyInterview) =>
   new Date(m.evaluationDueAt).toLocaleString("en-GB", { timeZone: "Asia/Ho_Chi_Minh", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }) + " (GMT+7)";
-
-/** Summary of the viewer's interviewer workload; null when there is nothing to do. */
-export function InterviewsBanner({ items, onOpen }: { items: MyInterview[]; onOpen?: () => void }) {
-  const upcoming = items.filter((m) => m.upcoming).length;
-  const pending = items.filter((m) => m.pendingEvaluation).length;
-  const overdue = items.filter((m) => m.overdue).length;
-  if (upcoming + pending === 0) return null;
-  const parts = [
-    upcoming > 0 && `${upcoming} upcoming interview${upcoming === 1 ? "" : "s"}`,
-    pending > 0 && `${pending} evaluation${pending === 1 ? "" : "s"} to submit${overdue > 0 ? ` (${overdue} overdue)` : ""}`,
-  ].filter(Boolean).join(" · ");
-  return (
-    <Banner tone={overdue > 0 ? "warning" : "info"} icon="calendar-clock" title="You are an interviewer"
-      action={onOpen && <Button variant="secondary" onClick={onOpen}>Open calendar</Button>}>
-      {parts}
-    </Banner>
-  );
-}
 
 /** The viewer's interviews on one position, soonest first; evaluations still owed come first. */
 /** BR-INT-09: a started session that is still active can be marked as no-show. */

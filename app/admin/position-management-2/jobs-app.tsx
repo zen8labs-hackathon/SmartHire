@@ -7,10 +7,9 @@ import { Badge, Banner, Button, Dialog, EntityTabs, Icon, Menu, ShareEvaluationD
 import { MigrateWizard } from "./migrate-wizard";
 import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
-import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchMyInterviews, fetchSchedules, type MyInterview, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
+import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchSchedules, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
 import { UploadsTab } from "./overview";
-import { InterviewsBanner } from "./my-interviews";
 // eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
 import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import type { FileUploadRow } from "@/lib/db/upload-history";
@@ -85,7 +84,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     const url = !jobSeg ? BASE : u ? `${BASE}/${jobSeg}/${u}` : `${BASE}/${jobSeg}`;
     if (drawer != null && id != null) router.replace(url); else router.push(url);
   };
-  const [mine, setMine] = React.useState<MyInterview[]>([]);
   const [stages, setStages] = React.useState<Stage[]>(STAGES);
   const [creating, setCreating] = React.useState(false);
   const [createErr, setCreateErr] = React.useState<string | null>(null);
@@ -100,11 +98,8 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     void reload(ac.signal);
     fetchChapters(ac.signal).then(setChInfo).catch((e) => { if (!ac.signal.aborted) console.error(e); });
     fetchPipelineChoices(ac.signal).then(setPipelineChoices).catch((e) => { if (!ac.signal.aborted) console.error(e); });
-    fetchMyInterviews(ac.signal).then(setMine).catch((e) => { if (!ac.signal.aborted) console.error(e); });
     return () => ac.abort();
   }, [reload]);
-  // Seat state (submitted / overdue / no-show) changes server-side after an action.
-  const reloadMine = React.useCallback(() => { fetchMyInterviews().then(setMine).catch((e) => console.error(e)); }, []);
 
   const anyProcessing = jobs.some((j) => j.processing);
   React.useEffect(() => {
@@ -436,11 +431,6 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       {user.canCreate && <Button icon="plus" onClick={() => setDlg({ k: "create" })}>Open new position</Button>}
     </>;
     body = <>
-      {mine.some((m) => m.upcoming || m.pendingEvaluation) && (
-        <div style={{ padding: embedded ? "0 0 12px" : "0 24px 12px" }}>
-          <InterviewsBanner items={mine} onOpen={() => router.push("/admin/calendar-2")} />
-        </div>
-      )}
       <JobsList user={user} pool={pool} go={(id, tab, cand) => { go(id as number | "pool", tab ?? undefined); if (cand != null) setDrawer(cand, id === "pool" ? "pool" : uuidMap.current.get(id as number) ?? seg); }}
       onCreate={() => setDlg({ k: "create" })} onUpload={(id) => legacyBlocked(id === "pool" ? undefined : visible.find((x) => x.id === id)) || setDlg({ k: "upload", dest: id as number | "pool" })} onCloseJob={(j) => legacyBlocked(j) || setDlg({ k: "close", job: j })} onRetry={(j) => void retryJd(j)} onHold={(j) => legacyBlocked(j) || setDlg({ k: "reason", job: j, to: "hold" })} onReopen={(j) => legacyBlocked(j) || setDlg({ k: "reason", job: j, to: "reopen" })} jobs={visible} chapters={chInfo?.chapters.map((c) => c.name)} />
     </>;
@@ -460,7 +450,9 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     const upView = route.upView || (upAtt.length ? "attention" : "history");
     const f = (fn: () => void) => () => { setSettingsOpen(false); fn(); };
     const lg = !isPool && !!job.legacy;
-    const canHc = (user.key === "hr" || user.key === "ch") && job.status !== "Closed" && !lg;
+    // Deadline is plain metadata, so it stays editable on legacy-flow positions too.
+    const canDl = (user.key === "hr" || user.key === "ch") && job.status !== "Closed";
+    const canHc = canDl && !lg;
     const [tone, icon] = ST_TONE[job.status] || ["neutral", "circle"];
 
     title = job.title;
@@ -472,7 +464,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         <span>#{job.id} · {job.chapter || "—"} · {job.level || "—"} · {job.type}</span>
         <span aria-hidden="true">·</span>
         <span className="jb-hcbtn" style={{ cursor: "default" }}><Icon name="users" size={12} />{job.hired}/{job.headcount} hired</span>
-        {(job.deadline || canHc) && <><span aria-hidden="true">·</span><span>deadline {job.deadline ?? "—"}</span>{canHc && <button type="button" className="jb-dledit" aria-label="Edit deadline" title="Edit deadline" onClick={() => setDlg({ k: "deadline" })}><Icon name="pencil" size={12} /></button>}</>}
+        {(job.deadline || canDl) && <><span aria-hidden="true">·</span><span>deadline {job.deadline ?? "—"}</span>{canDl && <button type="button" className="jb-dledit" aria-label="Edit deadline" title="Edit deadline" onClick={() => setDlg({ k: "deadline" })}><Icon name="pencil" size={12} /></button>}</>}
       </span>
     </>;
     actions = <>
@@ -548,7 +540,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         onShare={() => dc && setShare(dc.name)}
         onSubmitNotes={(c, v) => {
           upd(c.id, { ivDone: true, ivNote: v, noNote: false });
-          reloadMine();
+          window.dispatchEvent(new Event("sh:interviews-changed"));
           say("Interview notes submitted", "The AI match and other interviewers' notes are now visible to you.", undefined, "circle-check");
         }} />
       {share && <ShareEvaluationDialog name={share} onClose={() => setShare(null)} />}

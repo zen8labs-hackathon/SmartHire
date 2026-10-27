@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { Candidate, Job, Stage } from "./data";
+import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
 import { MAX_BATCH_FILES, MAX_CV_BYTES, isAllowedCvFilename } from "@/lib/candidates/upload-constants";
 import { fetchPeople, fetchPositionMembers, type PositionMember, fetchCandidateApplications, type PersonChoice, uploadPositionCvs, type CandidateApplication, type CvFileState, type CvUploadResult } from "./api";
 import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/position/position-rules";
@@ -133,7 +134,9 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
 
 export type UploadBatch = { to: string; src: string; recruiter?: string; files: File[]; target: string };
 const CV_ACCEPT = ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const CV_SOURCES = ["Referral", "Career site", "Email", "Partner school", "LinkedIn", "Other"];
+// Canonical sources from the legacy /admin/jd flow first (stored as-is on
+// campaign_applied.source), then labels that map to "Other (<label>)".
+const CV_SOURCES = [...CANDIDATE_SOURCE_VALUES.filter((s) => s !== "Other"), "Referral", "Email", "Partner school", "Other"];
 
 function cvFileError(f: File): string | null {
   if (!isAllowedCvFilename(f.name)) return "Not a PDF or DOCX — will be skipped";

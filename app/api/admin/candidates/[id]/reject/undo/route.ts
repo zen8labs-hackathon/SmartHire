@@ -1,5 +1,5 @@
 import { guardLegacyJob } from "@/lib/migration/legacy-flow-guard";
-import { requireStaffForRequest } from "@/lib/admin/require-staff-request";
+import { requireUserForRequest } from "@/lib/admin/require-staff-request";
 import { canViewSalary } from "@/lib/authz/can";
 import { requirePermissionForApplication } from "@/lib/authz/require-permission";
 import { redactAdminRowSalary } from "@/lib/authz/redact-salary";
@@ -22,7 +22,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  * Interview sessions the reject canceled are not restored.
  */
 export async function POST(request: Request, { params }: RouteContext) {
-  const auth = await requireStaffForRequest(request);
+  const auth = await requireUserForRequest(request);
   if (!auth.ok) return auth.response;
 
   const { id: candidateId } = await params;

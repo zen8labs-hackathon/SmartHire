@@ -72,6 +72,13 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
   const moveTo = (to: string, label: string): Act | null =>
     op ? { t: "move", to, label: "Move to " + label, icon: "arrow-right", primary: true } : null;
   const compact = (a: (Act | null | false)[]) => a.filter(Boolean) as Act[];
+  const prev = idx > 0 ? stages[idx - 1] : undefined;
+  // A closed (failed) candidate can be reopened at the stage's default sub-stage.
+  const reopen = (who = dec): Act | null => (who && s.def ? { t: "sub", sub: s.def, label: "Reopen", icon: "rotate-ccw" } : null);
+  // Reject is always reachable for decision makers while a candidate is still open.
+  const reject = (label = "Reject"): Act | null => (dec && s.fail ? { t: "fail", sub: s.fail, label, icon: "circle-x" } : null);
+  // Replaces the old drawer "Move to" menu's move-back: only before any progress in this stage.
+  const back = (): Act | null => (dec && prev && c.sub === s.def ? { t: "move", to: prev.id, label: "Back to " + prev.label, icon: "undo-2" } : null);
 
   let steps: Step[] = [], owner: Owner | null = null, acts: Act[] = [], title = "", ended = false;
 
@@ -86,10 +93,10 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       st(failed ? "Not passed" : passed ? "Passed" : "Pass, Consider or Not pass", failed ? "fail" : passed ? "done" : scored || err ? "now" : "todo", P.ops(c)),
       st("Move to " + nextLabel, "todo", P.ops(c)),
     ];
-    if (failed) { ended = true; title = "Did not pass " + s.label; }
+    if (failed) { ended = true; title = "Did not pass " + s.label; acts = compact([reopen()]); }
     else if (passed) {
       owner = P.ops(c); title = "Ready to move to " + nextLabel;
-      if (next) acts = compact([moveTo(next.id, nextLabel)]);
+      acts = compact([next && moveTo(next.id, nextLabel), op && s.def ? { t: "sub", sub: s.def, label: "Undo pass", icon: "undo-2" } : null]);
     } else {
       owner = P.ops(c);
       title = c.hold ? "Take a second look, then decide" : "Decide on this CV";
@@ -127,7 +134,7 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       c.sub !== "Consider" && s.subs.includes("Consider") && adv ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
       s.fail && adv ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
     ]);
-    if (failed) { ended = true; title = "Did not pass " + s.label; }
+    if (failed) { ended = true; title = "Did not pass " + s.label; acts = compact([reopen()]); }
     else if (passed) {
       owner = P.ops(c); title = "Ready to move to " + nextLabel;
       if (next) acts = compact([moveTo(next.id, nextLabel)]);
@@ -135,17 +142,23 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       if (nextRnd && mgr) acts = [...acts, { t: "nextRound", label: "Schedule " + nextRnd, icon: "calendar-plus" }];
     } else if (!cur && !notesIn) {
       owner = P.sch(c); title = (noShow ? "No-show · Schedule " : "Schedule ") + rnd;
-      if (mgr) acts = compact([{ t: "sched", label: "Schedule " + rnd, icon: "calendar-plus", primary: true }, c.sub === "Consider" && dec ? decideActs()[0] : null]);
+      acts = compact([
+        mgr ? { t: "sched", label: "Schedule " + rnd, icon: "calendar-plus", primary: true } : null,
+        c.sub === "Consider" && dec ? decideActs()[0] : null,
+        reject(), back(),
+      ]);
     } else if (!held && !notesIn) {
       owner = P.ivs(o.ivName); title = rnd + " · " + cur?.d;
       if (ivMe) acts = [{ t: "interview", label: "Prepare in interview mode", icon: "clipboard-pen", primary: true }];
       else if (mgr) acts = [{ t: "resched", label: "Reschedule", icon: "history" }];
+      acts = compact([...acts, reject()]);
     } else if (!notesIn) {
       owner = P.ivs(o.ivName); title = "Waiting for " + rnd + " notes";
       if (ivMe) acts = [{ t: "interview", label: o.viewerIsIv ? "Create interview notes" : "Write your notes", icon: "pen-line", primary: true }];
       else if (op) acts = [{ t: "remind", label: "Remind interviewer", icon: "bell", who: o.ivName }];
       // BR-INT-09: HR, Recruiters and invited interviewers can record a no-show once the session has started.
       if (cur?.past && (mgr || ivMe)) acts = [...acts, { t: "noShow", label: "Mark no-show", icon: "user-x" }];
+      acts = compact([...acts, reject()]);
     } else {
       owner = P.ch; title = "Decide after " + rnd;
       // BR-INT-03: the Chapter Head decides; HR/Recruiter schedules the next round once it is Pass or Consider.
@@ -166,16 +179,20 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       st(rejected ? "Candidate rejected" : "Candidate accepted", rejected ? "fail" : accepted ? "done" : offered ? "now" : "todo", P.cand),
       st("Company approval", accepted ? "now" : "todo", P.ch, "Confirms the hire"),
     ];
-    if (rejected) { ended = true; title = "Offer rejected by the candidate"; }
+    if (rejected) { ended = true; title = "Offer rejected by the candidate"; acts = compact([reopen(k === "hr")]); }
     else if (!matched && !offered) {
       owner = P.hr; title = "Agree terms with the candidate";
       if (k === "hr") acts = compact([
         { t: "sub", sub: "Matched", label: "Mark terms agreed", icon: "handshake", primary: true },
         s.fail ? { t: "fail", sub: s.fail, label: "Candidate rejected", icon: "x" } : null,
+        back(),
       ]);
     } else if (matched) {
       owner = P.hr; title = "Send the offer letter";
-      if (k === "hr") acts = [{ t: "sub", sub: s.pass, label: "Send offer letter", icon: "send", primary: true }];
+      if (k === "hr") acts = compact([
+        { t: "sub", sub: s.pass, label: "Send offer letter", icon: "send", primary: true },
+        s.fail ? { t: "fail", sub: s.fail, label: "Candidate rejected", icon: "x" } : null,
+      ]);
     } else if (!accepted) {
       owner = { ...P.cand, keys: ["hr"] }; title = "Waiting for the candidate's answer";
       if (k === "hr") acts = compact([
@@ -184,7 +201,10 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       ]);
     } else {
       owner = P.ch; title = "Confirm the hire";
-      if (dec && next) acts = [{ t: "move", to: next.id, label: "Approve & confirm hire", icon: "badge-check", primary: true, decision: true }];
+      acts = compact([
+        dec && next ? { t: "move", to: next.id, label: "Approve & confirm hire", icon: "badge-check", primary: true, decision: true } : null,
+        k === "hr" && s.fail ? { t: "fail", sub: s.fail, label: "Candidate withdrew", icon: "x" } : null,
+      ]);
     }
   } else if (kind === "prob") {
     const find = (re: RegExp) => s.subs.find((x) => re.test(x));
@@ -207,13 +227,25 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     ];
     if (p.status === "awaiting") {
       owner = P.hr; title = "Confirm the first working day" + (p.planned ? " · planned " + p.planned : "");
-      if (k === "hr") acts = [{ t: "prob", act: "start", sub: find(/progress|active|started/i) ?? s.pass, label: "Confirm start", icon: "log-in", primary: true }];
+      const noStart = find(/did not/i);
+      if (k === "hr") acts = compact([
+        { t: "prob", act: "start", sub: find(/progress|active|started/i) ?? s.pass, label: "Confirm start", icon: "log-in", primary: true },
+        noStart ? { t: "prob", act: "nostart", sub: noStart, label: "Did not start", icon: "user-x" } : null,
+      ]);
     } else if (p.status === "active") {
       owner = mentor; title = "Mentor review due" + (p.daysLeft != null ? ` · ${p.daysLeft} days left` : "");
-      if (dec) acts = [{ t: "prob", act: "remind", label: "Remind mentor", icon: "bell" }];
+      const early = find(/ended early|early/i);
+      if (dec) acts = compact([
+        { t: "prob", act: "remind", label: "Remind mentor", icon: "bell", who: o.mentor ?? undefined },
+        early ? { t: "prob", act: "early", sub: early, label: "End early", icon: "log-out" } : null,
+      ]);
     } else if (p.status === "decision") {
       owner = P.ch; title = "Review submitted · decide";
-      if (dec) acts = [{ t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Mark passed", icon: "gavel", primary: true }];
+      const notPass = s.notPass?.[0] ?? find(/not pass/i);
+      if (dec) acts = compact([
+        { t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Mark passed", icon: "gavel", primary: true },
+        notPass ? { t: "prob", act: "decide", sub: notPass, label: "Not pass", icon: "x" } : null,
+      ]);
     } else if (p.status === "passed") {
       owner = P.hr; title = "Passed probation";
       if (k === "hr") acts = [{ t: "prob", act: "official", ...(next ? { to: next.id } : {}), label: "Move to Official", icon: "badge-check", primary: true }];
@@ -222,9 +254,20 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     ended = true; title = "Official staff · read-only";
     steps = [st("Official", "done", P.hr)];
   } else {
-    owner = P.ops(c); title = "Decide on " + s.label;
-    steps = [st(s.label, "now", owner)];
-    if (op && next) acts = compact([moveTo(next.id, nextLabel)]);
+    if (failed) {
+      ended = true; title = "Did not pass " + s.label;
+      steps = [st(s.label, "fail", P.ops(c))];
+      acts = compact([reopen()]);
+    } else {
+      owner = P.ops(c); title = "Decide on " + s.label;
+      steps = [st(s.label, "now", owner)];
+      if (op) acts = compact([
+        next && moveTo(next.id, nextLabel),
+        c.sub === s.def && s.subs.includes("Consider") ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
+        s.fail ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
+        back(),
+      ]);
+    }
   }
 
   const mine = !ended && !!owner && ((owner as Owner).keys.includes(k) || (!!o.viewerIsIv && (owner as Owner).keys.includes("iv"))) && acts.length > 0;
