@@ -99,12 +99,8 @@ export function planTransition(
     if (!job.position?.trim()) {
       return { ok: false, status: 400, error: "Title is required." };
     }
-    if (!job.start_date || !job.hiring_deadline) {
-      return {
-        ok: false,
-        status: 400,
-        error: "Hiring start date and deadline are required.",
-      };
+    if (!job.hiring_deadline) {
+      return { ok: false, status: 400, error: "Hiring deadline is required." };
     }
   }
 
@@ -114,6 +110,8 @@ export function planTransition(
     updateNote: null,
     updatedBy: opts.userId,
   };
+  // Hiring starts the first time the position opens; a reopen keeps it.
+  if (to === "open" && !job.start_date) patch.startDate = today;
   if (to === "close") patch.endDate = today;
   if (to === "reopen") patch.endDate = null;
   if (REASON_REQUIRED.includes(to)) patch.statusReason = reason;

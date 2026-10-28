@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { JobRow } from "@/lib/db/jobs";
 import type { StageMapping, SubStage } from "@/lib/pipelines/transition-validator";
+import { DRAFT_MARKER } from "@/lib/position/jd-state";
 import {
   STATUS_REASON_MAX,
   planTransition,
@@ -69,6 +70,19 @@ describe("planTransition", () => {
   it("close sets the end date and leaves the reason untouched", () => {
     const r = planTransition(job({ status: "Pending" }), "close", hr);
     expect(r.ok && r.patch).toEqual({ status: "Done", updateNote: null, updatedBy: "u-1", endDate: "2026-10-23" });
+  });
+
+  it("opening a draft needs only the deadline and starts hiring today", () => {
+    const draft = (over: Partial<JobRow> = {}) =>
+      job({ status: "Pending", update_note: DRAFT_MARKER, start_date: null, ...over });
+    const r = planTransition(draft(), "open", hr);
+    expect(r.ok && r.patch).toMatchObject({ status: "Hiring", startDate: "2026-10-23" });
+    expect(planTransition(draft({ hiring_deadline: null }), "open", hr)).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("opening keeps an existing start date", () => {
+    const r = planTransition(job({ status: "Pending", update_note: DRAFT_MARKER }), "open", hr);
+    expect(r.ok && r.patch).not.toHaveProperty("startDate");
   });
 
   it("refuses transitions from the wrong status", () => {

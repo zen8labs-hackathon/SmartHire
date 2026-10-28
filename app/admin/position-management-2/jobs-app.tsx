@@ -552,8 +552,8 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         const uuid = uuidMap.current.get(target.id);
         if (!uuid) return;
         try {
-          // A fresh draft has no start date either, and opening requires both.
-          await updatePosition(uuid, { deadline: iso, startDate: new Date().toISOString().slice(0, 10) });
+          // The server stamps the start date on the first open.
+          await updatePosition(uuid, { deadline: iso });
           await transitionPosition(uuid, "open");
           setDlg(null); await reload();
           say(`${target.title} is open`, "You can now upload CVs.", undefined, "briefcase");
