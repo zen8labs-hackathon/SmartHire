@@ -293,6 +293,7 @@ export function toStages(p: PositionPipelineStage[]): Stage[] {
     pass: st.subs.find((x) => x.isPassed)?.label ?? "",
     fail: st.subs.find((x) => x.isTerminal && !x.isWithdraw && !x.isPassed)?.label,
     notPass: st.subs.filter((x) => x.isTerminal && !x.isWithdraw && !x.isPassed).map((x) => x.label),
+    withdraw: st.subs.filter((x) => x.isWithdraw).map((x) => x.label),
     schedule: st.allowSchedule,
     sla: st.slaDays ?? undefined,
     probation: st.stageType === "probation",

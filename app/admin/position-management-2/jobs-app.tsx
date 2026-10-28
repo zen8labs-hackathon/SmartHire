@@ -9,7 +9,7 @@ import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
 import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchSchedules, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
-import { UploadsTab } from "./overview";
+import { OverviewTab, UploadsTab } from "./overview";
 // eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
 import { ManualEntryFromUploadModal } from "@/components/admin/jd/manual-entry-from-upload-modal";
 import type { FileUploadRow } from "@/lib/db/upload-history";
@@ -520,7 +520,9 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
         )}
         {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} open={openCand} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
-        {tab === "overview" && <div style={{ padding: "64px 0", textAlign: "center", color: "var(--fg-muted, #6b7280)", fontSize: 14 }}>This tab in development process, please wait</div>}
+        {tab === "overview" && <OverviewTab job={job} cands={tabCands} att={upAtt} stages={isPool ? STAGES : stages} bs={bs} user={user}
+          onFilter={(p) => { setPreset({ ...p, k: Date.now() }); nav({ ...route, tab: "candidates", upView: undefined }); }}
+          onTab={(t, sub) => nav({ ...route, tab: t, upView: sub })} />}
         {tab === "uploads" && <UploadsTab key={job.id} bs={bs} histErr={histErr} h={h} att={upAtt} resolve={resolveUp} admin={user.key === "hr"}
           view={upView} setView={(v) => { setUpViewS(v); nav({ ...route, upView: v }); }} isPool={isPool}
           onOpenCand={(f) => { if (f.candId != null) setDrawer(f.candId); else say(f.file, f.did); }} />}
@@ -642,7 +644,12 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         unreviewed={cands.filter((c) => rejectIds.includes(c.id) && !c.notes).length}
         onClose={() => setDlg(null)} onOk={({ reason, notifyInterviewers }) => {
           const rejected = cands.filter((c) => rejectIds.includes(c.id));
-          setCands((cs) => cs.filter((c) => !rejectIds.includes(c.id)));
+          // Rejected candidates stay in the list, marked with their stage's "failed" sub-stage.
+          const restore = (back: Candidate[]) => {
+            const old = new Map(back.map((c) => [c.id, c.sub]));
+            setCands((cs) => cs.map((c) => (old.has(c.id) ? { ...c, sub: old.get(c.id)! } : c)));
+          };
+          setCands((cs) => cs.map((c) => (rejectIds.includes(c.id) ? { ...c, sub: stageOf(c.stage, stages).fail ?? c.sub } : c)));
           void Promise.allSettled(rejected.map((c) => {
             const st = stageOf(c.stage, stages);
             const subId = st.fail ? st.subIds?.[st.fail] : undefined;
@@ -651,7 +658,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
             const failed = rejected.filter((_, i) => rs[i].status === "rejected");
             const done = rejected.filter((_, i) => rs[i].status === "fulfilled");
             if (failed.length) {
-              setCands((cs) => [...cs, ...failed]);
+              restore(failed);
               const first = rs.find((r): r is PromiseRejectedResult => r.status === "rejected");
               fail(`Could not reject ${failed.length} candidate${failed.length > 1 ? "s" : ""}`, first?.reason);
             }
@@ -660,10 +667,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
             say(`${done.length} rejected`, "Candidates rejected.", { label: "Undo", fn: () => {
               void Promise.allSettled(done.map((c) => (c.caId ? undoReject(c.caId) : Promise.resolve()))).then((us) => {
                 const back = done.filter((_, i) => us[i].status === "fulfilled");
-                if (back.length) {
-                  const ids = new Set(back.map((c) => c.id));
-                  setCands((cs) => [...cs.filter((c) => !ids.has(c.id)), ...back]);
-                }
+                if (back.length) restore(back);
                 const firstErr = us.find((r): r is PromiseRejectedResult => r.status === "rejected");
                 if (firstErr) fail(`Could not undo ${done.length - back.length} reject${done.length - back.length > 1 ? "s" : ""}`, firstErr.reason);
                 else say(`${back.length} restored`, "Reject undone. Canceled interviews were not restored.", undefined, "rotate-ccw");

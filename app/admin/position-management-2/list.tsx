@@ -83,10 +83,9 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
   const [type, setType] = React.useState("All types");
   const [chap, setChap] = React.useState("All chapters");
   const [layout, setLayout] = React.useState("table");
-  const [flow, setFlow] = React.useState("All structures");
   const all = visibleJobs(user, jobs);
   const count = (s: string) => all.filter((j) => j.status === s).length;
-  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (flow === "All structures" || (flow === "Old structure" ? !!j.legacy : !j.legacy)) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
+  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
   const P = pool ?? null;
   const scope = user.allJobs
     ? null
@@ -132,7 +131,6 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <Input icon="search" size="sm" placeholder="Search by title or #ID" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
         <Select size="sm" aria-label="Type" value={type} onChange={(e) => setType(e.target.value)} options={["All types", "Full-time", "Internship"]} style={{ width: 150 }} />
-        {all.some((j) => j.legacy) && <Select size="sm" aria-label="Structure" value={flow} onChange={(e) => setFlow(e.target.value)} options={["All structures", "Old structure", "New structure"]} style={{ width: 160 }} />}
         {user.allJobs && <Select size="sm" aria-label="Chapter" value={chap} onChange={(e) => setChap(e.target.value)} options={["All chapters", ...(chapters ?? [...new Set(all.map((j) => j.chapter))])]} style={{ width: 160 }} />}
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: "var(--muted)" }}>Sorted by deadline</span>

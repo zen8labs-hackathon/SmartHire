@@ -72,6 +72,8 @@ export type Stage = {
   fail?: string;
   /** Sub-stage labels that record Not pass (terminal, not passed, not withdrawn); real data only. */
   notPass?: string[];
+  /** Sub-stage labels that record a withdrawal (terminal); real data only. */
+  withdraw?: string[];
   schedule?: boolean;
   /** Per-job SLA in days (real data only). */
   sla?: number;
