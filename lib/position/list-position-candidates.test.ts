@@ -9,7 +9,7 @@ function row(over: Partial<CampaignAppliedAdminRow> = {}): CampaignAppliedAdminR
     id: "a1",
     candidate_id: "c1",
     job_id: "j1",
-    source: "linkedin",
+    source: "LinkedIn",
     source_other: null,
     expected_salary: "$2000",
     jd_match_score: 72,
@@ -65,7 +65,7 @@ describe("rowToPositionCandidate", () => {
       scoring: "done",
       expectedSalary: "$2000",
       daysInStage: 1,
-      source: "linkedin",
+      source: "LinkedIn",
     });
   });
   it("redacts salary", () => {
@@ -73,7 +73,7 @@ describe("rowToPositionCandidate", () => {
   });
   it("uses source_other and falls back to degree headline", () => {
     const c = rowToPositionCandidate(
-      row({ source: "other", source_other: "Job fair", candidate_role: null, candidate_experience_years: null }),
+      row({ source: "Other", source_other: "Job fair", candidate_role: null, candidate_experience_years: null }),
       { viewSalary: true, now },
     );
     expect(c.source).toBe("Job fair");

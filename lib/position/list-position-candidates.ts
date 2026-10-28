@@ -124,7 +124,7 @@ export function rowToPositionCandidate(
     score: scoring === "done" ? row.jd_match_score : null,
     scoring,
     scoringError: scoring === "error" ? row.jd_match_error : null,
-    source: row.source === "other" && row.source_other ? row.source_other : row.source,
+    source: row.source === "Other" && row.source_other ? row.source_other : row.source,
     expectedSalary: opts.viewSalary ? row.expected_salary : null,
     appliedAt: row.created_at.toISOString(),
     daysInStage: Math.max(0, Math.floor((opts.now.getTime() - since.getTime()) / DAY_MS)),

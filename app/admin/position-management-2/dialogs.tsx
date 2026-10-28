@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type { Candidate, Job, Stage } from "./data";
-import { CANDIDATE_SOURCE_VALUES } from "@/lib/candidates/source-constants";
+import { UPLOAD_CV_SOURCES } from "@/lib/candidates/source-constants";
 import { MAX_BATCH_FILES, MAX_CV_BYTES, isAllowedCvFilename } from "@/lib/candidates/upload-constants";
 import { fetchPeople, fetchPositionMembers, type PositionMember, fetchCandidateApplications, type PersonChoice, uploadPositionCvs, type CandidateApplication, type CvFileState, type CvUploadResult } from "./api";
 import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/position/position-rules";
@@ -136,7 +136,6 @@ export type UploadBatch = { to: string; src: string; recruiter?: string; files: 
 const CV_ACCEPT = ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 // Canonical sources from the legacy /admin/jd flow first (stored as-is on
 // campaign_applied.source), then labels that map to "Other (<label>)".
-const CV_SOURCES = [...CANDIDATE_SOURCE_VALUES.filter((s) => s !== "Other"), "Referral", "Email", "Partner school", "Other"];
 
 function cvFileError(f: File): string | null {
   if (!isAllowedCvFilename(f.name)) return "Not a PDF or DOCX — will be skipped";
@@ -190,7 +189,7 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
           <Select label="Upload to" value={to} onChange={(e) => setTo(e.target.value)} disabled={lockDest} hint={lockDest ? "CVs are added to this position" : undefined} options={lockedOpts} />
           <Input label="Recruiter (optional)" value={recruiter} maxLength={120} onChange={(e) => setRecruiter(e.target.value)} placeholder="Defaults to you" />
           <div>
-            <Select label="CV source (required)" value={srcPick} onChange={(e) => setSrcPick(e.target.value)} options={[{ value: "", label: "Choose source" }, ...CV_SOURCES]} />
+            <Select label="CV source (required)" value={srcPick} onChange={(e) => setSrcPick(e.target.value)} options={[{ value: "", label: "Choose source" }, ...UPLOAD_CV_SOURCES]} />
             {srcPick === "Other" && <Input label="Source name" value={srcOther} maxLength={60} onChange={(e) => setSrcOther(e.target.value)} placeholder="e.g. Job fair" />}
             {tried && !src && <div className="sh-field__error" role="alert"><Icon name="circle-alert" size={14} />Choose where these CVs came from.</div>}
           </div>

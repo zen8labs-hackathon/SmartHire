@@ -14,6 +14,20 @@ export function isCandidateSource(value: string): value is CandidateSource {
 }
 
 /**
+ * Sources offered by the Upload CVs dialog. The extras are stored as
+ * `source = "Other"` + `source_other = <label>` (see fileSourceToApplicationSource).
+ */
+export const UPLOAD_CV_SOURCES = [
+  ...CANDIDATE_SOURCE_VALUES.filter((s) => s !== "Other"),
+  "Referral",
+  "Email",
+  "Partner school",
+  "Other",
+] as const;
+
+export type UploadCvSource = (typeof UPLOAD_CV_SOURCES)[number];
+
+/**
  * Maps the free-form `file_uploads.file_source` an upload batch recorded onto
  * `campaign_applied.source` / `source_other`. The upload modals store the
  * canonical key for the fixed sources ("LinkedIn", "TopCV", ...) but the

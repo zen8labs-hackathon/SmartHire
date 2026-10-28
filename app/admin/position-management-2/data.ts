@@ -1,5 +1,7 @@
 // Types and static config for the position-management-2 design.
 
+import type { UploadCvSource } from "@/lib/candidates/source-constants";
+
 export type RoleKey = "hr" | "ch" | "rc" | "iv";
 export type Role = {
   key: RoleKey;
@@ -187,5 +189,6 @@ export const stageColor = (k: string) => {
 
 export const stageOf = (id: string, stages: Stage[] = STAGES): Stage => stages.find((s) => s.id === id) ?? stages[0] ?? STAGES[0];
 
-const SRC: Record<string, [string, string]> = { LinkedIn: ['linkedin', 'linkedin'], TopCV: ['topcv', 'file-text'], ITViec: ['itviec', 'briefcase'], Facebook: ['facebook', 'users'], TopDev: ['topdev', 'cpu'], Referral: ['referral', 'user-plus'], 'Career site': ['site', 'globe'], Email: ['email', 'mail'], 'Partner school': ['school', 'graduation-cap'] };
-export const srcInfo = (s: string): [string, string] => SRC[s] || ['other', 'inbox'];
+// Chip class + icon per Upload CVs source; "Other" and custom names use the fallback.
+const SRC: Record<Exclude<UploadCvSource, 'Other'>, [string, string]> = { LinkedIn: ['linkedin', 'linkedin'], TopCV: ['topcv', 'file-text'], ITViec: ['itviec', 'briefcase'], Facebook: ['facebook', 'users'], TopDev: ['topdev', 'cpu'], Referral: ['referral', 'user-plus'], Email: ['email', 'mail'], 'Partner school': ['school', 'graduation-cap'] };
+export const srcInfo = (s: string): [string, string] => SRC[s as keyof typeof SRC] || ['other', 'inbox'];
