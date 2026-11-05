@@ -23,6 +23,8 @@ export type NextStepOpts = {
   mustHaves?: { met: number; total: number } | null;
   /** Viewer holds an interviewer seat on the current session. */
   viewerIsIv?: boolean;
+  /** The viewer is the Mentor assigned to this candidate (may decide probation). */
+  viewerIsMentor?: boolean;
   /** Current interview schedule, if any. */
   sched?: { d: string; past?: boolean; noShow?: boolean; done?: boolean } | null;
   mentor?: string | null;
@@ -219,6 +221,12 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     const order = ["awaiting", "active", "decision", "passed"];
     const pi = order.indexOf(p.status);
     const mentor = { keys: ["mentor"], name: o.mentor || "Mentor", role: "Mentor" };
+    const notPass = s.notPass?.[0] ?? find(/not pass/i);
+    // The assigned Mentor records the probation result; HR then moves to Official.
+    const mentorDecide = (): Act[] => o.viewerIsMentor && !dec ? compact([
+      { t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Pass probation", icon: "gavel", primary: true },
+      notPass ? { t: "prob", act: "decide", sub: notPass, label: "Not pass", icon: "x" } : null,
+    ]) : [];
     steps = [
       st("Start confirmed", pi > 0 ? "done" : "now", P.hr),
       st("Mentor review", pi > 1 ? "done" : pi === 1 ? "now" : "todo", mentor),
@@ -236,12 +244,15 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       owner = mentor; title = "Mentor review due" + (p.daysLeft != null ? ` · ${p.daysLeft} days left` : "");
       const early = find(/ended early|early/i);
       if (dec) acts = compact([
-        { t: "prob", act: "remind", label: "Remind mentor", icon: "bell", who: o.mentor ?? undefined },
+        o.viewerIsMentor ? { t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Pass probation", icon: "gavel", primary: true } : null,
+        o.viewerIsMentor && notPass ? { t: "prob", act: "decide", sub: notPass, label: "Not pass", icon: "x" } : null,
+        o.viewerIsMentor ? null : { t: "prob", act: "remind", label: "Remind mentor", icon: "bell", who: o.mentor ?? undefined },
         early ? { t: "prob", act: "early", sub: early, label: "End early", icon: "log-out" } : null,
       ]);
+      else acts = mentorDecide();
     } else if (p.status === "decision") {
       owner = P.ch; title = "Review submitted · decide";
-      const notPass = s.notPass?.[0] ?? find(/not pass/i);
+      if (!dec) acts = mentorDecide();
       if (dec) acts = compact([
         { t: "prob", act: "decide", sub: find(/^pass/i) ?? s.pass, label: "Mark passed", icon: "gavel", primary: true },
         notPass ? { t: "prob", act: "decide", sub: notPass, label: "Not pass", icon: "x" } : null,
@@ -270,7 +281,8 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
     }
   }
 
-  const mine = !ended && !!owner && ((owner as Owner).keys.includes(k) || (!!o.viewerIsIv && (owner as Owner).keys.includes("iv"))) && acts.length > 0;
+  const mine = !ended && !!owner && ((owner as Owner).keys.includes(k) || (!!o.viewerIsIv && (owner as Owner).keys.includes("iv"))
+    || (!!o.viewerIsMentor && kind === "prob")) && acts.length > 0;
   const ow = owner as Owner | null;
   const why = !ended && !mine && ow
     ? "Waiting on " + ow.name + (ow.role ? " · " + ow.role : "")

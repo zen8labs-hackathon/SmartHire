@@ -61,6 +61,8 @@ export type PositionCandidate = {
   /** Latest probation end set by an extension (YYYY-MM-DD); null if never extended. */
   probationExtendedUntil: string | null;
   probationExtensionCount: number;
+  /** ISO time of the earliest upcoming live interview (Scheduled/Confirmed); null if none. */
+  nextInterviewAt: string | null;
 };
 
 export type PositionCandidatesResult = {
@@ -136,7 +138,23 @@ export function rowToPositionCandidate(
       ? (row.probation_extended_until instanceof Date ? row.probation_extended_until.toISOString() : row.probation_extended_until).slice(0, 10)
       : null,
     probationExtensionCount: row.probation_extension_count ?? 0,
+    nextInterviewAt: null,
   };
+}
+
+/** Earliest upcoming Scheduled/Confirmed interview per application (`campaign_applied.id`). */
+async function upcomingInterviews(db: QueryExecutor, ids: string[], now: Date): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  const { rows } = await db.query<{ campaign_applied_id: string; next_at: Date }>(
+    `SELECT campaign_applied_id, MIN(scheduled_at) AS next_at
+     FROM candidate_schedules
+     WHERE campaign_applied_id = ANY($1::uuid[]) AND status IN ('Scheduled', 'Confirmed') AND scheduled_at > $2
+     GROUP BY campaign_applied_id`,
+    [ids, now],
+  );
+  for (const r of rows) out.set(r.campaign_applied_id, new Date(r.next_at).toISOString());
+  return out;
 }
 
 /** Candidates (applications) of a position for the new Position Management "Candidates" tab. */
@@ -180,6 +198,8 @@ export async function listPositionCandidates(
         })),
     }));
 
+  const upcoming = await upcomingInterviews(db, list.candidates.map((r) => r.id), now);
+
   return {
     candidates: list.candidates.map((r) => {
       const c = rowToPositionCandidate(r, { viewSalary, now });
@@ -191,6 +211,7 @@ export async function listPositionCandidates(
       const sub = stage?.subs.find((x) => x.id === ids.subStateId);
       return {
         ...c,
+        nextInterviewAt: upcoming.get(r.id) ?? null,
         stageMappingId: ids.stageMappingId,
         subStateId: ids.subStateId,
         stageLabel: stage?.label ?? c.stageLabel,

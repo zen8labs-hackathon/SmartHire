@@ -1,0 +1,24 @@
+:root{
+--spacing:4px;
+--space-0:0;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;--space-16:64px;
+--radius:8px;
+--radius-field:6px;
+--radius-chip:6px;
+--radius-sm:4px;
+--radius-full:999px;
+--border-width:1px;
+--focus-width:2px;
+--shadow-raised:0 4px 12px rgba(20,47,33,0.10),0 1px 2px rgba(20,47,33,0.06);
+--shadow-overlay:0 16px 40px rgba(20,47,33,0.18),0 2px 6px rgba(20,47,33,0.08);
+--shadow-bar-up:0 -4px 12px rgba(20,47,33,0.08);
+--shadow-sticky:0 2px 4px rgba(20,47,33,0.06);
+--backdrop:rgba(14,24,19,0.45);
+--row-comfortable:48px;--pad-comfortable:16px;
+--row-compact:36px;--pad-compact:12px;
+--target-min:24px;
+--sidebar-width:232px;--sidebar-collapsed:64px;--topbar-height:56px;
+--icon-sm:16px;--icon-md:20px;--icon-stroke:1.5;
+--ease-standard:cubic-bezier(0.2,0,0,1);/* @kind other */
+--duration-fast:120ms;/* @kind other */
+--duration-base:180ms;/* @kind other */
+}

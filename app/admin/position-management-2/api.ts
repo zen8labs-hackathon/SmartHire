@@ -279,6 +279,7 @@ export function toCandidate(pc: PositionCandidate, id: number): Candidate {
     probationFailReason: pc.probationFailReason ?? undefined,
     probationExtendedUntil: pc.probationExtendedUntil ?? undefined,
     probationExtensionCount: pc.probationExtensionCount ?? 0,
+    nextInterviewAt: pc.nextInterviewAt ?? undefined,
   };
 }
 

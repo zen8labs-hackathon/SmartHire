@@ -120,6 +120,8 @@ export type Candidate = {
   probationFailReason?: string;
   probationExtendedUntil?: string;
   probationExtensionCount?: number;
+  /** ISO time of the next upcoming live interview, if one is booked. */
+  nextInterviewAt?: string;
 };
 export type Criterion = {
   id: string;

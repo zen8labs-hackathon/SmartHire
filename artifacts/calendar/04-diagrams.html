@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><title>Calendar — Sơ đồ</title><link href="tokens/fonts.css" rel="stylesheet"/><link href="tokens/colors.css" rel="stylesheet"/><link href="tokens/typography.css" rel="stylesheet"/><link href="tokens/spacing.css" rel="stylesheet"/><link href="ba-doc.css" rel="stylesheet"/><style>doc-page:not(:defined){visibility:hidden}</style><style>:target{scroll-margin-top:24px}tr:target>td,h2:target,h3:target,h4:target{background:var(--highlight-soft,#FEF7EA)!important;box-shadow:inset 3px 0 0 var(--z8-gold-400,#F3B44A)}.ba-nav a.home{font-weight:600}</style></head><body>
+<doc-page margin="0.6in">
+<nav class="ba-nav"><a class="home" href="index.html">← Mục lục</a><a href="01-functional-specification.html">01 Đặc tả chức năng</a><a href="02-business-rules.html">02 Business rules</a><a href="03-data-dictionary.html">03 Từ điển dữ liệu</a><a aria-current="page" class="on" href="04-diagrams.html">04 Sơ đồ</a><a href="05-gap-log.html">05 Câu hỏi &amp; Gap</a><a href="06-traceability.html">06 Truy vết</a><a href="07-role-permission.html">07 Vai trò × quyền</a><a href="08-acceptance-criteria.html">08 Tiêu chí nghiệm thu</a></nav>
+<h1>Sơ đồ — Calendar</h1><p class="ba-sub">Luồng hoạt động, trạng thái, tuần tự và bảng quyết định cho CAL-01 → CAL-08.</p><div class="ba-meta"><span>Phiên bản <b>1.1</b></span><span>Ngày <b>19/10/2026</b></span><span>Trạng thái <b>Confirmed</b></span><span>Nguồn <b>Thiết kế Calendar.html</b></span><span>Phạm vi bản này <b>CAL-01 → CAL-08</b></span></div><div class="legend"><span><span class="tag tag-ex">Explicit</span> Viết rõ trong thiết kế</span><span><span class="tag tag-im">Implied</span> Gợi ý qua hình thức (ẩn, disable, mặc định)</span><span><span class="tag tag-in">Inferred</span> Suy luận của BA — chỉ nằm trong Gap Log</span><span><span class="tag tag-cf">Confirmed</span> Đã được PO/Designer xác nhận</span></div>
+<h2 id="CAL-01" style="border:0;font-size:20px">CAL-01 · Hiển thị lịch & điều hướng</h2><h2 id="D-01-1">D-01-1 · Luồng hiển thị lịch</h2><div class="fig"><pre class="mermaid">flowchart TD
+  A[Mở Calendar] --&gt; B{Persona = Interviewer?}
+  B -- Có --&gt; C[Ẩn Compare with và legend You organized]
+  B -- Không --&gt; D[Hiện đầy đủ]
+  C --&gt; E[Tải buổi tham dự + khối bận]
+  D --&gt; E2[Tải buổi tham dự, buổi tổ chức + khối bận]
+  E --&gt; F{Có quyền xem vị trí?}
+  E2 --&gt; F
+  F -- Có --&gt; G[Tiêu đề round · ứng viên]
+  F -- Không --&gt; H[Tiêu đề Interview]</pre></div><p class="cap">Quyết định nội dung hiển thị theo persona và quyền xem vị trí.</p><h2 id="CAL-02" style="border:0;font-size:20px">CAL-02 · So sánh lịch (Compare with)</h2><h2 id="D-02-1">D-02-1 · Chọn người so sánh</h2><div class="fig"><pre class="mermaid">flowchart LR
+  A[Chọn người] --&gt; B{Đã chọn 3?}
+  B -- Chưa --&gt; C[Thêm làn]
+  B -- Rồi --&gt; D[Vô hiệu lựa chọn còn lại]
+  C --&gt; E[Khối bận người khác hiện Busy]</pre></div><p class="cap">Giới hạn 3 người và che ghi chú.</p><h2 id="CAL-03" style="border:0;font-size:20px">CAL-03 · Đánh dấu thời gian bận</h2><h2 id="D-03-1">D-03-1 · Lưu khối bận và xử lý xung đột</h2><div class="fig"><pre class="mermaid">flowchart TD
+  A[Mark busy time / kéo trên lưới] --&gt; B[Nhập thời gian, lặp, ghi chú]
+  B --&gt; C{Hợp lệ?}
+  C -- Không --&gt; X[Hiện lỗi: end &gt; start / không có ngày / quá khứ]
+  X --&gt; B
+  C -- Có --&gt; D{Trùng buổi Scheduled của tôi?}
+  D -- Không --&gt; S[Lưu + toast]
+  D -- Có --&gt; E{Lựa chọn}
+  E -- Keep mặc định --&gt; S
+  E -- Ask organizer --&gt; N[Gửi thông báo cho người tổ chức]
+  N --&gt; S</pre></div><p class="cap">Hệ thống không bao giờ tự huỷ buổi phỏng vấn.</p><h2 id="D-03-2">D-03-2 · Bảng quyết định hợp lệ khối bận</h2><table><thead><tr><th>Quy tắc</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th></tr></thead><tbody><tr class="grp"><td colspan="5">Điều kiện</td></tr><tr><td>End > Start (hoặc All day)</td><td>N</td><td>Y</td><td>Y</td><td>Y</td></tr><tr><td>Có ít nhất 1 ngày</td><td>—</td><td>N</td><td>Y</td><td>Y</td></tr><tr><td>Trong tương lai</td><td>—</td><td>—</td><td>N</td><td>Y</td></tr><tr class="grp"><td colspan="5">Hành động</td></tr><tr><td>Kết quả</td><td>Lỗi thời gian</td><td>Lỗi không có ngày</td><td>Choose a future time</td><td>Cho lưu</td></tr></tbody></table><h2 id="CAL-04" style="border:0;font-size:20px">CAL-04 · Xem / xoá khối bận</h2><h2 id="D-04-1">D-04-1 · Xoá khối bận có xác nhận</h2><div class="fig"><pre class="mermaid">sequenceDiagram
+  actor U as Chủ sở hữu
+  participant C as Calendar
+  participant S as Server
+  U-&gt;&gt;C: Delete this day / Delete all
+  C--&gt;&gt;U: Hộp xác nhận
+  alt Xác nhận
+    C-&gt;&gt;S: Ghi nhận xoá
+    C--&gt;&gt;U: Toast
+  else Huỷ
+    C--&gt;&gt;U: Không thay đổi
+  end</pre></div><p class="cap">Xoá luôn cần xác nhận; không có Undo.</p><h2 id="CAL-05" style="border:0;font-size:20px">CAL-05 · Chi tiết buổi phỏng vấn</h2><h2 id="D-05-1">D-05-1 · Trạng thái buổi phỏng vấn</h2><div class="fig"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; Scheduled
+  Scheduled --&gt; Completed
+  Scheduled --&gt; Cancelled
+  Scheduled --&gt; Rescheduled: Dời lịch
+  Scheduled --&gt; NoShow: No-show
+  Completed --&gt; [*]
+  Cancelled --&gt; [*]
+  Rescheduled --&gt; [*]</pre></div><p class="cap">Rescheduled là trạng thái kết thúc của buổi cũ; buổi mới bắt đầu ở Scheduled.</p><h2 id="D-05-2">D-05-2 · Bảng quyết định hành động trong chi tiết buổi</h2><table><thead><tr><th>Quy tắc</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th></tr></thead><tbody><tr class="grp"><td colspan="5">Điều kiện</td></tr><tr><td>Tôi là interviewer</td><td>Y</td><td>Y</td><td>N</td><td>N</td></tr><tr><td>Buổi tương lai & Scheduled</td><td>Y</td><td>N</td><td>Y</td><td>Y</td></tr><tr><td>Persona ≠ iv & thấy vị trí</td><td>—</td><td>—</td><td>Y</td><td>N</td></tr><tr class="grp"><td colspan="5">Hành động</td></tr><tr><td>Hiện Can’t attend</td><td>Y*</td><td>N</td><td>N</td><td>N</td></tr><tr><td>Hiện Reschedule</td><td>N</td><td>N</td><td>Y</td><td>N</td></tr></tbody></table><p class="cap">* Chỉ khi tôi chưa báo không tham dự trước đó.</p><h2 id="CAL-06" style="border:0;font-size:20px">CAL-06 · Báo không tham dự (Can’t attend)</h2><h2 id="D-06-1">D-06-1 · Báo không tham dự</h2><div class="fig"><pre class="mermaid">sequenceDiagram
+  actor I as Interviewer
+  participant C as Calendar
+  participant O as Người tổ chức
+  I-&gt;&gt;C: Can't attend (+ lý do)
+  C-&gt;&gt;C: Đánh dấu can't attend
+  C-&gt;&gt;O: Thông báo
+  O--&gt;&gt;C: Thay interviewer hoặc dời lịch</pre></div><p class="cap">Buổi không đổi trạng thái khi interviewer báo không tham dự.</p><h2 id="CAL-07" style="border:0;font-size:20px">CAL-07 · Dời lịch phỏng vấn (Reschedule)</h2><h2 id="D-07-1">D-07-1 · Dời lịch</h2><div class="fig"><pre class="mermaid">flowchart TD
+  A[Reschedule] --&gt; B[ScheduleDialog điền sẵn]
+  B --&gt; C[Chọn giờ mới]
+  C --&gt; D{Trùng bận interviewer?}
+  D -- Có --&gt; X[Chặn]
+  D -- Không --&gt; E{Ngoài giờ làm việc?}
+  E -- Có --&gt; W[Cảnh báo, cho lưu]
+  E -- Không --&gt; F[Lưu]
+  W --&gt; F
+  F --&gt; G[Buổi mới Scheduled, buổi cũ Rescheduled]</pre></div><p class="cap">Kiểm tra cứng (bận) và mềm (ngoài giờ).</p><h2 id="CAL-08" style="border:0;font-size:20px">CAL-08 · Giờ làm việc (Working hours)</h2><h2 id="D-08-1">D-08-1 · Cập nhật giờ làm việc</h2><div class="fig"><pre class="mermaid">flowchart LR
+  A[Working hours] --&gt; B[Chọn giờ, ngày]
+  B --&gt; C{end &gt; start?}
+  C -- Không --&gt; B
+  C -- Có --&gt; D[Lưu toàn công ty] --&gt; E["Toast: Working hours updated for the company"]</pre></div><p class="cap">Giờ làm việc dùng cho cảnh báo khi đặt lịch.</p>
+</doc-page>
+<script src="doc-page.js"></script><script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true,theme:'base',securityLevel:'loose',fontFamily:'Be Vietnam Pro, system-ui, sans-serif',themeVariables:{primaryColor:'#EEF7F1',primaryBorderColor:'#075F32',primaryTextColor:'#142F21',lineColor:'#5B6B63',fontSize:'13px',noteBkgColor:'#F6F8F7',noteBorderColor:'#DDE3E0',actorBkg:'#EEF7F1',actorBorder:'#075F32'}});</script>
+<script>(function(){function go(){var h=decodeURIComponent(location.hash.slice(1));if(!h)return;var el=document.getElementById(h);if(el)el.scrollIntoView({block:"start"});}if(window.customElements)customElements.whenDefined("doc-page").then(function(){setTimeout(go,60)});window.addEventListener("load",function(){setTimeout(go,120)});window.addEventListener("hashchange",go);})();</script></body></html>

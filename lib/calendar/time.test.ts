@@ -8,6 +8,8 @@ import {
   isoDateInTz,
   isoWeekday,
   minuteOfDayInTz,
+  parseClock,
+  parseDuration,
   weekStart,
   weekdayName,
 } from "@/lib/calendar/time";
@@ -46,5 +48,19 @@ describe("calendar time (GMT+7)", () => {
     expect(fmtMin(510)).toBe("08:30");
     expect(fmtMin(0)).toBe("00:00");
     expect(fmtMin(1140)).toBe("19:00");
+  });
+
+  it("parses typed clock times", () => {
+    for (const [text, min] of [["9", 540], ["930", 570], ["0930", 570], ["9:30", 570], ["09.30", 570], ["9h30", 570], ["2pm", 840], ["2:15 PM", 855], ["12am", 0], ["12pm", 720], ["23:59", 1439]] as const) {
+      expect(parseClock(text), text).toBe(min);
+    }
+    for (const text of ["", "abc", "24:00", "9:60", "13pm", "0am"]) expect(parseClock(text), text).toBeNull();
+  });
+
+  it("parses typed durations", () => {
+    for (const [text, min] of [["45", 45], ["45m", 45], ["45 min", 45], ["1h", 60], ["1.5h", 90], ["1,5h", 90], ["1h30", 90], ["1h 30m", 90], ["1:30", 90], ["8h", 480]] as const) {
+      expect(parseDuration(text), text).toBe(min);
+    }
+    for (const text of ["", "x", "4", "481", "9h", "1h75"]) expect(parseDuration(text), text).toBeNull();
   });
 });

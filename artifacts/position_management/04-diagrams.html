@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+
+<html lang="vi"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><title>Sơ đồ — Position Management — Position Management</title><link href="tokens/fonts.css" rel="stylesheet"/><link href="tokens/colors.css" rel="stylesheet"/><link href="tokens/typography.css" rel="stylesheet"/><link href="tokens/spacing.css" rel="stylesheet"/><link href="ba-doc.css" rel="stylesheet"/><style>doc-page:not(:defined){visibility:hidden}</style><style>:target{scroll-margin-top:24px}tr:target>td,h2:target,h3:target,h4:target{background:var(--highlight-soft,#FEF7EA)!important;box-shadow:inset 3px 0 0 var(--z8-gold-400,#F3B44A)}.ba-nav a.home{font-weight:600}</style></head><body>
+<doc-page margin="0.6in">
+<nav class="ba-nav"><a class="home" href="index.html">← Mục lục</a><a href="01-functional-specification.html">01 Đặc tả chức năng</a><a href="02-business-rules.html">02 Business rules</a><a href="03-data-dictionary.html">03 Từ điển dữ liệu</a><a aria-current="page" class="on" href="04-diagrams.html">04 Sơ đồ</a><a href="05-gap-log.html">05 Câu hỏi &amp; Gap</a><a href="06-traceability.html">06 Truy vết</a><a href="07-role-permission.html">07 Vai trò × quyền</a><a href="08-acceptance-criteria.html">08 Tiêu chí nghiệm thu</a></nav><h1>Sơ đồ — Position Management</h1><p class="ba-sub">Diagrams · PM-01 → PM-13 (luồng, trạng thái, bảng quyết định, tuần tự)</p><div class="ba-meta"><span>Phiên bản <b>3.8</b></span><span>Ngày <b>02/10/2026</b></span><span>Trạng thái <b>Draft</b></span><span>Nguồn <b>Thiết kế Jobs.html (Position Management)</b></span><span>Phạm vi bản này <b>PM-01 → PM-13</b></span></div><div class="legend"><span><span class="tag tag-ex">Explicit</span> Viết rõ trong thiết kế</span><span><span class="tag tag-im">Implied</span> Gợi ý qua hình thức (ẩn, disable, mặc định)</span><span><span class="tag tag-in">Inferred</span> Suy luận của BA — chỉ nằm trong Gap Log</span><span><span class="tag tag-cf">Confirmed</span> Đã được PO/Designer xác nhận</span></div>
+<h2 id="PM-02" style="border:0;font-size:20px">PM-02 · Mở vị trí mới</h2><h2 id="D-02-1">D-02-1 · Luồng hoạt động: mở vị trí mới</h2>
+<div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Bắt đầu"]) --&gt; B{"Có quyền tạo?<br/>BR-02-01"}
+  B -- Không --&gt; B1["Không hiển thị nút<br/>Open new position"]
+  B -- Có --&gt; C["Mở dialog<br/>Open new position"]
+  C --&gt; D{"Có file JD?"}
+  D -- Không --&gt; E{"Headcount hợp lệ?<br/>BR-02-06, 07"}
+  E -- Không --&gt; E1["Lỗi dưới trường<br/>link không tác dụng"]
+  E -- Có --&gt; F["Tạo Draft trống<br/>Untitled position"]
+  F --&gt; G["Tab Description và criteria<br/>banner Blank position"]
+  D -- Có --&gt; H["Chọn file PDF/DOCX ≤ 10 MB<br/>BR-02-09, 10"]
+  H --&gt; I{"Headcount hợp lệ?"}
+  I -- Không --&gt; I1["Upload và extract bị vô hiệu"]
+  I -- Có --&gt; J["Nhấn Upload và extract"]
+  J --&gt; K["Tạo Draft ngay<br/>New position · tên file<br/>BR-02-14"]
+  K --&gt; L["Tải file → trích xuất văn bản/OCR → AI điền trường"]
+  L --&gt; M{"Thành công?"}
+  M -- Có --&gt; N["Cập nhật trường và tiêu chí AI<br/>Thông báo và toast"]
+  N --&gt; O(["Sang PM-03: duyệt và mở"])
+  G --&gt; O
+  M -- "Lỗi / timeout" --&gt; Q["Giữ Draft<br/>Retry hoặc Upload JD again"]
+  Q --&gt; L
+</pre></div><p class="cap">Nguồn: CreateJobDialog, createJob. Nhánh lỗi được PO xác nhận <span class="tag tag-cf">Confirmed</span>.</p>
+<h2 id="D-02-2">D-02-2 · Sơ đồ trạng thái: xử lý JD</h2>
+<div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state "Đang tải file" as Up
+  state "Trích xuất văn bản" as Ex
+  state "AI điền trường" as Ai
+  state "Sẵn sàng duyệt" as Rd
+  state "Thất bại · vẫn là Draft" as Fl
+  [*] --&gt; Up: Upload và extract
+  Up --&gt; Ex
+  Ex --&gt; Ai
+  Ai --&gt; Rd
+  Rd --&gt; [*]
+  Up --&gt; Fl
+  Ex --&gt; Fl
+  Ai --&gt; Fl
+  Fl --&gt; Up: Retry / Upload JD again
+</pre></div><p class="cap">4 trạng thái chính là <span class="tag tag-ex">Explicit</span> (danh sách bước trong JdProcessing). Trạng thái "Thất bại" và cách khôi phục được PO xác nhận <span class="tag tag-cf">Confirmed</span> — BR-02-27, 28.</p>
+<h2 id="D-02-3">D-02-3 · Sơ đồ trạng thái: vòng đời vị trí</h2>
+<div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --&gt; Draft: Tạo (PM-02)
+  Draft --&gt; Open: Open position (PM-03)
+  Open --&gt; OnHold: Put on hold (PM-06)
+  OnHold --&gt; Open: Reopen
+  Open --&gt; Closed: Close position
+  OnHold --&gt; Closed: Close position
+  Closed --&gt; Open: Reopen (?)
+</pre></div><p class="cap">Draft → Open và Open → On hold / Closed là <span class="tag tag-ex">Explicit</span>. Menu dòng hiện "Reopen" và "Close position…" cho cả Draft và Closed, còn header ẩn Close với Draft — mâu thuẫn, xem Q-02-22. Chi tiết ở PM-06.</p>
+<h2 id="D-02-4">D-02-4 · Bảng quyết định: hành động trong dialog</h2>
+<table><thead><tr><th>Quy tắc</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th></tr></thead><tbody><tr class="grp"><td colspan="5">Điều kiện</td></tr><tr><td class="id">Đã chọn file JD</td><td>Có</td><td>Có</td><td>Không</td><td>Không</td></tr><tr><td class="id">Headcount hợp lệ (1–50, số nguyên)</td><td>Có</td><td>Không</td><td>Có</td><td>Không</td></tr><tr class="grp"><td colspan="5">Kết quả</td></tr><tr><td class="id"><span class="ui">Upload &amp; extract</span></td><td>Bật</td><td>Tắt</td><td>Tắt</td><td>Tắt</td></tr><tr><td class="id">Link tạo trống</td><td>Tạo Draft trống, bỏ file (Q-02-23)</td><td>Không tác dụng</td><td>Tạo Draft trống</td><td>Không tác dụng</td></tr><tr><td class="id">Lỗi headcount</td><td>—</td><td>Hiện</td><td>—</td><td>Hiện</td></tr></tbody></table>
+<h2 id="D-02-5">D-02-5 · Bảng quyết định: trường Chapter theo vai trò</h2>
+<table><thead><tr><th>Vai trò</th><th>Giá trị mặc định</th><th>Sửa được</th><th>Gợi ý hiển thị</th><th>Bằng chứng</th></tr></thead><tbody><tr><td class="id">HR</td><td>Infra (Q-02-24)</td><td>Có</td><td>Decides who can see the position</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Chapter Head</td><td>Chapter của mình</td><td>Không</td><td>Positions you create belong to your chapter</td><td><span class="tag tag-ex">Explicit</span></td></tr></tbody></table>
+<h2 id="D-02-6">D-02-6 · Sơ đồ tuần tự (đề xuất cho dev)</h2>
+<div class="fig"><pre class="mermaid">
+sequenceDiagram
+  actor U as HR / Chapter Head
+  participant UI as SmartHire UI
+  participant API as Position API
+  participant S as File storage
+  participant Q as Job queue
+  participant X as Trích xuất / OCR
+  participant AI as AI Model
+  participant N as Thông báo SSE / push
+  U-&gt;&gt;UI: Upload và extract
+  UI-&gt;&gt;API: Tạo vị trí (file, chapter, hire type, headcount)
+  API-&gt;&gt;S: Lưu file JD
+  API--&gt;&gt;UI: Draft #id
+  UI--&gt;&gt;U: Chuyển tới tab Description và criteria
+  API-&gt;&gt;Q: Đưa job xử lý JD vào hàng đợi
+  Q-&gt;&gt;X: Trích xuất văn bản
+  X--&gt;&gt;Q: Văn bản
+  Q-&gt;&gt;AI: Điền trường và tiêu chí
+  AI--&gt;&gt;Q: Giá trị, tiêu chí, vị trí trong JD
+  Q-&gt;&gt;API: Cập nhật Draft
+  API-&gt;&gt;N: Sự kiện JD processed
+  N--&gt;&gt;U: Thông báo và toast
+</pre></div><p class="cap">Toàn bộ kiến trúc là <span class="tag tag-in">Inferred</span>, dựa trên mô tả hệ thống (hàng đợi job, SSE / web push). Cần Tech Lead xác nhận.</p><h2 id="PM-01" style="break-before:page;border:0;font-size:20px">PM-01 · Danh sách vị trí</h2><h2 id="D-01-1">D-01-1 · Luồng: tìm và mở vị trí</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Vào Position Management"]) --&gt; B["Xác định phạm vi theo vai trò<br/>BR-01-01 → 05"]
+  B --&gt; C{"Phạm vi bị giới hạn?"}
+  C -- Có --&gt; C1["Hiện banner phạm vi"] --&gt; D
+  C -- Không --&gt; D["Tab Open mặc định<br/>sắp xếp theo hạn tuyển"]
+  D --&gt; E["Đổi tab / tìm kiếm / lọc / Table–Cards"]
+  E --&gt; F{"Có kết quả?"}
+  F -- Không --&gt; F1["Trạng thái rỗng<br/>nút tạo nếu có quyền"]
+  F -- Có --&gt; G["Chọn vị trí"]
+  G --&gt; H{"Draft?"}
+  H -- Có --&gt; H1["Tab Description và criteria"]
+  H -- Không --&gt; H2["Tab Overview"]
+  E --&gt; I["Chọn 'to resolve'"] --&gt; I1["Tab Uploads · Needs attention"]
+</pre></div><p class="cap">Nguồn: JobsList, visibleJobs, Table onRowClick. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-01-2">D-01-2 · Bảng quyết định: trạng thái hạn tuyển</h2>
+<table><thead><tr><th>Quy tắc</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th><th>R5</th></tr></thead><tbody><tr class="grp"><td colspan="6">Điều kiện</td></tr><tr><td class="id">Có hạn tuyển</td><td>Không</td><td>Có</td><td>Có</td><td>Có</td><td>Có</td></tr><tr><td class="id">Trạng thái</td><td>—</td><td>Closed</td><td>Open</td><td>Open</td><td>Open / On hold</td></tr><tr><td class="id">Còn ≤ 21 ngày và còn chỗ</td><td>—</td><td>—</td><td>—</td><td>Có</td><td>Không</td></tr><tr><td class="id">Đã qua hạn</td><td>—</td><td>—</td><td>Có</td><td>—</td><td>Không</td></tr><tr class="grp"><td colspan="6">Hiển thị</td></tr><tr><td class="id">Bảng</td><td>"Not set"</td><td>Ngày, không đếm ngược</td><td>Nhãn cảnh báo với số âm, ví dụ "-3 days · 1 open"</td><td>Nhãn cảnh báo "{d} days · {n} open"</td><td>"{d} days left"</td></tr><tr><td class="id">Thẻ</td><td>"No deadline"</td><td>Ngày</td><td>"Overdue"</td><td>"Due dd/MM"</td><td>Ngày</td></tr></tbody></table>
+<p class="cap">Bảng và thẻ khác nhau ở R3 — giữ theo thiết kế <span class="tag tag-cf">Confirmed</span>. Khác biệt với On hold: Q-01-14.</p>
+<h2 id="D-01-3">D-01-3 · Bảng quyết định: phạm vi theo vai trò</h2>
+<table><thead><tr><th>Vai trò</th><th>Vị trí thấy được</th><th>Banner phạm vi</th><th>Lọc chapter</th><th>Talent pool</th></tr></thead><tbody><tr><td class="id">HR</td><td>Tất cả</td><td>Không</td><td>Có</td><td>Có</td></tr><tr><td class="id">Chapter Head</td><td>Chapter của mình</td><td>"Showing positions in chapter {X}…"</td><td>Không</td><td>Không</td></tr><tr><td class="id">Recruiter</td><td>Được chia sẻ</td><td>"Showing {n} positions shared with you. Expected salary is hidden…"</td><td>Không</td><td>Không</td></tr><tr><td class="id">Interviewer</td><td>Có lịch phỏng vấn</td><td>"Showing the position where you have interviews scheduled…"</td><td>Không</td><td>Không</td></tr><tr><td class="id">Mentor (người được gán cho ứng viên thử việc)</td><td>Như vai trò gốc (Interviewer / Recruiter); không có vai trò riêng</td><td>—</td><td>—</td><td>—</td></tr></tbody></table><h2 id="PM-03" style="break-before:page;border:0;font-size:20px">PM-03 · Duyệt draft và mở vị trí</h2><h2 id="D-03-1">D-03-1 · Luồng: duyệt draft và mở vị trí</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Draft đã xử lý JD xong"]) --&gt; B["Mở tab Description và criteria"]
+  B --&gt; C["Duyệt từng trường AI"]
+  C --&gt; D{"Giá trị đúng?"}
+  D -- Có --&gt; D1["Confirm → Confirmed"]
+  D -- Không --&gt; D2["Sửa → Edited"]
+  C --&gt; E["Trường 'Not found in JD' → nhập tay"]
+  D1 --&gt; F["Duyệt / sửa tiêu chí (PM-04)"]
+  D2 --&gt; F
+  E --&gt; F
+  F --&gt; V
+  F --&gt; H["Request review (tùy chọn)<br/>→ chờ Chapter Head góp ý"]
+  H --&gt; I["Chapter Head xem, gửi Comment for HR"]
+  I --&gt; J["Góp ý gửi HR<br/>không có bước duyệt"]
+  J --&gt; V{"Có JD và trích xuất được ≥ 1 trường?<br/>BR-03-19, 20"}
+  V -- Không --&gt; V1["Không mở được<br/>Retry / Upload JD again"]
+  V -- Có --&gt; K["Open position bởi HR / Chapter Head<br/>= review, BR-03-12"]
+  K --&gt; L["Status = Open<br/>Toast: You can now upload CVs"]
+</pre></div><p class="cap">Không bắt buộc xác nhận từng trường AI. Bắt buộc có JD và trích xuất được ít nhất 1 trường. Người mở (HR hoặc Chapter Head) được ghi là người review; Request review chỉ để xin góp ý <span class="tag tag-cf">Confirmed</span>.</p>
+<h2 id="D-03-2">D-03-2 · Sơ đồ trạng thái: trường vị trí</h2><div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state "AI đề xuất (chưa xác nhận)" as Ai
+  state "Đã xác nhận" as Cf
+  state "Đã sửa" as Ed
+  state "Không tìm thấy trong JD" as Ms
+  [*] --&gt; Ai: AI điền được
+  [*] --&gt; Ms: AI không tìm thấy
+  Ai --&gt; Cf: Confirm
+  Ai --&gt; Ed: Người dùng sửa
+  Ms --&gt; Ed: Người dùng nhập
+  Cf --&gt; Ed: Người dùng sửa
+</pre></div><p class="cap">Nguồn: AIFilledField. <span class="tag tag-ex">Explicit</span> Cf → Ed là <span class="tag tag-im">Implied</span> (ô vẫn sửa được sau khi xác nhận).</p>
+<h2 id="D-03-3">D-03-3 · Sơ đồ trạng thái: Draft và review</h2><div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state Draft {
+    direction LR
+    state "Đang xử lý JD" as P
+    state "Chờ duyệt" as R
+    state "Chờ Chapter Head review" as W
+    [*] --&gt; P
+    P --&gt; R: Xử lý xong
+    R --&gt; W: Request review
+  }
+  R --&gt; Open: HR / CH mở = review
+  W --&gt; Open: HR / CH mở = review
+</pre></div><p class="cap">Mở được từ cả "Chờ duyệt" và "Chờ Chapter Head góp ý" nếu có JD trích xuất được ít nhất 1 trường (BR-03-19, 20); người mở được ghi là người review (BR-03-12) <span class="tag tag-cf">Confirmed</span>.</p>
+<h2 id="D-03-4">D-03-4 · Bảng quyết định: hành động ở header trang vị trí</h2>
+<table><thead><tr><th>Điều kiện</th><th>HR · Draft</th><th>HR · Draft đang xử lý</th><th>Chapter Head · Draft</th><th>HR · Open / On hold</th><th>Recruiter</th></tr></thead><tbody><tr><td class="id"><span class="ui">Upload CVs</span></td><td>Không dùng được (BR-03-14)</td><td>Không dùng được</td><td>Không dùng được</td><td>Hiện</td><td>Hiện</td></tr><tr><td class="id"><span class="ui">Request review</span></td><td>Bật</td><td>Tắt</td><td>Bật</td><td>—</td><td>—</td></tr><tr><td class="id"><span class="ui">Open position</span></td><td>Bật khi đủ điều kiện (BR-03-12, 19, 20)</td><td>Tắt</td><td>Bật khi đủ điều kiện</td><td>—</td><td>—</td></tr><tr><td class="id"><span class="ui">Close position</span></td><td>Ẩn</td><td>Ẩn</td><td>Ẩn</td><td>Hiện</td><td>Ẩn</td></tr></tbody></table><h2 id="PM-05" style="break-before:page;border:0;font-size:20px">PM-05 · Sửa headcount</h2>
+<h2 id="D-05-1">D-05-1 · Luồng: sửa headcount</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Trang vị trí"]) --&gt; B{"HR / Chapter Head<br/>và chưa Closed?"}
+  B -- Không --&gt; B1["Chỉ hiển thị 'Headcount n'"]
+  B -- Có --&gt; C["Nhấn Headcount n ✎"]
+  C --&gt; D["Dialog Edit headcount"]
+  D --&gt; E["Nhập giá trị mới"]
+  E --&gt; F{"Số nguyên ≥ 1?"}
+  F -- Không --&gt; F1["Lỗi: Enter a whole number, 1 or more"]
+  F -- Có --&gt; G{"≥ số đã tuyển?"}
+  G -- Không --&gt; G1["Lỗi: hired already hired"]
+  G -- Có --&gt; H{"≤ 50?"}
+  H -- Không --&gt; H1["Lỗi: Maximum 50 per position"]
+  H -- Có --&gt; I{"Khác giá trị cũ?"}
+  I -- Không --&gt; I1["Save bị tắt"]
+  I -- Có --&gt; J{"= số đã tuyển và Open?"}
+  J -- Có --&gt; J1["Banner: All positions will be filled"] --&gt; K
+  J -- Không --&gt; K["Save headcount"]
+  K --&gt; L["Lưu · toast Headcount updated"]
+</pre></div><p class="cap">Nguồn: HeadcountDialog, HeadcountMeta. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-05-2">D-05-2 · Bảng: trạng thái thử việc và số đã tuyển</h2>
+<table><thead><tr><th>Trạng thái thử việc</th><th>Tính vào hired</th><th>Hiển thị</th><th>Bằng chứng</th></tr></thead><tbody><tr><td class="id">Awaiting start</td><td>Có</td><td>—</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">In progress</td><td>Có</td><td>on probation</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Review submitted</td><td>Có</td><td>on probation</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Passed (Official)</td><td>Có</td><td>official</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Not passed</td><td>Không — trả lại 1 chỗ</td><td>—</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Ended early</td><td>Không — trả lại 1 chỗ</td><td>—</td><td><span class="tag tag-ex">Explicit</span></td></tr><tr><td class="id">Did not start</td><td>Không — trả lại 1 chỗ</td><td>—</td><td><span class="tag tag-ex">Explicit</span></td></tr></tbody></table>
+<p class="cap">Nguồn: PB.breakdown (probation-data.js). Vị trí chưa có dữ liệu thử việc dùng số hired lưu sẵn.</p><h2 id="PM-06" style="break-before:page;border:0;font-size:20px">PM-06 · Vòng đời vị trí</h2>
+<h2 id="D-06-1">D-06-1 · Sơ đồ trạng thái: vòng đời vị trí (theo thiết kế)</h2><div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --&gt; Draft: Tạo (PM-02)
+  Draft --&gt; Open: Open position (PM-03)
+  Open --&gt; OnHold: Put on hold (lý do · hủy lịch, email, khóa link)
+  OnHold --&gt; Open: Reopen (lý do)
+  Open --&gt; Closed: Close position
+  OnHold --&gt; Closed: Close position
+  Closed --&gt; Open: Reopen (lý do · khôi phục stage ứng viên)
+  Draft --&gt; Closed: Close position… (chỉ menu dòng · Q-02-22)
+  Draft --&gt; Open: Reopen (menu dòng · Q-02-22)
+  state "On hold" as OnHold
+</pre></div><p class="cap">Đầy đủ: Draft → Open, Open / On hold → Closed <span class="tag tag-ex">Explicit</span>. Hành vi Put on hold, Reopen được PO xác nhận <span class="tag tag-cf">Confirmed</span>. Các chuyển đổi từ Draft qua menu dòng mâu thuẫn với header — Q-02-22.</p>
+<h2 id="D-06-2">D-06-2 · Luồng: đóng vị trí</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["HR: Close position"]) --&gt; W{"Có ứng viên Offer / thử việc?<br/>BR-06-13"}
+  W -- Có --&gt; W1["Dialog cảnh báo<br/>HR cập nhật ứng viên trước"]
+  W1 --&gt; A
+  W -- Không --&gt; B["Dialog: Close title?<br/>n active · hired/headcount"]
+  B --&gt; C{"Revoke links?<br/>mặc định: có"}
+  C --&gt; D{"Notify interviewers?<br/>mặc định: không"}
+  D --&gt; E{"Xác nhận?"}
+  E -- Cancel --&gt; X(["Không thay đổi"])
+  E -- Close position --&gt; F0["Lưu ảnh chụp trạng thái<br/>BR-06-17"] --&gt; F["Status = Closed"]
+  F --&gt; G["Ứng viên đang hoạt động → Talent pool<br/>giữ stage hiện tại"]
+  G --&gt; H{"Revoke = có?"}
+  H -- Có --&gt; H1["Thu hồi link đánh giá"]
+  H -- Không --&gt; I
+  H1 --&gt; I{"Notify = có?"}
+  I -- Có --&gt; I1["Thông báo interviewer có lịch sắp tới"]
+  I -- Không --&gt; J
+  I1 --&gt; J["Về danh sách · toast"]
+</pre></div><p class="cap">Nguồn: CloseJobDialog; Jobs.html dlg "close" <span class="tag tag-ex">Explicit</span>. Bước kiểm tra Offer / thử việc và ảnh chụp trạng thái <span class="tag tag-cf">Confirmed</span>.</p>
+<h2 id="D-06-3">D-06-3 · Bảng quyết định: hành động theo trạng thái (HR)</h2>
+<table><thead><tr><th>Hành động</th><th>Draft</th><th>Open</th><th>On hold</th><th>Closed</th></tr></thead><tbody><tr><td class="id">Header · Close position</td><td>Ẩn</td><td>Hiện</td><td>Hiện</td><td>Hiện</td></tr><tr><td class="id">Menu · Put on hold</td><td>—</td><td>Hiện</td><td>—</td><td>—</td></tr><tr><td class="id">Menu · Reopen</td><td>Hiện (Q-02-22)</td><td>—</td><td>Hiện</td><td>Hiện</td></tr><tr><td class="id">Menu · Close position…</td><td>Hiện (Q-02-22)</td><td>Hiện</td><td>Hiện</td><td>Hiện (Q-06-11)</td></tr><tr><td class="id">Nhận CV</td><td>Không</td><td>Có</td><td>Không</td><td>Không</td></tr></tbody></table>
+<p class="cap">Các vai trò khác không có hành động vòng đời (BR-06-01).</p><h2 id="D-06-4">D-06-4 · Bảng: ảnh hưởng của từng thao tác</h2>
+<table><thead><tr><th>Đối tượng</th><th>Put on hold</th><th>Reopen từ On hold</th><th>Close</th><th>Reopen từ Closed</th></tr></thead><tbody>
+<tr><td class="id">Ứng viên đang hoạt động</td><td>Giữ stage</td><td>Giữ stage</td><td>Sang Talent pool, ghi stage</td><td>Quay về đúng stage đã ghi, kể cả khi đã fail ở vị trí khác</td></tr><tr><td class="id">Ứng viên Offer / thử việc</td><td>Giữ nguyên</td><td>Giữ nguyên</td><td>Chặn đóng — HR cập nhật trước</td><td>—</td></tr><tr><td class="id">Lịch phỏng vấn sắp tới</td><td>Cancelled · xác nhận rồi gửi email cho ứng viên và interviewer</td><td>Không khôi phục — đặt lịch mới</td><td>Thông báo nếu chọn</td><td>—</td></tr><tr><td class="id">Link công khai</td><td>Hết hiệu lực</td><td>Không khôi phục — tạo link mới</td><td>Thu hồi (mặc định)</td><td>Không khôi phục — tạo link mới</td></tr><tr><td class="id">Quyền vai trò được thêm</td><td>Giữ nguyên</td><td>Giữ nguyên</td><td>Giữ nguyên</td><td>Giữ nguyên</td></tr><tr><td class="id">Nhận CV</td><td>Không</td><td>Có</td><td>Không</td><td>Có</td></tr>
+</tbody></table><p class="cap">Toàn bộ bảng <span class="tag tag-cf">Confirmed</span>. Tạm dừng và mở lại đều bắt buộc nhập lý do tự do (BR-06-19). Email hủy lịch không nêu lý do (BR-06-24).</p><h2 id="PM-07" style="break-before:page;border:0;font-size:20px">PM-07 · Tab Overview</h2>
+<h2 id="D-07-1">D-07-1 · Bảng quyết định: trạng thái hạn tuyển trên Overview</h2>
+<table><thead><tr><th>Điều kiện</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th></tr></thead><tbody><tr class="grp"><td colspan="5">Điều kiện</td></tr><tr><td class="id">Có hạn tuyển</td><td>Không</td><td>Có</td><td>Có</td><td>Có</td></tr><tr><td class="id">Còn chỗ trống</td><td>—</td><td>Không</td><td>Có</td><td>Có</td></tr><tr><td class="id">Còn ≤ 21 ngày và số ở Offer &lt; số chỗ trống</td><td>—</td><td>—</td><td>Không</td><td>Có</td></tr><tr class="grp"><td colspan="5">Hiển thị</td></tr><tr><td class="id">Chip hạn</td><td>Ẩn</td><td>"On track"</td><td>"On track"</td><td>"At risk · {open} open, {offer} at Offer"</td></tr><tr><td class="id">Cảnh báo Needs your eye</td><td>Không</td><td>Không</td><td>Có — info</td><td>Có — warn</td></tr></tbody></table>
+<p class="cap">Ngưỡng 21 ngày dùng chung với danh sách vị trí (BR-01-13) <span class="tag tag-cf">Confirmed</span>. Vị trí không Open: mọi cảnh báo chỉ ở mức info (BR-07-17).</p>
+<h2 id="D-07-2">D-07-2 · Bảng quyết định: cảnh báo "Needs your eye"</h2>
+<table><thead><tr><th>Cảnh báo</th><th>Điều kiện</th><th>Mức</th><th>Mở tới</th></tr></thead><tbody><tr><td class="id">Hạn tuyển</td><td>Có hạn và còn chỗ trống</td><td>warn nếu ≤ 21 ngày, còn lại info</td><td>Candidates · Offer</td></tr><tr><td class="id">CV Scan chậm</td><td>≥ 1 ứng viên CV Scan · New/Consider quá ngưỡng pipeline (mặc định 7 ngày)</td><td>warn</td><td>Candidates · CV Scan New, Consider</td></tr><tr><td class="id">Phỏng vấn chưa quyết</td><td>≥ 1 ứng viên Interview chưa Passed/Failed và (chưa có ghi chú hoặc quá ngưỡng pipeline)</td><td>warn</td><td>Candidates · Interview New, Consider</td></tr><tr><td class="id">Chấm AI lỗi</td><td>≥ 1 ứng viên chấm lỗi</td><td>warn</td><td>Candidates · Scoring failed</td></tr><tr><td class="id">Tải lên cần xử lý</td><td>≥ 1 mục cần chú ý</td><td>info</td><td>Uploads · Needs attention</td></tr></tbody></table>
+<p class="cap">Nguồn: OverviewTab alerts <span class="tag tag-ex">Explicit</span>. Ngưỡng và bộ lọc <span class="tag tag-cf">Confirmed</span>. Với vị trí Draft, On hold, Closed, cột "Mức" luôn là info (BR-07-17).</p><h2 id="PM-08" style="break-before:page;border:0;font-size:20px">PM-08 · Tab Candidates</h2>
+<h2 id="D-08-1">D-08-1 · Luồng: chuyển stage</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Move to… / phím M"]) --&gt; B{"Loại thao tác"}
+  B -- "Cùng stage" --&gt; C["Đặt sub-stage"] --&gt; C1{"Là pass?"}
+  C1 -- Có --&gt; C2["Toast: Next stage is now unlocked"]
+  B -- "Stage trước" --&gt; D{"Đang ở sub-stage mặc định?"}
+  D -- Không --&gt; D1["Khoá"]
+  D -- Có --&gt; D2["Quay về stage trước"]
+  B -- "Stage kế" --&gt; E{"Đang ở sub-stage pass?"}
+  E -- Không --&gt; E1["Khoá: Opens after … is passed"]
+  E -- Có --&gt; F["Có quyền chuyển"]
+  F --&gt; G{"Stage đích"}
+  G -- Probation --&gt; G1["Dialog Record hire<br/>cả hai bên xác nhận · bắt buộc chọn Mentor"]
+  G -- Official --&gt; G2["Official staff"]
+  G -- Khác --&gt; G3["Vào sub-stage mặc định<br/>toast + Undo"]
+  B -- "Reject / phím X" --&gt; R2["Dialog Reject · lý do bắt buộc"] --&gt; R3["Đổi sang Failed / Rejected<br/>vẫn hiển thị trong danh sách"]
+</pre></div><p class="cap">Nguồn: moveItems (jobs-shell.jsx), h.onMove / onSub / onReject (Jobs.html). <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-08-3">D-08-3 · Bảng: thành phần theo vai trò</h2>
+<table><thead><tr><th>Thành phần</th><th>HR</th><th>Chapter Head</th><th>Recruiter</th><th>Interviewer</th></tr></thead><tbody><tr><td class="id">Tên tab</td><td>Candidates</td><td>Candidates</td><td>Candidates</td><td>My interviews</td></tr><tr><td class="id">Phạm vi ứng viên</td><td>Tất cả</td><td>Tất cả</td><td>Tất cả</td><td>Được xếp lịch</td></tr><tr><td class="id">Lọc Match band / Scoring</td><td>Có</td><td>Có</td><td>Có</td><td>Không</td></tr><tr><td class="id">Cột Expected salary</td><td>Có</td><td>Có</td><td>Ẩn (có ghi chú)</td><td>Không</td></tr><tr><td class="id">Điểm phù hợp</td><td>Có</td><td>Có</td><td>Có</td><td>Sau khi nộp ghi chú</td></tr><tr><td class="id">Chọn nhiều / Move</td><td>Có</td><td>Có</td><td>Có</td><td>Không</td></tr><tr><td class="id">Reject</td><td>Có</td><td>Có</td><td>Có</td><td>Không</td></tr></tbody></table><h2 id="PM-09" style="break-before:page;border:0;font-size:20px">PM-09 · Uploads &amp; processing</h2>
+<h2 id="D-09-1">D-09-1 · Luồng: xử lý một file CV</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["File trong lô"]) --&gt; B{"PDF/DOCX, ≤ 10 MB?"}
+  B -- Không --&gt; B1["Bỏ qua (đánh dấu trong dialog)"]
+  B -- Có --&gt; C{"Vào hàng đợi được?"}
+  C -- Không --&gt; C1["Failed · System busy · Retry"]
+  C -- Có --&gt; D{"Đọc được text?"}
+  D -- Không --&gt; D1["Failed · Scanned image · Enter manually / Upload text version"]
+  D -- Có --&gt; E{"Có email hoặc điện thoại?"}
+  E -- Không --&gt; E1["Needs attention · Enter contact"]
+  E -- Có --&gt; F{"Khớp ứng viên đã có?"}
+  F -- "Không" --&gt; G["New candidate · tạo hồ sơ"]
+  F -- "Email + phone" --&gt; H{"Đã có hồ sơ ở vị trí này?"}
+  H -- Không --&gt; H1["Existing · hồ sơ mới cho vị trí"]
+  H -- Có --&gt; H2{"Cùng nội dung file?"}
+  H2 -- Có --&gt; H3["Same file · xử lý lại"]
+  H2 -- Không --&gt; H4["Already in this position · CV vN in use · stage giữ nguyên"]
+  F -- "Email hoặc phone" --&gt; I["Possible duplicate · Needs attention · Compare"]
+  G --&gt; S{"Chấm AI thành công?"}
+  H1 --&gt; S
+  H3 --&gt; S
+  H4 --&gt; S
+  S -- Không --&gt; S1["Scoring failed · Rescore"]
+  S -- Có --&gt; S2["Band + điểm"]
+</pre></div><p class="cap">Nguồn: JD.batches, JD.attention, UploadTray. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-09-2">D-09-2 · Bảng quyết định: nghi trùng</h2>
+<table><thead><tr><th>Điều kiện</th><th>R1</th><th>R2</th><th>R3</th><th>R4</th></tr></thead><tbody><tr class="grp"><td colspan="5">Điều kiện</td></tr><tr><td class="id">Email khớp</td><td>Có</td><td>Có</td><td>Không</td><td>Không</td></tr><tr><td class="id">Điện thoại khớp</td><td>Có</td><td>Không</td><td>Có</td><td>Không</td></tr><tr class="grp"><td colspan="5">Kết quả</td></tr><tr><td class="id">Hệ thống</td><td>Tự gộp (Existing)</td><td>Không gộp · Possible duplicate</td><td>Không gộp · Possible duplicate</td><td>New candidate</td></tr></tbody></table><p class="cap">Khoá nhận diện: email và số điện thoại; không dùng tên / ngày sinh <span class="tag tag-cf">Confirmed</span>.</p><h2 id="PM-11" style="break-before:page;border:0;font-size:20px">PM-11 · Tab Access</h2>
+<h2 id="D-11-1">D-11-1 · Luồng: thêm người</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Add person"]) --&gt; B["Tìm theo tên / chức danh / chapter<br/>chỉ Azure AD"]
+  B --&gt; C{"Đã có quyền?"}
+  C -- Có --&gt; C1["Already has access · không chọn được"]
+  C -- Không --&gt; D["Chọn người · gợi ý vai trò"]
+  D --&gt; E{"Vai trò"}
+  E -- "Recruitment manager" --&gt; F["Tuỳ chọn primary<br/>cảnh báo nếu thay primary cũ"]
+  E -- Recruiter --&gt; G["Salary hidden cố định<br/>thông báo lô CV"]
+  E -- Interviewer --&gt; H["Không tự cấp quyền Mentor<br/>Mentor được chọn lúc Hire (D-10-3)"]
+  F --&gt; I["Hiện phạm vi dữ liệu sẽ thấy"]
+  G --&gt; I
+  H --&gt; I
+  I --&gt; J["Email người được thêm (tuỳ chọn)"]
+  J --&gt; K["Add as role · ghi audit log"]
+</pre></div><p class="cap">Nguồn: AddPersonDialog. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-11-2">D-11-2 · Bảng: đường cấp quyền</h2>
+<table><thead><tr><th>Đường</th><th>Ví dụ</th><th>Thu hồi từ tab Access</th><th>Phạm vi</th></tr></thead><tbody><tr><td class="id">Chapter</td><td>Chapter Web · 14 members</td><td>Không (Q-11-06)</td><td>Q-11-03</td></tr><tr><td class="id">Chapter → Chapter Head</td><td>Trần Quang Huy · via chapter (primary nếu là người tạo vị trí, hoặc khi HR chọn — BR-11-18)</td><td>Không</td><td>Toàn vị trí</td></tr><tr><td class="id">Direct</td><td>Phạm Thùy Linh · Recruiter</td><td>Có</td><td>Theo vai trò</td></tr><tr><td class="id">Interview schedule</td><td>Đỗ Minh Đức · Interview 1 schedule</td><td>Không — mất khi lịch thay đổi (Q-11-09)</td><td>Ứng viên được xếp lịch</td></tr><tr><td class="id">Admin / HR</td><td>Luôn có</td><td>Không</td><td>Mọi vị trí</td></tr></tbody></table><h2 id="PM-10" style="break-before:page;border:0;font-size:20px">PM-10 · Pipeline của vị trí</h2>
+<h2 id="D-10-1">D-10-1 · Luồng: chỉnh pipeline vị trí</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Pipelines › Position pipelines"]) --&gt; B{"HR / Admin?"}
+  B -- Không --&gt; B1["view only"]
+  B -- Có --&gt; C["Sửa bản nháp"]
+  C --&gt; D{"Thao tác"}
+  D -- "Đổi thứ tự" --&gt; D1["Banner: Order changes next/back<br/>không ai bị di chuyển"]
+  D -- "Thêm stage" --&gt; D2["Chèn trước stage cuối · 5 ngày"]
+  D -- "Sửa time limit" --&gt; D3["1–60 ngày"]
+  D -- "Xoá stage" --&gt; E{"Có ứng viên?"}
+  E -- Không --&gt; E1["Xoá khỏi bản nháp"]
+  E -- Có --&gt; E2["Dialog: chọn stage đích<br/>sau → bước mặc định · trước → bước pass"]
+  D1 --&gt; F{"Stage cuối đổi?"}
+  D2 --&gt; F
+  E1 --&gt; F
+  E2 --&gt; F
+  D3 --&gt; G
+  F -- Có --&gt; F1["Banner: Hire will be confirmed at …"] --&gt; G
+  F -- Không --&gt; G["Thanh: n unsaved changes"]
+  G --&gt; H{"Lưu?"}
+  H -- Discard --&gt; X(["Trở về bản đã lưu"])
+  H -- Save --&gt; I["Áp dụng · ghi lịch sử vị trí · toast"]
+</pre></div><p class="cap">Nguồn: JobPipelines, SequenceEditor, RemoveBlockedDialog. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-10-2">D-10-2 · Bảng: tầng cấu hình</h2>
+<table><thead><tr><th>Tầng</th><th>Phạm vi ảnh hưởng</th><th>Ai sửa</th><th>Ảnh hưởng vị trí đang chạy</th></tr></thead><tbody><tr><td class="id">Stage library (tên, màu, bước, scheduling, mẫu đánh giá)</td><td>Mọi vị trí dùng stage</td><td>Admin</td><td>Có — ngay lập tức</td></tr><tr><td class="id">Template (chuỗi stage, hire type)</td><td>Vị trí mở sau</td><td>HR, Admin</td><td>Không</td></tr><tr><td class="id">Pipeline vị trí (thứ tự, time limit, thêm / xoá stage, Scheduling)</td><td>Một vị trí</td><td>HR, Admin</td><td>Có — sau khi lưu</td></tr></tbody></table><h2 id="D-10-3">D-10-3 · Sơ đồ trạng thái: Offer → chính thức</h2><div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state "Offer xác nhận 2 bên" as O
+  state "Thử việc (start → end)" as P
+  state "Đánh giá cuối thử việc" as E
+  state "Nhân sự chính thức" as F
+  state "Không đạt" as X
+  [*] --&gt; O
+  O --&gt; P: chốt ngày bắt đầu / kết thúc
+  P --&gt; E: tới ngày kết thúc
+  E --&gt; P: Extend — gia hạn (ngày mới + lý do)
+  E --&gt; F: Pass — qua thử việc
+  E --&gt; X: Not pass — lý do bắt buộc
+</pre></div><p class="cap"><span class="tag tag-cf">Confirmed</span> BR-10-13, BR-10-14. Gia hạn không giới hạn. Người quyết định: Mentor của ứng viên, Recruitment manager (CH), HR, Admin (BR-10-15..17).</p><h2 id="D-10-3">D-10-3 · Luồng: Mentor trong thử việc</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A["Chuyển ứng viên sang stage Probation"] --&gt; B["Dialog Hire · bắt buộc chọn Mentor<br/>không chọn sẵn"]
+  B --&gt; C{"Mentor thuộc danh sách job?"}
+  C -- "Không (chỉ Interviewer / Recruiter trong Access)" --&gt; B
+  C -- Có --&gt; D["Lưu campaign_applied.mentor_profile_id<br/>thông báo trong app"]
+  D --&gt; E["Mentor viết notes (Interviews &amp; notes)"]
+  E --&gt; F{"Quyết định"}
+  F -- Pass --&gt; G["Official"]
+  F -- Extend --&gt; H["Ngày kết thúc mới + lý do · ghi log"]
+  F -- "Not pass" --&gt; I{"Có lý do?"}
+  I -- Không --&gt; J["Máy chủ từ chối 400"]
+  I -- Có --&gt; K["Not pass · Mentor thấy lý do · ứng viên không thấy"]
+  D -. "Đổi Mentor: chỉ RM / HR / Admin / Chapter Head · ghi log" .-&gt; D
+</pre></div><p class="cap"><span class="tag tag-cf">Confirmed</span> BR-10-14..18. RM / HR / Admin luôn giữ quyền Pass, Not pass, Extend. Ứng viên không xem notes.</p><h2 id="PM-12" style="break-before:page;border:0;font-size:20px">PM-12 · Talent pool</h2>
+<h2 id="D-12-1">D-12-1 · Luồng vào / ra Talent pool</h2><div class="fig"><pre class="mermaid">
+flowchart LR
+  U["Tải CV không vị trí"] --&gt; TP[("Talent pool")]
+  C["Đóng vị trí · ứng viên còn hoạt động"] --&gt; TP
+  R["Từ chối · Keep in Talent pool"] --&gt; TP
+  P["Thử việc: Did not start / Ended early / Not passed"] --&gt; TP
+  TP -- "Move to position… (1 ứng viên)" --&gt; O["Vị trí Open · hồ sơ mới · chấm lại theo tiêu chí mới"]
+  TP -. "Mở lại vị trí đã đóng (BR-06-17)" .-&gt; RO["Quay về vị trí cũ đúng stage"]
+</pre></div><p class="cap"><span class="tag tag-ex">Explicit</span> · luồng Move to position <span class="tag tag-cf">Confirmed</span>; dialog cần thiết kế. Talent pool sẽ chuyển sang Candidates Management.</p><h2 id="PM-13" style="break-before:page;border:0;font-size:20px">PM-13 · Chi tiết hồ sơ ứng tuyển</h2>
+<h2 id="D-13-1">D-13-1 · Sơ đồ trạng thái: Offer</h2><div class="fig"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state "Offer · New" as N
+  state "Matched (terms agreed)" as M
+  state "Offer (letter sent)" as O
+  state "Rejected" as R
+  [*] --&gt; N
+  N --&gt; M: Mark terms agreed
+  M --&gt; O: Send offer
+  O --&gt; Probation: Confirm hire · ứng viên chấp nhận + công ty duyệt
+  N --&gt; R: Rejected · lý do
+  M --&gt; R: Rejected · lý do
+  O --&gt; R: Rejected · lý do
+</pre></div><p class="cap">Nguồn: stagePlan, nextStep. <span class="tag tag-ex">Explicit</span></p>
+<h2 id="D-13-2">D-13-2 · Luồng: chế độ duyệt lần lượt</h2><div class="fig"><pre class="mermaid">
+flowchart LR
+  A(["Review one by one · n"]) --&gt; B["Mở hồ sơ đầu"]
+  B --&gt; C{"Quyết định?"}
+  C -- "Pass / Consider / Not pass" --&gt; D["Ghi nhận · Decided +1"]
+  D --&gt; E{"Còn hồ sơ?"}
+  E -- Có --&gt; F["Tự sang hồ sơ kế"] --&gt; C
+  E -- Không --&gt; G(["Kết thúc · Back to list"])
+  C -- "J / K" --&gt; F
+  C -- "Exit review" --&gt; G
+</pre></div><h2 id="PM-04" style="break-before:page;border:0;font-size:20px">PM-04 · Tiêu chí chấm điểm</h2>
+<h2 id="D-04-1">D-04-1 · Luồng: đổi tiêu chí và chấm lại</h2><div class="fig"><pre class="mermaid">
+flowchart TD
+  A(["Sửa / thêm / xoá tiêu chí"]) --&gt; B{"Nội dung nhạy cảm?"}
+  B -- Có --&gt; B1["Cảnh báo: xoá hoặc ghi lý do"]
+  B -- Không --&gt; C{"Đã có CV được chấm?"}
+  B1 --&gt; C
+  C -- Không --&gt; D(["Tiêu chí mới dùng cho CV kế tiếp"])
+  C -- Có --&gt; E["Banner: Scores use the previous criteria · Rescore n"]
+  E --&gt; F{"Rescore?"}
+  F -- Không --&gt; G["Giữ điểm cũ · 'Criteria edited after scoring'"]
+  F -- Có --&gt; H["Chấm lại ở nền · thay band · giữ kết quả người sửa"]
+</pre></div><p class="cap">Nguồn: CriteriaEditor, RequirementRow. <span class="tag tag-ex">Explicit</span></p>
+</doc-page>
+<script src="doc-page.js"></script><script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true,theme:'base',securityLevel:'loose',fontFamily:'Be Vietnam Pro, system-ui, sans-serif',themeVariables:{primaryColor:'#EEF7F1',primaryBorderColor:'#075F32',primaryTextColor:'#142F21',lineColor:'#5B6B63',fontSize:'13px',noteBkgColor:'#F6F8F7',noteBorderColor:'#DDE3E0',actorBkg:'#EEF7F1',actorBorder:'#075F32'}});</script>
+<script>(function(){function go(){var h=decodeURIComponent(location.hash.slice(1));if(!h)return;var el=document.getElementById(h);if(el)el.scrollIntoView({block:"start"});}if(window.customElements)customElements.whenDefined("doc-page").then(function(){setTimeout(go,60)});window.addEventListener("load",function(){setTimeout(go,120)});window.addEventListener("hashchange",go);})();</script></body></html>

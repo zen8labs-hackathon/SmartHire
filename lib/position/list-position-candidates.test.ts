@@ -66,6 +66,7 @@ describe("rowToPositionCandidate", () => {
       expectedSalary: "$2000",
       daysInStage: 1,
       source: "LinkedIn",
+      nextInterviewAt: null,
     });
   });
   it("redacts salary", () => {

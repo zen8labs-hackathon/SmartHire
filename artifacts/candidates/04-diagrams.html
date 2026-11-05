@@ -1,0 +1,67 @@
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1" name="viewport"/><title>Candidates — Sơ đồ</title><link href="tokens/fonts.css" rel="stylesheet"/><link href="tokens/colors.css" rel="stylesheet"/><link href="tokens/typography.css" rel="stylesheet"/><link href="tokens/spacing.css" rel="stylesheet"/><link href="ba-doc.css" rel="stylesheet"/><style>doc-page:not(:defined){visibility:hidden}</style><style>:target{scroll-margin-top:24px}tr:target>td,h2:target,h3:target,h4:target{background:var(--highlight-soft,#FEF7EA)!important;box-shadow:inset 3px 0 0 var(--z8-gold-400,#F3B44A)}.ba-nav a.home{font-weight:600}</style></head><body><doc-page margin="0.6in"><nav class="ba-nav"><a class="home" href="index.html">← Mục lục</a><a href="01-functional-specification.html">01 Đặc tả chức năng</a><a href="02-business-rules.html">02 Business rules</a><a href="03-data-dictionary.html">03 Từ điển dữ liệu</a><a aria-current="page" class="on" href="04-diagrams.html">04 Sơ đồ</a><a href="05-gap-log.html">05 Câu hỏi &amp; Gap</a><a href="06-traceability.html">06 Truy vết</a><a href="07-role-permission.html">07 Vai trò × quyền</a><a href="08-acceptance-criteria.html">08 Tiêu chí nghiệm thu</a></nav><h1>Sơ đồ — Candidates</h1><p class="ba-sub">Luồng và trạng thái theo module</p><div class="ba-meta"><span>Phiên bản <b>1.0</b></span><span>Ngày <b>03/11/2026</b></span><span>Trạng thái <b>Draft</b></span><span>Nguồn <b>Prototype app/admin/candidates-2</b></span><span>Phạm vi bản này <b>Candidates v1 (HR + Admin)</b></span></div><div class="legend"><span><span class="tag tag-ex">Explicit</span> Viết rõ trong thiết kế</span><span><span class="tag tag-im">Implied</span> Gợi ý qua hình thức (ẩn, disable, mặc định)</span><span><span class="tag tag-in">Inferred</span> Suy luận của BA — chỉ nằm trong Gap Log</span><span><span class="tag tag-cf">Confirmed</span> Đã được PO/Designer xác nhận</span></div><h2 id="CAN-01" style="border:0;font-size:20px">CAN-01 · Danh sách ứng viên</h2><h3>Luồng duyệt, lọc và thao tác hàng loạt</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Mở danh sách] --&gt; B["Tải danh sách (phân trang, sort)"]
+  B --&gt; C[Chọn tab, bộ lọc, tìm kiếm]
+  C --&gt; D[Hiển thị bảng]
+  D --&gt; E{Chọn hàng?}
+  E -- Có --&gt; H[Thanh hàng loạt]
+  E -- Không --&gt; I[Nhấp hàng mở hồ sơ]</pre></div><p class="cap">Hình D-01-1 · Duyệt và thao tác hàng loạt</p><h2 id="CAN-02" style="border:0;font-size:20px">CAN-02 · Hồ sơ ứng viên</h2><h3>Xử lý xung đột dữ liệu giữa CV và HR</h3><div class="fig"><pre class="mermaid">sequenceDiagram
+  actor HR
+  participant UI as Hồ sơ
+  participant AI as AI trích CV
+  HR-&gt;&gt;UI: Sửa kinh nghiệm = 5
+  UI--&gt;&gt;HR: Lưu, đánh dấu do người nhập
+  AI-&gt;&gt;UI: CV mới, kinh nghiệm = 3
+  UI--&gt;&gt;HR: Hộp xung đột
+  HR-&gt;&gt;UI: Keep 5 years hoặc Use CV value</pre></div><p class="cap">Hình D-02-1 · Xung đột CV / HR</p><h2 id="CAN-03" style="border:0;font-size:20px">CAN-03 · CV</h2><h3>Luồng tải CV mới</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Chọn Upload CV] --&gt; B{PDF/DOCX và ≤ 10 MB?}
+  B -- Không --&gt; C[Báo lỗi]
+  B -- Có --&gt; D[Chọn nguồn + application]
+  D --&gt; E[Lưu file]
+  E --&gt; F[Chấm điểm nền]
+  F --&gt; G{Có xung đột với trường HR đã sửa?}
+  G -- Có --&gt; H[Hộp xung đột]
+  G -- Không --&gt; I[Cập nhật dữ liệu AI]</pre></div><p class="cap">Hình D-03-1 · Tải CV</p><h2 id="CAN-04" style="border:0;font-size:20px">CAN-04 · Applications &amp; lý do kết thúc</h2><h3>Trạng thái application và lý do kết thúc</h3><div class="fig"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; open
+  open --&gt; ended: Kết thúc
+  ended --&gt; ended: Ghi lý do
+  open --&gt; pool: Về talent pool
+  open --&gt; official
+  open --&gt; probation
+  probation --&gt; official
+  official --&gt; hired</pre></div><p class="cap">Hình D-04-1 · Trạng thái kết quả</p><h2 id="CAN-05" style="border:0;font-size:20px">CAN-05 · Lịch sử &amp; cooldown</h2><h3>Quyết định hiển thị cảnh báo cooldown</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Mở hồ sơ] --&gt; B[Lấy ngày kết thúc gần nhất của application bị loại]
+  B --&gt; C{Trong 6 × 30,44 ngày?}
+  C -- Có --&gt; E[Banner nhắc nhở, không chặn]
+  C -- Không --&gt; F[Không hiện banner]</pre></div><p class="cap">Hình D-05-1 · Cooldown</p><h2 id="CAN-06" style="border:0;font-size:20px">CAN-06 · Rehire eligibility</h2><h3>Đặt rehire eligibility</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Chọn sửa Rehire] --&gt; C[Chọn giá trị]
+  C --&gt; D{Not eligible?}
+  D -- Có --&gt; E[Bắt buộc nhập lý do]
+  D -- Không --&gt; F[Lưu]
+  E --&gt; F
+  F --&gt; G[Toast + ghi timeline]</pre></div><p class="cap">Hình D-06-1 · Rehire</p><h2 id="CAN-07" style="border:0;font-size:20px">CAN-07 · Talent pool (tag, reminder, pool)</h2><h3>Vòng đời reminder</h3><div class="fig"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; none
+  none --&gt; scheduled: Set reminder
+  scheduled --&gt; due: Ngày nhắc ≤ hôm nay
+  due --&gt; none: Mark contacted
+  scheduled --&gt; none: Xoá</pre></div><p class="cap">Hình D-07-1 · Reminder</p><h2 id="CAN-08" style="border:0;font-size:20px">CAN-08 · Consent (không hết hạn)</h2><h3>Vòng đời consent (bản ghi)</h3><div class="fig"><pre class="mermaid">stateDiagram-v2
+  [*] --&gt; none
+  none --&gt; recorded: Ghi nhận (ngày + kênh)
+  recorded --&gt; recorded: Chỉ xem, không hết hạn</pre></div><p class="cap">Hình D-08-1 · Consent</p><h2 id="CAN-09" style="border:0;font-size:20px">CAN-09 · Thêm vào vị trí</h2><h3>Thêm ứng viên vào vị trí</h3><div class="fig"><pre class="mermaid">sequenceDiagram
+  actor HR
+  participant UI as Hộp thoại
+  participant SYS as Hệ thống
+  HR-&gt;&gt;UI: Chọn vị trí đang mở
+  UI--&gt;&gt;HR: Already applying bị vô hiệu
+  HR-&gt;&gt;UI: Xác nhận
+  UI-&gt;&gt;SYS: Tạo application (New - Waiting for screening)
+  SYS--&gt;&gt;SYS: Chấm điểm nền</pre></div><p class="cap">Hình D-09-1 · Add to position</p><h2 id="CAN-10" style="border:0;font-size:20px">CAN-10 · Trùng lặp &amp; Merge</h2><h3>Gộp hồ sơ trùng</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Banner: email hoặc SĐT khớp] --&gt; B[Mở hộp thoại gộp]
+  B --&gt; C[Chọn giá trị từng trường]
+  C --&gt; D{Xác nhận gộp?}
+  D -- Có --&gt; E["Nối application, xoá bản trùng (vĩnh viễn)"]
+  D -- Không --&gt; G[Đóng hộp thoại]</pre></div><p class="cap">Hình D-10-1 · Merge</p><h2 id="CAN-11" style="border:0;font-size:20px">CAN-11 · Không xoá / không ẩn danh</h2><h3>Nguyên tắc giữ dữ liệu</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Mọi thao tác trên hồ sơ] --&gt; B{Ẩn / xoá / ẩn danh?}
+  B -- Không có --&gt; C[Dữ liệu được giữ nguyên, không thời hạn lưu]</pre></div><p class="cap">Hình D-11-1 · Nguyên tắc giữ dữ liệu</p><h2 id="CAN-12" style="border:0;font-size:20px">CAN-12 · Phạm vi theo vai trò</h2><h3>Quyết định phạm vi hiển thị</h3><div class="fig"><pre class="mermaid">flowchart TD
+  A[Yêu cầu xem dữ liệu] --&gt; B{HR hoặc Admin?}
+  B -- Không --&gt; Z[Chuyển về /admin/jd]
+  B -- Có --&gt; D[Thấy toàn bộ]</pre></div><p class="cap">Hình D-12-1 · Phạm vi</p></doc-page><script src="doc-page.js"></script><script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true,theme:'base',securityLevel:'loose',fontFamily:'Be Vietnam Pro, system-ui, sans-serif',themeVariables:{primaryColor:'#EEF7F1',primaryBorderColor:'#075F32',primaryTextColor:'#142F21',lineColor:'#5B6B63',fontSize:'13px',noteBkgColor:'#F6F8F7',noteBorderColor:'#DDE3E0',actorBkg:'#EEF7F1',actorBorder:'#075F32'}});</script><script>(function(){function go(){var h=decodeURIComponent(location.hash.slice(1));if(!h)return;var el=document.getElementById(h);if(el)el.scrollIntoView({block:"start"});}if(window.customElements)customElements.whenDefined("doc-page").then(function(){setTimeout(go,60)});window.addEventListener("load",function(){setTimeout(go,120)});window.addEventListener("hashchange",go);})();</script></body></html>

@@ -1,0 +1,17 @@
+:root{
+--font-sans:"Be Vietnam Pro","Inter","Noto Sans JP",ui-sans-serif,system-ui,sans-serif;
+--font-jp:"Noto Sans JP","Be Vietnam Pro",ui-sans-serif,sans-serif;
+--font-mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+--text-overline:11px;
+--text-caption:12px;
+--text-table:13px;
+--text-body:14px;
+--text-section:16px;
+--text-page:20px;
+--text-kpi:24px;
+--leading-tight:1.25;
+--leading-vi:1.4;
+--leading-body:1.5;
+--weight-regular:400;--weight-medium:500;--weight-semibold:600;--weight-bold:700;
+--tracking-overline:0.06em;
+}

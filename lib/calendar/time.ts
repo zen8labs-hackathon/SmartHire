@@ -73,6 +73,45 @@ export function fmtMin(minute: number): string {
   return `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}`;
 }
 
+export const DURATION_MIN = 5;
+/** Matches the cap the schedule API enforces. */
+export const DURATION_MAX = 480;
+
+/**
+ * Minute-of-day from typed text: `9`, `930`, `9:30`, `09.30`, `9h30`, `2pm`,
+ * `2:15 pm`. Null when it is not a valid time.
+ */
+export function parseClock(text: string): number | null {
+  const m = /^(\d{1,2})(?:\s*[:.h]\s*(\d{1,2})?|(\d{2}))?\s*(am|pm)?$/.exec(text.trim().toLowerCase());
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2] ?? m[3] ?? 0);
+  if (minute > 59) return null;
+  if (m[4]) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (m[4] === "pm" ? 12 : 0);
+  } else if (hour > 23) return null;
+  return hour * 60 + minute;
+}
+
+/**
+ * Length in minutes from typed text: `45`, `45m`, `1h`, `1.5h`, `1h30`,
+ * `1:30`. A bare number is minutes. Null when invalid or outside
+ * `DURATION_MIN`..`DURATION_MAX`.
+ */
+export function parseDuration(text: string): number | null {
+  const t = text.trim().toLowerCase();
+  let min: number | null = null;
+  let m: RegExpExecArray | null;
+  if ((m = /^(\d+)\s*(?:m|min|mins|minutes?)?$/.exec(t))) min = Number(m[1]);
+  else if ((m = /^(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hours?)$/.exec(t))) min = Math.round(Number(m[1].replace(",", ".")) * 60);
+  else if ((m = /^(\d+)\s*(?:h|hr|hrs|hours?|:)\s*(\d{1,2})\s*(?:m|min|mins|minutes?)?$/.exec(t))) {
+    if (Number(m[2]) > 59) return null;
+    min = Number(m[1]) * 60 + Number(m[2]);
+  }
+  return min != null && min >= DURATION_MIN && min <= DURATION_MAX ? min : null;
+}
+
 const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export function weekdayName(date: string): string {

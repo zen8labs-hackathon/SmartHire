@@ -702,9 +702,9 @@ export function KanbanColumn({ title, count, schedule, overdue = 0, groups = [],
   );
 }
 
-export function KanbanCard({ name, headline, band, status, days, notes, lifted, onClick, onMove, hideScore, hired }: {
+export function KanbanCard({ name, headline, band, status, days, notes, lifted, onClick, onMove, hideScore, hired, interview }: {
   name: string; headline?: string; band?: BandKey; status?: string; days: number; notes?: number; lifted?: boolean;
-  onClick?: () => void; onMove?: () => void; hideScore?: boolean; hired?: boolean;
+  onClick?: () => void; onMove?: () => void; hideScore?: boolean; hired?: boolean; interview?: React.ReactNode;
 }) {
   return (
     <div className="shx-kcard" data-lifted={!!lifted} onClick={onClick} tabIndex={0}
@@ -714,6 +714,7 @@ export function KanbanCard({ name, headline, band, status, days, notes, lifted, 
         <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Move " + name + " (M)"} onClick={(e) => { e.stopPropagation(); if (onMove) onMove(); }}><Icon name="arrow-right-left" size={14} /></button>
       </div>
       {headline && <span className="shx-small" style={{ marginTop: -4 }}>{headline}</span>}
+      {interview && <div className="shx-row">{interview}</div>}
       <div className="shx-row">
         {hideScore ? <span className="shx-lock"><Icon name="eye-off" size={12} />Hidden</span> : status && status !== "done" ? <MatchStatusInline status={status} /> : band && <MatchBand band={band} compact />}
         <span className="shx-sp" />

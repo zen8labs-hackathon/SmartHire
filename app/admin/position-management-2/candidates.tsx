@@ -31,7 +31,7 @@ export type CandHandlers = MoveHandlers & {
 };
 export type OpenCand = (id: number, ids: number[], label: string, review?: boolean) => void;
 export type NextStep = { mine: boolean } | null;
-export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[]; q?: string };
+export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[]; interview?: string[]; q?: string };
 
 const ON: Style = { background: "var(--accent)", color: "#fff" };
 
@@ -47,6 +47,20 @@ function Flags({ c }: { c: Candidate }) {
 }
 
 const BAND_OPTS: [string, string][] = [["strong", "Strong match"], ["good", "Good match"], ["partial", "Partial"], ["limited", "Limited"], ["review", "Needs manual review"]];
+const IV_OPTS: [string, string][] = [["scheduled", "Interview scheduled"], ["none", "No interview scheduled"]];
+const ivKey = (c: Candidate) => (c.nextInterviewAt ? "scheduled" : "none");
+/** "dd/mm HH:MM" in GMT+7, the zone interviews are shown in everywhere else. */
+const ivWhen = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+  return p.replace(",", "");
+};
+function IvBadge({ c }: { c: Candidate }) {
+  if (!c.nextInterviewAt) return null;
+  return <Badge tone="info" icon="calendar-check">Interview · {ivWhen(c.nextInterviewAt)}</Badge>;
+}
+
 const SCORE_OPTS: [string, string][] = [["done", "Scored"], ["scoring", "Scoring"], ["error", "Scoring failed"], ["none", "Not scored"]];
 
 function FilterFooter({ draft, onClear, onApply }: { draft: string[]; onClear: () => void; onApply: () => void }) {
@@ -151,7 +165,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     if (typeof window === "undefined") return {};
     const q = new URLSearchParams(window.location.search);
     const L = (k: string) => (q.get(k) || "").split(",").filter(Boolean);
-    return { mine: q.get("mine") === "1", stage: L("stage"), band: L("band"), source: L("source"), scoring: L("scoring"), q: q.get("q") || "" };
+    return { mine: q.get("mine") === "1", stage: L("stage"), band: L("band"), source: L("source"), scoring: L("scoring"), interview: L("interview"), q: q.get("q") || "" };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [sel, setSel] = React.useState<number[]>([]);
@@ -161,16 +175,17 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const [fBand, setFBand] = React.useState<string[]>(P0.band || []);
   const [fSrc, setFSrc] = React.useState<string[]>(P0.source || []);
   const [fScore, setFScore] = React.useState<string[]>(P0.scoring || []);
+  const [fIv, setFIv] = React.useState<string[]>(P0.interview || []);
   const [search, setSearch] = React.useState(P0.q || "");
   React.useEffect(() => {
     const u = new URL(window.location.href);
     const put = (k: string, v: string[]) => (v.length ? u.searchParams.set(k, v.join(",")) : u.searchParams.delete(k));
-    put("stage", fStage); put("band", fBand); put("source", fSrc); put("scoring", fScore);
+    put("stage", fStage); put("band", fBand); put("source", fSrc); put("scoring", fScore); put("interview", fIv);
     if (search.trim()) u.searchParams.set("q", search.trim()); else u.searchParams.delete("q");
     if (mineOnly) u.searchParams.set("mine", "1"); else u.searchParams.delete("mine");
     const next = u.pathname + u.search + u.hash;
     if (next !== window.location.pathname + window.location.search + window.location.hash) window.history.replaceState(window.history.state, "", next);
-  }, [fStage, fBand, fSrc, fScore, mineOnly, search]);
+  }, [fStage, fBand, fSrc, fScore, fIv, mineOnly, search]);
   const S = stages;
   const isMine = (c: Candidate) => !!(nextOf && nextOf(c)?.mine);
   const scoreKey = (c: Candidate) => (c.st === "done" ? "done" : c.st || "none");
@@ -178,7 +193,8 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     (skip === "g" || !fStage.length || fStage.includes(c.stage + ":" + c.sub)) &&
     (skip === "b" || !fBand.length || (c.st === "done" && !!c.band && fBand.includes(c.band))) &&
     (skip === "s" || !fSrc.length || fSrc.includes(c.source)) &&
-    (skip === "k" || !fScore.length || fScore.includes(scoreKey(c)));
+    (skip === "k" || !fScore.length || fScore.includes(scoreKey(c))) &&
+    (skip === "i" || !fIv.length || fIv.includes(ivKey(c)));
   const base = cands;
   const mineCount = nextOf ? base.filter((c) => pass(c) && isMine(c)).length : 0;
   const needle = search.trim().toLowerCase();
@@ -197,10 +213,11 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     ...fBand.map((k) => ["b", k, optLabel(BAND_OPTS, k)] as [string, string, string]),
     ...fSrc.map((k) => ["s", k, k] as [string, string, string]),
     ...fScore.map((k) => ["k", k, optLabel(SCORE_OPTS, k)] as [string, string, string]),
+    ...fIv.map((k) => ["i", k, optLabel(IV_OPTS, k)] as [string, string, string]),
   ];
-  const setters: Record<string, React.Dispatch<React.SetStateAction<string[]>>> = { g: setFStage, b: setFBand, s: setFSrc, k: setFScore };
+  const setters: Record<string, React.Dispatch<React.SetStateAction<string[]>>> = { g: setFStage, b: setFBand, s: setFSrc, k: setFScore, i: setFIv };
   const drop = (t: string, k: string) => setters[t]((v) => v.filter((x) => (t === "g" && !k.includes(":") ? !x.startsWith(k + ":") : x !== k)));
-  const clearAll = () => { setFStage([]); setFBand([]); setFSrc([]); setFScore([]); };
+  const clearAll = () => { setFStage([]); setFBand([]); setFSrc([]); setFScore([]); setFIv([]); };
   const rescore = (c: Candidate) => () => h.onAttention({ id: "a5", cand: c.id }, "Rescore");
   const cols: Column<Candidate>[] = [
     {
@@ -214,14 +231,13 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     { key: "stage", label: "Stage", render: (c) => <StageChip stage={c.stage} sub={c.sub} stages={S} /> },
     { key: "match", label: "Match", render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
-    ...(user.salary ? [{ key: "salary", label: "Expected salary", align: "right", render: (c) => <span className="sh-num">{c.salary}</span> } as Column<Candidate>] : []),
+    { key: "scheduled", label: "Scheduled", render: (c) => (c.nextInterviewAt ? <IvBadge c={c} /> : <span className="shx-small">—</span>) },
     { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
     ...(user.key !== "iv" ? [{ key: "act", label: "", sticky: "right", align: "right", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
   ];
   const canRemove = sel.length > 0 && S.length > 0 && sel.every((id) => cands.find((c) => c.id === id)?.stage === S[0].id);
   const scoring = cands.filter((c) => c.st === "scoring").length;
   const listLabel = active.length ? "Filtered list" : "All candidates";
-  const hiddenCol = !user.salary && user.key !== "iv";
   const closeMenu = <A extends unknown[]>(f: (...a: A) => void) => (...a: A) => { setMenuFor(null); f(...a); };
 
   return (
@@ -240,6 +256,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
           </Button>
         )}
         <FilterSelect label="Source" options={sources} value={fSrc} onChange={setFSrc} count={(k) => base.filter((c) => pass(c, "s") && c.source === k).length} />
+        <FilterSelect label="Interview" options={IV_OPTS} value={fIv} onChange={setFIv} count={(k) => base.filter((c) => pass(c, "i") && ivKey(c) === k).length} />
         {user.key !== "iv" && rows.length > 0 && (
           <>
             <span className="ad-sp" />
@@ -258,7 +275,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
           <span className="shx-small">{rows.length} of {base.length} shown ·</span>
           {active.map(([t, k, l]) => (
             <span key={t + k} className="jb-achip">
-              {({ g: "Stage", b: "Match", s: "Source", k: "Scoring" } as Record<string, string>)[t]}: {l}
+              {({ g: "Stage", b: "Match", s: "Source", k: "Scoring", i: "Interview" } as Record<string, string>)[t]}: {l}
               <button type="button" aria-label={"Remove filter " + l} onClick={() => drop(t, k)}><Icon name="x" size={12} /></button>
             </span>
           ))}
@@ -268,7 +285,6 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
       <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: "var(--muted)", flexWrap: "wrap" }}>
         <span>Sorted by match score, highest first · match is one signal, not a ranking</span>
         {scoring > 0 && <FileStatus status="processing" label={scoring + " still scoring"} />}
-        {hiddenCol && <RestrictedValue inline label="Expected salary column hidden" reason="Only HR, Admin and the position's Chapter Head can see salary." />}
         {user.key === "iv" && <span>Showing the {cands.length} candidates you are scheduled to interview</span>}
       </div>
       {rows.length === 0 && active.length > 0 ? (
@@ -289,7 +305,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
             const card = (c: Candidate) => (
               <div key={c.id} style={{ position: "relative" }}>
                 <KanbanCard
-                  name={c.name} headline={c.headline} band={c.band} status={c.st} days={c.days} notes={c.notes} hired={c.stage === "hired"}
+                  name={c.name} headline={c.headline} band={c.band} status={c.st} days={c.days} notes={c.notes} hired={c.stage === "hired"} interview={c.nextInterviewAt ? <IvBadge c={c} /> : undefined}
                   hideScore={user.hideScore && !c.ivDone} lifted={menuFor === c.id} onClick={() => open(c.id, list.map((r) => r.id), st.label)}
                   onMove={user.key === "iv" ? undefined : () => setMenuFor(menuFor === c.id ? null : c.id)}
                 />
@@ -525,7 +541,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     const viewerIsIv = !!user.id && r.seats.some((x) => x.id === user.id && !x.declinedAt);
     return { viewerIsIv, d: `${ddmm(at.toISOString())} ${hm}`, past: at.getTime() <= Date.now(), noShow: r.status === "NoShow", done: r.status === "Completed" };
   })();
-  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, viewerIsIv: !!latestSched?.viewerIsIv, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
+  const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, viewerIsIv: !!latestSched?.viewerIsIv, viewerIsMentor: !!user.id && c.mentorId === user.id, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
   // A started, still-active session can be marked as no-show (BR-INT-09).
   const canNoShow = (r: CandidateSchedule) => (r.status === "Scheduled" || r.status === "Confirmed") && new Date(String(r.scheduled_at)).getTime() <= Date.now()
     && (r.canEdit || (user.key === "iv" && r.seats.length > 0));

@@ -1,0 +1,66 @@
+/* SmartHire color tokens — Guideline v1.3. Light theme only. */
+:root{
+/* Brand green scale (700/800/900 are brand anchors) */
+--z8-green-50:#EEF7F1;--z8-green-100:#D6EDDE;--z8-green-200:#ADDABD;--z8-green-300:#7BC198;--z8-green-400:#43A06C;--z8-green-500:#1E804D;--z8-green-600:#11703F;--z8-green-700:#075F32;--z8-green-800:#00552A;--z8-green-900:#00451F;--z8-green-950:#002812;
+/* Brand gold scale — FILL ONLY behind #142F21 text. 700 is the only gold text color. */
+--z8-gold-50:#FEF7EA;--z8-gold-100:#FDEBC8;--z8-gold-200:#FAD68E;--z8-gold-300:#F8BD54;--z8-gold-400:#F3B44A;--z8-gold-500:#EEAA39;--z8-gold-600:#B07A12;--z8-gold-700:#8A5A00;--z8-gold-800:#6B4600;--z8-gold-900:#4F3400;--z8-gold-950:#2E1E00;
+/* Neutral (green-tinted) */
+--neutral-0:#FFFFFF;--neutral-50:#F6F8F7;--neutral-100:#EDF1EF;--neutral-200:#DDE3E0;--neutral-300:#C3CCC7;--neutral-400:#7C8A82;--neutral-500:#5B6B62;--neutral-600:#45534B;--neutral-700:#33403A;--neutral-800:#22302A;--neutral-900:#142F21;--neutral-950:#0E1813;
+/* Semantic hues — de-conflicted from brand */
+--teal-600:#0E7C66;--teal-50:#E6F4F1;
+--orange-700:#C2410C;--orange-50:#FFF1E8;
+--red-700:#B91C1C;--red-50:#FDECEC;
+--blue-700:#1D4ED8;--blue-50:#EAF0FD;
+--violet-700:#6D28D9;--violet-50:#F3EEFD;
+
+/* ---- Semantic aliases ---- */
+--background:var(--neutral-0);
+--foreground:var(--neutral-900);
+--surface:var(--neutral-0);
+--surface-subtle:var(--neutral-50);
+--surface-skeleton:var(--neutral-100);
+--surface-hover:var(--neutral-100);
+--surface-selected:var(--z8-green-50);
+--border:var(--neutral-200);
+--border-field:var(--neutral-400);
+--border-strong:var(--neutral-300);
+--muted:var(--neutral-500);
+--fg-1:var(--neutral-900);
+--fg-2:var(--neutral-600);
+--fg-3:var(--neutral-500);
+--heading:var(--z8-green-900);
+
+--accent:var(--z8-green-700);
+--accent-hover:var(--z8-green-800);
+--accent-pressed:var(--z8-green-900);
+--accent-foreground:#FFFFFF;
+--accent-soft:var(--z8-green-100);
+--link:var(--z8-green-700);
+--focus-ring:var(--z8-green-700);
+
+--highlight:var(--z8-gold-400);
+--highlight-soft:var(--z8-gold-50);
+--highlight-foreground:var(--neutral-900);
+--gold-text:var(--z8-gold-700);
+
+--success:var(--teal-600);--success-soft:var(--teal-50);--success-foreground:#FFFFFF;
+--warning:var(--orange-700);--warning-soft:var(--orange-50);--warning-foreground:#FFFFFF;
+--danger:var(--red-700);--danger-soft:var(--red-50);--danger-foreground:#FFFFFF;
+--info:var(--blue-700);--info-soft:var(--blue-50);--info-foreground:#FFFFFF;
+--ai:var(--violet-700);--ai-soft:var(--violet-50);--ai-foreground:#FFFFFF;
+
+/* Navigation (light sidebar, v1.3) */
+--nav-bg:var(--surface-subtle);
+--nav-hover:var(--neutral-100);
+--nav-active-bg:var(--z8-green-100);
+--nav-active-fg:var(--z8-green-700);
+
+/* Match score bands (sequential single hue — never red) */
+--match-strong:var(--z8-green-700);
+--match-good:var(--z8-green-500);
+--match-partial:var(--z8-green-300);
+--match-limited:var(--z8-green-100);
+
+/* Categorical chart palette (max 6) */
+--chart-1:var(--z8-green-700);--chart-2:var(--z8-gold-400);--chart-3:var(--blue-700);--chart-4:var(--teal-600);--chart-5:var(--orange-700);--chart-6:var(--neutral-500);
+}

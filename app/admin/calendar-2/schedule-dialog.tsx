@@ -8,7 +8,7 @@
  */
 import React from "react";
 import {
-  Banner, Button, Checkbox, Dialog, Icon, Input, Select,
+  Banner, Button, Checkbox, Dialog, Icon, Input,
 } from "@/app/admin/position-management-2/ext";
 import { fetchCalendar, saveSchedule, searchPeople } from "@/app/admin/calendar-2/api";
 import {
@@ -16,6 +16,8 @@ import {
   timeRange, todayInTz, weekStart,
   type CalendarFeed, type Issue, type PersonResult, type Session, type SessionMode,
 } from "@/app/admin/calendar-2/data";
+import { ComboField } from "@/app/admin/calendar-2/combo-field";
+import { DURATION_MAX, DURATION_MIN, parseClock, parseDuration } from "@/lib/calendar/time";
 import "@/app/admin/calendar-2/cal.css";
 
 const STEP = 15;
@@ -55,6 +57,8 @@ export function ScheduleDialog({
   const [date, setDate] = React.useState(existing?.date ?? today);
   const [startMin, setStartMin] = React.useState(existing?.startMin ?? 10 * 60);
   const [len, setLen] = React.useState(existing?.durationMin ?? 60);
+  const [startOk, setStartOk] = React.useState(true);
+  const [lenOk, setLenOk] = React.useState(true);
   const [mode, setMode] = React.useState<SessionMode>(existing?.mode ?? "online");
   const [location, setLocation] = React.useState(existing?.location ?? "");
   const [link, setLink] = React.useState(existing?.meetingLink ?? "");
@@ -110,17 +114,19 @@ export function ScheduleDialog({
     || link !== (existing.meetingLink ?? "") || note !== (existing.note ?? "");
   const missingIv = !existing && !ivIds.length;
   const missingLocation = mode === "office" && !location.trim();
-  const blocked = !valid || !ctx || missingIv || missingLocation || (!timeChanged && !detailChanged) || (needReason && !r) || (timeChanged && hasBlocking(issues, ack));
+  const blocked = !valid || !startOk || !lenOk || !ctx || missingIv || missingLocation || (!timeChanged && !detailChanged) || (needReason && !r) || (timeChanged && hasBlocking(issues, ack));
 
   const pick = (d: string, s: number) => { setServer(null); setAck(false); setDate(d); setStartMin(s); };
   const starts = React.useMemo(() => {
     const xs = new Set<number>();
     for (let m = 6 * 60; m <= 22 * 60; m += STEP) xs.add(m);
-    xs.add(startMin);
-    return [...xs].sort((a, b) => a - b).map((m) => ({ value: String(m), label: fmtMin(m) }));
-  }, [startMin]);
-  const lengths = [...new Set([...LENGTHS, existing?.durationMin ?? 60, len])].sort((a, b) => a - b)
-    .map((m) => ({ value: String(m), label: `${m} min` }));
+    if (existing) xs.add(existing.startMin);
+    return [...xs].sort((a, b) => a - b).map((m) => ({ value: m, label: fmtMin(m) }));
+  }, [existing]);
+  const lengths = React.useMemo(
+    () => [...new Set([...LENGTHS, existing?.durationMin ?? 60])].sort((a, b) => a - b).map((m) => ({ value: m, label: `${m} min` })),
+    [existing],
+  );
 
   const save = () => {
     setBusy(true);
@@ -170,8 +176,12 @@ export function ScheduleDialog({
         <div className="sc-2">
           <Input label="Date" type="date" value={date} min={today} onChange={(e) => pick(e.target.value, startMin)} />
           <div className="sc-2">
-            <Select label="Start" value={String(startMin)} options={starts} onChange={(e) => pick(date, Number(e.target.value))} />
-            <Select label="Length" value={String(len)} options={lengths} onChange={(e) => { setServer(null); setLen(Number(e.target.value)); }} />
+            <ComboField label="Start" value={startMin} options={starts} parse={parseClock} format={fmtMin}
+              placeholder="HH:MM" invalidText="Use a time like 09:30 or 2pm"
+              onChange={(m) => pick(date, m)} onValidity={setStartOk} />
+            <ComboField label="Length" value={len} options={lengths} parse={parseDuration} format={(m) => `${m} min`}
+              placeholder="minutes" invalidText={`${DURATION_MIN}–${DURATION_MAX} min, e.g. 45 or 1h30`}
+              onChange={(m) => { setServer(null); setLen(m); }} onValidity={setLenOk} />
           </div>
         </div>
 

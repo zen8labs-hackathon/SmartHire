@@ -184,3 +184,6 @@
 .cd-opt:has(input:checked){border-color:var(--accent);background:var(--z8-green-50)}
 .cd-opt>input{margin-top:3px;accent-color:var(--accent)}
 .cd-opt>span{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.cl-cmenu{min-width:100%;max-height:220px}
+.cl-pmenu button.is-active{background:var(--surface-subtle)}
+.cl-cmenu button[aria-selected="true"]{font-weight:600}
