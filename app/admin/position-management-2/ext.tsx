@@ -282,7 +282,7 @@ const BANDS: Record<BandKey, string> = { strong: "Strong match", good: "Good mat
 export function MatchBand({ band = "good", score, compact }: { band?: BandKey; score?: number | null; compact?: boolean }) {
   return (
     <span className={"shx-band shx-band--" + band + (compact ? " shx-band--compact" : "")} title={"AI match: " + BANDS[band] + (score != null ? " (" + score + ")" : "")}>
-      {band === "review" && <Icon name="eye" size={12} />}{BANDS[band]}{!compact && score != null && band !== "review" && <small>{score}</small>}
+      {band === "review" && <Icon name="eye" size={12} />}{!compact && score != null && band !== "review" && <small>{score}</small>}
     </span>
   );
 }
