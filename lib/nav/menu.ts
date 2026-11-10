@@ -38,7 +38,7 @@ const ITEMS: Record<string, NavItem & { show: (v: NavViewer) => boolean }> = {
   positions2: { id: "positions2", label: "Position Management 2", href: "/admin/position-management-2", icon: "positions", ready: true, show: () => true },
   calendar2: { id: "calendar2", label: "Calendar", href: "/admin/calendar-2", icon: "calendar", ready: true, show: () => true },
   candidates: { id: "candidates", label: "Candidates", href: "/admin/candidates", icon: "candidates", ready: true, show: (v) => v.isHr },
-  candidates2: { id: "candidates2", label: "Candidates 2", href: "/admin/candidates-2", icon: "candidates", ready: true, show: (v) => v.isHr },
+  candidates2: { id: "candidates2", label: "Talent Pool", href: "/admin/candidates-2", icon: "candidates", ready: true, show: (v) => v.isHr },
   talent: { id: "talent", label: "Talent pool", href: "/admin/talent-pool", icon: "talent", ready: false, show: (v) => v.isHr },
   pipelines: { id: "pipelines", label: "Pipelines", href: "/admin/pipelines", icon: "pipelines", ready: true, show: (v) => v.isHr },
   pipelines2: { id: "pipelines2", label: "Pipelines 2", href: "/admin/pipelines-2", icon: "pipelines", ready: true, show: (v) => v.isHr },

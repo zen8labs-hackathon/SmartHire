@@ -37,6 +37,7 @@ export async function GET(request: Request) {
     tag: sp.get("tag")?.trim() || undefined,
     expMin: intParam(sp.get("expMin")),
     expMax: intParam(sp.get("expMax")),
+    starred: sp.get("starred") === "true" ? true : sp.get("starred") === "false" ? false : undefined,
     rehire: rehire && REHIRE.includes(rehire) ? rehire : undefined,
     apps: apps === "1" || apps === "2+" ? apps : undefined,
     sortBy: sortBy && CANDIDATES2_SORTS.includes(sortBy) ? sortBy : "updated",

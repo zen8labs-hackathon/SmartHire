@@ -162,20 +162,25 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
   const canEdit = user.key === "hr" || user.key === "ch";
   const isNew = !!job.fresh;
 
-  if (job.processing)
+  if (job.processing) {
     return (
-      <div className="jb-2col">
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}><h2 className="jb-h2">Job description</h2><JdProcessing job={job} /><JdSkeleton /></div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <h2 className="jb-h2">Scoring criteria</h2>
-          <div className="shx-list">{[1, 2, 3, 4].map((i) => <div key={i} className="shx-li"><span className="jb-skel" style={{ flex: 1, height: 12 }} /><span className="jb-skel" style={{ width: 120, height: 24 }} /></div>)}</div>
-          <span className="shx-small">Criteria appear when AI finishes reading the JD.</span>
+          <h2 className="jb-h2">Job description</h2>
+          <JdProcessing job={job} />
+          <JdSkeleton />
         </div>
+        <Group title="Scoring criteria" count="Processing…" open={false}>
+          <p className="shx-small">
+            Criteria appear when AI finishes reading the JD.
+          </p>
+        </Group>
       </div>
     );
+  }
 
   return (
-    <div className="jb-2col">
+     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {job.procError ? (
           <Banner tone="warning" icon="triangle-alert" title="JD extraction failed">{job.procError}</Banner>
@@ -187,20 +192,32 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
         <JdFields readOnly={!canEdit} ai={job.status === "Draft"} blank={job.blank} job={job} onDetail={onDetail} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <h2 className="jb-h2">Scoring criteria</h2><Badge tone="outline">{crit.length}</Badge><span style={{ flex: 1 }} />
-          {job.status === "Draft" && job.reviewRequested && <Badge tone="warning" icon="clock">Waiting for Chapter Head review</Badge>}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--muted)" }}>Rule checks use these criteria. Extracted from the JD by AI.</div>
-        <CriteriaEditor crit={crit} setCrit={setCrit} canEdit={canEdit} onSave={onSaveCriteria} onRescore={onRescore} />
-        {user.key === "ch" && (
-          <Card title="Comment for HR">
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <textarea className="jb-textarea" placeholder="e.g. GraphQL should be nice-to-have, not must-have" />
-              <div><Button size="sm">Send comment</Button></div>
-            </div>
-          </Card>
-        )}
+          <Group
+              title="Scoring criteria"
+              count={`${crit.length} criteria`}
+              open={false}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  paddingTop: 10,
+                }}
+              >
+                <div className="shx-small">
+                  Rule checks use these criteria. Extracted from the JD by AI.
+                </div>
+
+                <CriteriaEditor
+                  crit={crit}
+                  setCrit={setCrit}
+                  canEdit={canEdit}
+                  onSave={onSaveCriteria}
+                  onRescore={onRescore}
+                />
+              </div>
+            </Group>
       </div>
     </div>
   );

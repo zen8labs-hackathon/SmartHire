@@ -346,7 +346,7 @@ export function JdAppliedCandidatesPipeline({
       setPageSize(size);
       setPage(1);
     },
-    [setPage],
+    [setPage, setPageSize],
   );
 
   useEffect(() => {
@@ -355,14 +355,14 @@ export function JdAppliedCandidatesPipeline({
       return;
     }
     setPage(1);
-  }, [debouncedQuery, statusFilter, uploadDateRange, sortDescriptor]);
+  }, [debouncedQuery, statusFilter, uploadDateRange, sortDescriptor, setPage]);
 
   // Drop any selected stage/sub-stage that was removed by a JD pipeline edit
   // (stale composite id) instead of silently filtering on it.
   useEffect(() => {
     if (selectedFilterOptions.length === statusFilter.length) return;
     setStatusFilter(selectedFilterOptions.map((opt) => opt.id));
-  }, [statusFilter, selectedFilterOptions]);
+  }, [statusFilter, setStatusFilter, selectedFilterOptions]);
 
   const [statusCounts, setStatusCounts] = useState<StageCount[]>([]);
   const [totalCandidates, setTotalCandidates] = useState(0);

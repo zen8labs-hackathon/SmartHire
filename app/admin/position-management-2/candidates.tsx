@@ -232,7 +232,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     { key: "match", label: "Match", render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
     { key: "scheduled", label: "Scheduled", render: (c) => (c.nextInterviewAt ? <IvBadge c={c} /> : <span className="shx-small">—</span>) },
-    { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
+    // { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
     ...(user.key !== "iv" ? [{ key: "act", label: "", sticky: "right", align: "right", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
   ];
   const canRemove = sel.length > 0 && S.length > 0 && sel.every((id) => cands.find((c) => c.id === id)?.stage === S[0].id);
@@ -247,9 +247,9 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
         <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
-        {!user.hideScore && (
+        {/* {!user.hideScore && (
           <FilterSelect label="Match band" options={BAND_OPTS} value={fBand} onChange={setFBand} count={(k) => base.filter((c) => pass(c, "b") && c.st === "done" && c.band === k).length} render={(k) => <MatchBand band={k as BandKey} compact />} />
-        )}
+        )} */}
         {nextOf && (
           <Button size="sm" variant="secondary" icon="circle-arrow-right" aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={mineOnly ? "jb-fbtn--on" : ""}>
             Waiting on me<span className="shx-cnt" style={mineOnly ? ON : undefined}>{mineCount}</span>
@@ -260,15 +260,15 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         {user.key !== "iv" && rows.length > 0 && (
           <>
             <span className="ad-sp" />
-            <Button size="sm" variant="secondary" icon="list-checks" onClick={() => open(rows[0].id, rows.map((r) => r.id), listLabel, true)}>Review one by one · {rows.length}</Button>
+            {/* <Button size="sm" variant="secondary" icon="list-checks" onClick={() => open(rows[0].id, rows.map((r) => r.id), listLabel, true)}>Review one by one · {rows.length}</Button> */}
           </>
         )}
-        {!user.hideScore && (
+        {/* {!user.hideScore && (
           <FilterSelect
             label="Scoring" options={SCORE_OPTS} value={fScore} onChange={setFScore} count={(k) => base.filter((c) => pass(c, "k") && scoreKey(c) === k).length}
             render={(k, l) => (k === "done" ? <Badge tone="success" icon="check">{l}</Badge> : <MatchStatusInline status={k} />)}
           />
-        )}
+        )} */}
       </div>
       {active.length > 0 && (
         <div className="shx-row" style={{ flexWrap: "wrap", gap: 6 }}>

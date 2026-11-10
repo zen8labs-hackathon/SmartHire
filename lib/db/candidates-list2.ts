@@ -36,6 +36,7 @@ export type Candidates2Filters = {
   tab?: Candidates2Tab;
   role?: string;
   tag?: string;
+  starred?: boolean;
   expMin?: number;
   expMax?: number;
   rehire?: Candidates2Rehire;
@@ -75,6 +76,7 @@ export type Candidates2Row = {
   app_count: number;
   has_open: boolean;
   latest: Candidates2LatestApp;
+  is_starred: boolean;
 };
 
 export type Candidates2Result = {
@@ -122,7 +124,7 @@ export async function listCandidates2(
   else if (f.rehire) conds.push(`c.rehire_status = ${push(f.rehire)}`);
   if (f.apps === "1") conds.push("coalesce(a.app_count, 0) = 1");
   if (f.apps === "2+") conds.push("coalesce(a.app_count, 0) >= 2");
-
+  if (f.starred !== undefined) conds.push(`c.is_starred = ${push(f.starred)}`)
   const dir = f.sortDir === "asc" ? "ASC" : "DESC";
   const sortCol = SORT_SQL[f.sortBy ?? "updated"];
   const nulls = f.sortBy === "exp" ? " NULLS LAST" : "";
@@ -139,7 +141,7 @@ export async function listCandidates2(
   >(
     `WITH base AS (
        SELECT c.id, c.name, c.email, c.phone, c.degree, c.education, c.role,
-              c.experience_years, c.skills, c.tags, c.rehire_status,
+              c.experience_years, c.skills, c.tags, c.rehire_status, c.is_starred,
               c.created_at, c.updated_at,
               coalesce(a.app_count, 0)::int AS app_count,
               coalesce(a.has_open, false) AS has_open,

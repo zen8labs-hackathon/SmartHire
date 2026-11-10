@@ -96,6 +96,7 @@ export type Person = {
   created: string;
   updated: string;
   alumni?: string;
+  isStarred?: boolean;
   dupOf?: number;
   apps: CandApp[];
   /** Total applications; `apps` holds only the latest on the list page. */

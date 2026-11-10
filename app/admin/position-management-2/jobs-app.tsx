@@ -79,11 +79,11 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const candUuidMap = React.useRef(new Map<number, string>());
   // The open candidate lives in the URL: /admin/position-management-2/<position>/<candidate>.
   const drawer: number | null = candSeg ? candIdMap.current.get(candSeg) ?? null : null;
-  const setDrawer = (id: number | null, jobSeg: string = seg) => {
+  const setDrawer = React.useCallback((id: number | null, jobSeg: string = seg) => {
     const u = id != null ? candUuidMap.current.get(id) : undefined;
     const url = !jobSeg ? BASE : u ? `${BASE}/${jobSeg}/${u}` : `${BASE}/${jobSeg}`;
     if (drawer != null && id != null) router.replace(url); else router.push(url);
-  };
+  }, [BASE, drawer, router, seg]);
   const [stages, setStages] = React.useState<Stage[]>(STAGES);
   const [creating, setCreating] = React.useState(false);
   const [createErr, setCreateErr] = React.useState<string | null>(null);
@@ -96,10 +96,28 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     // Load the live position list and the viewer's chapter scope.
     const ac = new AbortController();
     void reload(ac.signal);
-    fetchChapters(ac.signal).then(setChInfo).catch((e) => { if (!ac.signal.aborted) console.error(e); });
-    fetchPipelineChoices(ac.signal).then(setPipelineChoices).catch((e) => { if (!ac.signal.aborted) console.error(e); });
+    fetchChapters(ac.signal)
+    .then(setChInfo)
+    .catch((e) => { if (!ac.signal.aborted) console.error(e); });
     return () => ac.abort();
   }, [reload]);
+
+  React.useEffect(() => {
+    if (!user.canCreate) {
+      setPipelineChoices([]);
+      return;
+    }
+
+    const ac = new AbortController();
+
+    fetchPipelineChoices(ac.signal)
+      .then(setPipelineChoices)
+      .catch((e) => {
+        if (!ac.signal.aborted) console.error(e);
+      });
+
+      return () => ac.abort();
+  }, [user.canCreate]);
 
   const anyProcessing = jobs.some((j) => j.processing);
   React.useEffect(() => {
@@ -113,7 +131,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     { const r = lsGet<Route>("jb-route", { page: "jobs" }); setRoute({ page: "jobs", tab: r.tab, upView: r.upView }); }
     const oc = lsGet<number | null>("jb-open-cand", null);
     if (oc != null) { setDrawer(oc); lsSet("jb-open-cand", null); }
-  }, []);
+  }, [setDrawer]);
 
   const route: Route = seg
     ? { ...routeState, page: "job", id: seg === "pool" ? "pool" : idFor(seg) }
@@ -478,7 +496,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
             ...(user.key === "hr" && (job.status === "Closed" || job.status === "On hold") ? [{ label: "Reopen position", icon: "rotate-ccw", disabled: lg, onClick: f(() => setDlg({ k: "reason", job, to: "reopen" })) }] : []),
             ...(canHc ? [{ label: "Edit headcount", icon: "users", onClick: f(() => setDlg({ k: "hc" })) }] : []),
             "-" as const,
-            { label: "Description & criteria", icon: "file-text", onClick: f(() => setDlg({ k: "jd" })) },
+            { label: "Information", icon: "file-text", onClick: f(() => setDlg({ k: "jd" })) },
             { label: "View JD file", icon: "file-text", onClick: f(() => setDlg({ k: "jdfile" })) },
             { label: "Pipeline", icon: "route", onClick: f(() => setDlg({ k: "pipeline" })) },
             ...(user.key !== "rc" ? [{ label: "Access", icon: "shield", onClick: f(() => setDlg({ k: "access" })) }] : []),

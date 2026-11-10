@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     ]);
     return Response.json({ queued: 1 });
   } catch (e) {
-    logApiError("Candidates 2 rescore: enqueue failed", e, { applicationId });
+    logApiError("Talent Pool rescore: enqueue failed", e, { applicationId });
     return Response.json({ error: "Failed to enqueue rescoring." }, { status: 500 });
   }
 }

@@ -14,6 +14,7 @@ export type CandidateListQuery = {
   tab?: "all" | "applying";
   role?: string;
   tag?: string;
+  starred?: boolean;
   expMin?: number;
   expMax?: number;
   rehire?: "eligible" | "ask" | "not_eligible" | "unset";
@@ -31,6 +32,7 @@ export type CandidateApiRow = {
   email: string | null;
   phone: string | null;
   degree: string | null;
+  is_starred: boolean;
   education: string | null;
   role: string | null;
   experience_years: string | null;
@@ -116,6 +118,7 @@ export function candidateToPerson(c: CandidateApiRow, id: number): Person {
     english: "",
     dob: "",
     company: "",
+    isStarred: c.is_starred ?? false,
     source: "",
     created: ddmmyyyy(c.created_at),
     updated: ddmmyyyy(c.updated_at),
@@ -466,4 +469,18 @@ export async function endApplication(uuid: string, id: number, v: { applicationI
   });
   if (!res.ok) throw new Error(await readError(res, "Could not save reason."));
   return candidateDetailToPerson((await res.json()) as CandidateDetailResponse, id);
+}
+
+export async function setCandidateStar(uuid: string, starred: boolean,): Promise<boolean> {
+    const res = await fetch(`/api/admin/candidates-2/${uuid}/star`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ starred }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Could not set star."));
+
+    const result = await res.json() as { starred: boolean };
+    return result.starred;
 }

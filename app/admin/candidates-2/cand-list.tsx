@@ -1,10 +1,11 @@
- 
+
 "use client";
 
 import * as React from "react";
 import { Badge, Banner, Button, IdentityTag, Icon, Input, Select, Table, Tabs } from "../position-management-2/ext";
 import { remindDue, retainDays, type CandApp, type Persona, type Person } from "./data";
-import { fetchCandidates, type CandidateListQuery, type LoadedCandidates } from "./api";
+import { fetchCandidates, setCandidateStar, type CandidateListQuery, type LoadedCandidates } from "./api";
+import { Star } from "lucide-react";
 
 export function ResultBadge({ a }: { a: CandApp }) {
   if (a.result === "official") return <IdentityTag kind="official" />;
@@ -67,6 +68,8 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
   const [rhf, setRhf] = React.useState("Any rehire status");
   const [q, setQ] = React.useState("");
   const [dq, setDq] = React.useState("");
+  const [starredOnly, setStarredOnly] = React.useState(false);
+  const [savingStar, setSavingStar] = React.useState<string | null>(null);
   const [exp, setExp] = React.useState("Any experience");
   const [role, setRole] = React.useState("All roles");
   const [napp, setNapp] = React.useState("Any applications");
@@ -88,7 +91,7 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
   }, [q]);
 
   // Any filter change returns to the first page and drops the selection (row ids are page-relative).
-  React.useEffect(() => { setPage(0); setSel([]); }, [seg, dq, role, exp, napp, tag, rhf, sort]);
+  React.useEffect(() => { setPage(0); setSel([]); }, [seg, dq, role, exp, napp, tag, rhf, sort, starredOnly]);
 
   React.useEffect(() => {
     const ctl = new AbortController();
@@ -97,6 +100,7 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
       q: dq || undefined,
       tab: seg === "applying" ? "applying" : "all",
       role: role !== "All roles" ? role : undefined,
+      starred: starredOnly ? true : undefined,
       tag: tag !== "Any tag" ? tag : undefined,
       rehire: REHIRE_Q[rhf],
       apps: napp === "1 application" ? "1" : napp === "2+ applications" ? "2+" : undefined,
@@ -107,7 +111,7 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
       .then((r) => { setData(r); setSel([]); onLoadedRef.current(r); setLoading(false); })
       .catch((e) => { if (ctl.signal.aborted) return; setError(e instanceof Error ? e.message : "Could not load candidates."); setLoading(false); });
     return () => ctl.abort();
-  }, [seg, dq, role, exp, napp, tag, rhf, sort, page, retry]);
+  }, [seg, dq, role, exp, napp, tag, rhf, sort, page, retry, starredOnly]);
 
   const rows = data?.people ?? [];
   const total = data?.total ?? 0;
@@ -118,21 +122,102 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
     { id: "applying", label: "Applying", count: data?.counts.applying },
   ];
   const canAct = u.key !== "iv";
-  const filtered = !!dq || role !== "All roles" || exp !== "Any experience" || napp !== "Any applications" || tag !== "Any tag" || rhf !== "Any rehire status" || seg !== "all";
+  const filtered =
+    starredOnly ||
+    !!dq ||
+    role !== "All roles" ||
+    exp !== "Any experience" ||
+    napp !== "Any applications" ||
+    tag !== "Any tag" ||
+    rhf !== "Any rehire status" ||
+    seg !== "all";
+  const toggleStar = async (p: Person) => {
+    const uuid = data?.uuidById.get(p.id);
+
+    if (!uuid || savingStar !== null) return;
+
+    setSavingStar(uuid);
+    setError(null);
+
+    try {
+      const starred = await setCandidateStar(uuid, !p.isStarred);
+
+      setData((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          people: current.people.map((person) => current.uuidById.get(person.id) === uuid ? { ...person, isStarred: starred } : person),
+        };
+      });
+      if (starredOnly) { setRetry((value) => value + 1);}
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not save star for candidate."
+      );
+    } finally {
+      setSavingStar(null);
+    }
+  }
 
   const cols: any[] = [
+    {
+      key: "star",
+      label: "Star",
+      align: "center",
+      render: (p: Person) => {
+        const label = p.isStarred
+          ? `Unstar ${p.name}`
+          : `Star ${p.name}`;
+
+        return (
+          <button
+            type="button"
+            aria-label={label}
+            aria-pressed={!!p.isStarred}
+            title={label}
+            disabled={savingStar !== null}
+            onClick={(e) => {
+              e.stopPropagation();
+              void toggleStar(p);
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 32,
+              height: 32,
+              padding: 0,
+              border: 0,
+              borderRadius: 6,
+              background: "transparent",
+              color: p.isStarred ? "#B7791F" : "var(--muted)",
+              cursor: savingStar !== null ? "wait" : "pointer",
+              opacity: savingStar !== null ? 0.6 : 1,
+            }}
+          >
+            <Star
+              size={18}
+              fill={p.isStarred ? "currentColor" : "none"}
+              aria-hidden="true"
+            />
+          </button>
+        );
+      },
+    },
     { key: "name", label: "Candidate", render: (p: Person) => (
       <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 200 }}>
         <span className="shx-row" style={{ gap: 6, flexWrap: "wrap" }}><span style={{ fontWeight: 600, color: "var(--foreground)" }}>{p.name}</span>{personTags(p, user)}</span>
         <span className="shx-small">{p.email} · <span className="sh-num">{p.phone}</span></span>
       </div>) },
     { key: "role", label: "Role", render: (p: Person) => <span>{p.role}</span> },
+
     { key: "skills", label: "Skills", render: (p: Person) => (
       <span className="jb-chips" style={{ maxWidth: 240 }}>
         {p.skills.slice(0, 3).map((s) => <Badge key={s} tone="outline">{s}</Badge>)}
         {p.skills.length > 3 && <span className="shx-small" style={{ alignSelf: "center" }}>+{p.skills.length - 3}</span>}
       </span>) },
-    { key: "apps", label: "Applications", align: "right", render: (p: Person) => <span className="sh-num">{p.appCount ?? p.apps.length}</span> },
+    { key: "apps", label: "Applications", align: "center", render: (p: Person) => <span className="sh-num">{p.appCount ?? p.apps.length}</span> },
     { key: "latest", label: "Latest application", render: (p: Person) => {
       const a = p.apps[0];
       if (!a) return <span className="shx-small">No applications yet</span>;
@@ -144,7 +229,8 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
           </span>
         </div>);
     } },
-    { key: "updated", label: "Updated", render: (p: Person) => <span className="sh-num" style={{ color: "var(--fg-2)" }}>{p.updated}</span> },
+
+  //   { key: "updated", label: "Updated", render: (p: Person) => <span className="sh-num" style={{ color: "var(--fg-2)" }}>{p.updated}</span> },
   ];
 
   const from = total ? page * PAGE + 1 : 0;
@@ -158,10 +244,11 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
         <Select size="sm" value={role} onChange={(e: any) => setRole(e.target.value)} options={roles} style={{ width: 200 }} />
         <Select size="sm" value={exp} onChange={(e: any) => setExp(e.target.value)} options={["Any experience", "0–2 years", "3–5 years", "6+ years"]} style={{ width: 160 }} />
         <Select size="sm" value={napp} onChange={(e: any) => setNapp(e.target.value)} options={["Any applications", "1 application", "2+ applications"]} style={{ width: 170 }} />
-        <Select size="sm" value={tag} onChange={(e: any) => setTag(e.target.value)} options={["Any tag", ...allTags]} style={{ width: 170 }} />
+        {/* <Select size="sm" value={tag} onChange={(e: any) => setTag(e.target.value)} options={["Any tag", ...allTags]} style={{ width: 170 }} /> */}
         <Select size="sm" value={rhf} onChange={(e: any) => setRhf(e.target.value)} options={["Any rehire status", "Eligible", "Ask HR first", "Not eligible", "Not set"]} style={{ width: 180 }} />
         <span style={{ flex: 1 }} />
         <Select size="sm" value={sort} onChange={(e: any) => setSort(e.target.value)} options={Object.keys(SORTS)} style={{ width: 160 }} />
+        <Select size="sm" value={starredOnly ? "Starred only" : "All candidates"} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { setStarredOnly(e.target.value === "Starred only");}}options={["All candidates", "Starred only"]}style={{ width: 160 }}/>
       </div>
       {u.admin && <Banner tone="warning" icon="shield" title="Admin access">You can see every candidate regardless of position access. Each profile you open is recorded in the audit log.</Banner>}
       {error && (
@@ -179,7 +266,7 @@ export function CandidatesList({ user, open, onLoaded, onAdd, onExport, onBulk, 
         <div className="jb-empty">
           <Icon name="search-x" size={20} /><b>{filtered ? "No candidates match" + (dq ? " “" + dq + "”" : " these filters") : "No candidates yet"}</b>
           {filtered && <span className="shx-small">Search covers name, email, phone, role, skills and tags, and ignores diacritics. Try fewer words or clear filters.</span>}
-          {filtered && <Button size="sm" variant="secondary" onClick={() => { setQ(""); setExp("Any experience"); setRole("All roles"); setNapp("Any applications"); setTag("Any tag"); setRhf("Any rehire status"); setSeg("all"); }}>Clear filters</Button>}
+          {filtered && <Button size="sm" variant="secondary" onClick={() => { setQ(""); setExp("Any experience"); setRole("All roles"); setNapp("Any applications"); setTag("Any tag"); setRhf("Any rehire status"); setStarredOnly(false);setSeg("all"); }}>Clear filters</Button>}
         </div>
       ) : null}
       {total > 0 && (

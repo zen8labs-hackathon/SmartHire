@@ -53,7 +53,7 @@ function RowMenu({ j, user, go, onClose, onHold, onReopen }: { j: Job; user: Rol
   };
   const items: MenuItem[] = [
     { label: "Open position", icon: "arrow-up-right", onClick: f(() => go(j.id)) },
-    { label: "Description & criteria", icon: "file-text", onClick: f(() => go(j.id, "jd")) },
+    { label: "Information", icon: "file-text", onClick: f(() => go(j.id, "jd")) },
   ];
   if (user.key !== "rc") items.push({ label: "Access", icon: "shield", onClick: f(() => go(j.id, "access")) });
   if (user.key === "hr") {
@@ -120,8 +120,8 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
     { key: "status", label: "Status", render: (j) => { const [t, i] = ST_TONE[j.status]; return <Badge tone={t} icon={i}>{j.status}</Badge>; } },
     { key: "hc", label: "Headcount", render: (j) => <Headcount j={j} /> },
     { key: "deadline", label: "Hiring deadline", render: (j) => <Deadline j={j} /> },
-    { key: "candidates", label: "Candidates", align: "right", render: (j) => <span className="sh-num">{j.candidates}</span> },
-    { key: "owner", label: "Owner", render: (j) => <Avatar name={j.owner} size={24} /> },
+    { key: "candidates", label: "Candidates", align: "center", render: (j) => <span className="sh-num">{j.candidates}</span> },
+    { key: "owner", label: "Owner", align: "center", render: (j) => <Avatar name={j.owner} size={24} /> },
     { key: "m", label: "", width: 44, render: (j) => <RowMenu j={j} user={user} go={go} onClose={onCloseJob} onHold={onHold} onReopen={onReopen} /> },
   ];
 
