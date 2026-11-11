@@ -687,3 +687,24 @@ export async function extendProbation(caId: string, newEndDate: string, reason: 
   const res = await fetch(`/api/admin/candidates/${caId}/probation-extend`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ new_end_date: newEndDate, reason }) });
   if (!res.ok) throw new Error(await readError(res, "Could not extend the probation."));
 }
+
+export async function fetchPositionReportPdf(
+  uuid: string,
+): Promise<Blob> {
+  const res = await fetch(
+    `/api/admin/positions/${uuid}/report`,
+    { cache: "no-store" },
+  );
+
+  if (!res.ok) {
+    throw new Error(
+      await readError(res, "Could not export position report."),
+    );
+  }
+
+  if (!res.headers.get("content-type")?.includes("application/pdf")) {
+    throw new Error("The server did not return a PDF report.");
+  }
+
+  return res.blob();
+}

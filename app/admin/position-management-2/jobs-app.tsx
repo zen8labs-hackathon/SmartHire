@@ -7,7 +7,7 @@ import { Badge, Banner, Button, Dialog, EntityTabs, Icon, Menu, ShareEvaluationD
 import { MigrateWizard } from "./migrate-wizard";
 import { Pop, Shell, Toast, type ToastMsg } from "./shell";
 import { JobsList, ST_TONE, visibleJobs } from "./list";
-import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchSchedules, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind } from "./api";
+import { createPosition, fetchChapters, fetchPipelineChoices, type PipelineChoice, changeUploadStatus, fetchPositionCandidates, fetchPositionDescription, fetchUploadHistory, retryUploads, fetchPositions, fetchSchedules, toCandidate, toStages, positionToJob, reprocessPosition, rescoreCandidate, rescorePosition, saveCriteria, transitionPosition, updatePosition, updateCandidateStage, setOfferAccepted, fetchPositionMembers, changeMentor, extendProbation, undoReject, removeCandidate, TransitionBlockedError, type ChapterInfo, type PositionTransitionKind, fetchPositionReportPdf } from "./api";
 import { CandidatesTab, CandidateDrawer, type CandHandlers, type CandPreset } from "./candidates";
 import { OverviewTab, UploadsTab } from "./overview";
 // eslint-disable-next-line no-restricted-imports -- TODO(S9): move into the -2 tree before the legacy UI is deleted
@@ -41,6 +41,7 @@ function roleFromInfo(info: ChapterInfo | null): Role {
 
 export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [chInfo, setChInfo] = React.useState<ChapterInfo | null>(null);
+  const [exportingReport, setExportingReport] = React.useState(false);
   const [pipelineChoices, setPipelineChoices] = React.useState<PipelineChoice[]>([]);
   const user = React.useMemo(() => roleFromInfo(chInfo), [chInfo]);
   const router = useRouter();
@@ -293,7 +294,37 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   };
 
   const fail = (title: string, e: unknown) => say(title, e instanceof Error ? e.message : undefined, undefined, "triangle-alert");
+  const handleExportReport = async () => {
+    if (!job || isPool || exportingReport) return;
 
+    const uuid = uuidMap.current.get(job.id);
+    if (!uuid) return;
+
+    setExportingReport(true);
+
+    try {
+      const blob = await fetchPositionReportPdf(uuid);
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `position-${uuid}-report.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 60_000);
+
+      say("Report ready", "The PDF download has started.");
+    } catch (error) {
+      fail("Could not export report", error);
+    } finally {
+      setExportingReport(false);
+    }
+  };
   /** Runs a status transition on the server, then refreshes the list. Returns true on success. */
   const transition = async (j: Job, to: PositionTransitionKind, opts: { notifyInterviewers?: boolean; reason?: string } = {}): Promise<boolean> => {
     const uuid = uuidMap.current.get(j.id);
@@ -505,6 +536,17 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     </>;
     actions = <>
       {user.key !== "iv" && <Button variant="secondary" icon="upload" disabled={lg} title={lg ? LEGACY_TIP : undefined} onClick={() => setDlg({ k: "upload", dest: isPool ? "pool" : job.id })}>Upload CVs</Button>}
+      {!isPool && user.key !== "iv" && (
+        <Button
+          variant="secondary"
+          icon="download"
+          disabled={exportingReport}
+          aria-busy={exportingReport}
+          onClick={() => void handleExportReport()}
+        >
+          {exportingReport ? "Exporting…" : "Export report"}
+        </Button>
+      )}
       {!isPool && user.key !== "iv" && <span style={{ position: "relative" }}>
         <Button variant="secondary" icon="settings" iconRight="chevron-down" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</Button>
         <Pop open={settingsOpen} onClose={() => setSettingsOpen(false)} top={40} width={220}>
