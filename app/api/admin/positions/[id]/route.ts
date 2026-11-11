@@ -44,7 +44,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-
+  if (
+    Object.prototype.hasOwnProperty.call(body, "recruiterNotes") && !auth.access.isHr
+  ) {
+    return Response.json(
+      { error: "Only HR or Admin can edit recruiting notes" },
+      { status: 403 });
+  }
   // A deadline-only edit doesn't touch the hiring flow, so legacy positions allow it.
   const deadlineOnly = Object.keys(body).every((k) => k === "deadline");
   if (!deadlineOnly) {
@@ -114,6 +120,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     benefits: "whatWeOffer",
     languages: "languageRequirements",
     project: "projectInfo",
+    recruiterNotes: "recruiterNotes",
     teamSize: "teamSize",
     salaryRange: "salaryRange",
   } as const satisfies Record<keyof typeof POSITION_DETAIL_COLUMNS, keyof UpdateJobInput>;

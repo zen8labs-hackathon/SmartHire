@@ -41,6 +41,7 @@ export type CandidatesListQuery = {
    */
   stageFilters?: PipelineStageFilter[];
   uploadFrom?: string;
+  currentOnly?: boolean;
   uploadTo?: string;
   q?: string;
   /** Exact match on the active CV version's `parsing_status`. */
@@ -143,6 +144,16 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
     ? (parsingStatusRaw as CandidatesListParsingStatus)
     : undefined;
 
+  const currentOnlyRaw = searchParams.get("currentOnly");
+
+  if (currentOnlyRaw !== null && !["true", "false", "1", "0"].includes(currentOnlyRaw)) {
+    return {
+      query: {},
+      error: "Invalid currentOnly param",
+    };
+  }
+
+  const currentOnly = currentOnlyRaw === null ? undefined : currentOnlyRaw === "true" || currentOnlyRaw === "1";
   return {
     query: {
       jobId,
@@ -151,6 +162,7 @@ export function parseCandidatesListQuery(searchParams: URLSearchParams): {
       uploadTo: parseDateParam(searchParams.get("uploadTo")),
       q: searchParams.get("q")?.trim() || undefined,
       parsingStatus,
+      currentOnly,
       limit,
       offset,
       all: all || limit == null,
@@ -166,6 +178,7 @@ export function buildCandidatesListSearchParams(
 ): URLSearchParams {
   const params = new URLSearchParams();
   if (query.jobId) params.set("jobId", query.jobId);
+  if (query.currentOnly !== undefined) params.set("currentOnly", String(query.currentOnly));
   for (const f of query.stageFilters ?? []) {
     params.append(
       "stage",
@@ -215,6 +228,7 @@ export async function queryCandidatesList(
       stageFilters: input.stageFilters,
       q: input.q,
       uploadFrom: input.uploadFrom,
+      currentOnly: input.currentOnly,
       uploadTo: input.uploadTo,
       sortBy: input.sortBy,
       sortDir: input.sortDir,

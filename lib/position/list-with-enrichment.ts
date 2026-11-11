@@ -1,6 +1,10 @@
+import {
+  getCurrentStageSummaries,
+  type CurrentStageSummary,
+} from "@/lib/position/current-stage-summary";
+
 import { jobAclVisibleSql } from "@/lib/authz/job-access";
 import {
-  countActiveApplicationsByJobIds,
   countAttentionByJobIds,
   countHiredByJobIds,
   countPoolSummary,
@@ -91,6 +95,7 @@ export type PositionListRow = {
   deadline: string | null;
   daysLeft: number | null;
   candidates: number;
+  currentSummary: CurrentStageSummary;
   attention: number;
   owner: PositionOwner | null;
   updated: string;
@@ -243,8 +248,9 @@ export async function queryPositionsWithEnrichment(
   const ownerIds = [
     ...new Set(jobs.map((j) => j.created_by).filter((v): v is string => !!v)),
   ];
-  const [candidates, hired, attention, chapters, owners] = await Promise.all([
-    countActiveApplicationsByJobIds(db, jobIds),
+
+  const [currentSummaries, hired, attention, chapters, owners] = await Promise.all([
+    getCurrentStageSummaries(db, jobIds),
     countHiredByJobIds(db, jobIds),
     countAttentionByJobIds(db, jobIds),
     listAllowedChaptersForJobs(db, jobIds),
@@ -256,6 +262,9 @@ export async function queryPositionsWithEnrichment(
     const deadline = dbDateToIso(job.hiring_deadline);
     const owner = job.created_by ? ownerById.get(job.created_by) : undefined;
     const jd = deriveJdState(job);
+    const currentSummary = currentSummaries.get(job.id);
+
+    if (!currentSummary) throw new Error(`Missing current summary for position`)
     return {
       id: job.id,
       shortId: job.id.slice(0, 8),
@@ -268,7 +277,8 @@ export async function queryPositionsWithEnrichment(
       hired: hired.get(job.id) ?? 0,
       deadline,
       daysLeft: daysUntil(deadline),
-      candidates: candidates.get(job.id) ?? 0,
+      candidates: currentSummary.totalApplications,
+      currentSummary,
       attention:
         (attention.get(job.id) ?? 0) +
         (jd.state === "failed" ? 1 : 0),

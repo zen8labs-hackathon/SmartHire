@@ -17,6 +17,8 @@ import {
   CalendarOff, CalendarX, Info, MapPin, Video, ExternalLink, UserMinus, Timer,
   type LucideIcon,
 } from "lucide-react";
+import type { CurrentStageSummary } from "@/lib/position/current-stage-summary";
+import { StageSummary } from "./stage-summary";
 
 const ICONS: Record<string, LucideIcon> = {
   archive: Archive, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
@@ -534,7 +536,7 @@ export function HiddenScoreNotice({ submitted }: { submitted?: boolean }) {
 
 /* ───────────────────────── sh-ext-flow ───────────────────────── */
 
-type JobLike = { id: number; title: string; chapter: string; level: string; type: string; status: string; headcount: number; hired: number; deadline: string | null; daysLeft?: number; candidates: number; attention: number };
+type JobLike = { id: number; title: string; chapter: string; level: string; type: string; status: string; headcount: number; hired: number; deadline: string | null; daysLeft?: number; candidates: number; attention: number; currentSummary?: CurrentStageSummary };
 export function JobRow({ job: j, onOpen, onAttention }: { job: JobLike; onOpen?: () => void; onAttention?: () => void }) {
   const dl = j.daysLeft ?? 0;
   const risk = j.deadline && j.status === "Open" && dl <= 21 && j.hired < j.headcount;
@@ -550,6 +552,7 @@ export function JobRow({ job: j, onOpen, onAttention }: { job: JobLike; onOpen?:
       <div className="shx-prog" role="progressbar" aria-valuemin={0} aria-valuemax={j.headcount} aria-valuenow={j.hired} aria-label={j.hired + " of " + j.headcount + " hired"}>
         <i style={{ width: (j.hired / j.headcount) * 100 + "%", background: "var(--z8-green-700)" }} />
       </div>
+      <StageSummary summary={j.currentSummary} />
       <div className="shx-row">
         <span className="shx-small">{j.candidates} applications</span><span className="shx-sp" />
         {j.attention ? (

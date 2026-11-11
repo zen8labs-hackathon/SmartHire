@@ -160,6 +160,7 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
   const [seenCrit, setSeenCrit] = React.useState(job.criteria);
   if (seenCrit !== job.criteria) { setSeenCrit(job.criteria); setCrit(copyCrit(job)); }
   const canEdit = user.key === "hr" || user.key === "ch";
+  const canEditNotes = user.key === "hr";
   const isNew = !!job.fresh;
 
   if (job.processing) {
@@ -189,35 +190,80 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
         ) : isNew ? (
           <Banner tone="info" icon="pencil" title="Blank position">Fill in the fields and add scoring criteria, then open the position.</Banner>
         ) : null}
-        <JdFields readOnly={!canEdit} ai={job.status === "Draft"} blank={job.blank} job={job} onDetail={onDetail} />
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0 }}>
-          <Group
-              title="Scoring criteria"
-              count={`${crit.length} criteria`}
-              open={false}
-            >
-              <div
+        <JdFields readOnly={!canEditNotes} ai={job.status === "Draft"} blank={job.blank} job={job} onDetail={onDetail} />
+        <Group title="Internal recruiting notes" open>
+          <div style={{ paddingTop: 10 }}>
+            {job.details === undefined ? (
+              <p className="shx-small">Loading notes…</p>
+            ) : canEditNotes && onDetail ? (
+              <>
+                <textarea
+                  key={job.id}
+                  className="jb-textarea"
+                  aria-label="Internal recruiting notes"
+                  rows={5}
+                  defaultValue={job.details.recruiterNotes ?? ""}
+                  placeholder="Add internal recruiting context for this position."
+                  onBlur={(e) => {
+                    const value = e.currentTarget.value.trim();
+                    const savedValue =
+                      job.details?.recruiterNotes?.trim() ?? "";
+
+                    if (value !== savedValue) {
+                      onDetail("recruiterNotes", value);
+                    }
+                  }}
+                />
+
+                <p className="shx-small">
+                  Changes are saved when you leave this field.
+                </p>
+              </>
+            ) : (
+              <p
                 style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  paddingTop: 10,
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                  color: "var(--fg-2)",
+                  fontSize: 13,
+                  lineHeight: 1.6,
                 }}
               >
-                <div className="shx-small">
-                  Rule checks use these criteria. Extracted from the JD by AI.
-                </div>
-
-                <CriteriaEditor
-                  crit={crit}
-                  setCrit={setCrit}
-                  canEdit={canEdit}
-                  onSave={onSaveCriteria}
-                  onRescore={onRescore}
-                />
+                {job.details.recruiterNotes?.trim() ||
+                  "No internal recruiting notes."}
+              </p>
+            )}
+          </div>
+        </Group>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0 }}>
+        <Group
+            title="Scoring criteria"
+            count={`${crit.length} criteria`}
+            open={false}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                paddingTop: 10,
+              }}
+            >
+              <div className="shx-small">
+                Rule checks use these criteria. Extracted from the JD by AI.
               </div>
-            </Group>
+
+              <CriteriaEditor
+                crit={crit}
+                setCrit={setCrit}
+                canEdit={canEdit}
+                onSave={onSaveCriteria}
+                onRescore={onRescore}
+              />
+            </div>
+          </Group>
       </div>
     </div>
   );

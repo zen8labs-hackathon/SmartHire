@@ -15,6 +15,8 @@ import { deleteObject, moveObject } from "@/lib/storage/s3";
 export type CreatePositionInput = {
   chapterId: string;
   type: PositionHireType;
+  projectInfo?: string | null;
+  recruiterNotes?: string | null;
   headcount: number;
   /** Required: every new position is created with a pipeline from the `pipelines` table. */
   pipelineId: string;
@@ -57,6 +59,8 @@ export async function createDraftPosition(
       status: "Pending",
       flowVersion: 2,
       employmentStatus: input.type,
+      projectInfo: input.projectInfo?.trim() || null,
+      recruiterNotes: input.recruiterNotes?.trim() || null,
       hireType: input.type,
       headcount: input.headcount,
       updateNote: draftNote(jd ? undefined : "Blank form"),

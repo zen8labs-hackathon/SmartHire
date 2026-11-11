@@ -94,8 +94,7 @@ export function CVSideBySide({ c, user, hl: hlProp, setHl: setHlProp, onRescore 
   const hr = user.key === "hr";
   const root = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(900);
-  const [layout, setLayout0] = useState<string>(() => lsGet("cvx-layout", "split"));
-  const setLayout = (l: string) => { setLayout0(l); lsSet("cvx-layout", l); };
+  const [layout, setLayout] = useState<string>("cv");
   const [ratio, setRatio] = useState<number>(() => lsGet("cvx-ratio", 55));
   const [drag, setDrag] = useState(false);
   const [hist, setHist] = useState<CvVersionItem[]>([]);
@@ -305,7 +304,7 @@ export function CVSideBySide({ c, user, hl: hlProp, setHl: setHlProp, onRescore 
         <Button size="sm" variant="ghost" icon="git-compare" disabled={!canCompare} title={hist.length < 2 ? "Only one CV version" : undefined} onClick={() => { setCmp(true); if (eff === "cv") setLayout(narrow ? "data" : "split"); }}>Compare versions</Button>
         <span className="ad-sp" />
         {user.key !== "iv" && <button type="button" className="sh-iconbtn" title="Download original file" aria-label="Download original file" onClick={() => window.open(cvFileUrl(caId, cur?.versionEventId), "_blank")}><Icon name="download" size={16} /></button>}
-        <Tabs variant="segmented" value={eff} onChange={setLayout} tabs={[...(narrow ? [] : [{ id: "split", label: "Side by side" }]), { id: "cv", label: "Original CV" }, { id: "data", label: "Parsed data" }]} />
+        <Tabs variant="segmented" value={eff} onChange={setLayout} tabs={[{ id: "cv", label: "Original CV" }, { id: "data", label: "Parsed data" }]} />
       </div>
       <div className="cvx-panes" style={{ gridTemplateColumns: eff === "split" ? `${ratio}% 1px minmax(0,1fr)` : "1fr" }}>
         {eff !== "data" && docPane}

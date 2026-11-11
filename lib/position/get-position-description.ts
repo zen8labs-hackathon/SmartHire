@@ -14,6 +14,7 @@ export const POSITION_DETAIL_COLUMNS = {
   benefits: "what_we_offer",
   languages: "language_requirements",
   project: "project_info",
+  recruiterNotes: "recruiter_notes",
   teamSize: "team_size",
   salaryRange: "salary_range",
 } as const satisfies Record<string, keyof JobRow>;

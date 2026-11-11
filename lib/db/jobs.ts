@@ -32,6 +32,7 @@ export type JobRow = {
   headcount: number | null;
   hire_type: string | null;
   project_info: string | null;
+  recruiter_notes: string | null;
   team_size: string | null;
   language_requirements: string | null;
   career_development: string | null;
@@ -75,6 +76,8 @@ export type CreateJobInput = {
   headcount?: number | null;
   hireType?: string | null;
   projectInfo?: string | null;
+  /** Job information note for internal recruiting team. */
+  recruiterNotes?: string | null;
   teamSize?: string | null;
   languageRequirements?: string | null;
   careerDevelopment?: string | null;
@@ -242,11 +245,11 @@ export async function createJob(
        experience_requirements_nice_to_have, what_we_offer, level, headcount, hire_type,
        project_info, team_size, language_requirements, career_development, other_requirements,
        salary_range, project_allowances, interview_process, start_date, end_date,
-       hiring_deadline, jd_storage_path, jd_original_filename, jd_mime_type, update_note, created_by, flow_version
+       hiring_deadline, jd_storage_path, jd_original_filename, jd_mime_type, update_note, created_by, flow_version, recruiter_notes
      )
      VALUES (
         $1, COALESCE($2, 'Pending'), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
+        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
      )
      RETURNING *`,
     [
@@ -281,6 +284,7 @@ export async function createJob(
       input.updateNote ?? null,
       input.createdBy ?? null,
       input.flowVersion ?? 1,
+      input.recruiterNotes ?? null,
     ],
   );
   return rows[0];
@@ -309,6 +313,7 @@ export async function updateJob(
       headcount: patch.headcount,
       hire_type: patch.hireType,
       project_info: patch.projectInfo,
+      recruiter_notes: patch.recruiterNotes,
       team_size: patch.teamSize,
       language_requirements: patch.languageRequirements,
       career_development: patch.careerDevelopment,

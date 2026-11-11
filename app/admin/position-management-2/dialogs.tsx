@@ -8,7 +8,7 @@ import { fetchPeople, fetchPositionMembers, type PositionMember, fetchCandidateA
 import { HIRE_TYPES, validateHeadcount, validateJdFile } from "@/lib/position/position-rules";
 import { Banner, Button, Checkbox, Dialog, FileStatusRow, HireConfirmDialog, Icon, Input, Radio, Select, UploadQueuePanel, type FileStatusKey } from "./ext";
 
-export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number; pipelineId: string; people?: Assignee[] };
+export type CreateJobInput = { file?: File; blank?: boolean; chapterId: string; type: string; headcount: number; pipelineId: string; people?: Assignee[]; projectInfo?: string; recruiterNotes?: string; };
 export type Assignee = PersonChoice & { role: "recruiter" | "interviewer" };
 export type ChapterChoice = { id: string; name: string };
 
@@ -63,8 +63,8 @@ function PeoplePicker({ value, onChange }: { value: Assignee[]; onChange: (next:
   );
 }
 
-export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaultChapterId, lockChapter, busy, error }: {
-  onClose: () => void; onSubmit: (o: CreateJobInput) => void; chapters: ChapterChoice[]; pipelines: { id: string; name: string }[]; defaultChapterId?: string; lockChapter?: boolean; busy?: boolean; error?: string | null;
+export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaultChapterId, lockChapter, busy, error, canEditNotes = false }: {
+  onClose: () => void; onSubmit: (o: CreateJobInput) => void; chapters: ChapterChoice[]; pipelines: { id: string; name: string }[]; defaultChapterId?: string; lockChapter?: boolean; busy?: boolean; error?: string | null, canEditNotes?: boolean;
 }) {
   const [file, setFile] = React.useState<File | null>(null);
   const [fileErr, setFileErr] = React.useState<string | null>(null);
@@ -72,6 +72,8 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
   const [type, setType] = React.useState<string>(HIRE_TYPES[0]);
   const [hc, setHc] = React.useState("1");
   const [pipelineId, setPipelineId] = React.useState("");
+  const [projectInfo, setProjectInfo] = React.useState("");
+  const [recruiterNotes, setRecruiterNotes] = React.useState("");
   const [tried, setTried] = React.useState(false);
   const [people, setPeople] = React.useState<Assignee[]>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -91,9 +93,9 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
       title="Open new position" width={620} onClose={onClose}
       description="Upload the JD. SmartHire extracts the text and uses AI to fill position fields and scoring criteria. You review and edit everything on the position page before it opens."
       footer={<>
-        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => guard(() => onSubmit({ blank: true, chapterId, type, headcount: hcN, pipelineId, people }))}>No JD file? Start from a blank form</button>
+        <button type="button" className="jb-textlink" style={{ marginRight: "auto" }} disabled={!ready} onClick={() => guard(() => onSubmit({ blank: true, chapterId, type, headcount: hcN, pipelineId, people, projectInfo, recruiterNotes, }))}>No JD file? Start from a blank form</button>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && guard(() => onSubmit({ file, chapterId, type, headcount: hcN, pipelineId, people }))}>{busy ? "Creating…" : "Upload & extract"}</Button>
+        <Button icon="sparkles" disabled={!file || !ready} onClick={() => file && guard(() => onSubmit({ file, chapterId, type, headcount: hcN, pipelineId, people, projectInfo, recruiterNotes, }))}>{busy ? "Creating…" : "Upload & extract"}</Button>
       </>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -125,6 +127,28 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
           <div><Select label="Pipeline (required)" value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} options={[{ value: "", label: "Choose a pipeline" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))]} hint={pipelines.length === 0 ? "No pipelines available yet — ask HR to create one first" : "Hiring stages for this position. It can’t be changed after the position is created."} />{pipelineErr && <div className="sh-field__error" role="alert"><Icon name="circle-alert" size={14} />{pipelineErr}</div>}</div>
           <Input label="Headcount" type="number" min={1} max={50} step={1} value={hc} onChange={(e) => setHc(e.target.value)} suffix="people" error={hcErr} hint={hcErr ? undefined : "How many hires this position needs. You can change it later."} />
         </div>
+        <label className="sh-field">
+          <span className="sh-field__lable">Project description (optional)</span>
+          <textarea
+            className="jb-textarea"
+            rows={4}
+            value={projectInfo}
+            onChange={(e) => setProjectInfo(e.target.value)}
+            disabled={busy}
+            placeholder="Describe project details"/>
+        </label>
+        {canEditNotes && (
+          <label className="sh-field">
+          <span className="sh-field__lable">Internal recruiting notes for recruiter (optional)</span>
+          <textarea
+            className="jb-textarea"
+            rows={4}
+            value={recruiterNotes}
+            onChange={(e) => setRecruiterNotes(e.target.value)}
+            disabled={busy}
+            placeholder="Internal recruiting notes for recruiter"/>
+        </label>
+        )}
         <PeoplePicker value={people} onChange={setPeople} />
         <div className="shx-small">The position is saved as a draft right away. Extraction takes under a minute; you can leave the page and get a notification when it&apos;s ready.</div>
       </div>

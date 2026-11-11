@@ -1,7 +1,7 @@
 // Types and static config for the position-management-2 design.
 
 import type { UploadCvSource } from "@/lib/candidates/source-constants";
-
+import type { CurrentStageSummary } from "@/lib/position/current-stage-summary";
 export type RoleKey = "hr" | "ch" | "rc" | "iv";
 export type Role = {
   key: RoleKey;
@@ -42,6 +42,7 @@ export type Job = {
   deadline: string | null;
   daysLeft?: number;
   candidates: number;
+  currentSummary?: CurrentStageSummary;
   attention: number;
   owner: string;
   updated: string;
@@ -54,7 +55,7 @@ export type Job = {
   /** Free-text JD columns; null/empty when not extracted or entered. */
   /** All chapters of the position (loaded with details). */
   chapters?: string[];
-  details?: Record<"department" | "reporting" | "roleOverview" | "duties" | "workLocation" | "mustHave" | "niceToHave" | "benefits" | "languages" | "project" | "teamSize" | "salaryRange", string | null>;
+  details?: Record<"department" | "reporting" | "roleOverview" | "duties" | "workLocation" | "mustHave" | "niceToHave" | "benefits" | "languages" | "project" | "recruiterNotes" | "teamSize" | "salaryRange", string | null>;
   blank?: boolean;
   file?: string;
   criteria?: { id: string; req: string; imp: string; origin: "AI" | "HR" }[];
@@ -92,6 +93,7 @@ export type Candidate = {
   headline: string;
   /** Static stage id, or a pipeline stage-mapping uuid for real positions. */
   stage: string;
+  stopped?: boolean;
   sub: string;
   round?: string;
   hold?: { what: string; who: string } | null;

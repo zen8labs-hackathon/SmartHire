@@ -17,6 +17,7 @@ import {
   MatchStatusInline, MoveToMenu, RestrictedValue, ScoreComposition, Select, Table, Tabs, lsGet, lsSet, type BandKey, type Column, type CritResult,
   type FileStatusKey,
 } from "./ext";
+import { ValidationBoundaryTracking } from "next/dist/server/app-render/instant-validation/boundary-tracking";
 
 type Style = React.CSSProperties;
 
@@ -31,7 +32,7 @@ export type CandHandlers = MoveHandlers & {
 };
 export type OpenCand = (id: number, ids: number[], label: string, review?: boolean) => void;
 export type NextStep = { mine: boolean } | null;
-export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[]; interview?: string[]; q?: string };
+export type CandPreset = { mine?: boolean; stage?: string[]; band?: string[]; source?: string[]; scoring?: string[]; interview?: string[]; q?: string; currentOnly?: boolean };
 
 const ON: Style = { background: "var(--accent)", color: "#fff" };
 
@@ -156,8 +157,8 @@ export function FilterSelect({ label, options, value, onChange, count, render }:
   );
 }
 
-export function CandidatesTab({ user, cands, h, view, setView, open, compact, nextOf, preset, stages = STAGES }: {
-  user: Role; cands: Candidate[]; h: CandHandlers; view: string; setView: (v: string) => void; isPool?: boolean; open: OpenCand;
+export function CandidatesTab({ user, cands, h, view, setView, open, compact, nextOf, preset, stages = STAGES, onCurrentOnlyChange, onStageQueryChange, }: {
+  user: Role; cands: Candidate[]; h: CandHandlers; view: string; setView: (v: string) => void; isPool?: boolean; open: OpenCand; onCurrentOnlyChange?: (value: boolean) => void; onStageQueryChange?: (value: string) => void;
   compact?: boolean; nextOf?: (c: Candidate) => NextStep; preset?: CandPreset; stages?: Stage[];
 }) {
   const P0 = React.useMemo<CandPreset>(() => {
@@ -165,31 +166,65 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     if (typeof window === "undefined") return {};
     const q = new URLSearchParams(window.location.search);
     const L = (k: string) => (q.get(k) || "").split(",").filter(Boolean);
-    return { mine: q.get("mine") === "1", stage: L("stage"), band: L("band"), source: L("source"), scoring: L("scoring"), interview: L("interview"), q: q.get("q") || "" };
+    return { mine: q.get("mine") === "1", stage: L("stage"), band: L("band"), source: L("source"), scoring: L("scoring"), interview: L("interview"), q: q.get("q") || "", currentOnly: q.get("currentOnly") === "1" };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [sel, setSel] = React.useState<number[]>([]);
   const [mineOnly, setMineOnly] = React.useState(!!P0.mine);
   const [fStage, setFStage] = React.useState<string[]>(P0.stage || []);
   const [menuFor, setMenuFor] = React.useState<number | null>(null);
+  const [currentOnly, setCurrentOnly] = React.useState(!!P0.currentOnly);
+  React.useEffect(() => {
+    onCurrentOnlyChange?.(currentOnly);
+  }, [currentOnly, onCurrentOnlyChange]);
   const [fBand, setFBand] = React.useState<string[]>(P0.band || []);
   const [fSrc, setFSrc] = React.useState<string[]>(P0.source || []);
   const [fScore, setFScore] = React.useState<string[]>(P0.scoring || []);
   const [fIv, setFIv] = React.useState<string[]>(P0.interview || []);
   const [search, setSearch] = React.useState(P0.q || "");
   React.useEffect(() => {
+  if (!onStageQueryChange) return;
+
+  const filters: string[] = [];
+
+  for (const value of fStage) {
+    const separator = value.indexOf(":");
+
+    if (separator === -1) {
+      filters.push(value);
+      continue;
+    }
+
+    const stageId = value.slice(0, separator);
+    const subLabel = value.slice(separator + 1);
+
+    const stage = stages.find((item) => item.id === stageId);
+    const subId = stage?.subIds?.[subLabel];
+
+    if (!subId) return;
+
+    filters.push(`${stageId}:${subId}`);
+  }
+
+  onStageQueryChange([...new Set(filters)].sort().join(","));
+}, [fStage, stages, onStageQueryChange]);
+  React.useEffect(() => {
     const u = new URL(window.location.href);
     const put = (k: string, v: string[]) => (v.length ? u.searchParams.set(k, v.join(",")) : u.searchParams.delete(k));
     put("stage", fStage); put("band", fBand); put("source", fSrc); put("scoring", fScore); put("interview", fIv);
     if (search.trim()) u.searchParams.set("q", search.trim()); else u.searchParams.delete("q");
     if (mineOnly) u.searchParams.set("mine", "1"); else u.searchParams.delete("mine");
+    if (currentOnly) u.searchParams.set("currentOnly", "1");
+    else u.searchParams.delete("currentOnly");
     const next = u.pathname + u.search + u.hash;
     if (next !== window.location.pathname + window.location.search + window.location.hash) window.history.replaceState(window.history.state, "", next);
-  }, [fStage, fBand, fSrc, fScore, fIv, mineOnly, search]);
+
+  }, [fStage, fBand, fSrc, fScore, fIv, mineOnly, search, currentOnly]);
   const S = stages;
   const isMine = (c: Candidate) => !!(nextOf && nextOf(c)?.mine);
   const scoreKey = (c: Candidate) => (c.st === "done" ? "done" : c.st || "none");
   const pass = (c: Candidate, skip?: string) =>
+    (!currentOnly || c.stopped === false) &&
     (skip === "g" || !fStage.length || fStage.includes(c.stage + ":" + c.sub)) &&
     (skip === "b" || !fBand.length || (c.st === "done" && !!c.band && fBand.includes(c.band))) &&
     (skip === "s" || !fSrc.length || fSrc.includes(c.source)) &&
@@ -209,6 +244,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const sources = [...new Set(cands.map((c) => c.source))].sort().map((x) => [x, x] as [string, string]);
   const optLabel = (opts: [string, string][], k: string) => opts.find((o) => o[0] === k)?.[1] ?? k;
   const active: [string, string, string][] = [
+    ...(currentOnly ? [["current", "1", "Current only"] as [string, string, string]] : []),
     ...stageChips(fStage, S),
     ...fBand.map((k) => ["b", k, optLabel(BAND_OPTS, k)] as [string, string, string]),
     ...fSrc.map((k) => ["s", k, k] as [string, string, string]),
@@ -216,8 +252,21 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     ...fIv.map((k) => ["i", k, optLabel(IV_OPTS, k)] as [string, string, string]),
   ];
   const setters: Record<string, React.Dispatch<React.SetStateAction<string[]>>> = { g: setFStage, b: setFBand, s: setFSrc, k: setFScore, i: setFIv };
-  const drop = (t: string, k: string) => setters[t]((v) => v.filter((x) => (t === "g" && !k.includes(":") ? !x.startsWith(k + ":") : x !== k)));
-  const clearAll = () => { setFStage([]); setFBand([]); setFSrc([]); setFScore([]); setFIv([]); };
+  // const drop = (t: string, k: string) => setters[t]((v) => v.filter((x) => (t === "g" && !k.includes(":") ? !x.startsWith(k + ":") : x !== k)));
+  const drop = (t: string, k: string) => {
+    if (t === "current") {
+      setSel([]);
+      setCurrentOnly(false);
+      return;
+    }
+
+    setters[t]((values) =>
+      values.filter((value) =>
+        t === "g" && !k.includes(":") ? !value.startsWith(k + ":") : value !== k
+      )
+    )
+  }
+  const clearAll = () => { setFStage([]); setFBand([]); setFSrc([]); setFScore([]); setFIv([]); setCurrentOnly(false); setSel([]) };
   const rescore = (c: Candidate) => () => h.onAttention({ id: "a5", cand: c.id }, "Rescore");
   const cols: Column<Candidate>[] = [
     {
@@ -247,6 +296,18 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
         <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
+        <Button
+        size="sm"
+        variant="secondary"
+        aria-pressed={currentOnly}
+        className={currentOnly ? "jb-fbtn--on" : ""}
+        onClick={() => {
+          setSel([]);
+          setCurrentOnly((value) => !value);
+        }}
+      >
+        Current only
+      </Button>
         {/* {!user.hideScore && (
           <FilterSelect label="Match band" options={BAND_OPTS} value={fBand} onChange={setFBand} count={(k) => base.filter((c) => pass(c, "b") && c.st === "done" && c.band === k).length} render={(k) => <MatchBand band={k as BandKey} compact />} />
         )} */}
@@ -275,7 +336,7 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
           <span className="shx-small">{rows.length} of {base.length} shown ·</span>
           {active.map(([t, k, l]) => (
             <span key={t + k} className="jb-achip">
-              {({ g: "Stage", b: "Match", s: "Source", k: "Scoring", i: "Interview" } as Record<string, string>)[t]}: {l}
+              {({ g: "Stage", b: "Match", s: "Source", k: "Scoring", i: "Interview", current: "Status", } as Record<string, string>)[t]}: {l}
               <button type="button" aria-label={"Remove filter " + l} onClick={() => drop(t, k)}><Icon name="x" size={12} /></button>
             </span>
           ))}
@@ -542,6 +603,8 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     return { viewerIsIv, d: `${ddmm(at.toISOString())} ${hm}`, past: at.getTime() <= Date.now(), noShow: r.status === "NoShow", done: r.status === "Completed" };
   })();
   const ns = nextStep(c, user, stages, { mustHaves: crit.length ? { met: crit.filter((x) => x.status === "meets").length, total: crit.length } : null, sched: latestSched, viewerIsIv: !!latestSched?.viewerIsIv, viewerIsMentor: !!user.id && c.mentorId === user.id, accepted: !!c.offerAccepted, mentor: c.mentorName ?? null });
+  const primaryAction = ns.acts.find((action) => action.primary);
+  const showNextStep = !(scheds === null && kind === "iv" );
   // A started, still-active session can be marked as no-show (BR-INT-09).
   const canNoShow = (r: CandidateSchedule) => (r.status === "Scheduled" || r.status === "Confirmed") && new Date(String(r.scheduled_at)).getTime() <= Date.now()
     && (r.canEdit || (user.key === "iv" && r.seats.length > 0));
@@ -652,22 +715,85 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
         </div>
         <header className="ad-head">
           <div className="ad-head__top">
-            <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <CandidateHeader
-                name={c.name} tags={<><Flags c={c} />{prev && <IdentityTag kind="apps" count={3} />}</>}
-                meta={c.headline + " · " + c.source + " · added " + c.applied} sync={prev ? "Skills and experience updated from CV v2 · 24/09" : undefined}
+                name={c.name}
+                meta={c.headline || undefined}
+                tags={<Flags c={c} />}
               />
             </div>
-            {user.key !== "iv" && (
-              <div className="ad-acts">
-                <Button variant="secondary" icon="link" onClick={onShare}>Share evaluation</Button>
-              </div>
-            )}
+
+            <div className="ad-acts">
+              <StageChip
+                stage={c.stage}
+                sub={c.sub}
+                stages={stages}
+              />
+
+              {showNextStep && primaryAction && (
+                <Button
+                  size="sm"
+                  icon={primaryAction.icon}
+                  onClick={() => runAct(primaryAction)}
+                >
+                  {primaryAction.label}
+                </Button>
+              )}
+            </div>
           </div>
-          <StagePath c={c} stages={stages} />
-          {!(scheds == null && kind === "iv") && <NextStepPanel ns={ns} render={(a) => (
-            <Button key={a.t + a.label} size="sm" variant={a.primary ? "primary" : "secondary"} icon={a.icon} onClick={() => runAct(a)}>{a.label}</Button>
-          )} />}
+
+          <details>
+            <summary
+              style={{
+                cursor: "pointer",
+                fontSize: 12,
+                color: "var(--muted)",
+              }}
+            >
+              <strong>Pipeline and Actions</strong>
+            </summary>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                paddingTop: 12,
+              }}
+            >
+              <StagePath c={c} stages={stages} />
+
+              {showNextStep && (
+                <NextStepPanel
+                  ns={ns}
+                  render={(action) => (
+                    <Button
+                      key={action.t + action.label}
+                      size="sm"
+                      variant={action.primary ? "primary" : "secondary"}
+                      icon={action.icon}
+                      onClick={() => runAct(action)}
+                    >
+                      {action.label}
+                    </Button>
+                  )}
+                />
+              )}
+
+              {user.key !== "iv" && (
+                <div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon="link"
+                    onClick={onShare}
+                  >
+                    Share evaluation
+                  </Button>
+                </div>
+              )}
+            </div>
+          </details>
         </header>
         <div className="ad-body">
           <div className="ad-left">
@@ -687,12 +813,59 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                   <Banner tone="info" icon="loader-circle">Reading CV and scoring against the job criteria. You can keep working; the row updates when done.</Banner>
                 ) : (
                   <>
+                    {match?.summary && (<AIRationale
+                      text={match.summary}
+                      model={match.composition?.model}
+                      provider={match.composition?.provider}
+                      />
+                    )}
+                    {match && (
+                      <div className="shx-small" style={{ display: "flex", flexWrap: "wrap", gap: 12}}>
+                        <span>Meets: {crit.filter((r) => r.status === "meets").length} </span>
+                        <span>Partial: {crit.filter((r) => r.status === "partial").length} </span>
+                        <span>Not met: {crit.filter((r) => r.status === "not_met").length} </span>
+                        <span>Unknown: {crit.filter((r) => r.status === "unknown").length} </span>
+                      </div>
+                    )}
                     <div className="shx-row"><MatchBand band={c.band} score={c.score} />{match?.composition && <AIBadge meta={{ ...(match.composition.model ? { Model: match.composition.model } : {}), ...(match.composition.provider ? { Provider: match.composition.provider } : {}) }} />}</div>
-                    {c.band !== "review" && <ScoreComposition ai={match?.composition?.ai ?? c.ai} aiWeight={match?.composition?.aiWeight} rule={match?.composition?.formula ?? c.formula ?? 0} model={match?.composition?.model} provider={match?.composition?.provider} />}
+                    {c.band !== "review" && (
+                      <details>
+                        <summary
+                          style={{
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Score breakdown
+                        </summary>
+
+                        <div style={{ paddingTop: 12 }}>
+                          <ScoreComposition
+                            ai={match?.composition?.ai ?? c.ai}
+                            aiWeight={match?.composition?.aiWeight}
+                            rule={match?.composition?.formula ?? c.formula ?? 0}
+                            model={match?.composition?.model}
+                            provider={match?.composition?.provider}
+                          />
+                        </div>
+                      </details>
+                    )}
                     {matchErr && <Banner tone="danger" title="Match unavailable">{matchErr}</Banner>}
                     {match?.stale && <Banner tone="info" title="Criteria changed since the last score">Rescore to apply the updated criteria.</Banner>}
-                    <div className="ad-sec">
-                      <div className="ad-ov">By criterion</div>
+
+                    <details>
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          fontSize:13,
+                          fontWeight: 600,
+                        }}
+                        > Criteria Details ({crit.length})
+                      </summary>
+
+                      <div className="ad-sec" style={{ paddingTop: 12}}>
+
                       {!match && !matchErr && <div className="shx-small">Loading…</div>}
                       {pendingOv && (
                         <div className="shx-note">
@@ -703,6 +876,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                             <Button size="sm" onClick={() => void doOverride(pendingOv.id, pendingOv.v, ovReason)}>Save change</Button>
                           </div>
                         </div>
+
                       )}
                       <div className="shx-list">
                         {crit.map((r) => (
@@ -715,7 +889,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                         ))}
                       </div>
                     </div>
-                    {match?.summary && <AIRationale text={match.summary} model={match.composition?.model} provider={match.composition?.provider} />}
+                  </details>
                   </>
                 ))}
               {tab === "history" && (

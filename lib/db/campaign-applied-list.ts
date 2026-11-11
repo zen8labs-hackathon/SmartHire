@@ -5,6 +5,12 @@ import {
   clampOffset,
   extractWindowTotal,
 } from "@/lib/db/query-helpers";
+import { applicationStoppedSql } from "@/lib/position/application-state";
+import { markJobApplicationsStaleForRematch } from "./campaign-applied";
+import {
+  fetchJobPipelineConfig,
+  resolveCandidatePipelineIds,
+} from "@/lib/pipelines/transition-validator";
 
 /**
  * One row of the admin candidates list/pipeline view: a `campaign_applied`
@@ -24,6 +30,7 @@ export type CampaignAppliedAdminRow = {
   current_sub_state_id: string | null;
   source: string;
   source_other: string | null;
+  is_stopped?: boolean;
   expected_salary: string | null;
   jd_match_score: number | null;
   jd_match_status: string | null;
@@ -75,6 +82,7 @@ export type ListCampaignAppliedForAdminFilters = PaginationParams & {
   jobId?: string;
   /** Filters on the application's current custom pipeline stage; rows matching ANY entry are returned (OR). */
   stageFilters?: PipelineStageFilter[];
+  currentOnly?: boolean;
   /** Case-insensitive substring match against candidate name and school (education). */
   q?: string;
   /** Exact match on the active CV version's `parsing_status`. */
@@ -124,6 +132,7 @@ const SORT_COLUMN_SQL: Record<
 const ADMIN_ROW_SELECT = `
   ca.id, ca.candidate_id, ca.job_id, ca.active_cv_version_id,
   ca.current_job_stage_mapping_id, ca.current_sub_state_id,
+  ${applicationStoppedSql()} AS is_stopped,
   ca.source, ca.source_other, ca.expected_salary,
   cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
   cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
@@ -154,12 +163,18 @@ const ADMIN_ROW_SELECT = `
 // vanishing from the admin list/detail view.
 const ADMIN_ROW_JOIN = `
   FROM campaign_applied ca
-  JOIN candidates c ON c.id = ca.candidate_id AND c.deleted_at IS NULL
-  LEFT JOIN jobs j ON j.id = ca.job_id AND j.deleted_at IS NULL
-  LEFT JOIN cv_detail_versions cv ON cv.id = ca.active_cv_version_id
-  LEFT JOIN job_stage_mappings jsm ON jsm.id = ca.current_job_stage_mapping_id
-  LEFT JOIN pipeline_stages ps ON ps.id = jsm.pipeline_stage_id
-  LEFT JOIN pipeline_sub_stages pss ON pss.id = ca.current_sub_state_id
+  JOIN candidates c
+    ON c.id = ca.candidate_id AND c.deleted_at IS NULL
+  LEFT JOIN jobs j
+    ON j.id = ca.job_id AND j.deleted_at IS NULL
+  LEFT JOIN cv_detail_versions cv
+    ON cv.id = ca.active_cv_version_id
+  LEFT JOIN job_stage_mappings jsm
+    ON jsm.id = ca.current_job_stage_mapping_id
+  LEFT JOIN pipeline_stages ps
+    ON ps.id = jsm.pipeline_stage_id
+  LEFT JOIN pipeline_sub_stages pss
+    ON pss.id = ca.current_sub_state_id
 `;
 
 // Lean sibling of `ADMIN_ROW_SELECT`/`ADMIN_ROW_JOIN`, used by
@@ -177,6 +192,7 @@ const ADMIN_ROW_JOIN = `
 const JOB_PIPELINE_ROW_SELECT = `
   ca.id, ca.candidate_id, ca.job_id, ca.active_cv_version_id,
   ca.current_job_stage_mapping_id, ca.current_sub_state_id,
+  ${applicationStoppedSql()} AS is_stopped,
   ca.source, ca.source_other, ca.expected_salary,
   cv.jd_match_score AS jd_match_score, cv.jd_match_status AS jd_match_status,
   cv.jd_match_error AS jd_match_error, cv.jd_match_rationale AS jd_match_rationale,
@@ -217,15 +233,85 @@ export async function listCampaignAppliedForAdmin(
     values.push(filters.jobId);
     conditions.push(`ca.job_id = $${values.length}`);
   }
-  if (filters.stageFilters && filters.stageFilters.length > 0) {
-    const stageClauses = filters.stageFilters.map((f) => {
-      values.push(f.stageMappingId);
-      const stageClause = `ca.current_job_stage_mapping_id = $${values.length}`;
-      if (!f.subStateId) return stageClause;
-      values.push(f.subStateId);
-      return `(${stageClause} AND ca.current_sub_state_id = $${values.length})`;
-    });
-    conditions.push(`(${stageClauses.join(" OR ")})`);
+  const requestedStages = filters.stageFilters;
+
+  if (requestedStages && requestedStages.length > 0) {
+    if (filters.jobId) {
+      type StoredPipelineState = Pick<
+        CampaignAppliedAdminRow,
+        "current_job_stage_mapping_id" | "current_sub_state_id"
+      >;
+
+      const [config, stateResult] = await Promise.all([
+        fetchJobPipelineConfig(db, filters.jobId),
+
+        db.query<StoredPipelineState>(
+          `SELECT DISTINCT
+            ca.current_job_stage_mapping_id,
+            ca.current_sub_state_id
+          FROM campaign_applied ca
+          JOIN candidates c
+            ON c.id = ca.candidate_id
+            AND c.deleted_at IS NULL
+          WHERE ca.job_id = $1::uuid
+            AND ca.deleted_at IS NULL`,
+          [filters.jobId],
+        ),
+      ]);
+
+      const matchingStates = stateResult.rows.filter((state) => {
+        const resolved = resolveCandidatePipelineIds(
+          state,
+          config.stageMappings,
+          config.subStages,
+        );
+
+        return requestedStages.some(
+          (filter) =>
+            resolved.stageMappingId === filter.stageMappingId &&
+            (
+              !filter.subStateId ||
+              resolved.subStateId === filter.subStateId
+            ),
+        );
+      });
+
+      const stageClauses = matchingStates.map((state) => {
+        values.push(state.current_job_stage_mapping_id);
+        const stageIndex = values.length;
+
+        values.push(state.current_sub_state_id);
+        const subIndex = values.length;
+
+        return `(
+          ca.current_job_stage_mapping_id
+            IS NOT DISTINCT FROM $${stageIndex}::uuid
+          AND ca.current_sub_state_id
+            IS NOT DISTINCT FROM $${subIndex}::uuid
+        )`;
+      });
+
+      conditions.push(
+        stageClauses.length > 0
+          ? `(${stageClauses.join(" OR ")})`
+          : "FALSE",
+      );
+    } else {
+      const stageClauses = requestedStages.map((filter) => {
+        values.push(filter.stageMappingId);
+
+        const stageClause =
+          `ca.current_job_stage_mapping_id = $${values.length}`;
+
+        if (!filter.subStateId) return stageClause;
+
+        values.push(filter.subStateId);
+
+        return `(${stageClause} AND ca.current_sub_state_id = $${values.length})`;
+      });
+
+      conditions.push(`(${stageClauses.join(" OR ")})`);
+    }
   }
   if (filters.uploadFrom) {
     values.push(filters.uploadFrom);
@@ -245,7 +331,7 @@ export async function listCampaignAppliedForAdmin(
     const educationCol = filters.jobId ? "cv.education" : "c.education";
     conditions.push(`(c.name ILIKE $${i} OR ${educationCol} ILIKE $${i})`);
   }
-
+  if (filters.currentOnly) conditions.push(`NOT ${applicationStoppedSql()}`);
   values.push(limit);
   const limitIdx = values.length;
   values.push(offset);

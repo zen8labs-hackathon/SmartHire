@@ -25,6 +25,7 @@ export async function GET(request: Request, ctx: Ctx) {
       q: query.q,
       stageFilters: query.stageFilters,
       sortBy: query.sortBy,
+      currentOnly: query.currentOnly,
       sortDir: query.sortDir,
       // `all`/no limit → default page of 200 (the list's max page size).
       limit: query.all ? 200 : query.limit,

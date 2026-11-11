@@ -35,6 +35,7 @@ export type PositionCandidate = {
   /** `campaign_applied.id` */
   id: string;
   candidateId: string;
+  stopped: boolean;
   name: string;
   /** Role + experience years (falls back to degree). */
   headline: string;
@@ -73,7 +74,7 @@ export type PositionCandidatesResult = {
 
 export type PositionCandidatesOptions = Pick<
   CandidatesListQuery,
-  "q" | "stageFilters" | "sortBy" | "sortDir" | "limit" | "offset"
+  "q" | "stageFilters" | "sortBy" | "sortDir" | "limit" | "offset" | "currentOnly"
 > & {
   /** From `canViewSalary`; when false `expectedSalary` is nulled. */
   viewSalary: boolean;
@@ -125,6 +126,7 @@ export function rowToPositionCandidate(
     band: scoring === "done" || scoring === "error" ? scoreToBand(row.jd_match_score, row.jd_match_status) : null,
     score: scoring === "done" ? row.jd_match_score : null,
     scoring,
+    stopped: row.is_stopped ?? false,
     scoringError: scoring === "error" ? row.jd_match_error : null,
     source: row.source === "Other" && row.source_other ? row.source_other : row.source,
     expectedSalary: opts.viewSalary ? row.expected_salary : null,

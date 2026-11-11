@@ -22,6 +22,7 @@ import {
   isPositionType,
   queryPositionsWithEnrichment,
 } from "@/lib/position/list-with-enrichment";
+import { ModalBody } from "@heroui/react";
 
 const POSITION_LIST_MAX_LIMIT = 100;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -111,6 +112,27 @@ export async function POST(request: Request) {
     );
   }
 
+  for (const field of ["projectInfo", "recruiterNotes"] as const) {
+    const value = body[field];
+
+    if (value === undefined || value === null) continue;
+
+    if (typeof value !== "string") {
+      return Response.json(
+        { error: `${field} must be a string`},
+        { status: 400 }
+      )
+    }
+  }
+
+  const projectInfo = typeof body.projectInfo === "string"
+    ? body.projectInfo.trim() || null
+    : null;
+
+  const recruiterNotes = typeof body.recruiterNotes === "string"
+    ? body.recruiterNotes.trim() || null
+    : null;
+
   const people: { profileId: string; role: JobProfileRole }[] = [];
   if (body.people != null) {
     if (!Array.isArray(body.people) || body.people.length > 100) {
@@ -171,6 +193,13 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
+
+  if (recruiterNotes && !auth.access.isHr) {
+    return Response.json(
+      { error: "Only HR or Admin can write recruiting notes" },
+      { status: 400 },
+    );
+  }
   const db = getPool();
   const exists = await assertChapterIdsExist(db, [chapterId]);
   if (!exists.ok) {
@@ -197,6 +226,8 @@ export async function POST(request: Request) {
       type: body.type,
       headcount: headcount.value,
       pipelineId,
+      projectInfo,
+      recruiterNotes,
       createdBy: auth.userId,
       jd,
     });

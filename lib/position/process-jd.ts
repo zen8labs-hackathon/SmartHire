@@ -131,9 +131,21 @@ export async function processPositionJd(jobId: string): Promise<void> {
     ) {
       throw new Error("No position details could be extracted from the JD.");
     }
-    await updateJob(db, jobId, update);
-    await syncJobRequirementsQuietly(jobId);
 
+    const extractedProjectInfo = update.projectInfo?.trim();
+    delete update.projectInfo; // avoid description override
+
+    await updateJob(db, jobId, update);
+    if (extractedProjectInfo) {
+      await db.query(
+        `UPDATE jobs
+        SET project_info = $2, updated_at = now()
+        WHERE id = $1 AND deleted_at IS NULL
+                      AND NULLIF(btrim(project_info), '') IS NULL`,
+                    [jobId, extractedProjectInfo]
+      );
+    }
+    await syncJobRequirementsQuietly(jobId);
     const finalTitle = update.position ?? title;
     await notify(
       db,

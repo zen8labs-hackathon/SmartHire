@@ -51,6 +51,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [routeState, setRoute] = React.useState<Route>({ page: "jobs" });
   const [cands, setCands] = React.useState<Candidate[]>([]);
   const [candsFor, setCandsFor] = React.useState<number | null>(null);
+  const [candidateCurrentOnly, setCandidateCurrentOnly] = React.useState(false);
   const [bs, setBs] = React.useState<Batch[]>([]);
   const [histErr, setHistErr] = React.useState<string | null>(null);
   const [resolved, setResolved] = React.useState<string[]>([]);
@@ -199,6 +200,10 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
 
   const critJobId = job && !isPool ? job.id : null;
   const critProc = job?.processing ?? null;
+  const candidatesTabActive = !route.tab || route.tab === "candidates";
+  const requestCurrentOnly = candidatesTabActive && candidateCurrentOnly;
+  const [candidateStageQuery, setCandidateStageQuery] = React.useState("");
+  const requestStageQuery = candidatesTabActive ? candidateStageQuery : "";
   React.useEffect(() => {
     const uuid = critJobId != null ? uuidMap.current.get(critJobId) : undefined;
     if (!uuid || critProc) return;
@@ -231,8 +236,19 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     setCands([]);
     setCandsFor(null);
     const ac = new AbortController();
-    fetchPositionCandidates(uuid, { all: true }, ac.signal)
+    fetchPositionCandidates(
+          uuid,
+          {
+            all: true,
+            currentOnly: requestCurrentOnly,
+            stageFilters: requestStageQuery
+              ? requestStageQuery.split(",")
+              : undefined,
+          },
+          ac.signal,
+        )
       .then((r) => {
+        if (ac.signal.aborted) return;
         setCandsFor(critJobId);
         setStages(toStages(r.pipeline.stages));
         setCands(r.candidates.map((pc) => {
@@ -243,14 +259,15 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       })
       .catch(() => {});
     return () => ac.abort();
-  }, [critJobId, critProc]);
+  }, [critJobId, critProc, requestCurrentOnly, requestStageQuery]);
 
   React.useEffect(() => {
     if (loaded && chInfo && route.page === "job" && !job) home();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, chInfo]);
 
-  const liveCount = candsFor != null && candsFor === critJobId ? cands.length : job?.candidates;
+  // const liveCount = candsFor != null && candsFor === critJobId ? cands.length : job?.candidates;
+  const liveCount = job?.currentSummary?.totalApplications ?? job?.candidates;
   const myCands = user.assigned ? cands.filter((c) => user.assigned!.includes(c.id)) : cands;
 
 
@@ -261,7 +278,8 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     setCreating(true);
     setCreateErr(null);
     try {
-      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, pipelineId: v.pipelineId, people: v.people?.map((a) => ({ profileId: a.id, role: a.role })), file: v.blank ? null : v.file });
+      const row = await createPosition({ chapterId: v.chapterId, type: v.type, headcount: v.headcount, pipelineId: v.pipelineId, people: v.people?.map((a) => ({ profileId: a.id, role: a.role })), file: v.blank ? null : v.file, projectInfo: v.projectInfo,
+        recruiterNotes: v.recruiterNotes, });
       const id = idFor(row.id);
       setJobs((js) => [positionToJob(row, id), ...js.filter((j) => j.id !== id)]);
       setDlg(null);
@@ -537,7 +555,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         {isPool && tab === "candidates" && (
           <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
         )}
-        {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} open={openCand} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
+        {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} onStageQueryChange={setCandidateStageQuery} open={openCand} onCurrentOnlyChange={setCandidateCurrentOnly} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
         {tab === "overview" && <OverviewTab job={job} cands={tabCands} att={upAtt} stages={isPool ? STAGES : stages} bs={bs} user={user}
           onFilter={(p) => { setPreset({ ...p, k: Date.now() }); nav({ ...route, tab: "candidates", upView: undefined }); }}
           onTab={(t, sub) => nav({ ...route, tab: t, upView: sub })} />}
@@ -593,7 +611,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           say("Headcount updated", `${job.title} now needs ${n} hire${n === 1 ? "" : "s"} · ${n - job.hired} open.`, undefined, "users");
         }).catch((e) => fail("Could not update headcount", e));
       }} />}
-      {dlg?.k === "create" && <CreateJobDialog onClose={() => { setDlg(null); setCreateErr(null); }} onSubmit={(v) => void createJob(v)} chapters={chInfo?.chapters ?? []} pipelines={pipelineChoices} defaultChapterId={chInfo && !chInfo.isHr ? chInfo.headedChapterIds[0] : undefined} lockChapter={!!chInfo && !chInfo.isHr && chInfo.headedChapterIds.length > 0} busy={creating} error={createErr} />}
+       {dlg?.k === "create" && <CreateJobDialog onClose={() => { setDlg(null); setCreateErr(null); }} onSubmit={(v) => void createJob(v)} chapters={chInfo?.chapters ?? []} pipelines={pipelineChoices} defaultChapterId={chInfo && !chInfo.isHr ? chInfo.headedChapterIds[0] : undefined} lockChapter={!!chInfo && !chInfo.isHr && chInfo.headedChapterIds.length > 0} canEditNotes={user.key === "hr"} busy={creating} error={createErr} />}
       {dlg?.k === "upload" && <UploadDialog dest={dlg.dest} lockDest={!!job} jobs={visible} resolveTarget={(to) => (to === "pool" ? "pool" : uuidMap.current.get(Number(to)))} onClose={() => setDlg(null)} onStart={(b) => { setDlg(null); setBatch({ ...b, key: Date.now() }); }} />}
       {batch && <UploadTray key={batch.key} batch={batch} onClose={() => setBatch(null)}
         onOpen={() => go(batch.to === "pool" ? "pool" : Number(batch.to), "candidates")}

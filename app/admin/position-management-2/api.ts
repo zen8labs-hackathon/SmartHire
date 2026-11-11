@@ -29,6 +29,7 @@ export function positionToJob(p: PositionListRow, id: number): Job {
     deadline: ddmmyyyy(p.deadline),
     daysLeft: p.daysLeft ?? undefined,
     candidates: p.candidates,
+    currentSummary: p.currentSummary,
     attention: p.attention,
     owner: p.owner?.username ?? "—",
     updated: ddmmyyyy(p.updated) ?? "",
@@ -110,7 +111,15 @@ export async function fetchPipelineChoices(signal?: AbortSignal): Promise<Pipeli
   return json.pipelines.map((p) => ({ id: p.id, name: p.name }));
 }
 
-export type CreatePositionArgs = { chapterId: string; type: string; headcount: number; pipelineId: string; file?: File | null; people?: { profileId: string; role: "recruiter" | "interviewer" }[] };
+export type CreatePositionArgs = {
+  chapterId: string;
+  type: string;
+  headcount: number;
+  projectInfo?: string;
+  recruiterNotes?: string;
+  pipelineId: string;
+  file?: File | null;
+  people?: { profileId: string; role: "recruiter" | "interviewer" }[] };
 
 export type PersonChoice = { id: string; name: string; email: string };
 
@@ -124,6 +133,8 @@ export async function fetchPeople(q: string, signal?: AbortSignal): Promise<Pers
 /** Uploads the JD (if any) then creates the Draft position. Returns the new row. */
 export async function createPosition(a: CreatePositionArgs): Promise<PositionListRow> {
   const body: Record<string, unknown> = { chapterId: a.chapterId, type: a.type, headcount: a.headcount, pipelineId: a.pipelineId };
+  body.projectInfo = a.projectInfo?.trim() || null;
+  body.recruiterNotes = a.recruiterNotes?.trim() || null;
   if (a.people?.length) body.people = a.people;
   if (a.file) {
     const { path } = await uploadJd(a.file);
@@ -240,19 +251,36 @@ export async function rescorePosition(uuid: string): Promise<number> {
 
 
 export type CandidatesParams = {
-  q?: string; stageMappingId?: string; subStateId?: string;
+  q?: string; stageMappingId?: string; subStateId?: string; currentOnly?: boolean; stageFilters?: string[];
   sortBy?: string; sortDir?: "asc" | "desc"; limit?: number; offset?: number; all?: boolean;
 };
 
 export async function fetchPositionCandidates(uuid: string, params: CandidatesParams = {}, signal?: AbortSignal): Promise<PositionCandidatesResult> {
+  // const qs = new URLSearchParams();
+  // const { stageMappingId, subStateId, ...rest } = params;
+  // for (const [k, v] of Object.entries(rest)) if (v != null && v !== "" && v !== false) qs.set(k, String(v));
+  // // The list endpoint filters on repeated `stage` params: `<stageMappingId>[:<subStateId>]`.
+  // if (stageMappingId) qs.append("stage", subStateId ? `${stageMappingId}:${subStateId}` : stageMappingId);
+  // const res = await fetch(`/api/admin/positions/${uuid}/candidates${qs.size ? `?${qs}` : ""}`, { signal });
+  // if (!res.ok) throw new Error(await readError(res, "Could not load candidates."));
+  // return (await res.json()) as PositionCandidatesResult;
   const qs = new URLSearchParams();
-  const { stageMappingId, subStateId, ...rest } = params;
-  for (const [k, v] of Object.entries(rest)) if (v != null && v !== "" && v !== false) qs.set(k, String(v));
-  // The list endpoint filters on repeated `stage` params: `<stageMappingId>[:<subStateId>]`.
-  if (stageMappingId) qs.append("stage", subStateId ? `${stageMappingId}:${subStateId}` : stageMappingId);
-  const res = await fetch(`/api/admin/positions/${uuid}/candidates${qs.size ? `?${qs}` : ""}`, { signal });
-  if (!res.ok) throw new Error(await readError(res, "Could not load candidates."));
-  return (await res.json()) as PositionCandidatesResult;
+  const { stageMappingId, subStateId, stageFilters, ...rest } = params;
+
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== null && value !== "" && value !== false) qs.set(key, String(value))
+  }
+
+  if (stageMappingId) {
+    qs.append("stage", subStateId ? `${stageMappingId}:${subStateId}` : stageMappingId)
+  }
+
+  for (const filter of stageFilters ?? []) qs.append("stage", filter)
+
+  const res = await fetch(`/api/admin/positions/${uuid}/candidates?${qs.toString()}`, {signal})
+  if (!res.ok) throw new Error(await readError(res, "Could not load candidates."))
+
+  return (await res.json()) as PositionCandidatesResult
 }
 
 export function toCandidate(pc: PositionCandidate, id: number): Candidate {
@@ -262,6 +290,7 @@ export function toCandidate(pc: PositionCandidate, id: number): Candidate {
     name: pc.name,
     headline: pc.headline,
     stage: pc.stageMappingId ?? "",
+    stopped: pc.stopped,
     sub: pc.subStageLabel ?? "",
     band: pc.band ?? undefined,
     score: pc.score ?? undefined,
