@@ -18,7 +18,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CurrentStageSummary } from "@/lib/position/current-stage-summary";
-import { StageSummary } from "./stage-summary";
 
 const ICONS: Record<string, LucideIcon> = {
   archive: Archive, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
@@ -552,7 +551,6 @@ export function JobRow({ job: j, onOpen, onAttention }: { job: JobLike; onOpen?:
       <div className="shx-prog" role="progressbar" aria-valuemin={0} aria-valuemax={j.headcount} aria-valuenow={j.hired} aria-label={j.hired + " of " + j.headcount + " hired"}>
         <i style={{ width: (j.hired / j.headcount) * 100 + "%", background: "var(--z8-green-700)" }} />
       </div>
-      <StageSummary summary={j.currentSummary} />
       <div className="shx-row">
         <span className="shx-small">{j.candidates} applications</span><span className="shx-sp" />
         {j.attention ? (

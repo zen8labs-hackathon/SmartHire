@@ -3,7 +3,6 @@
 import * as React from "react";
 import { type Job, type JobStatus, type Role } from "./data";
 import { AIBadge, Avatar, Badge, Banner, Button, FileStatus, Icon, Input, JobRow, Menu, Select, Table, Tabs, type Column, type MenuItem } from "./ext";
-import { StageSummary } from "./stage-summary";
 
 export type JobId = number | "pool";
 export type Go = (id: JobId | null, tab?: string | null, cand?: number | null) => void;
@@ -114,7 +113,6 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
             {j.fresh && !j.processing && <AIBadge unconfirmed title="Fields filled from JD by AI" note="Review on the position page before opening." />}
           </span>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>#{j.id} · {j.chapter} · {j.level}{j.draftNote ? " · " + j.draftNote : ""}</span>
-          <StageSummary summary={j.currentSummary} />
         </div>
       ),
     },

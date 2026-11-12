@@ -130,7 +130,6 @@ export function Shell({ user, crumbs, title, subtitle, onBack, trail, meta, acti
       </aside>
       <div className="dn-main">
         <div className="dn-top">
-          {/* <div className="dn-search" role="search"><Svg n="search" /><span>Search candidates, jobs, people…</span><kbd>⌘K</kbd></div> */}
           <div style={{ flex: 1 }} />
           <div className="dn-av">{ini}</div>
         </div>
