@@ -925,21 +925,33 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           </div>
         </div>
         <footer className="ad-footer">
-          <StageChip
-            stage={c.stage}
-            sub={c.sub}
-            stages={stages}
-          />
-
-          {showNextStep && primaryAction && (
+          {user.key !== "iv" && (
             <Button
               size="sm"
-              icon={primaryAction.icon}
-              onClick={() => runAct(primaryAction)}
+              variant="secondary"
+              icon="link"
+              onClick={onShare}
             >
-              {primaryAction.label}
+              Share evaluation
             </Button>
           )}
+
+          <span className="ad-sp" />
+
+          <StageChip stage={c.stage} sub={c.sub} stages={stages} />
+
+          {showNextStep &&
+            ns.acts.map((action, index) => (
+              <Button
+                key={`${action.t}-${index}`}
+                size="sm"
+                variant={action.primary ? "primary" : "secondary"}
+                icon={action.icon}
+                onClick={() => runAct(action)}
+              >
+                {action.label}
+              </Button>
+            ))}
         </footer>
       </div>
     </>
