@@ -149,9 +149,9 @@ export function CriteriaEditor({ crit, setCrit, canEdit, onSave, onRescore }: {
 
 const copyCrit = (job: Job): Crit[] => (job.criteria || []).map((c) => ({ id: c.id, req: c.req, imp: c.imp, origin: c.origin }));
 
-export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria }: {
+export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria, criteriaOnly = false }: {
   job: Job; user: Role; onRescore?: () => Promise<void> | void; onDetail?: (key: DetailKey, value: string) => void;
-  onSaveCriteria?: (crit: Crit[]) => Promise<number>;
+  onSaveCriteria?: (crit: Crit[]) => Promise<number>; criteriaOnly?: boolean;
 }) {
   const [crit, setCrit] = React.useState<Crit[]>(() => copyCrit(job));
   // Reload criteria once AI finishes extracting the JD.
@@ -218,6 +218,48 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
     [resizeNotes],
   );
 
+  if (criteriaOnly) {
+    if (job.processing) {
+      return (
+        <Banner tone="info" icon="loader-circle">
+          Criteria will appear when JD processing finishes.
+        </Banner>
+      );
+    }
+
+    if (job.criteria === undefined) {
+      return <p className="shx-small">Loading criteria…</p>;
+    }
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        {job.procError && (
+          <Banner tone="warning" title="JD extraction failed">
+            {job.procError}
+          </Banner>
+        )}
+
+        <p className="shx-small" style={{ margin: 0 }}>
+          {crit.length} criteria · Rule checks use these criteria.
+          Extracted from the JD by AI.
+        </p>
+
+        <CriteriaEditor
+          crit={crit}
+          setCrit={setCrit}
+          canEdit={canEdit}
+          onSave={onSaveCriteria}
+          onRescore={onRescore}
+        />
+      </div>
+    );
+  }
   if (job.processing) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -226,11 +268,6 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
           <JdProcessing job={job} />
           <JdSkeleton />
         </div>
-        <Group title="Scoring criteria" count="Processing…" open={false}>
-          <p className="shx-small">
-            Criteria appear when AI finishes reading the JD.
-          </p>
-        </Group>
       </div>
     );
   }
@@ -304,34 +341,6 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
           </div>
         </Group>
 
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0 }}>
-        <Group
-            title="Scoring criteria"
-            count={`${crit.length} criteria`}
-            open={false}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                paddingTop: 10,
-              }}
-            >
-              <div className="shx-small">
-                Rule checks use these criteria. Extracted from the JD by AI.
-              </div>
-
-              <CriteriaEditor
-                crit={crit}
-                setCrit={setCrit}
-                canEdit={canEdit}
-                onSave={onSaveCriteria}
-                onRescore={onRescore}
-              />
-            </div>
-          </Group>
       </div>
     </div>
   );

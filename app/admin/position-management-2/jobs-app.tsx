@@ -23,7 +23,7 @@ type Route = { page: "jobs" | "job"; id?: number | "pool"; tab?: string | null; 
 const LEGACY_TIP = "Vị trí này vẫn dùng cấu trúc cũ. Hãy chuyển sang cấu trúc mới trước khi thay đổi.";
 
 type Dlg =
-  | { k: "create" } | { k: "upload"; dest?: number | "pool" | null } | { k: "apps"; target: string; fileId: string; file: string } | { k: "manual"; f: BatchFile; target: string } | { k: "hire"; c: Candidate; to: string } | { k: "movesess"; c: Candidate; to: string; sessions: { when: string; round: string }[] }
+  | { k: "create" } | { k: "upload"; dest?: number | "pool" | null } | { k: "criteria" } | { k: "apps"; target: string; fileId: string; file: string } | { k: "manual"; f: BatchFile; target: string } | { k: "hire"; c: Candidate; to: string } | { k: "movesess"; c: Candidate; to: string; sessions: { when: string; round: string }[] }
   | { k: "notpass"; c: Candidate; sub: string } | { k: "reject"; ids: number[]; clear?: () => void } | { k: "remove"; ids: number[]; clear?: () => void } | { k: "bulkmove"; ids: number[]; clear?: () => void } | { k: "close"; job: Job; blocking?: CloseBlocker[]; busy?: boolean } | { k: "reason"; job: Job; to: "hold" | "reopen"; busy?: boolean } | { k: "hc" } | { k: "deadline" } | { k: "open"; job: Job } | { k: "jd" } | { k: "jdfile" } | { k: "pipeline" } | { k: "access" } | { k: "migrate" } | null;
 type NavCtx = { ids: number[]; label: string; review?: boolean; done?: boolean } | null;
 
@@ -489,6 +489,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const dc = drawer != null ? cands.find((c) => c.id === drawer) || null : null;
 
   let subtitle: React.ReactNode = null, onBack: (() => void) | undefined, trail: { label: React.ReactNode; href?: string }[] = [{ label: "Position Management" }], crumbs: React.ReactNode, title: React.ReactNode, meta: React.ReactNode = null, actions: React.ReactNode = null, body: React.ReactNode, jdTab: React.ReactNode = null;
+  let criteriaTab: React.ReactNode = null 
 
   if (!job) {
     title = "Position Management";
@@ -557,6 +558,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
             ...(canHc ? [{ label: "Edit headcount", icon: "users", onClick: f(() => setDlg({ k: "hc" })) }] : []),
             "-" as const,
             { label: "Information", icon: "file-text", onClick: f(() => setDlg({ k: "jd" })) },
+            { label: "Scoring criteria", icon: "list-checks", onClick: f(() => setDlg({ k: "criteria" })) },
             { label: "View JD file", icon: "file-text", onClick: f(() => setDlg({ k: "jdfile" })) },
             { label: "Pipeline", icon: "route", onClick: f(() => setDlg({ k: "pipeline" })) },
             ...(user.key !== "rc" ? [{ label: "Access", icon: "shield", onClick: f(() => setDlg({ k: "access" })) }] : []),
@@ -565,49 +567,205 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       </span>}
     </>;
 
-    jdTab = <DescriptionTab job={job} user={user} onDetail={(k, v) => {
+    const descriptionProps: React.ComponentProps<typeof DescriptionTab> = {
+        job,
+        user,
+
+        onDetail: (key, value) => {
           const uuid = uuidMap.current.get(job.id);
           if (!uuid) return;
-          updatePosition(uuid, { [k]: v || null }).then(() => updJob(job.id, { details: { ...(job.details as NonNullable<Job["details"]>), [k]: v || null } })).catch((e) => fail("Could not save field", e));
-        }} onSaveCriteria={async (crit) => {
+
+          updatePosition(uuid, { [key]: value || null })
+            .then(() =>
+              updJob(job.id, {
+                details: {
+                  ...(job.details as NonNullable<Job["details"]>),
+                  [key]: value || null,
+                },
+              }),
+            )
+            .catch((error) => fail("Could not save field", error));
+        },
+
+        onSaveCriteria: async (criteria) => {
           const uuid = uuidMap.current.get(job.id);
           if (!uuid) return 0;
-          const toDb = { "Must have": "must_have", "Nice to have": "nice_to_have", "Bonus": "bonus" } as const;
+
+          const toDb = {
+            "Must have": "must_have",
+            "Nice to have": "nice_to_have",
+            Bonus: "bonus",
+          } as const;
+
           try {
-            const r = await saveCriteria(uuid, crit.map((c) => ({ requirement: c.req, importance: toDb[c.imp as keyof typeof toDb] ?? "nice_to_have", origin: c.origin === "HR" ? "manual" : "jd" })));
-            updJob(job.id, { criteria: r.requirements.map((x) => ({ id: x.id, req: x.requirement, imp: IMP_LABEL[x.importance], origin: (x.origin === "manual" ? "HR" : "AI") as "AI" | "HR" })) });
-            say("Criteria saved", r.staleApplications > 0 ? `${r.staleApplications} scored candidates need a rescore.` : "Scoring criteria updated.");
-            return r.staleApplications;
-          } catch (e) { fail("Could not save criteria", e); throw e; }
-        }} onRescore={async () => {
+            const result = await saveCriteria(
+              uuid,
+              criteria.map((criterion) => ({
+                requirement: criterion.req,
+                importance:
+                  toDb[criterion.imp as keyof typeof toDb] ?? "nice_to_have",
+                origin: criterion.origin === "HR" ? "manual" : "jd",
+              })),
+            );
+
+            updJob(job.id, {
+              criteria: result.requirements.map((item) => ({
+                id: item.id,
+                req: item.requirement,
+                imp: IMP_LABEL[item.importance],
+                origin: (item.origin === "manual" ? "HR" : "AI") as "AI" | "HR",
+              })),
+            });
+
+            say(
+              "Criteria saved",
+              result.staleApplications > 0
+                ? `${result.staleApplications} scored candidates need a rescore.`
+                : "Scoring criteria updated.",
+            );
+
+            return result.staleApplications;
+          } catch (error) {
+            fail("Could not save criteria", error);
+            throw error;
+          }
+        },
+
+        onRescore: async () => {
           const uuid = uuidMap.current.get(job.id);
           if (!uuid) return;
-          try { const n = await rescorePosition(uuid); say("Rescoring started", `${n} candidates queued.`); } catch (e) { fail("Could not start rescoring", e); throw e; }
-        }} />;
-    const tabCands = isPool ? cands.slice(0, 6).map((c) => ({ ...c, stage: "cv", sub: "New" })) : user.key === "iv" ? myCands : cands;
+
+          try {
+            const count = await rescorePosition(uuid);
+            say("Rescoring started", `${count} candidates queued.`);
+          } catch (error) {
+            fail("Could not start rescoring", error);
+            throw error;
+          }
+        },
+      };
+
+      jdTab = <DescriptionTab {...descriptionProps} />;
+
+      criteriaTab = (
+        <DescriptionTab {...descriptionProps} criteriaOnly />
+      );
+      const tabCands = isPool
+      ? cands.slice(0, 6).map((c) => ({
+          ...c,
+          stage: "cv",
+          sub: "New",
+        }))
+      : user.key === "iv"
+        ? myCands
+        : cands;
+
     body = (
-      <div style={{ padding: embedded ? "0 0 32px" : "0 24px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
-        <EntityTabs tabs={tabs} value={tab} onChange={(v) => { setPreset(null); nav({ ...route, tab: v, upView: undefined }); }} />
+      <div
+        style={{
+          padding: embedded ? "0 0 32px" : "0 24px 32px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        <EntityTabs
+          tabs={tabs}
+          value={tab}
+          onChange={(value) => {
+            setPreset(null);
+            nav({ ...route, tab: value, upView: undefined });
+          }}
+        />
+
         {lg && (
-          <Banner tone="warning" icon="archive" title="Cấu trúc cũ"
-            action={user.key === "hr" && jobUuid ? <Button size="sm" icon="arrow-right-left" onClick={() => setDlg({ k: "migrate" })}>Chuyển sang cấu trúc mới</Button> : undefined}>
+          <Banner
+            tone="warning"
+            icon="archive"
+            title="Cấu trúc cũ"
+            action={
+              user.key === "hr" && jobUuid ? (
+                <Button
+                  size="sm"
+                  icon="arrow-right-left"
+                  onClick={() => setDlg({ k: "migrate" })}
+                >
+                  Chuyển sang cấu trúc mới
+                </Button>
+              ) : undefined
+            }
+          >
             {LEGACY_TIP} Bạn vẫn xem được dữ liệu; chỉ HR mới chuyển đổi được.
           </Banner>
         )}
+
         {isPool && tab === "candidates" && (
-          <Banner tone="info" icon="archive" title="Talent pool">Candidates kept after a position closed or uploaded without a position. Add them to an open position with “Move to position…”; their history stays attached.</Banner>
+          <Banner tone="info" icon="archive" title="Talent pool">
+            Candidates kept after a position closed or uploaded without a position.
+            Add them to an open position with “Move to position…”.
+          </Banner>
         )}
-        {tab === "candidates" && <CandidatesTab key={preset?.k} user={user} cands={tabCands} h={h} view={view} setView={setView} isPool={isPool} onStageQueryChange={setCandidateStageQuery} open={openCand} onCurrentOnlyChange={setCandidateCurrentOnly} preset={preset || undefined} stages={isPool ? STAGES : stages} />}
-        {tab === "overview" && <OverviewTab job={job} cands={tabCands} att={upAtt} stages={isPool ? STAGES : stages} bs={bs} user={user}
-          onFilter={(p) => { setPreset({ ...p, k: Date.now() }); nav({ ...route, tab: "candidates", upView: undefined }); }}
-          onTab={(t, sub) => nav({ ...route, tab: t, upView: sub })} />}
-        {tab === "uploads" && <UploadsTab key={job.id} bs={bs} histErr={histErr} h={h} att={upAtt} resolve={resolveUp} admin={user.key === "hr"}
-          view={upView} setView={(v) => { setUpViewS(v); nav({ ...route, upView: v }); }} isPool={isPool}
-          onOpenCand={(f) => { if (f.candId != null) setDrawer(f.candId); else say(f.file, f.did); }} />}
+
+        {tab === "candidates" && (
+          <CandidatesTab
+            key={preset?.k}
+            user={user}
+            cands={tabCands}
+            h={h}
+            view={view}
+            setView={setView}
+            isPool={isPool}
+            onStageQueryChange={setCandidateStageQuery}
+            open={openCand}
+            onCurrentOnlyChange={setCandidateCurrentOnly}
+            preset={preset || undefined}
+            stages={isPool ? STAGES : stages}
+          />
+        )}
+
+        {tab === "overview" && (
+          <OverviewTab
+            job={job}
+            cands={tabCands}
+            att={upAtt}
+            stages={isPool ? STAGES : stages}
+            bs={bs}
+            user={user}
+            onFilter={(filter) => {
+              setPreset({ ...filter, k: Date.now() });
+              nav({ ...route, tab: "candidates", upView: undefined });
+            }}
+            onTab={(nextTab, sub) =>
+              nav({ ...route, tab: nextTab, upView: sub })
+            }
+          />
+        )}
+
+        {tab === "uploads" && (
+          <UploadsTab
+            key={job.id}
+            bs={bs}
+            histErr={histErr}
+            h={h}
+            att={upAtt}
+            resolve={resolveUp}
+            admin={user.key === "hr"}
+            view={upView}
+            setView={(value) => {
+              setUpViewS(value);
+              nav({ ...route, upView: value });
+            }}
+            isPool={isPool}
+            onOpenCand={(file) => {
+              if (file.candId != null) setDrawer(file.candId);
+              else say(file.file, file.did);
+            }}
+          />
+        )}
+
         {tab === "jd" && jdTab}
       </div>
     );
-  }
   void upViewS;
 
   const rejectIds = dlg?.k === "reject" ? dlg.ids : [];
@@ -759,7 +917,8 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
           } else setDrawer(null);
           setDlg(null);
         }} />}
-      {dlg?.k === "jd" && job && !isPool && <Dialog title="Description & criteria" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{jdTab}</Dialog>}
+      {dlg?.k === "jd" && job && !isPool && <Dialog title="Information" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{jdTab}</Dialog>}
+      {dlg?.k === "criteria" && job && !isPool && <Dialog title="Scoring criteria" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{criteriaTab}</Dialog>}
       {dlg?.k === "jdfile" && job && !isPool && <Dialog title="JD file" description={job.title} width={960} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}>{uuidMap.current.get(job.id) ? <iframe src={`/api/admin/job-descriptions/${uuidMap.current.get(job.id)}/jd-download`} title="JD file preview" style={{ width: "100%", height: "70vh", border: 0 }} /> : null}</Dialog>}
       {dlg?.k === "pipeline" && job && !isPool && <Dialog title="Pipeline" description={job.title} width={780} onClose={() => setDlg(null)} footer={<Button variant="secondary" onClick={() => setDlg(null)}>Close</Button>}><PipelineTab stages={stages} /></Dialog>}
       {dlg?.k === "migrate" && job && !isPool && uuidMap.current.get(job.id) && <MigrateWizard jobUuid={uuidMap.current.get(job.id)!} jobTitle={job.title} onClose={() => setDlg(null)} onDone={() => { setDlg(null); void reload(); say("Đã chuyển sang cấu trúc mới", job.title, undefined, "circle-check"); }} />}
@@ -786,4 +945,5 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       <Toast t={toast} onClose={() => setToast(null)} />
     </Shell>
   );
+  }
 }
