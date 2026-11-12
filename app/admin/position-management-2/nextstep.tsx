@@ -104,7 +104,7 @@ export function nextStep(c: Candidate, user: Role, stages: Stage[] = STAGES, o: 
       title = c.hold ? "Take a second look, then decide" : "Decide on this CV";
       if (op && next) {
         acts = compact([
-          { t: "move", to: next.id, label: "Pass & move to " + nextLabel, icon: "check", primary: true, decision: true },
+          { t: "move", to: next.id, label: "move to " + nextLabel, icon: "check", primary: true, decision: true },
           c.sub === s.def && s.subs.includes("Consider") ? { t: "consider", sub: "Consider", label: "Consider", icon: "scale" } : null,
           s.fail ? { t: "fail", sub: s.fail, label: "Not pass", icon: "x" } : null,
           c.st === "error" ? { t: "rescore", label: "Rescore", icon: "rotate-ccw" } : null,

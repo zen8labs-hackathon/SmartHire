@@ -766,6 +766,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         {tab === "jd" && jdTab}
       </div>
     );
+  }
   void upViewS;
 
   const rejectIds = dlg?.k === "reject" ? dlg.ids : [];
@@ -945,5 +946,4 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       <Toast t={toast} onClose={() => setToast(null)} />
     </Shell>
   );
-  }
 }

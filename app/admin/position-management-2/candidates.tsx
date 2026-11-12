@@ -431,7 +431,7 @@ type CritRow = Criterion & { edited?: boolean; aiStatus?: CritResult | null };
 const ZOOMS = ["md", "full"] as const;
 type Zoom = (typeof ZOOMS)[number];
 const ddmm = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; };
-// const readZoom = (): Zoom => { const z = lsGet<string>("jb-drawer-zoom", "md"); return z === "full" ? "full" : "md"; };
+const readZoom = (): Zoom => { const z = lsGet<string>("jb-drawer-zoom", "md"); return z === "full" ? "full" : "md"; };
 
 function MentorPicker({ c, h }: { c: Candidate; h: CandHandlers }) {
   const [members, setMembers] = React.useState<PositionMember[] | null>(null);
