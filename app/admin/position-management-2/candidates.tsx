@@ -252,7 +252,6 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     ...fIv.map((k) => ["i", k, optLabel(IV_OPTS, k)] as [string, string, string]),
   ];
   const setters: Record<string, React.Dispatch<React.SetStateAction<string[]>>> = { g: setFStage, b: setFBand, s: setFSrc, k: setFScore, i: setFIv };
-  // const drop = (t: string, k: string) => setters[t]((v) => v.filter((x) => (t === "g" && !k.includes(":") ? !x.startsWith(k + ":") : x !== k)));
   const drop = (t: string, k: string) => {
     if (t === "current") {
       setSel([]);
@@ -281,8 +280,6 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
     { key: "match", label: "Match", render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
     { key: "scheduled", label: "Scheduled", render: (c) => (c.nextInterviewAt ? <IvBadge c={c} /> : <span className="shx-small">—</span>) },
-    // { key: "applied", label: "Added", align: "right", render: (c) => c.applied },
-    ...(user.key !== "iv" ? [{ key: "act", label: "", sticky: "right", align: "right", render: (c) => <MoveButton c={c} h={h} user={user} label="Move" stages={S} /> } as Column<Candidate>] : []),
   ];
   const canRemove = sel.length > 0 && S.length > 0 && sel.every((id) => cands.find((c) => c.id === id)?.stage === S[0].id);
   const scoring = cands.filter((c) => c.st === "scoring").length;
@@ -296,21 +293,6 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
         <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
-        <Button
-        size="sm"
-        variant="secondary"
-        aria-pressed={currentOnly}
-        className={currentOnly ? "jb-fbtn--on" : ""}
-        onClick={() => {
-          setSel([]);
-          setCurrentOnly((value) => !value);
-        }}
-      >
-        Current only
-      </Button>
-        {/* {!user.hideScore && (
-          <FilterSelect label="Match band" options={BAND_OPTS} value={fBand} onChange={setFBand} count={(k) => base.filter((c) => pass(c, "b") && c.st === "done" && c.band === k).length} render={(k) => <MatchBand band={k as BandKey} compact />} />
-        )} */}
         {nextOf && (
           <Button size="sm" variant="secondary" icon="circle-arrow-right" aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={mineOnly ? "jb-fbtn--on" : ""}>
             Waiting on me<span className="shx-cnt" style={mineOnly ? ON : undefined}>{mineCount}</span>
@@ -741,59 +723,6 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
               )}
             </div>
           </div>
-
-          <details>
-            <summary
-              style={{
-                cursor: "pointer",
-                fontSize: 12,
-                color: "var(--muted)",
-              }}
-            >
-              <strong>Pipeline and Actions</strong>
-            </summary>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                paddingTop: 12,
-              }}
-            >
-              <StagePath c={c} stages={stages} />
-
-              {showNextStep && (
-                <NextStepPanel
-                  ns={ns}
-                  render={(action) => (
-                    <Button
-                      key={action.t + action.label}
-                      size="sm"
-                      variant={action.primary ? "primary" : "secondary"}
-                      icon={action.icon}
-                      onClick={() => runAct(action)}
-                    >
-                      {action.label}
-                    </Button>
-                  )}
-                />
-              )}
-
-              {user.key !== "iv" && (
-                <div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon="link"
-                    onClick={onShare}
-                  >
-                    Share evaluation
-                  </Button>
-                </div>
-              )}
-            </div>
-          </details>
         </header>
         <div className="ad-body">
           <div className="ad-left">

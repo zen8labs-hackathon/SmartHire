@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CurrentStageSummary } from "@/lib/position/current-stage-summary";
+import { previewBusyOverlaps } from "../calendar-2/api";
 
 const ICONS: Record<string, LucideIcon> = {
   archive: Archive, "arrow-left": ArrowLeft, "arrow-right": ArrowRight, "arrow-right-circle": CircleArrowRight, "arrow-right-left": ArrowRightLeft,
@@ -569,6 +570,55 @@ export function AIFilledField({ label, value, source, initial = "ai", multiline,
   const saved = React.useRef(value || "");
   const [state, setState] = React.useState(value ? initial : "missing");
   const [v, setV] = React.useState(value || "");
+
+  // auto adjust base on the length of input text
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const resizeTextArea = React.useCallback(() => {
+    const element = textareaRef.current;
+
+    if (!element || element.clientWidth === 0) return;
+    const computed = window.getComputedStyle(element);
+    const borderHeight = (parseFloat(computed.borderTopWidth) || 0) + (parseFloat(computed.borderBottomWidth) || 0);
+    
+    // reset before down size
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight + borderHeight}px`;
+  }, []);
+
+  React.useLayoutEffect(() => {
+    resizeTextArea();
+  }, [v, multiline, resizeTextArea]);
+
+  React.useEffect(() => {
+    const element = textareaRef.current;
+
+    if (!multiline || !element) return;
+
+    let previousWidth = element.clientWidth;
+    let frame = 0;
+
+    const observer = new ResizeObserver(() => {
+      const width = element.clientWidth;
+
+      if (width === previousWidth) return;
+
+      previousWidth = width;
+
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(resizeTextArea); 
+    });
+    observer.observe(element);
+
+    void document.fonts.ready.then(() => {
+      if (textareaRef.current === element) resizeTextArea();
+    });
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    }
+  }, [multiline, resizeTextArea]);
+
   const cls = "shx-aif" + (state === "ai" ? " shx-aif--ai" : state === "missing" ? " shx-aif--missing" : "");
   const common = {
     className: "shx-aif__box", value: v, readOnly, placeholder: state === "missing" ? "Not found in JD" : "",
@@ -582,7 +632,7 @@ export function AIFilledField({ label, value, source, initial = "ai", multiline,
         {state === "ai" && <AIBadge unconfirmed meta={source ? { Source: source } : null} title="Filled from JD by AI" note="Review, and edit if needed, before the position opens." />}
         {state === "edited" && <span className="shx-edited"><Icon name="pencil" size={11} />Edited</span>}
       </label>
-      {multiline ? <textarea rows={2} {...common} /> : <input {...common} />}
+      {multiline ? <textarea rows={2} ref={textareaRef} {...common} /> : <input {...common} />}
       {state === "ai" && source && <div className="shx-row" style={{ gap: 4 }}><span className="shx-sp" /><span className="shx-small">From {source}</span></div>}
     </div>
   );

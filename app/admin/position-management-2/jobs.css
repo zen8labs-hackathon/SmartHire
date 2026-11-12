@@ -176,6 +176,12 @@ body:has(.dn-app){margin:0}
 .shx-aif__label{font-size:12px;font-weight:500;color:var(--fg-2);display:flex;gap:6px;align-items:center}
 .shx-aif__box{min-height:36px;border:1px solid var(--border-field);border-radius:6px;padding:7px 10px;font:inherit;font-size:13px;background:#fff;color:var(--foreground);width:100%;resize:vertical}
 .shx-aif__box:focus{outline:2px solid var(--focus-ring);outline-offset:1px}
+textarea.shx-aif__box {
+  box-sizing: border-box;
+  min-height: 64px;
+  overflow-y: hidden;
+  resize: none;
+}
 .shx-aif--ai .shx-aif__box{background:var(--ai-soft);border-color:#C9B6F2}
 .shx-aif--missing .shx-aif__box{border-style:dashed}
 .shx-edited{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px;font-size:11px;color:var(--fg-2);font-weight:500}

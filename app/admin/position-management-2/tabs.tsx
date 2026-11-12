@@ -163,6 +163,61 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
   const canEditNotes = user.key === "hr";
   const isNew = !!job.fresh;
 
+  const resizeNotes = React.useCallback(
+    (element: HTMLTextAreaElement) => {
+      if (element.clientWidth === 0) return;
+
+      const computed = window.getComputedStyle(element);
+
+      const borderHeight =
+        (parseFloat(computed.borderTopWidth) || 0) +
+        (parseFloat(computed.borderBottomWidth) || 0);
+
+      element.style.height = "auto";
+      element.style.height =
+        `${element.scrollHeight + borderHeight}px`;
+    },
+    [],
+  );
+
+  const notesTextareaRef = React.useCallback(
+    (element: HTMLTextAreaElement | null) => {
+      if (!element) return;
+
+      let active = true;
+      let frame = 0;
+      let previousWidth = element.clientWidth;
+
+      resizeNotes(element);
+
+      const observer = new ResizeObserver(() => {
+        const width = element.clientWidth;
+
+        if (width === previousWidth) return;
+
+        previousWidth = width;
+
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          if (active) resizeNotes(element);
+        });
+      });
+
+      observer.observe(element);
+
+      void document.fonts.ready.then(() => {
+        if (active) resizeNotes(element);
+      });
+
+      return () => {
+        active = false;
+        observer.disconnect();
+        cancelAnimationFrame(frame);
+      };
+    },
+    [resizeNotes],
+  );
+
   if (job.processing) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -191,6 +246,7 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
           <Banner tone="info" icon="pencil" title="Blank position">Fill in the fields and add scoring criteria, then open the position.</Banner>
         ) : null}
         <JdFields readOnly={!canEditNotes} ai={job.status === "Draft"} blank={job.blank} job={job} onDetail={onDetail} />
+
         <Group title="Internal recruiting notes" open>
           <div style={{ paddingTop: 10 }}>
             {job.details === undefined ? (
@@ -199,7 +255,18 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
               <>
                 <textarea
                   key={job.id}
+                  ref={notesTextareaRef}
+                  onInput={(event) => resizeNotes(event.currentTarget)}
                   className="jb-textarea"
+                  style={{
+                    display: "block", 
+                    overflowY: "hidden",
+                    resize: "none",   
+                    width: "100%",
+                    minHeight: 140,
+                    boxSizing: "border-box",
+                    lineHeight: 1.6,
+                  }}
                   aria-label="Internal recruiting notes"
                   rows={5}
                   defaultValue={job.details.recruiterNotes ?? ""}
@@ -236,6 +303,7 @@ export function DescriptionTab({ job, user, onRescore, onDetail, onSaveCriteria 
             )}
           </div>
         </Group>
+
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, position: "sticky", top: 0 }}>
         <Group
