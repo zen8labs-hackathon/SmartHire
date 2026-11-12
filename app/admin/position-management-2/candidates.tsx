@@ -182,6 +182,73 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const [fScore, setFScore] = React.useState<string[]>(P0.scoring || []);
   const [fIv, setFIv] = React.useState<string[]>(P0.interview || []);
   const [search, setSearch] = React.useState(P0.q || "");
+  type SortKey = "match" | "scheduled";
+  type SortDir = "asc" | "desc";
+
+  const [sort, setSort] = React.useState<{ 
+    key: SortKey;
+    dir: SortDir;
+  }>({
+    key: "match",
+    dir: "desc",
+  });
+  
+  const toggleSort = (key: SortKey) => {
+    setSort((current) => {
+      if (key === "scheduled") {
+        // early
+        if (current.key !== "scheduled") {
+          return { key: "scheduled", dir: "asc" };
+        }
+
+        // later
+        if (current.dir === "asc") {
+          return { key: "scheduled", dir: "desc" };
+        }
+
+        // default
+        return { key: "match", dir: "desc" };
+      }
+
+      return {
+        key: "match",
+        dir:
+          current.key === "match" && current.dir === "desc"
+            ? "asc"
+            : "desc",
+      };
+    });
+  };
+
+  const sortHeader = (key: SortKey, label: string) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(key)}
+      aria-label={`${label}: ${
+        sort.key === key
+          ? sort.dir === "asc"
+            ? "ascending"
+            : "descending"
+          : "unsorted"
+      }. Click to change sorting.`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: 0,
+        border: 0,
+        background: "transparent",
+        color: "inherit",
+        font: "inherit",
+        cursor: "pointer",
+      }}
+    >
+      {label}
+      <span aria-hidden="true">
+        {sort.key === key ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}
+      </span>
+    </button>
+  );
   React.useEffect(() => {
   if (!onStageQueryChange) return;
 
@@ -233,14 +300,46 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
   const base = cands;
   const mineCount = nextOf ? base.filter((c) => pass(c) && isMine(c)).length : 0;
   const needle = search.trim().toLowerCase();
-  // Default order: Match score high → low. Unscored candidates, and ones whose score is hidden
-  // from this user, sink to the bottom in their original (newest-first) order.
-  const visibleScore = (c: Candidate) => (c.st === "done" && c.score != null && !(user.hideScore && !c.ivDone) ? c.score : null);
+  const visibleScore = (c: Candidate): number | null =>
+    c.st === "done" &&
+    c.score != null &&
+    Number.isFinite(c.score) &&
+    !(user.hideScore && !c.ivDone)
+      ? c.score
+      : null;
+
+  const scheduledTime = (c: Candidate): number | null => {
+    if (!c.nextInterviewAt) return null;
+
+    const time = Date.parse(c.nextInterviewAt);
+    return Number.isFinite(time) ? time : null;
+  };
+
   const rows = base
-    .filter((c) => pass(c) && (!needle || c.name.toLowerCase().includes(needle)) && (!mineOnly || isMine(c)))
-    .map((c, i) => ({ c, i, s: visibleScore(c) }))
-    .sort((a, b) => (a.s == null ? (b.s == null ? a.i - b.i : 1) : b.s == null ? -1 : b.s - a.s || a.i - b.i))
-    .map((x) => x.c);
+    .filter(
+      (c) =>
+        pass(c) &&
+        (!needle || c.name.toLowerCase().includes(needle)) &&
+        (!mineOnly || isMine(c)),
+    )
+    .map((c, index) => ({
+      c,
+      index,
+      value: sort.key === "match" ? visibleScore(c) : scheduledTime(c),
+    }))
+    .sort((a, b) => {
+      if (a.value == null && b.value == null) return a.index - b.index;
+      if (a.value == null) return 1;
+      if (b.value == null) return -1;
+
+      const difference =
+        sort.dir === "asc"
+          ? a.value - b.value
+          : b.value - a.value;
+
+      return difference || a.index - b.index;
+    })
+    .map(({ c }) => c);
   const sources = [...new Set(cands.map((c) => c.source))].sort().map((x) => [x, x] as [string, string]);
   const optLabel = (opts: [string, string][], k: string) => opts.find((o) => o[0] === k)?.[1] ?? k;
   const active: [string, string, string][] = [
@@ -277,9 +376,9 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
       ),
     },
     { key: "stage", label: "Stage", render: (c) => <StageChip stage={c.stage} sub={c.sub} stages={S} /> },
-    { key: "match", label: "Match", render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
+    { key: "match", label: sortHeader("match", "Match"), render: (c) => <MatchCell c={c} user={user} onRescore={user.key !== "iv" ? rescore(c) : undefined} /> },
     { key: "source", label: "Source", render: (c) => { const [cls, ic] = srcInfo(c.source); return <span className={"src-chip src--" + cls}><Icon name={ic} size={12} />{c.source}</span>; } },
-    { key: "scheduled", label: "Scheduled", render: (c) => (c.nextInterviewAt ? <IvBadge c={c} /> : <span className="shx-small">—</span>) },
+    { key: "scheduled", label: sortHeader("scheduled", "Scheduled"), render: (c) => (c.nextInterviewAt ? <IvBadge c={c} /> : <span className="shx-small">—</span>) },
   ];
   const canRemove = sel.length > 0 && S.length > 0 && sel.every((id) => cands.find((c) => c.id === id)?.stage === S[0].id);
   const scoring = cands.filter((c) => c.st === "scoring").length;
@@ -293,6 +392,24 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         <Tabs variant="segmented" value={view} onChange={setView} tabs={[{ id: "list", label: "List" }, { id: "board", label: "Board" }]} />
         <span style={{ width: 1, height: 20, background: "var(--border)" }} />
         <StageFilter stages={S} value={fStage} onChange={setFStage} count={(k, sb) => base.filter((c) => pass(c, "g") && c.stage === k && (!sb || c.sub === sb)).length} />
+        {!user.hideScore && (
+          <FilterSelect
+            label="Match band"
+            options={BAND_OPTS}
+            value={fBand}
+            onChange={setFBand}
+            count={(k) =>
+              base.filter(
+                (c) => pass(c, "b") && c.st === "done" && c.band === k
+              ).length
+            }
+            render={(k, label) => (
+              <span className={`shx-band shx-band--${k} shx-band--compact`}>
+                {label}
+              </span>
+            )}
+          />
+        )}
         {nextOf && (
           <Button size="sm" variant="secondary" icon="circle-arrow-right" aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={mineOnly ? "jb-fbtn--on" : ""}>
             Waiting on me<span className="shx-cnt" style={mineOnly ? ON : undefined}>{mineCount}</span>
@@ -326,7 +443,15 @@ export function CandidatesTab({ user, cands, h, view, setView, open, compact, ne
         </div>
       )}
       <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: "var(--muted)", flexWrap: "wrap" }}>
-        <span>Sorted by match score, highest first · match is one signal, not a ranking</span>
+        <span>
+          {sort.key === "match"
+            ? `Sorted by match score, ${
+                sort.dir === "desc" ? "highest first" : "lowest first"
+              }`
+            : `Sorted by scheduled time, ${
+                sort.dir === "asc" ? "earliest first" : "latest first"
+              }`}
+        </span>
         {scoring > 0 && <FileStatus status="processing" label={scoring + " still scoring"} />}
         {user.key === "iv" && <span>Showing the {cands.length} candidates you are scheduled to interview</span>}
       </div>
