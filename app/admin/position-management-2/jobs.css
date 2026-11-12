@@ -314,6 +314,8 @@ textarea.shx-aif__box {
 .ad-head{flex:none;padding:16px 24px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:12px;background:#fff}
 .ad-head__top{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
 .ad-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
+.ad-footer { flex: none; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 12px 24px; border-top: 1px solid var(--border); background: #fff;
+}
 .ad-body {flex: 1; min-height: 0;min-width: 0;display: grid;grid-template-columns: minmax(0, 1.8fr) minmax(360px, 1fr);overflow: hidden;}
 .ad-left {min-height: 0;min-width: 0;border-right: 1px solid var(--border);display: flex;flex-direction: column;}
 .ad-right {min-height: 0;min-width: 0;overflow: auto;display: flex;flex-direction: column;}

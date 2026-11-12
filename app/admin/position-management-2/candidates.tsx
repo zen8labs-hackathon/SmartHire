@@ -662,10 +662,11 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
       )}
       {flash && <div role="status" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 1000 }}><Banner tone="success" title={flash} /></div>}
       {!full && <div className="jb-scrim" onClick={onClose} />}
+
       <div className={full ? "ad-full" : "ad-quick"} role="dialog" aria-label={c.name}>
         <div className="ad-ctx">
           <nav className="ad-crumb" aria-label="Breadcrumb">
-            <span>{nav?.label ?? "Candidates"}</span><Icon name="chevron-right" /><b>{c.name}</b>
+            <span>{nav?.label ?? "Candidates"}</span><Icon name="chevron-right" /><b>{c.name}</b><b>-</b><b>{c.headline}</b>
           </nav>
           <span className="ad-sp" />
           {nav && idx >= 0 && (
@@ -695,35 +696,6 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           </button>
           <button type="button" className="sh-iconbtn" aria-label="Close (Esc)" onClick={onClose}><Icon name="x" /></button>
         </div>
-        <header className="ad-head">
-          <div className="ad-head__top">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <CandidateHeader
-                name={c.name}
-                meta={c.headline || undefined}
-                tags={<Flags c={c} />}
-              />
-            </div>
-
-            <div className="ad-acts">
-              <StageChip
-                stage={c.stage}
-                sub={c.sub}
-                stages={stages}
-              />
-
-              {showNextStep && primaryAction && (
-                <Button
-                  size="sm"
-                  icon={primaryAction.icon}
-                  onClick={() => runAct(primaryAction)}
-                >
-                  {primaryAction.label}
-                </Button>
-              )}
-            </div>
-          </div>
-        </header>
         <div className="ad-body">
           <div className="ad-left">
             <CVSideBySide c={c} user={user} onRescore={() => onRescore(c)} onQuote={(t) => { setTab("notes"); setAddNote(true); setQuote({ text: t, n: Date.now() }); }} />
@@ -750,15 +722,15 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                     )}
                     {match && (
                       <div className="shx-small" style={{ display: "flex", flexWrap: "wrap", gap: 12}}>
-                        <span>Meets: {crit.filter((r) => r.status === "meets").length} </span>
+                        {/* <span>Meets: {crit.filter((r) => r.status === "meets").length} </span>
                         <span>Partial: {crit.filter((r) => r.status === "partial").length} </span>
                         <span>Not met: {crit.filter((r) => r.status === "not_met").length} </span>
-                        <span>Unknown: {crit.filter((r) => r.status === "unknown").length} </span>
+                        <span>Unknown: {crit.filter((r) => r.status === "unknown").length} </span> */}
                       </div>
                     )}
                     <div className="shx-row"><MatchBand band={c.band} score={c.score} />{match?.composition && <AIBadge meta={{ ...(match.composition.model ? { Model: match.composition.model } : {}), ...(match.composition.provider ? { Provider: match.composition.provider } : {}) }} />}</div>
                     {c.band !== "review" && (
-                      <details>
+                      <details open>
                         <summary
                           style={{
                             cursor: "pointer",
@@ -783,7 +755,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                     {matchErr && <Banner tone="danger" title="Match unavailable">{matchErr}</Banner>}
                     {match?.stale && <Banner tone="info" title="Criteria changed since the last score">Rescore to apply the updated criteria.</Banner>}
 
-                    <details>
+                    <details open>
                       <summary
                         style={{
                           cursor: "pointer",
@@ -951,6 +923,23 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
             </div>
           </div>
         </div>
+        <footer className="ad-footer">
+          <StageChip
+            stage={c.stage}
+            sub={c.sub}
+            stages={stages}
+          />
+
+          {showNextStep && primaryAction && (
+            <Button
+              size="sm"
+              icon={primaryAction.icon}
+              onClick={() => runAct(primaryAction)}
+            >
+              {primaryAction.label}
+            </Button>
+          )}
+        </footer>
       </div>
     </>
   );

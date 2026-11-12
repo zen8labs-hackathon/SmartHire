@@ -296,12 +296,12 @@ export function CVSideBySide({ c, user, hl: hlProp, setHl: setHlProp, onRescore 
   return (
     <div className="cvx" ref={root}>
       <div className="cvx-bar">
-        <select className="cvx-sel" value={verId ?? ""} disabled={!hist.length} aria-label="CV version"
+        {/* <select className="cvx-sel" value={verId ?? ""} disabled={!hist.length} aria-label="CV version"
           onChange={(e) => { const v = hist.find((x) => x.versionEventId === e.target.value); if (v) { setCmp(false); void load(v); } }}>
           {hist.length === 0 && <option value="">CV</option>}
           {hist.map((x) => <option key={x.versionEventId} value={x.versionEventId}>CV v{x.versionNumber} · {fmtDate(x.sortAt)}{x.kind === "active" ? " · used for scoring" : " · not used for scoring"}</option>)}
-        </select>
-        <Button size="sm" variant="ghost" icon="git-compare" disabled={!canCompare} title={hist.length < 2 ? "Only one CV version" : undefined} onClick={() => { setCmp(true); if (eff === "cv") setLayout(narrow ? "data" : "split"); }}>Compare versions</Button>
+        </select> */}
+        {/* <Button size="sm" variant="ghost" icon="git-compare" disabled={!canCompare} title={hist.length < 2 ? "Only one CV version" : undefined} onClick={() => { setCmp(true); if (eff === "cv") setLayout(narrow ? "data" : "split"); }}>Compare versions</Button> */}
         <span className="ad-sp" />
         {user.key !== "iv" && <button type="button" className="sh-iconbtn" title="Download original file" aria-label="Download original file" onClick={() => window.open(cvFileUrl(caId, cur?.versionEventId), "_blank")}><Icon name="download" size={16} /></button>}
         <Tabs variant="segmented" value={eff} onChange={setLayout} tabs={[{ id: "cv", label: "Original CV" }, { id: "data", label: "Parsed data" }]} />
