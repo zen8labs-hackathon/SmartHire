@@ -945,4 +945,5 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
       }} />}
       <Toast t={toast} onClose={() => setToast(null)} />
     </Shell>
-  );
+  )
+}
