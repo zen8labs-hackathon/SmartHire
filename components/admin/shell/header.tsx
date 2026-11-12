@@ -58,13 +58,6 @@ export function Header({
         )}
       </div>
 
-      {/* Search (⌘K hint) */}
-      <div className="hd-search max-md:hidden" role="search">
-        <Search aria-hidden />
-        <span>Search candidates, jobs, people…</span>
-        <kbd>⌘K</kbd>
-      </div>
-
       <div className="flex flex-1 items-center justify-end gap-4">
         <NotificationBell />
         <UserDropdown userEmail={userEmail} isHr={isHr} />

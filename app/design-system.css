@@ -304,9 +304,6 @@
 /* Root header + notifications (Jobs.html dn-top / shx-notif design) */
 .hd-top{height:60px;flex:none;display:flex;align-items:center;gap:16px;padding:0 32px;background:#fff;border-bottom:1px solid oklch(0.91 0.008 155)}
 .hd-top svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.hd-search{flex:1;max-width:440px;min-width:0;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:8px;border:1px solid oklch(0.91 0.008 155);border-radius:9px;padding:8px 12px;color:oklch(0.5 0.015 155);background:oklch(0.985 0.004 155);font-size:14px}
-.hd-search span{overflow:hidden;text-overflow:ellipsis;min-width:0}
-.hd-search kbd{margin-left:auto;flex:none;font-family:'JetBrains Mono',monospace;font-size:11px;border:1px solid oklch(0.91 0.008 155);border-radius:5px;padding:1px 6px;background:#fff}
 .hd-ib{width:36px;height:36px;border:1px solid oklch(0.91 0.008 155);border-radius:9px;display:grid;place-items:center;background:#fff;color:oklch(0.24 0.02 155);position:relative;cursor:pointer;padding:0}
 .hd-ib:hover{background:oklch(0.985 0.004 155)}
 .hd-ib .dot{position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:50%;background:oklch(0.78 0.15 70);border:1.5px solid #fff}
