@@ -1053,7 +1053,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           </div>
         </div>
         <footer className="ad-footer">
-          {user.key !== "iv" && (
+          {/* {user.key !== "iv" && (
             <Button
               size="sm"
               variant="secondary"
@@ -1062,7 +1062,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
             >
               Share evaluation
             </Button>
-          )}
+          )} */}
 
           <span className="ad-sp" />
 
