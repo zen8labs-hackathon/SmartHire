@@ -537,7 +537,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
     </>;
     actions = <>
       {user.key !== "iv" && <Button variant="secondary" icon="upload" disabled={lg} title={lg ? LEGACY_TIP : undefined} onClick={() => setDlg({ k: "upload", dest: isPool ? "pool" : job.id })}>Upload CVs</Button>}
-      {!isPool && user.key !== "iv" && (
+      {/* {!isPool && user.key !== "iv" && (
         <Button
           variant="secondary"
           icon="download"
@@ -547,7 +547,7 @@ export function JobsPage({ embedded = false }: { embedded?: boolean } = {}) {
         >
           {exportingReport ? "Exporting…" : "Export report"}
         </Button>
-      )}
+      )} */}
       {!isPool && user.key !== "iv" && <span style={{ position: "relative" }}>
         <Button variant="secondary" icon="settings" iconRight="chevron-down" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>Settings</Button>
         <Pop open={settingsOpen} onClose={() => setSettingsOpen(false)} top={40} width={220}>

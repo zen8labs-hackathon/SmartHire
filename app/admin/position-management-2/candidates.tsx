@@ -666,8 +666,11 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
       <div className={full ? "ad-full" : "ad-quick"} role="dialog" aria-label={c.name}>
         <div className="ad-ctx">
           <nav className="ad-crumb" aria-label="Breadcrumb">
-            <span>{nav?.label ?? "Candidates"}</span><Icon name="chevron-right" /><b>{c.name}</b><b>-</b><b>{c.headline}</b>
+            <span>{nav?.label ?? "Candidates"}</span><Icon name="chevron-right" /><b>{c.name}</b>
           </nav>
+          <span style={{ display: "inline-flex", flexShrink: 0 }}>
+            <StageChip stage={c.stage} sub={c.sub} stages={stages} />
+          </span>
           <span className="ad-sp" />
           {nav && idx >= 0 && (
             <div className="ad-pager">
@@ -937,8 +940,6 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
           )}
 
           <span className="ad-sp" />
-
-          <StageChip stage={c.stage} sub={c.sub} stages={stages} />
 
           {showNextStep &&
             ns.acts.map((action, index) => (
