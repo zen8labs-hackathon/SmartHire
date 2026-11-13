@@ -1049,7 +1049,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                   </section>
                   {(scheds ?? []).some((x) => (x.status === "Scheduled" || x.status === "Confirmed") && new Date(String(x.scheduled_at)).getTime() <= Date.now()) && (
                     <Banner tone="warning" icon="triangle-alert" title="Interview time has passed">
-                      Interviewers, please add your notes. If the interview did not take place, use “Mark no-show” to reschedule it.
+                      Interviewers, please add your notes. If the candidate did not show up or the schedule has been cancelled, use “Mark no-show” to reschedule it.
                     </Banner>
                   )}
                   <section className="ad-sec">
