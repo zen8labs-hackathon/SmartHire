@@ -27,6 +27,7 @@ export function positionToJob(p: PositionListRow, id: number): Job {
     headcount: p.headcount ?? 0,
     hired: p.hired,
     deadline: ddmmyyyy(p.deadline),
+    startDate: p.startDate ?? null,
     daysLeft: p.daysLeft ?? undefined,
     candidates: p.candidates,
     currentSummary: p.currentSummary,

@@ -40,6 +40,8 @@ export type Job = {
   headcount: number;
   hired: number;
   deadline: string | null;
+  /** ISO YYYY-MM-DD. */
+  startDate?: string | null;
   daysLeft?: number;
   candidates: number;
   currentSummary?: CurrentStageSummary;

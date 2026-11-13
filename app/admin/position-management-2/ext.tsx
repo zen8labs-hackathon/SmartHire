@@ -245,8 +245,9 @@ export function Menu({ items }: { items: MenuItem[] }) {
   );
 }
 
-export type Column<R> = { key: string; label: React.ReactNode; render?: (r: R) => React.ReactNode; align?: "left" | "right" | "center"; width?: number | string; sticky?: "right" };
-export function Table<R extends { id: string | number }>({ columns, rows, onRowClick, compact, selectable, selected = [], onSelect }: {
+export type Column<R> = { key: string; label: React.ReactNode; render?: (r: R) => React.ReactNode; align?: "left" | "right" | "center"; width?: number | string; sticky?: "right"; sortable?: boolean };
+export function Table<R extends { id: string | number }>({ columns, rows, onRowClick, compact, selectable, selected = [], onSelect, sort, onSort }: {
+  sort?: { key: string; dir: "asc" | "desc" } | null; onSort?: (key: string) => void;
   columns: Column<R>[]; rows: R[]; onRowClick?: (r: R) => void; compact?: boolean; selectable?: boolean; selected?: (string | number)[]; onSelect?: (ids: (string | number)[]) => void;
 }) {
   const all = rows.length > 0 && rows.every((r) => selected.includes(r.id));
@@ -257,7 +258,14 @@ export function Table<R extends { id: string | number }>({ columns, rows, onRowC
         <thead>
           <tr>
             {selectable && <th style={{ width: 36 }}><Checkbox checked={all} onChange={() => onSelect && onSelect(all ? [] : rows.map((r) => r.id))} /></th>}
-            {columns.map((c) => <th key={c.key} className={(c.align === "right" ? "sh-num" : "") + (c.sticky ? " sh-stick-r" : "") || undefined} style={{ width: c.width, textAlign: c.align }}>{c.label}</th>)}
+            {columns.map((c) => <th key={c.key} className={(c.align === "right" ? "sh-num" : "") + (c.sticky ? " sh-stick-r" : "") || undefined} style={{ width: c.width, textAlign: c.align }} aria-sort={c.sortable && sort?.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
+              {c.sortable && onSort ? (
+                <button type="button" onClick={() => onSort(c.key)} aria-label={`${String(c.label)}: ${sort?.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : "unsorted"}. Click to change sorting.`} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: 0, border: 0, background: "transparent", color: "inherit", font: "inherit", cursor: "pointer" }}>
+                  {c.label}
+                  <span aria-hidden="true">{sort?.key === c.key ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}</span>
+                </button>
+              ) : c.label}
+            </th>)}
           </tr>
         </thead>
         <tbody>

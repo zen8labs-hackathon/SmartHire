@@ -93,6 +93,8 @@ export type PositionListRow = {
   headcount: number | null;
   hired: number;
   deadline: string | null;
+  /** YYYY-MM-DD or null. */
+  startDate: string | null;
   daysLeft: number | null;
   candidates: number;
   currentSummary: CurrentStageSummary;
@@ -276,6 +278,7 @@ export async function queryPositionsWithEnrichment(
       headcount: job.headcount,
       hired: hired.get(job.id) ?? 0,
       deadline,
+      startDate: dbDateToIso(job.start_date)?.slice(0, 10) ?? null,
       daysLeft: daysUntil(deadline),
       candidates: currentSummary.totalApplications,
       currentSummary,

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { type Job, type JobStatus, type Role } from "./data";
-import { AIBadge, Avatar, Badge, Banner, Button, FileStatus, Icon, Input, JobRow, Menu, Select, Table, Tabs, type Column, type MenuItem } from "./ext";
+import { AIBadge, Badge, Banner, Button, FileStatus, Icon, Input, JobRow, Menu, Select, Table, Tabs, type Column, type MenuItem } from "./ext";
 
 export type JobId = number | "pool";
 export type Go = (id: JobId | null, tab?: string | null, cand?: number | null) => void;
@@ -13,6 +13,13 @@ export function visibleJobs(user: Role, J: Job[]) {
   // GET /api/admin/positions already scopes the list to the viewer's chapters and per-position grants.
   void user;
   return J;
+}
+
+/** Local YYYY-MM-DD, `offset` days from today. */
+function isoDay(offset: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function Headcount({ j }: { j: Job }) {
@@ -82,10 +89,13 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
   const [q, setQ] = React.useState("");
   const [type, setType] = React.useState("All types");
   const [chap, setChap] = React.useState("All chapters");
+  const [from, setFrom] = React.useState(() => isoDay(-90));
+  const [to, setTo] = React.useState(() => isoDay(0));
+  const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "deadline", dir: "asc" });
   const [layout, setLayout] = React.useState("table");
   const all = visibleJobs(user, jobs);
   const count = (s: string) => all.filter((j) => j.status === s).length;
-  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
+  const rows = all.filter((j) => (tab === "All" || j.status === tab) && (type === "All types" || j.type === type) && (chap === "All chapters" || j.chapter === chap) && (!j.startDate || ((!from || j.startDate >= from) && (!to || j.startDate <= to))) && (!q || (j.title + " #" + j.id).toLowerCase().includes(q.toLowerCase())));
   const P = pool ?? null;
   const scope = user.allJobs
     ? null
@@ -95,6 +105,15 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
         ? "Showing the position where you have interviews scheduled. You only see candidates assigned to you."
         : "Showing positions shared with you. Expected salary is hidden on your role.";
   const openJob = (j: Job) => go(j.id, j.status === "Draft" ? "jd" : null);
+
+  const sortVal = (j: Job) => (sort.key === "start" ? j.startDate : j.deadline ? j.deadline.split("/").reverse().join("-") : null) ?? null;
+  const sorted = [...rows].sort((a, b) => {
+    const x = sortVal(a), y = sortVal(b);
+    if (x === y) return 0;
+    if (x === null) return 1; // empty dates always last
+    if (y === null) return -1;
+    return (x < y ? -1 : 1) * (sort.dir === "asc" ? 1 : -1);
+  });
 
   const cols: Column<Job>[] = [
     {
@@ -119,9 +138,9 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
     { key: "type", label: "Type", render: (j) => <Badge tone={j.type === "Internship" ? "info" : "outline"}>{j.type}</Badge> },
     { key: "status", label: "Status", render: (j) => { const [t, i] = ST_TONE[j.status]; return <Badge tone={t} icon={i}>{j.status}</Badge>; } },
     { key: "hc", label: "Headcount", render: (j) => <Headcount j={j} /> },
-    { key: "deadline", label: "Hiring deadline", render: (j) => <Deadline j={j} /> },
+    { key: "start", label: "Start date", sortable: true, render: (j) => j.startDate ? <span className="sh-num" style={{ textAlign: "left" }}>{j.startDate.split("-").reverse().join("/")}</span> : <span style={{ color: "var(--muted)" }}>Not set</span> },
+    { key: "deadline", label: "Hiring deadline", sortable: true, render: (j) => <Deadline j={j} /> },
     { key: "candidates", label: "Candidates", align: "center", render: (j) => <span className="sh-num">{j.candidates}</span> },
-    { key: "owner", label: "Owner", align: "center", render: (j) => <Avatar name={j.owner} size={24} /> },
     { key: "m", label: "", width: 44, render: (j) => <RowMenu j={j} user={user} go={go} onClose={onCloseJob} onHold={onHold} onReopen={onReopen} /> },
   ];
 
@@ -132,18 +151,24 @@ export function JobsList({ user, go, onCreate, onUpload, onCloseJob, onRetry, on
         <Input icon="search" size="sm" placeholder="Search by title or #ID" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 260 }} />
         <Select size="sm" aria-label="Type" value={type} onChange={(e) => setType(e.target.value)} options={["All types", "Full-time", "Internship"]} style={{ width: 150 }} />
         {user.allJobs && <Select size="sm" aria-label="Chapter" value={chap} onChange={(e) => setChap(e.target.value)} options={["All chapters", ...(chapters ?? [...new Set(all.map((j) => j.chapter))])]} style={{ width: 160 }} />}
+        <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, color: "var(--muted)" }}>
+          Start date
+          <Input size="sm" type="date" aria-label="Start date from" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={{ width: 140 }} />
+          –
+          <Input size="sm" type="date" aria-label="Start date to" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{ width: 140 }} />
+        </span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>Sorted by deadline</span>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>Sorted by {sort.key === "start" ? "start date" : "deadline"} ({sort.dir === "asc" ? "earliest first" : "latest first"})</span>
         <Tabs variant="segmented" value={layout} onChange={setLayout} tabs={[{ id: "table", label: "Table" }, { id: "cards", label: "Cards" }]} />
       </div>
       {scope && <Banner tone="neutral" icon={user.chapter ? "users" : "lock"}>{scope}</Banner>}
       {rows.length ? (
         layout === "cards" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(320px,1fr))", gap: 12 }}>
-            {rows.map((j) => <JobRow key={j.id} job={j} onOpen={() => openJob(j)} onAttention={() => go(j.id, "attention")} />)}
+            {sorted.map((j) => <JobRow key={j.id} job={j} onOpen={() => openJob(j)} onAttention={() => go(j.id, "attention")} />)}
           </div>
         ) : (
-          <Table columns={cols} rows={rows} onRowClick={openJob} />
+          <Table columns={cols} rows={sorted} sort={sort} onSort={(key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }))} onRowClick={openJob} />
         )
       ) : (
         <div className="jb-empty">
