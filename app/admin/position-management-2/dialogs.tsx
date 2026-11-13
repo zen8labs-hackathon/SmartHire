@@ -16,6 +16,8 @@ const FLOW: [string, string, string][] = [["upload", "Upload JD", "You · now"],
 
 const ROLE_LABEL: Record<Assignee["role"], string> = { recruiter: "Recruiter", interviewer: "Interviewer" };
 
+const fileKey = (f: File) => `${f.name}|${f.size}|${f.lastModified}`;
+
 function PeoplePicker({ value, onChange }: { value: Assignee[]; onChange: (next: Assignee[]) => void }) {
   const [q, setQ] = React.useState("");
   const [results, setResults] = React.useState<PersonChoice[]>([]);
@@ -52,7 +54,7 @@ function PeoplePicker({ value, onChange }: { value: Assignee[]; onChange: (next:
       {value.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
           {value.map((a) => (
-            <span key={a.id} className="sh-chip sh-chip--neutral" title={a.email}>
+            <span key={a.id} className="sh-chip sh-chip--brand" style={{ border: "1px solid var(--accent)", fontWeight: 600 }} title={a.email}>
               {a.name} · {ROLE_LABEL[a.role]}
               <button type="button" className="sh-iconbtn sh-iconbtn--sm" aria-label={"Remove " + a.name} onClick={() => onChange(value.filter((x) => x.id !== a.id))}><Icon name="x" size={12} /></button>
             </span>
@@ -127,16 +129,7 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
           <div><Select label="Pipeline (required)" value={pipelineId} onChange={(e) => setPipelineId(e.target.value)} options={[{ value: "", label: "Choose a pipeline" }, ...pipelines.map((p) => ({ value: p.id, label: p.name }))]} hint={pipelines.length === 0 ? "No pipelines available yet — ask HR to create one first" : "Hiring stages for this position. It can’t be changed after the position is created."} />{pipelineErr && <div className="sh-field__error" role="alert"><Icon name="circle-alert" size={14} />{pipelineErr}</div>}</div>
           <Input label="Headcount" type="number" min={1} max={50} step={1} value={hc} onChange={(e) => setHc(e.target.value)} suffix="people" error={hcErr} hint={hcErr ? undefined : "How many hires this position needs. You can change it later."} />
         </div>
-        <label className="sh-field">
-          <span className="sh-field__lable">Project description (optional)</span>
-          <textarea
-            className="jb-textarea"
-            rows={4}
-            value={projectInfo}
-            onChange={(e) => setProjectInfo(e.target.value)}
-            disabled={busy}
-            placeholder="Describe project details"/>
-        </label>
+        <PeoplePicker value={people} onChange={setPeople} />
         {canEditNotes && (
           <label className="sh-field">
           <span className="sh-field__lable">Internal recruiting notes for recruiter (optional)</span>
@@ -149,7 +142,6 @@ export function CreateJobDialog({ onClose, onSubmit, chapters, pipelines, defaul
             placeholder="Internal recruiting notes for recruiter"/>
         </label>
         )}
-        <PeoplePicker value={people} onChange={setPeople} />
         <div className="shx-small">The position is saved as a draft right away. Extraction takes under a minute; you can leave the page and get a notification when it&apos;s ready.</div>
       </div>
     </Dialog>
@@ -181,12 +173,34 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
   const [files, setFiles] = React.useState<File[]>([]);
   const [tried, setTried] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const add = (list: FileList | null | undefined) => {
-    if (!list) return;
-    setFiles((cur) => {
-      const seen = new Set(cur.map((f) => f.name + f.size));
-      return [...cur, ...Array.from(list).filter((f) => !seen.has(f.name + f.size))];
-    });
+  const [dupes, setDupes] = React.useState(0);
+  const add = (incoming: File[]) => {
+    // Callers snapshot synchronously: a drop's DataTransfer / an input's FileList is live and is emptied once the
+    // event handler returns, but React may run the state updater below later.
+    if (!incoming.length) return;
+    const seen = new Set(files.map(fileKey));
+    const fresh: File[] = [];
+    let dup = 0;
+    for (const f of incoming) {
+      const k = fileKey(f);
+      if (seen.has(k)) { dup++; continue; }
+      seen.add(k);
+      fresh.push(f);
+    }
+    setFiles((cur) => [...cur, ...fresh]);
+    if (dup) setDupes((n) => n + dup);
+  };
+  const fromInput = (list: FileList | null | undefined) => add(list ? Array.from(list) : []);
+  const fromDrop = (dt: DataTransfer) => {
+    const out: File[] = Array.from(dt.files);
+    // Some sources only expose every file through .items; merge them in without double counting.
+    const have = new Set(out.map(fileKey));
+    for (const it of Array.from(dt.items ?? [])) {
+      if (it.kind !== "file") continue;
+      const f = it.getAsFile();
+      if (f && !have.has(fileKey(f))) { have.add(fileKey(f)); out.push(f); }
+    }
+    add(out);
   };
   const valid = files.filter((f) => !cvFileError(f));
   const tooMany = valid.length > MAX_BATCH_FILES;
@@ -203,12 +217,12 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
       title="Upload CVs" width={620} onClose={onClose}
       description="Files are read and scored in the background. You can leave this page; you'll get a notification when the batch finishes."
       footer={<>
-        <span style={{ fontSize: 12, color: "var(--muted)", flex: 1 }}>{files.length ? valid.length + " of " + files.length + " files will be uploaded" : `PDF or DOCX · max ${MAX_BATCH_FILES} files per batch`}</span>
+        <span style={{ fontSize: 12, color: "var(--muted)", flex: 1 }}>{files.length ? valid.length + " of " + (files.length + dupes) + " files will be uploaded" + (dupes ? ", skipped " + dupes + " duplicate" + (dupes === 1 ? "" : "s") : "") : `PDF or DOCX · max ${MAX_BATCH_FILES} files per batch`}</span>
         <Button variant="secondary" onClick={onClose}>Cancel</Button><Button icon="upload" disabled={!valid.length || tooMany} onClick={start}>Upload {valid.length || ""}</Button>
       </>}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <input ref={inputRef} type="file" hidden multiple accept={CV_ACCEPT} onChange={(e) => { add(e.target.files); e.target.value = ""; }} />
+        <input ref={inputRef} type="file" hidden multiple accept={CV_ACCEPT} onChange={(e) => { fromInput(e.target.files); e.target.value = ""; }} />
         <div className="jb-form" style={{ paddingTop: 0 }}>
           <Select label="Upload to" value={to} onChange={(e) => setTo(e.target.value)} disabled={lockDest} hint={lockDest ? "CVs are added to this position" : undefined} options={lockedOpts} />
           <Input label="Recruiter (optional)" value={recruiter} maxLength={120} onChange={(e) => setRecruiter(e.target.value)} placeholder="Defaults to you" />
@@ -220,16 +234,20 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
         </div>
         {tried && !target && <Banner tone="danger" icon="triangle-alert">Pick a position that is still loading, or try again.</Banner>}
         {tooMany && <Banner tone="danger" icon="triangle-alert">A batch is limited to {MAX_BATCH_FILES} files. Remove some to continue.</Banner>}
-        <div className="jb-drop" style={{ cursor: "default" }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }}>
+        <div className="jb-drop" style={{ cursor: "default" }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); fromDrop(e.dataTransfer); }}>
           <Icon name="upload" size={20} /><b>Drag PDF or DOCX files here</b><span>Max {MAX_CV_BYTES / 1024 / 1024} MB each · up to {MAX_BATCH_FILES} files per batch</span>
           <Button size="sm" variant="secondary" onClick={() => inputRef.current?.click()}>{files.length ? "Add more files" : "Choose files"}</Button>
         </div>
-        {files.length > 0 && (
-          <div className="shx-list" style={{ maxHeight: 220, overflow: "auto" }}>
+        {files.length > 0 && (<>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: -6 }}>
+            <span><b style={{ color: "var(--text, inherit)" }}>{files.length}</b> file{files.length === 1 ? "" : "s"} selected · {fmtSize(files.reduce((a, f) => a + f.size, 0))} total · scroll the list to see all</span>
+            <button type="button" className="sh-link" style={{ fontSize: 12 }} onClick={() => { setFiles([]); setDupes(0); }}>Clear all</button>
+          </div>
+          <div className="shx-list" style={{ maxHeight: 340, overflow: "auto" }}>
             {files.map((f) => {
               const bad = cvFileError(f);
               return (
-                <div key={f.name + f.size} className="shx-li">
+                <div key={fileKey(f)} className="shx-li">
                   <Icon name={bad ? "file-x" : "file-text"} size={16} style={{ color: bad ? "var(--danger)" : "var(--muted)" }} />
                   <span style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 500 }}>{f.name}</span>{bad && <div style={{ fontSize: 12, color: "var(--danger)" }}>{bad}</div>}</span>
                   <span className="sh-num" style={{ fontSize: 12, color: "var(--muted)" }}>{fmtSize(f.size)}</span>
@@ -238,7 +256,7 @@ export function UploadDialog({ dest, lockDest, jobs, resolveTarget, onClose, onS
               );
             })}
           </div>
-        )}
+        </>)}
       </div>
     </Dialog>
   );
@@ -278,7 +296,7 @@ export function UploadTray({ batch, onOpen, onDone, onClose }: { batch: UploadBa
       >
         {fatal && <Banner tone="danger" icon="triangle-alert">{fatal}</Banner>}
         {!finished && <div className="shx-small">Uploaded {fmtSize(sentBytes)} of {fmtSize(totalBytes)} · {pct}%</div>}
-        {rows.map((r) => <FileStatusRow key={r.file} {...r} />)}
+        {rows.map((r, i) => <FileStatusRow key={i + "|" + r.file} {...r} />)}
       </UploadQueuePanel>
     </div>
   );

@@ -702,7 +702,7 @@ export function UploadQueuePanel({ total, processed, parsed, existing, attention
         </div>
         <span className="shx-small">{processed}/{total} processed · {parsed} new · {existing} existing · {attention} need attention{finished ? "" : " · you can leave this page"}</span>
       </div>
-      {!collapsed && children && <div style={{ borderTop: "1px solid var(--border)", maxHeight: 260, overflow: "auto" }}>{children}</div>}
+      {!collapsed && children && <div style={{ borderTop: "1px solid var(--border)", maxHeight: "min(60vh, 520px)", overflow: "auto" }}>{children}</div>}
       {footer && <div style={{ padding: "8px 12px", borderTop: "1px solid var(--border)" }}>{footer}</div>}
     </div>
   );
