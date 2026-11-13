@@ -147,7 +147,9 @@ const MAX_LIMIT = 200;
 type Scope = { conditions: string[]; values: unknown[] };
 
 function buildScope(o: QueryPositionsOptions): Scope {
-  const conditions = ["j.deleted_at IS NULL"];
+  // TODO: legacy positions (flow_version = 1, "Cấu trúc cũ") are hidden from this list by default.
+  // Remove this condition (or add an opt-in filter) to show the full list, legacy included, later.
+  const conditions = ["j.deleted_at IS NULL", "j.flow_version = 2"];
   const values: unknown[] = [];
   const q = o.q?.trim().replace(/^#/, "");
   if (q) {
