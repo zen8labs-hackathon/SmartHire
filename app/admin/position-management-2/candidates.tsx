@@ -586,7 +586,12 @@ function ExtendProbation({ c, h }: { c: Candidate; h: CandHandlers }) {
 export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSubmitNotes, nav, onOpen, stages = STAGES }: {
   c: Candidate | null; user: Role; h: CandHandlers; onClose: () => void; nav?: { ids: number[]; label: string } | null; onOpen?: (id: number) => void; onRescore: (c: Candidate) => void; onShare: () => void; onSubmitNotes: (c: Candidate, v: string) => void; stages?: Stage[];
 }) {
-  const [tab, setTab] = React.useState(user.key === "iv" ? "notes" : "match");
+  const [tab, setTab] = React.useState(() => {
+    if (user.key === "iv") return "notes";
+    if (!c) return "match";
+    const k = stageKind(stageOf(c.stage, stages), stages.indexOf(stageOf(c.stage, stages)));
+    return k === "iv" || k === "prob" || k === "offer" ? "notes" : "match";
+  });
   const [match, setMatch] = React.useState<CandidateMatch | null>(null);
   const [matchErr, setMatchErr] = React.useState<string | null>(null);
   const [apps, setApps] = React.useState<CandidateApplicationRow[] | null>(null);
@@ -670,7 +675,7 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     if (caId) { try { await rescoreCandidate(caId); } catch (e) { setMatchErr(e instanceof Error ? e.message : "Could not rescore."); return; } }
     onRescore(c);
   };
-  const [zoom, setZoom] = React.useState<Zoom>("full");
+  const [zoom, setZoom] = React.useState<Zoom>("md");
   const setZ = (z: Zoom) => { setZoom(z); lsSet("jb-drawer-zoom", z); };
   React.useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -717,7 +722,12 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
     && (r.canEdit || (user.key === "iv" && r.seats.length > 0));
   const doNoShow = (r: CandidateSchedule) => {
     if (!caId) return;
-    markNoShow(caId, String(r.id)).then(() => { say("Marked as no-show."); reloadSchedules(); }).catch((e: unknown) => say(e instanceof Error ? e.message : "Could not mark the no-show."));
+    markNoShow(caId, String(r.id)).then(() => {
+      reloadSchedules();
+      // BR-INT-10: a no-show is not held, so managers go straight to rescheduling the round.
+      if (r.canEdit) { say("Marked as no-show. Pick a new time."); setSd({ roundLabel: (r.round_label as string | null) ?? c.round ?? undefined }); }
+      else say("Marked as no-show.");
+    }).catch((e: unknown) => say(e instanceof Error ? e.message : "Could not mark the no-show."));
   };
   const toSession = (r: CandidateSchedule): Session | null => {
     if (!caId) return null;
@@ -1021,6 +1031,11 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                                 <Button size="sm" variant="secondary" icon="user-x" onClick={() => doNoShow(sc)}>Mark no-show</Button>
                               </span>
                             )}
+                            {st === "NoShow" && sc.canEdit && !(scheds ?? []).some((x) => (x.status === "Scheduled" || x.status === "Confirmed") && x.round_label === sc.round_label) && (
+                              <span className="shx-row" style={{ gap: 6 }}>
+                                <Button size="sm" variant="secondary" icon="calendar-plus" onClick={() => setSd({ roundLabel: (sc.round_label as string | null) ?? c.round ?? undefined })}>Schedule again</Button>
+                              </span>
+                            )}
                             {live && sc.canEdit && (
                               <span className="shx-row" style={{ gap: 6 }}>
                                 <Button size="sm" variant="secondary" icon="calendar-clock" onClick={() => { const ex = toSession(sc); if (ex) setSd({ existing: ex }); }}>Reschedule</Button>
@@ -1032,6 +1047,11 @@ export function CandidateDrawer({ c, user, h, onClose, onRescore, onShare, onSub
                       })}
                     </div>
                   </section>
+                  {(scheds ?? []).some((x) => (x.status === "Scheduled" || x.status === "Confirmed") && new Date(String(x.scheduled_at)).getTime() <= Date.now()) && (
+                    <Banner tone="warning" icon="triangle-alert" title="Interview time has passed">
+                      Interviewers, please add your notes. If the interview did not take place, use “Mark no-show” to reschedule it.
+                    </Banner>
+                  )}
                   <section className="ad-sec">
                     <div className="shx-row" style={{ justifyContent: "space-between" }}>
                       <div className="ad-ov">Notes &amp; evaluations</div>
